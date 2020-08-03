@@ -1,3 +1,6 @@
+## simple object-oriented framework for dxf-rendered drawable objects
+## in yapCAD
+
 import ezdxf
 import drawable
 

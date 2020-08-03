@@ -1,4 +1,4 @@
-## simple object-oriented framework for drawable objects
+## simple object-oriented framework for drawable objects in yapCAD
 
 from geom import *
 
