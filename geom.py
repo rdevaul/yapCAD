@@ -1,4 +1,4 @@
-## simple computational geometry library for use with stack generation
+## simple computational geometry library for yapCAD
 ## Born on 29 July, 2020
 ## Richard DeVaul
 
