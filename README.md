@@ -5,7 +5,7 @@ yet another procedural CAD and computational geometry system written in python 3
 
 The purpose of yapCAD is to support 2D and 3D computational geometry and CAD projects in python3.  yapCAD is designed to support multiple rendering back-ends, such that a relatively small amount of code is necessary to add support for a 2D or 3D cad or drawing file format.
 
-The foundations of yapCAD are grounded in decades of the author's experience with graphics system programming, 3D CAD and simulation. At the same time, yapCAD should make the easy stuff easy, and the more advanced stuff
+The foundations of yapCAD are grounded in decades of the author's experience with graphics system programming, 3D CAD and simulation. At the same time, yapCAD should make the easy stuff easy, and the more advanced stuff possible. 
 
 The initial implementation of yapCAD provides DXF file creation support through the awesome ezdxf package.
 
