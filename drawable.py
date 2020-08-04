@@ -36,10 +36,10 @@ class Drawable:
     ## dimension d
     def draw_x(self,p,d):
         hd=d/2
-        p1=add(p,[-hd,-hd,0])
-        p2=add(p,[hd,hd,0])
-        p3=add(p,[-hd,hd,0])
-        p4=add(p,[hd,-hd,0])
+        p1=add(p,vect([-hd,-hd,0]))
+        p2=add(p,vect([hd,hd,0]))
+        p3=add(p,vect([-hd,hd,0]))
+        p4=add(p,vect([hd,-hd,0]))
         self.draw_line(p1,p2)
         self.draw_line(p3,p4)
         return;
@@ -62,15 +62,15 @@ class Drawable:
     ## drawable. Values of u outside the 0 to 1 range may result in
     ## samples that lie on the unbounded function.
     def sample(self,u):
-        return [0.0,0.0]
+        return vect([0.0,0.0])
     
     ## return center of object in object-coordinate space
     def center(self):
-        return [0.0,0.0]
+        return vect([0.0,0.0])
 
     ## return bounding box in object-coordinate space
     def bounding(self):
-        return [ [-epsilon,-epsilon],[epsilon,epsilon] ]
+        return [ vect(-epsilon,-epsilon),vect(epsilon,epsilon) ]
 
     ## sample-based bounding box utilty function, default takes 10 samples
     def __sample_bounding(self,samples=10):
@@ -94,11 +94,15 @@ class Drawable:
                 maxy = p[1]
             first=False
 
-        return [[minx,miny],[maxx,maxy]]
+        return [vect(minx,miny),vect(maxx,maxy)]
     
     ## test for a point: inside or outside? 
     def is_inside(self,p):
         return False
+
+    ## cause drawing page to be rendered -- pure virtual
+    def display(self):
+        return True
     
 class Point(Drawable):
     """ a drawable point class """
@@ -123,8 +127,8 @@ class Point(Drawable):
         return self.p
 
     def bounding(self):
-        return [ add(self.p,[-epsilon,-epsilon,0]),
-                 add(self.p,[epsilon,epsilon,0]) ]
+        return [ add(self.p,vect(-epsilon,-epsilon)),
+                 add(self.p,vect(epsilon,epsilon)) ]
 
     ## this is tricky -- technically a point has no interior volume,
     ## but the point of this test (hah) is to allow two numerically
@@ -158,13 +162,13 @@ class Line(Drawable):
         maxx = max(self.p1[0],self.p2[0])
         miny = min(self.p1[1],self.p2[1])
         maxy = max(self.p1[1],self.p2[1])
-        return [ [minx,miny],[maxx,maxy]]
+        return [ vect(minx,miny),vect(maxx,maxy)]
 
     ## this is tricky -- lines have no volume, but a point on a line
     ## should be considered 'inside' the line.  Test for zero distance
     ## from point to line segment.
     def is_inside(self,p):
-        d = linePointDist([self.p1,self.p2],p)
+        d = linePointDist(vect(self.p1,self.p2),p)
         return d < epsilon
     
     
@@ -190,15 +194,15 @@ class Arc(Drawable):
     def sample(self,u):
         angle = ((self.end-self.start)*u+self.start)
         radians = angle*pi2/360.0
-        q = scale([cos(radians),sin(radians)],self.r)
+        q = scale(vect(cos(radians),sin(radians)),self.r)
         return add(self.p,q)
         
     def center(self):
         return self.p
 
     def bounding(self):
-        return [add(self.p,[-self.r,-self.r]),
-                add(self.p,[self.r,self.r])]
+        return [add(self.p,vect(-self.r,-self.r)),
+                add(self.p,vect(self.r,self.r))]
 
     ## treat this arc as a pie wedge for the purposes of inside testing
     def is_inside(self,p):
@@ -216,14 +220,14 @@ if __name__ == "__main__":
     print("-----------------------")
     print("instantiating drawables...")
     print("instantiating Point")
-    print("point=Point([10,10])")
-    point=Point([10,10],"xo")
+    print("point=Point(vect([10,10]))")
+    point=Point(vect([10,10]),"xo")
     print("instantiating Line")
-    line=Line([-5,10],[10,-5])
-    print("line=Line([-5,-5],[10,10])")
+    line=Line(vect([-5,10]),vect([10,-5]))
+    print("line=Line(vect([-5,-5]),vect([10,10]))")
     print("instantiating Arc")
-    print("arc=Arc([0,3],3,45,135)")
-    arc=Arc([0,3],3,45,135)
+    print("arc=Arc(vect([0,3]),3,45,135)")
+    arc=Arc(vect([0,3]),3,45,135)
     print("print tests")
     point.print()
     line.print()
