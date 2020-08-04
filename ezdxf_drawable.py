@@ -1,6 +1,7 @@
 ## simple object-oriented framework for dxf-rendered drawable objects
 ## in yapCAD
 
+from geom import *
 import ezdxf
 import drawable
 
@@ -9,6 +10,7 @@ class ezdxfDraw:
     doc = ezdxf.new(dxfversion='R2010')
     doc.layers.new('DEFAULT', dxfattribs={'color': 2})
     msp = doc.modelspace()
+    filename = "yapCAD-out"
 
     def draw_line(self,p1,p2):
         self.msp.add_line((p1[0], p1[1]), (p2[0], p2[1]))
@@ -17,7 +19,10 @@ class ezdxfDraw:
         self.msp.add_arc((p[0],p[1]),r,start,end)
 
     def saveas(self,name):
-        self.doc.saveas("{}.dxf".format(name))
+        self.filename = name
+        
+    def display(self):
+        self.doc.saveas("{}.dxf".format(self.filename))
 
 ## multiply-inherited drawing classes
 class Point(ezdxfDraw,drawable.Point):
@@ -34,19 +39,21 @@ if __name__ == "__main__":
     print("-----------------------")
     print("instantiating ezdxfDraw")
     drawable=ezdxfDraw()
+    print("setting the save-as filename")
+    drawable.saveas("test2")
     
     print("instantiating drawables...")
     print("instantiating Point")
-    print("point=Point([10,10])")
-    point=Point([10,10],"xo")
+    print("point=Point(vect(10,10))")
+    point=Point(vect(10,10),"xo")
     print(point)
     print("instantiating Line")
-    print("line=Line([-5,-5],[10,10])")
-    line=Line([-5,10],[10,-5])
+    print("line=Line(vect(-5,-5),vect(10,10))")
+    line=Line(vect(-5,10),vect(10,-5))
     print(line)
     print("instantiating Arc")
-    print("arc=Arc([0,3],3,45,135)")
-    arc=Arc([0,3],3,45,135)
+    print("arc=Arc(vect(0,3),3,45,135)")
+    arc=Arc(vect(0,3),3,45,135)
     print(arc)
     print("draw tests")
     point.draw()
@@ -69,5 +76,5 @@ if __name__ == "__main__":
         pnt = Point(p,"o")
         pnt.draw()
 
-
-    drawable.saveas("test2")
+    ## render results
+    drawable.display()
