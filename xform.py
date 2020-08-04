@@ -132,7 +132,7 @@ class Matrix:
         elif isgoodnum(x):
             result = Matrix()
             for i in range(4):
-                result.setrow(i,scale(self.getrow(i),x))
+                result.setrow(i,scale4(self.getrow(i),x))
             return result
         
         return False
@@ -146,11 +146,13 @@ if __name__ == "__main__":
     bar = Matrix([[1,0,0,1],[0,1,0,1],[0,0,1,1],[0,0,0,1]])
     baz = vect(1,2,3)
     I = Matrix()
+    a = 10.0
     print("foo: {}".format(foo))
     print("fooT: {}".format(fooT))
     print("bar: {}".format(bar))
     print("baz: {}".format(baz))
     print("I: {}".format(I))
+    print("a: {}".format(a))
     print("I.mul(bar): {}".format(I.mul(bar)))
     print("I.mul(foo): {}".format(I.mul(foo)))
     print("I.mul(fooT): {}".format(I.mul(fooT)))
@@ -158,6 +160,7 @@ if __name__ == "__main__":
     print("I.mul(I): {}".format(I.mul(I)))
     print("foo.mul(bar): {}".format(foo.mul(bar)))
     print("foo.mul(baz): {}".format(foo.mul(baz)))
+    print("foo.ml(a): {}".format(foo.mul(a)))
     print("I.mul(baz): {}".format(I.mul(baz)))
     print("homo(foo.mul(baz)): {}".format(homo(foo.mul(baz))))
     
