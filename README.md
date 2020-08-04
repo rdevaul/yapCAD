@@ -59,6 +59,88 @@ The yapCAD system isn't just about rendering, of course, it's about computationa
 	int0 = intersectXY(l1,l2)
 	print("intersection of {} and {}: {}".format(l1,l2,int0))
 	
+## geometry
+
+### pure geometry
+yapCAD distinguishes between "pure" geometric elements, such as
+vectors, and things you draw, such `Point` instances.  The reason for this
+distinction is that the pure geometry doesn't care about details like
+how you might draw it, it's just vectors and scalar geometric
+parameters.  This makes geometric operations cleaner and faster, as we
+are just passing around Python 3 lists.
+
+#### geometric representations
+For the sake of uniformity, all yapCAD vectors are stored as
+projective geometry 4-vectors. (see discussion in **architecture**,
+below) However, most of the time you
+will work with them as though they are 3-vectors or 2-vectors.
+
+It woud be annoying to have to specify the redundant coordinates you
+aren't using every time you specify a vector, so yapCAD provides you
+with the `vect` function.  It fills in defaults for the z and w
+parameters you may not want to specify.  ***e.g.***
+
+    >>> from geom import *
+    >>> vect(10,4)
+    [10, 4, 0, 1]
+	>>> add(vect(10,4),vect(10,9))  ## add operates in 3-space
+    [20, 13, 0, 1.0]
+	
+Of course, you can specify all three coordinates using `vect`.  To
+specify all four coordinates, just make the vector manually.
+
+Since it gets ugly to look at a bunch of [x, y, z, w] lists that all
+end in `0, 1]` when you are doing 2D stuff, yapCAD provides a
+convenience function `vstr` that intelligently converts yapCAD vectors
+(and lists that contain vectors, such as lines, triangles, and
+polygons) to strings, assuming that as long as z = 0 and w = 1, you
+don't need to see those coordinates.
+
+    >>> from geom import *
+    >>> a = sub(vect(10,4),vect(10,9)) ## subtract a couple of vectors 
+    >>> a
+    [0, -5, 0, 1.0]
+    >>> print(vstr(a)) ## pretty printing, elide the z and w coordinates
+    >>> [0, -5]
+
+#### supported pure geometry representations 
+Pure geometry includes vectors, lines, triangles, and polygons.  A
+vector is a list of exactly four numbers, each of which is a float or
+integer.  A line is a list of two vectors, a triangle a list of three,
+and a polygon a list of 3 or more.
+
+Pure geometry also includes arcs.  An arc is a list of two or three
+vectors. (technically, one or two vectors and a pseudovector) The
+first list element is interpreted as the vector center of the arc, the
+second is interpreted as three scalar parameters `[r, s, e]`: the
+radius, the start angle in degrees, and the end angle in degrees.  The
+third (if it exists) is the normal vector for the plane of the arc,
+which is assumed to be `[0, 0, 1]` (the x-y plane) if it is not
+specified.
+
+### drawable geometry
+
+The idea is that you will do your computational geometry with "pure"
+geometry, and then generate rendered previews or output with Drawable
+objects.
+
+Drawable geometry in yapCAD are subclasses of `Drawable`, which at
+present include `Point`, `Line`, and `Arc` subclasses. Support for
+`Polyline`, `Polygon`, and `RoundedPolygon` is planned.
+
+To setup a drawing environment, you will create an instance of the
+`Drawable` base class corresponding to the rendering system you want
+to use.
+
+To draw, create the geometry and then invoke the `draw` method.  To
+display or write out the results you will invoke the `display` method
+of the drawable instance. 
+
+#### supported rendering systems
+
+DXF rendering using ezdxf is currently supported, and the design of
+yapCAD makes it easy to support other rendering backends.
+
 ## architecture
 
 Under the hood, yapCAD is using [projective coordiates](https://en.wikipedia.org/wiki/Homogeneous_coordinates), sometimes called homogeneous coordinates, to represent points as 3D coodinates in the w=1 hyperplane. If that sounds complicated, its because it is. :P  But it does allow for a wide range of geometry operations, specifically [affine transforms](https://www.cs.utexas.edu/users/fussell/courses/cs384g-fall2011/lectures/lecture07-Affine.pdf) to be represented as composable transformation matricies. The benefits of this conceptual complexity is an architectual elegance and generality.
