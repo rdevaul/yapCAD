@@ -7,7 +7,7 @@ The purpose of yapCAD is to support 2D and 3D computational geometry and CAD pro
 
 The foundations of yapCAD are grounded in decades of the author's experience with graphics system programming, 3D CAD and simulation. At the same time, yapCAD should make the easy stuff easy, and the more advanced stuff possible. 
 
-The initial implementation of yapCAD provides DXF file creation support through the awesome ezdxf package.
+The initial implementation of yapCAD provides DXF file creation support through the awesome [ezdxf](https://github.com/mozman/ezdxf) package.
 
 ## examples
 
