@@ -18,6 +18,7 @@ It's pretty easy to make a DXF drawing with yapCAD.  Here is an example:
 
 	#set up DXF rendering
 	drawable=ezdxfDraw()
+    drawable.saveas("example1-out")
 
     ## make some geometry
 
@@ -39,7 +40,7 @@ It's pretty easy to make a DXF drawing with yapCAD.  Here is an example:
     arc.draw()
 
     # write out the geometry as example1-out.dxf
-    drawable.saveas("example1-out")
+	drawable.display()
 
 The yapCAD system isn't just about rendering, of course, it's about computational geometry.  For example, if you want to calculate the intersection of two lines in a plane, we have you covered
 
