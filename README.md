@@ -62,7 +62,6 @@ The yapCAD system isn't just about rendering, of course, it's about computationa
 	
 ## geometry
 
-### pure geometry
 yapCAD distinguishes between "pure" geometric elements, such as
 vectors, and things you draw, such `Point` instances.  The reason for this
 distinction is that the pure geometry doesn't care about details like
@@ -70,7 +69,7 @@ how you might draw it, it's just vectors and scalar geometric
 parameters.  This makes geometric operations cleaner and faster, as we
 are just passing around Python 3 lists.
 
-#### geometric representations
+### geometric representations
 For the sake of uniformity, all yapCAD vectors are stored as
 projective geometry 4-vectors. (see discussion in **architecture**,
 below) However, most of the time you
@@ -104,7 +103,7 @@ don't need to see those coordinates.
     >>> print(vstr(a)) ## pretty printing, elide the z and w coordinates
     >>> [0, -5]
 
-#### supported pure geometry representations 
+### pure geometry
 Pure geometry includes vectors, lines, triangles, and polygons.  A
 vector is a list of exactly four numbers, each of which is a float or
 integer.  A line is a list of two vectors, a triangle a list of three,
