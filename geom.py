@@ -201,6 +201,16 @@ def vstr(a):
 ## lines are defined as lists of two points, i.e.
 ## [vect(x1, y1),vect(x2, y2)]
 
+## Sample a parameterized line.  Values 0 <= u <= 1.0 will fall within
+## the line segment, values u < 0 and u > 1 will fall outside the line
+## segment.
+
+def sampleline(l,u):
+    p1=l[0]
+    p2=l[1]
+    p = 1.0-u
+    return add(scale(p1,p),scale(p2,u))
+
 ## Compute the intersection of two lines that lie in the same x,y plane
 def intersectXY(l1,l2,inside=True):
     x1=l1[0][0]
@@ -363,7 +373,117 @@ def linePointXY(l,p,inside=True,distance=False):
 ## convenience function for fast distance calc
 def linePointXYDist(l,p,inside=True):
     return linePointXY(l,p,inside,distance=True)
+
+
+## functions that operate on 2D arcs/circles
+
+## an arc or circle is defined by a center, a radius, a start angle,
+## an end angle, and a normal that specifies the plane of the
+## arc/cicle.
+
+## angles are in degress, and specify a counter-clockwise sweep.  If
+## start = 0 and end = 360 (both integer) the arc is a circle.  Other
+## values that create a 360 degree difference may produce an
+## infentesimal gap.
+
+## an arc is defined as a list of one or two vectors and a
+## pseudovector: [ center, [r, s, e], <normal>].  Most of the time, we
+## assume that arcs lie in the x-y plane, which is to say that
+## normal = [0,0,1] if it's not specified.
+
+## we can compute the intersection of an arc and a line, or an arc and
+## an arc, when these all lie in the same plane.
+
+def _lineArcIntersectXY(l,c,inside=True):
+    x=c[0]
+    r=c[1][0]
+    circle = False
+    if c[1][1] == 0 and c[1][2] == 360:
+        circle = True
+    start=c[1][1] % 360.0
+    end=c[1][2] %360.0
+
+    ## what is the shortest distance between the line and the center
+    ## of the arc?  If that is greater than r, then there is no
+    ## intersection
+    dist = linePointXYDist(l,x,inside)
+    if dist > r:
+        return False
+
+    ## start by treating the arc as a circle.  At this point we know
+    ## we have one or two intersections within the line segment,
+    ## though perhaps none within the arc segment, which we will test
+    ## for later
     
+    ## transform points so arc is located at the origin
+    p0=sub(l[0],x)
+    p1=sub(l[1],x)
+    
+    ## solve for b in:  | b*p0 + (1-b)*p1 | = r
+    ## let V= p0-p1, P=p1
+    ##     | b*V + P |^2 = r^2
+    ##       b^2(Vx^2 + Vy^2) + 2b(VxPx+VyPy) + Px^2 + Py^2 - r^2 = 0
+    ## let a = Vx^2 + Vy^2,
+    ##     b = 2*(VxPx + VyPy)
+    ##     c = Px^2 + Py^2 - r^2
+    ## b0 = ( -b + sqrt(b^2 - 4ac) )/ 2a
+    ## b1 = ( -b - sqrt(b^2 - 4ac) )/ 2a
+    
+    V = sub(p0,p1)
+    P = p1
+    a = V[0]*V[0]+V[1]*V[1]
+    if abs(a) < epsilon:
+        raise ValueError('degenerate line in lineArcIntersectXY')
+    b = 2*(V[0]*P[0]+V[1]*P[1])
+    c = P[0]*P[0]+P[1]*P[1]-r*r
+    d = b*b-4*a*c
+    if d < 0:
+        raise ValueError("imaginary solution to circle line intersection -- shouldn't happen here")
+    if d < epsilon: # one point of intersection
+        b0 = -b/(2*a)
+        b1 = False
+    else: # two points of intersection
+        b0 = (-b + sqrt(d))/(2*a)
+        b1 = (-b - sqrt(d))/(2*a)
+
+    # use computed parameters to calculate solutions, still in
+    # circle-at-origin coordinates
+    s = [ add(scale(V,b0),p1) ]
+    if b1:
+        s = s + [ add(scale(V,b1),p1) ]
+
+    if not inside or circle:              # transform back into world
+                                          # coordinates
+        return list(map(lambda q: add(q,x),s))
+
+    ## see if any of the intersections we've found lie between
+    ## start and end of the arc
+    
+    ss = []
+    for i in s:
+        ang = (atan2(i[1],i[0]) % pi2)*360.0/pi2
+
+        if end > start and ang >= start and ang <= end:
+            ss = ss + [ add(x,i) ]
+        elif start < end and ang <= start and ang>= end:
+            ss = ss + [ add(x,i) ]
+
+    if len(ss) == 0:
+        return False
+    return ss
+
+## 'safe' version with value checking
+def lineArcIntersectXY(l,c,inside=True):
+    if len(c) == 3:
+        norm = c[2]
+        if dist(norm,vect(0,0,1)) > epsilon:
+            raise ValueError('arc passed to lineArcIntersectXY does not lie in x-y plane')
+    points = l + [ c[0] ]
+    if not isXYPlanar(points):
+        raise ValueError('line and circle passed to lineArcIntersectXY do not all lie in same x-y plane')
+    return _lineArcIntersectXY(l,c,inside)
+
+
 ## functions that compute barycentric coordinates for 2D triangles and
 ## 3D tetrahedral simplexes
 
@@ -484,6 +604,24 @@ if __name__ == "__main__":
     print("linePointXY(l1,vect(10,0),True): "
           + vstr(linePointXY(l1,vect(10,0),True)))
 
+    print("do some arc-line intersection testing")
+    arc1=[vect(2.5,2.5),vect(2.5,90.0,270.0)]
+    print("arc1: {}".format(vstr(arc1)))
+    print("l1: {}".format(vstr(l1)))
+    l2[1]=vect(0,0)
+    print("l2: {}".format(vstr(l2)))
+    int4 = lineArcIntersectXY(l1,arc1,False)
+    int5 = lineArcIntersectXY(l1,arc1,True)
+    int6 = lineArcIntersectXY([vect(0,5),vect(5,5)],arc1,True)
+    int7 = lineArcIntersectXY(l2,arc1,True)
+    int8 = lineArcIntersectXY(l2,arc1,False)
+    print("lineArcIntersectXY(l1,arc1,False): {}".format(vstr(int4)))
+    print("lineArcIntersectXY(l1,arc1,True): {}".format(vstr(int5)))
+    print("lineArcIntersectXY([vect(0,5),vect(5,5)],arc1,True): {}".format(vstr(int6)))
+    print("lineArcIntersectXY(l2,arc1,False): {}".format(vstr(int7)))
+    print("lineArcIntersectXY(l2,arc1,True): {}".format(vstr(int8)))
+
+    
     print("do some planar point checking")
     # points in the x-y plane
     p1 = vect(2.5,0)
