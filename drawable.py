@@ -151,8 +151,7 @@ class Line(Drawable):
         self.draw_line(self.p1,self.p2)
 
     def sample(self,u):
-        p = 1.0-u
-        return add(scale(self.p1,p),scale(self.p2,u))
+        return sampleline([self.p1,self.p2],u)
                    
     def center(self):
         return scale(add(self.p1,self.p2),0.5)
@@ -209,7 +208,7 @@ class Arc(Drawable):
         if dist(self.p,p) >= r:
             return false
         p2 = sub(p,self.p)
-        ang = (atan2(p2[0],p2[1]) % pi2)*360.0/pi2
+        ang = (atan2(p2[1],p2[0]) % pi2)*360.0/pi2
         return ang >= self.start and ang <= self.end
     
 
