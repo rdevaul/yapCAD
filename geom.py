@@ -201,6 +201,10 @@ def vstr(a):
 ## lines are defined as lists of two points, i.e.
 ## [vect(x1, y1),vect(x2, y2)]
 
+## return the length of a line
+def linelength(l):
+    return dist(l[0],l[1])
+
 ## Sample a parameterized line.  Values 0 <= u <= 1.0 will fall within
 ## the line segment, values u < 0 and u > 1 will fall outside the line
 ## segment.
@@ -231,7 +235,7 @@ def intersectXY(l1,l2,inside=True):
 
     ## check for x,y planar consistency
     if abs(z2-z1) > epsilon or abs(z3-z1) > epsilon or abs(z4-z1) > epsilon:
-        return False
+        raise ValueError('lines not in same x-y plane')
 
     ## do lines intersect anywhere?
     denom=(x1-x2)*(y3-y4)-(y1-y2)*(x3-x4)
@@ -394,6 +398,161 @@ def linePointXYDist(l,p,inside=True):
 ## we can compute the intersection of an arc and a line, or an arc and
 ## an arc, when these all lie in the same plane.
 
+## function to return the length of an arc
+def arclength(c):
+    r=c[1][0]
+    start=c[1][1] % 360.0
+    end=c[1][2]%360.0
+
+    d = pi2*r
+    l = d*(start-end)/360.0
+    return l
+
+def samplearc(c,u):
+    p=c[0]
+    r=c[1][0]
+    start=c[1][1] % 360.0
+    end=c[1][2] %360.0
+
+    if len(c) == 3:
+        norm = c[2]
+        if dist(norm,vect(0,0,1)) > epsilon:
+            raise NotImplementedError('non x-y plane arc sampling not yet supported')
+    angle = ((end-start)*u+start)
+    radians = angle*pi2/360.0
+    q = scale(vect(cos(radians),sin(radians)),r)
+
+    return add(p,q)
+
+def _arcArcIntersectXY(c1,c2,inside=True):
+    x1=c1[0]
+    x2=c2[0]
+    r1=c1[1][0]
+    r2=c2[1][0]
+
+    ## first check for non-intersection due to distance between the
+    ## centers of the arcs, treating both arcs as circles for the moment
+
+    d=dist(x1,x2) #calculate the distance d between circle centers
+
+    if d > r1+r2:
+        return False # too far, no possiblity of intersection
+
+    if ( r1> r2 and d < r1-r2) or (r1 >= r2 and d < r2-r1):
+        return False # too close, little arc is fully inside bigger arc
+
+    if d < epsilon:
+        return False # circle centers too close for stable calculation
+
+    ## OK, we are in the goldilocks zone of intersection.  this means
+    ## that if boh arcs are cicles or if inside=False we are
+    ## guaranteed one or two intersections.  Calculate those
+    ## intersections and then test to see if they fall between start
+    ## and end of the respective arcs
+
+    ## we start by calculating the distance id of the intersection plane
+    ## from the center of arc 1, knowing that by definition id <= r1
+
+    ## Math: consider the triangle with side lengths r1, r2, and d,
+    ## where d is the previously calculated distance between arc
+    ## centers.  Consider the two right triangles with side lengths
+    ## r1, id, h, and r2, h, (d-id).  We know that:
+    ## id^2 + h^2 = r1^2, (d-id)^2 + h^2 = r2^2
+    ## solving both for h2 and then substituting, this means:
+    ## r1^2 - id^2 = r2^2 - (d-id)^2
+    ## collecting terms and solving for id produces:
+    ## id = (r1-r2 + d^2)/2d
+
+    id = (r1 - r2 + d*d)/(2 * d)
+
+    ## compute the point on the line connecting the two arc centers
+    ## that is id away from the first arc
+
+    v1 = scale(sub(x2,x1),1.0/d) # unitary direction vector pointing
+                                 # from x1 to x2
+    v2 = scale(v1,id) # point on line between two circles in
+                      # coordinate space centered at x1
+
+    ## compute direction vector o orthgonal to v1 -- the line that
+    ## intersects point v2 and v2+o will pass through our intersection
+    ## points
+
+    o = ortho(v1)
+    
+    ## now, transform back into world coordinates and calculate the
+    ## intersection of this line with either of our arcs, treating
+    ## them as circles for now
+
+    l = [add(v2,x1),add(add(v2,o),x1)]
+
+    s = _lineArcIntersectXY(l,c1,False)
+
+    ## as a sanity check, do the same with the other arc.  Results
+    ## should be within epsilon
+    # ss = _lineArcIntersectXY(l,c2,False)
+    # foo = list(map(lambda x, y: dist(x,y) < epsilon,s,ss))
+    # print("sanity check: " , foo)
+
+    if len(s) == 0:
+        raise ValueError('no computed intersections, something is wrong')
+
+    if not inside:
+        return s
+    
+    ## jump back to arc1 and arc2 space and check angles
+
+    s1 = list(map(lambda x: sub(x,x1),s))
+    s2 = list(map(lambda x: sub(x,x2),s))
+
+    ## compute start and end angles for arcs
+    start1=c1[1][1] % 360.0
+    end1=c1[1][2] %360.0
+
+    start2=c2[1][1] % 360.0
+    end2=c2[1][2] %360.0
+
+    ## check each intersection against angles for each arc.  
+    ss = []
+    for i in range(len(s)):
+        p1 =s1[i]
+        p2 =s2[i]
+        ang1 = (atan2(p1[1],p1[0]) % pi2)*360.0/pi2
+        ang2 = (atan2(p2[1],p2[0]) % pi2)*360.0/pi2
+
+        good = False
+        ## check angle against first arc
+        if end1 > start1 and ang1 >= start1 and ang1 <= end1:
+            good = True
+        elif start1 < end1 and ang1 <= start1 and ang1>= end1:
+            good = True
+
+        ## check angle against second arc
+        if end2 > start2 and ang2 >= start2 and ang2 <= end2:
+            good = good and True
+        elif start2 < end2 and ang2 <= start2 and ang2>= end2:
+            good = good and True
+        else:
+            good = False
+
+        ## only add instersection to the list if both checks were passed
+        if good:
+            ss = ss + [ s[i] ]
+    if len(ss) == 0:
+        return False
+    else:
+        return ss
+
+def arcArcIntersectXY(c1,c2,inside=True):
+    for c in [c1,c2]:
+        if len(c) == 3:
+            norm = c[2]
+            if dist(norm,vect(0,0,1)) > epsilon:
+                raise ValueError('arc passed to lineArcIntersectXY does not lie in x-y plane')
+    if not isXYPlanar([c1[0],c2[0]]):
+        raise ValueError('arcs passed to arcArcIntersectXY do not lie in same x-y plane')
+    return _arcArcIntersectXY(c1,c2,inside)
+    
+        
 def _lineArcIntersectXY(l,c,inside=True):
     x=c[0]
     r=c[1][0]
@@ -489,10 +648,7 @@ def lineArcIntersectXY(l,c,inside=True):
 
 ## given a point a and three vertices, all of which fall into the x-y
 ## plane, compute the barycentric coordinates lam1, lam2, and lam3
-def barycentricXY(a,p1,p2,p3):
-    if not isXYPlanar([a,p1,p2,p3]):
-        raise ValueError('non-XY points in barycentricXY call')
-    
+def _barycentricXY(a,p1,p2,p3):
     x=a[0]
     y=a[1]
 
@@ -516,6 +672,11 @@ def barycentricXY(a,p1,p2,p3):
 
     return [lam1,lam2,lam3]
 
+def barycentricXY(a,p1,p2,p3):
+    if not isXYPlanar([a,p1,p2,p3]):
+        raise ValueError('non-XY points in barycentricXY call')
+    return _barycentricXY(a,p1,p2,p3)
+
 ## given a triangle defined as a list of three points and a test
 ## point, determine if that test point lies inside or outside the
 ## triangle, assuming that all points lie in the x-y plane
@@ -524,7 +685,7 @@ def _isinsidetriangleXY(a,poly): #no value checking version
     p1=poly[0]
     p2=poly[1]
     p3=poly[2]
-    bary = barycentricXY(a,p1,p2,p3)
+    bary = _barycentricXY(a,p1,p2,p3)
     if bary[0] >= 0.0 and bary[0] <= 1.0 and \
        bary[1] >= 0.0 and bary[1] <= 1.0 and \
        bary[2] >= 0.0 and bary[2] <= 1.0:
@@ -620,6 +781,18 @@ if __name__ == "__main__":
     print("lineArcIntersectXY([vect(0,5),vect(5,5)],arc1,True): {}".format(vstr(int6)))
     print("lineArcIntersectXY(l2,arc1,False): {}".format(vstr(int7)))
     print("lineArcIntersectXY(l2,arc1,True): {}".format(vstr(int8)))
+
+    print("do some arc-arc intersection testing")
+    arc2=[vect(4.0,2.5),vect(2.5,90.0,270.0)]
+    print("arc1: {}".format(vstr(arc1)))
+    print("arc2: {}".format(vstr(arc2)))
+
+    int9 = arcArcIntersectXY(arc1,arc2,False)
+    int10 = arcArcIntersectXY(arc1,arc2,True)
+    int11 = arcArcIntersectXY(arc2,arc1,True)
+    print("arcArcIntersectXY(arc1,arc2,False):",vstr(int9))
+    print("arcArcIntersectXY(arc1,arc2,True):",vstr(int10))
+    print("arcArcIntersectXY(arc2,arc1,True):",vstr(int11))
 
     
     print("do some planar point checking")
