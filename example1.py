@@ -1,10 +1,12 @@
 ## First drawing example for yapCAD
+print("yapCAD DXF drawing example")
 
 from ezdxf_drawable import *
 from geom import *
 
 #set up DXF rendering
 drawable=ezdxfDraw()
+drawable.saveas("example1-out")
 
 ## make dxf-renderable geometry
 
@@ -20,9 +22,9 @@ line=Line(vect(-5,10),
 # to 135 degrees
 arc=Arc(vect(0,3),3,45,135)
 
-
 point.draw()
 line.draw()
 arc.draw()
 
-drawable.saveas("example1-out")
+# write out the geometry as example1-out.dxf
+drawable.display()
