@@ -191,10 +191,7 @@ class Arc(Drawable):
         self.draw_arc(self.p,self.r,self.start,self.end)
 
     def sample(self,u):
-        angle = ((self.end-self.start)*u+self.start)
-        radians = angle*pi2/360.0
-        q = scale(vect(cos(radians),sin(radians)),self.r)
-        return add(self.p,q)
+        return samplearc([self.p, [self.r,self.start,self.end,1]],u)
         
     def center(self):
         return self.p
