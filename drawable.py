@@ -107,6 +107,11 @@ class Drawable:
 class Point(Drawable):
     """ a drawable point class """
     def __init__(self,p,drawtype='x'):
+        if not ispoint(p) or not ( drawtype == 'x' or \
+                                   drawtype == 'o' or \
+                                   drawtype == 'xo'):
+            raise ValueError('bad arguments to Point()')
+        
         self.p = p
         self.drawtype=drawtype
 
@@ -140,9 +145,15 @@ class Point(Drawable):
 
 class Line(Drawable):
     """ a drawable line segment """
-    def __init__(self,p1,p2):
-        self.p1=p1
-        self.p2=p2
+    def __init__(self,p1,p2=False):
+        if isline(p1):
+            self.p1=point(p1[0])
+            self.p2=point(p1[1])
+        elif ispoint(p1) and ispoint(p2):
+            self.p1=point(p1)
+            self.p2=point(p2)
+        else:
+            raise ValueError("bad arguments to Line()")
 
     def __repr__(self):
         return 'Line({},{})'.format(self.p1,self.p2)
@@ -173,11 +184,27 @@ class Line(Drawable):
     
 class Arc(Drawable):
     """ a drawble arc, or full circle"""
-    def __init__(self,p,r,start,end):
-        self.p=p
-        self.r=r
-        self.start= start % 360.0 ## make start positive in 0-360
-        self.end=end % 360.0 ## make end positive in 0-360
+    def __init__(self,p,r=False,start=False,end=False):
+        if isarc(p):
+            self.p = p[0]
+            self.r = p[1][0]
+            self.start = p[1][1]
+            self.end = p[1][2]
+
+            if self.start != 0 and self.end !=360:
+                self.start = self.start % 360.0
+                self.end = self.end % 360.0
+        elif ispoint(p) and isgoodnum(r):
+            self.p=p
+            self.r=r
+            if isgoodnum(start) and isgoodnum(end):
+                self.start = start
+                self.end = end
+                if self.start != 0 and self.end != 360:
+                    self.start = self.start % 360.0
+                    self.end = self.end % 360
+        else:
+            raise ValueError("bad arguments to Arc()")
 
         ## if end less than start, "wrap" end into next cycle
         if self.end <= self.start:
