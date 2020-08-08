@@ -31,7 +31,7 @@ def isgoodnum(n):
 ## Convenience function for making a homogeneous coordinates 4 vector
 ## from practically anything
 
-def vect(a=False,b=False,c=False):
+def vect(a=False,b=False,c=False,d=False):
     r = [0,0,0,1]
     if isgoodnum(a):
         r[0]=a
@@ -39,12 +39,33 @@ def vect(a=False,b=False,c=False):
             r[1]=b
             if isgoodnum(c):
                 r[2]=c
+                if isgoodnum(d):
+                    r[3]=d
     elif isinstance(a,(tuple,list)):
-        for i in range(min(3,len(a))):
+        for i in range(min(4,len(a))):
             x=a[i]
             if isgoodnum(x):
                 r[i]=x
     return r
+
+## function to deep-copy geometry, which is to say lists containing
+## non-zero-length lists or 4-vectors.  Returns False if argument
+## isn't valid geometry list
+
+def deepcopy(a):
+    if isvect(a):
+        return vect(a)
+    elif isinstance(a,list):
+        if len(a) > 0:
+            c = list(map(deepcopy,a))
+            for i in c:
+                if not i:
+                    return False
+            return c
+        else:
+            return False
+    else:
+        return False
 
 ## check to see if argument is a proper vector for our purposes
 def isvect(x):
@@ -63,7 +84,7 @@ def scale(a,c):
 
 ## NOTE: this function assumes that a lies in the x,y plane.  If this
 ## is not the case, the results are bogus.
-def ortho(a):
+def orthoXY(a):
     # compute an orthogonal vector to a, by
     # crossing [a1, a2, a3] with [0, 0, 1]
 
@@ -195,15 +216,62 @@ def vstr(a):
           #formatting
         return str(a)
     
+## operations on points
+## --------------------
 
+## points are defined as vectors that lie in a positive, non-zero
+## hyperplane, i.e. [x, y, z, w] such that w > 0.  points are
+## distinguished from pesuedovectors, such as the parameters to an
+## arc, which don't transform as vectors.
+
+## pseudovectors, by contrast, should lie in a w < 0 hyperplane.  For
+## example, by convention arc parameters lie in the pseudovector w=-1
+## hyperplane
+
+## since points are vectors, we don't have a lot of special operations
+## on points, except to explicitly create them and to test for them.
+
+def point(x=False,y=False,z=False,w=False):
+    if ispoint(x):
+        return deepcopy(x)
+    elif isgoodnum(x) and isgoodnum(y) and isgoodnum(z) and isgoodnum(w)\
+       and w > 0:
+        return [ x,y,z,w ]
+    return vect(x,y,z)
+
+def ispoint(x):
+    if isvect(x) and x[3] > 0.0:
+        return True
+    return False
+    
 ## operations on lines
 ## --------------------
-## lines are defined as lists of two points, i.e.
-## [vect(x1, y1),vect(x2, y2)]
+
+## lines are defined as lists of two points, i.e.  [vect(x1,
+## y1),vect(x2, y2)].  Lines must lie in a positive hyperplane,
+## viz. w>0
+
+## make a line, copying points, value-safe
+def line(p1,p2=False):
+    if isline(p1):
+        return deepcopy(p1)
+    elif ispoint(p1) and ispoint(p2):
+        return [ point(p1), point(p2) ]
+    else:
+        raise ValueError('bad values passed to line()')
+
+## is it a line?
+def isline(l):
+    return isinstance(l,list) and len(l) == 2 \
+        and ispoint(l[0]) and ispoint(l[1])
 
 ## return the length of a line
 def linelength(l):
     return dist(l[0],l[1])
+
+## return the center of a line
+def linecenter(l):
+    return scale(add(l[0],l[1]),0.5)
 
 ## Sample a parameterized line.  Values 0 <= u <= 1.0 will fall within
 ## the line segment, values u < 0 and u > 1 will fall outside the line
@@ -310,7 +378,7 @@ def linePointXY(l,p,inside=True,distance=False):
     dir = scale(dir,1.0/mag(dir))
 
     ## compute two orthogonal direction vectors of length linedist
-    ordir1 = scale(ortho(dir),linedist)
+    ordir1 = scale(orthoXY(dir),linedist)
     ordir2 = scale(ordir1, -1.0)
     
     ## there are two possible intersection points
@@ -395,9 +463,94 @@ def linePointXYDist(l,p,inside=True):
 ## assume that arcs lie in the x-y plane, which is to say that
 ## normal = [0,0,1] if it's not specified.
 
-## we can compute the intersection of an arc and a line, or an arc and
-## an arc, when these all lie in the same plane.
+## to mark that the second list element is a pseudovector, we set the
+## w component to -1.  Since negative w values should never exist for
+## vectors in our projective geometry system this should be a robust
+## convention.
 
+## make an arc, copying points, value-safe
+## NOTE: if start and end are not specified, a full circle is created
+def arc(c,rp=False,sn=False,e=False,n=False):
+    if isarc(c):
+        return deepcopy(c)
+    elif ispoint(c):
+        cen = point(c)
+        if isvect(rp):
+            psu = deepcopy(rp)
+            r=psu[0]
+            if r < 0:
+                raise ValueError('negative radius not allowed for arc')
+            psu[3]=-1
+            if not sn:
+                return [ cen, psu ]
+            else:
+                if not ispoint(sn) or abs(mag(sn)-1.0) > epsilon:
+                    raise ValueError('bad (non-unitary) plane vector for arc')
+                return [ cen, psu, point(sn) ]
+        elif isgoodnum(rp):
+            r = rp
+            if r < 0:
+                raise ValueError('negative radius not allowed for arc')
+            start = 0
+            end = 360
+            if isgoodnum(sn) and isgoodnum(e):
+                start = sn
+                end = e
+            psu = vect(r,start,end,-1)
+            if not n:
+                return [ cen, psu ]
+            else:
+                if not ispoint(n) or abs(mag(n)-1.0) > epsilon:
+                    raise ValueError('bad (non-unitary) plane vector for arc')
+                return [ cen, psu, point(n) ]
+
+    raise ValueError('bad arguments passed to arc()')
+        
+## function to determine if argument can be interpreted as a valid
+## arc.
+
+def isarc(a):
+    if not isinstance(a,list):
+        return False
+    n = len(a)
+    if n < 2 or n > 3:
+        return False
+    if not (ispoint(a[0]) and isvect(a[1])):
+        return False
+    if a[1][3] != -1:           # is psuedovector marked?
+        return False
+    r =a[1][0]                
+    if r < 0:
+        # is radius less than zero? if so, not a valid arc
+        return False
+    if n == 3 and ( not ispoint(a[2]) or abs(mag(a[2])-1.0) > epsilon):
+        # if plane-definition vector is included but is non-unitary,
+        # it's not a valid arc
+        return False
+    
+    return True
+
+## test to see if an arc is a circle.  NOTE that due to modulus
+## arithmetic, it's not possible to specify an arc with a full 360
+## degees range, as this would "wrap around" to an arc of 0 degrees
+## range.  To solve this, we use a special convention for start and
+## end to signal a true full circle
+
+def iscircle(a):
+    if isarc(a):
+        start=a[1][1] 
+        end=a[1][2]
+        ## these are special, integer values that flag a true full
+        ## circle.
+        if start==0 and end==360:
+            return True
+    else:
+        return False
+
+## function to return the midpoint of an arc
+def arccenter(c):
+    return samplearc(c,0.5)
+    
 ## function to return the length of an arc
 def arclength(c):
     r=c[1][0]
@@ -424,6 +577,11 @@ def samplearc(c,u):
 
     return add(p,q)
 
+## Intersection functions for arcs and circles.
+## we can compute the intersection of an arc and a line, or an arc and
+## an arc, when these all lie in the same plane.
+
+## arc-arc jtersection calculation, non-value-safe version
 def _arcArcIntersectXY(c1,c2,inside=True):
     x1=c1[0]
     x2=c2[0]
@@ -438,7 +596,7 @@ def _arcArcIntersectXY(c1,c2,inside=True):
     if d > r1+r2:
         return False # too far, no possiblity of intersection
 
-    if ( r1> r2 and d < r1-r2) or (r1 >= r2 and d < r2-r1):
+    if ( r1> r2 and d < r1-r2) or (r2 >= r1 and d < r2-r1):
         return False # too close, little arc is fully inside bigger arc
 
     if d < epsilon:
@@ -461,9 +619,9 @@ def _arcArcIntersectXY(c1,c2,inside=True):
     ## solving both for h2 and then substituting, this means:
     ## r1^2 - id^2 = r2^2 - (d-id)^2
     ## collecting terms and solving for id produces:
-    ## id = (r1-r2 + d^2)/2d
+    ## id = (r1^2-r2^2 + d^2)/2d
 
-    id = (r1 - r2 + d*d)/(2 * d)
+    id = (r1*r1 - r2*r2 + d*d)/(2 * d)
 
     ## compute the point on the line connecting the two arc centers
     ## that is id away from the first arc
@@ -477,7 +635,7 @@ def _arcArcIntersectXY(c1,c2,inside=True):
     ## intersects point v2 and v2+o will pass through our intersection
     ## points
 
-    o = ortho(v1)
+    o = orthoXY(v1)
     
     ## now, transform back into world coordinates and calculate the
     ## intersection of this line with either of our arcs, treating
@@ -489,11 +647,11 @@ def _arcArcIntersectXY(c1,c2,inside=True):
 
     ## as a sanity check, do the same with the other arc.  Results
     ## should be within epsilon
-    # ss = _lineArcIntersectXY(l,c2,False)
-    # foo = list(map(lambda x, y: dist(x,y) < epsilon,s,ss))
-    # print("sanity check: " , foo)
+    #ss = _lineArcIntersectXY(l,c2,False)
+    #foo = list(map(lambda x, y: dist(x,y) < epsilon,s,ss))
+    #print("sanity check: " , foo)
 
-    if len(s) == 0:
+    if not s or len(s) == 0:
         raise ValueError('no computed intersections, something is wrong')
 
     if not inside:
@@ -542,6 +700,7 @@ def _arcArcIntersectXY(c1,c2,inside=True):
     else:
         return ss
 
+## value-safe wrapper for arc-arc intersection function
 def arcArcIntersectXY(c1,c2,inside=True):
     for c in [c1,c2]:
         if len(c) == 3:
@@ -552,13 +711,17 @@ def arcArcIntersectXY(c1,c2,inside=True):
         raise ValueError('arcs passed to arcArcIntersectXY do not lie in same x-y plane')
     return _arcArcIntersectXY(c1,c2,inside)
     
-        
+
+## non-value-safe line-arc intersection function
 def _lineArcIntersectXY(l,c,inside=True):
     x=c[0]
     r=c[1][0]
+
+    # is the arc a full circle?
     circle = False
     if c[1][1] == 0 and c[1][2] == 360:
         circle = True
+        
     start=c[1][1] % 360.0
     end=c[1][2] %360.0
 
@@ -631,7 +794,7 @@ def _lineArcIntersectXY(l,c,inside=True):
         return False
     return ss
 
-## 'safe' version with value checking
+## value-safe wrapper for line-arc intersection function
 def lineArcIntersectXY(l,c,inside=True):
     if len(c) == 3:
         norm = c[2]
@@ -643,8 +806,88 @@ def lineArcIntersectXY(l,c,inside=True):
     return _lineArcIntersectXY(l,c,inside)
 
 
-## functions that compute barycentric coordinates for 2D triangles and
-## 3D tetrahedral simplexes
+## function to compute tangent lines to two coplanar circles lying in
+## an x-y plane.  Function will either return two lines or False, if
+## the center of the circles are too close together.
+
+def _circleCircleTangentsXY(c1,c2):
+    a = c1[1][0]
+    b = c2[1][0]
+    if a>b:
+        bigIsOne=True
+        bigC = c1
+        smallC = c2
+    else:
+        bigIsOne=False
+        bigC = c2
+        smallC = c1
+    ## Consdier the triangle created by the center of the small
+    ## circle, the center of the large circle, and the point at the 90
+    ## degree intersection of the line from the center of the small
+    ## circle to the radian of the tangent point on the large circle.
+    ## This is a right triangle with one leg of length d (distance of
+    ## centers), one leg of length bigR-smallR, and one leg of unknown
+    ## length, beta. theta is the angle formed by d and beta, which is
+    ## also the angle of one of the the tangent lines, the other being
+    ## -theta.
+    ## 
+    ## we will calulate theta as follows:
+    ## beta^2 - (r2-r1)^2 = d^2
+    ## beta = sqrt( d^2 - (r2-r1)^2 )
+    ## theta = atan ((r2-r1)/beta)
+    
+    r1 = smallC[1][0]
+    r2 = bigC[1][0]
+
+    d = dist(c1[0],c2[0])
+    dr = r2-r1
+
+    if d <= dr: #centers too close
+        return False
+    
+    beta = sqrt( d*d - dr*dr)
+    theta = atan2(dr,beta)
+
+    ## now, figure out the angle created by the center of the large
+    ## circle with respect to the small circle
+    dd = sub(bigC[0],smallC[0])
+    phi = atan2(dd[1],dd[0])
+
+    ## the two lines have angle phi+theta, and phi-theta.  The
+    ## intersection point of these lines is at the point on the circle
+    ## phi+theta+90', and phi-theta-90'
+    gamma1 = phi+theta+pi/2
+    gamma2 = phi-theta-pi/2
+    n1 = point(cos(gamma1),sin(gamma1))
+    n2 = point(cos(gamma2),sin(gamma2))
+    p1 = add(scale(n1,r1),smallC[0])
+    p2 = add(scale(n1,r2),bigC[0])
+    p3 = add(scale(n2,r1),smallC[0])
+    p4 = add(scale(n2,r2),bigC[0])
+
+    l1 = line(p1,p2)
+    l2 = line(p3,p4)
+
+    return [l1,l2]
+
+def circleCircleTangentsXY(c0,c1):
+    if not iscircle(c0) or not iscircle(c1):
+        raise ValueError('non circles passed to circleCirlceTangentsXY')
+    if len(c0) == 3:
+        norm = c0[2]
+        if dist(norm,vect(0,0,1)) > epsilon:
+            raise ValueError('first circle passed to circleCircleTangentsXY does not lie in an x-y plane')
+    if len(c1) == 3:
+        norm = c1[2]
+        if dist(norm,vect(0,0,1)) > epsilon:
+            raise ValueError('second circle passed to circleCircleTangentsXY does not lie in an x-y plane')
+    points = [ c0[0], c1[0]]
+    if not isXYPlanar(points):
+        raise ValueError('circles passed to circleCircleTangentsXY do not all lie in same x-y plane')
+    return _circleCircleTangentsXY(c0,c1)
+
+
+## functions that compute barycentric coordinates for 2D triangles
 
 ## given a point a and three vertices, all of which fall into the x-y
 ## plane, compute the barycentric coordinates lam1, lam2, and lam3
@@ -677,11 +920,11 @@ def barycentricXY(a,p1,p2,p3):
         raise ValueError('non-XY points in barycentricXY call')
     return _barycentricXY(a,p1,p2,p3)
 
-## given a triangle defined as a list of three points and a test
-## point, determine if that test point lies inside or outside the
-## triangle, assuming that all points lie in the x-y plane
+## given a triangle defined as a list of three points and an
+## additional test point, determine if that test point lies inside or
+## outside the triangle, assuming that all points lie in the x-y plane
 
-def _isinsidetriangleXY(a,poly): #no value checking version
+def _isInsideTriangleXY(a,poly): #no value checking version
     p1=poly[0]
     p2=poly[1]
     p3=poly[2]
@@ -693,53 +936,83 @@ def _isinsidetriangleXY(a,poly): #no value checking version
     return False
         
 
-# 'safe' value-check version
-def isinsidetriangleXY(a,poly):
+# value-safe wrapper for triangle inside testing
+def isInsideTriangleXY(a,poly):
     if len(poly) != 3 or not isXYPlanar(poly + [a ]):
         raise ValueError('bad poly length or non-XY points in insidetriangleXY call')
-    return _isinsidetriangleXY(a,poly)
+    return _isInsideTriangleXY(a,poly)
 
-## given a polygon defined as a list of three or more points and a
-## test point, determine if that test point lies inside or ouside the
-## polygon, assuming that all points lie in the x-y plane
+## given a convex polygon defined as a list of three or more points
+## and a test point, determine if that test point lies inside or
+## ouside the polygon, assuming that all points lie in the x-y plane
 
-def _isinsidepolyXY(a,poly): #no value checking version
+def _isInsideConvexPolyXY(a,poly): #no value checking version
     if len(poly) == 3:
-        return _isinsidetriangleXY(a,poly)
+        return _isInsideTriangleXY(a,poly)
     else:
-        return _isinsidetriangleXY(a,poly[0:3]) or \
-               _isinsidepolyXY(a,poly[1:len(poly)])
+        return _isInsideTriangleXY(a,poly[0:3]) or \
+               _isInsideConvexPolyXY(a,poly[1:len(poly)])
 
-# 'safe' value-check version
-def isinsidepolyXY(a,poly):
+# value-safe wrapper for convex polygon inside testing function
+def isInsideConvexPolyXY(a,poly):
     if len(poly) < 3 or not isXYPlanar(poly + [ a]):
         raise ValueError('bad poly length or non-XY points in insidepolyXY call')
-    return _isinsidepolyXY(a,poly)
+    return _isInsideConvexPolyXY(a,poly)
 
+
+# -------------------------------------------------------------
 ## check to see if we have been invoked on the command line
 ## if so, run some tests
 
 if __name__ == "__main__":
-    a = vect(5,0)
-    b = vect(0,5)
-    c = vect(-3,-3)
-    d = vect(1,1)
-    e = vect(10,10)
-    
+    print("------------------------------------------")
+    print("yapCAD geometry tests")
+    print("------------------------------------------")
     print("light-weight unit tests for geom.py module")
+    a = point(5,0)
+    b = point(0,5)
+    c = point(-3,-3)
+    d = point(1,1)
+    e = point(10,10)
+    print("---> point creation and testing")
     print("some points: a:" + vstr(a) + ", b:"
           + vstr(b) + ", c:" + vstr(c) + ", d:" + vstr(d) + ", e:" + vstr(e))
-
+    print("ispoint(a): ",ispoint(a))
+    print("ispoint(point(a)): ",ispoint(point(a)))
+    print("ispoint([1,2]: ",ispoint([1,2]))
+    print("ispoint(vect(1,2)): ",ispoint(vect(1,2)))
+    print("ispoint(vect(1,2,3,4)): ",ispoint(vect(1,2,3,4)))
+    print("ispoint(vect(1,2,3,-1)): ",ispoint(vect(1,2,3,-1)))
+    
+    print("---> basic vector operations tests")
     print("mag a: " + str(mag(a)))
     print("add(a,b): " + vstr(add(a,b)))
     print("sub(a,b): " + vstr(sub(a,b)))
     print("mag(sub(a,b)): " + str(mag(sub(a,b))))
     print("mag(sub(a,b)) == sqrt(50): " + str(mag(sub(a,b))==sqrt(50.0)))
-    
+
+    print("---> line creation and testing")
     l1 = [a,b]
+    print("l1 = [a,b] -- l1:",vstr(l1))
+    l11 = line(a,b)
+    print("l11 = line(a,b) -- l1:",vstr(l11))
     l2 = [c,d]
-    l3 = [c,e]
+    l22 = line(l2)
+    print("l2 = [c,d], l22 = line(l2) -- l22: ",vstr(l22))
+    l3 = line(c,e)
+    print("l3 = line(c,e), isline(l3) : ",isline(l3))
+    print("a {}, isline(a): {}".format(vstr(a),isline(a)))
     
+    
+    print("---> vector and geometry copying tests")
+    foo = [a,b,l3,l2,d]
+    print("foo: ",vstr(foo))
+    print("deepcopy(foo)",vstr(deepcopy(foo)))
+    bar = [a,b,[1,2],l2,l3]
+    print("bar: ",vstr(bar))
+    print("expect False: deepcopy(bar)",vstr(deepcopy(bar)))
+        
+    print("---> line-line intersection tests")
     print("l1:" + vstr(l1) + ", l2:" + vstr(l2) +", l3:" + vstr(l3))
 
     int0 = intersectXY(l1,l1)
@@ -765,7 +1038,24 @@ if __name__ == "__main__":
     print("linePointXY(l1,vect(10,0),True): "
           + vstr(linePointXY(l1,vect(10,0),True)))
 
-    print("do some arc-line intersection testing")
+    print("---> arc creation and testing")
+    arc1=[vect(2.5,2.5),vect(2.5,90.0,270.0,-1)]
+    print("arc1=[vect(2.5,2.5),vect(2.5,90.0,270.0,-1)], arc1: ",vstr(arc1))
+    arc11=arc(vect(2.5,2.5),2.5,90.0,270.0)
+    print("arc11=arc(vect(2.5,2.5),2.5,90.0,270.0), arc11: ",vstr(arc11))
+    print("isarc(arc1): {}  isarc(arc11): {}".format(isarc(arc1),isarc(arc11)))
+    arc12=arc(arc11)
+    print("arc12=arc(arc11), arc12: {}, isarc(arc12): {}".format(vstr(arc12),isarc(arc12)))
+    try:
+        print("try creating an arc with a negative radius, should raise ValueError")
+        print("arc(vect(0,0),-2): ",arc(vect(0,0),-2))
+    except ValueError as err:
+        print('got expected result:',err)
+    print("--> line-arc disambiguation")
+    print("l1: ",vstr(l1)," arc1: ",vstr(arc1))
+    print("isline(l1): {} isline(arc1): {}".format(isline(l1),isline(arc1)))
+    print("isarc(l1): {} isarc(arc1): {}".format(isarc(l1),isarc(arc1)))
+    print("---> arc-line intersection tests")
     arc1=[vect(2.5,2.5),vect(2.5,90.0,270.0)]
     print("arc1: {}".format(vstr(arc1)))
     print("l1: {}".format(vstr(l1)))
@@ -782,7 +1072,24 @@ if __name__ == "__main__":
     print("lineArcIntersectXY(l2,arc1,False): {}".format(vstr(int7)))
     print("lineArcIntersectXY(l2,arc1,True): {}".format(vstr(int8)))
 
-    print("do some arc-arc intersection testing")
+    print("---> circle-circle tangent testing")
+    circ1 = arc(point(5,5),5)
+    circ2 = arc(point(-5,5),7.5)
+    circ3 = arc(point(0,0),1)
+
+    tl1 = circleCircleTangentsXY(circ1,circ2)
+    tl2 = circleCircleTangentsXY(circ2,circ1)
+    tl3 = circleCircleTangentsXY(circ3,circ2)
+
+    print("circ1: ",vstr(circ1))
+    print("circ2: ",vstr(circ2))
+    print("circ3: ",vstr(circ3))
+    
+    print("circleCircleTangentsXY(circ1,circ2) :", vstr(tl1))
+    print("circleCircleTangentsXY(circ2,circ1) :", vstr(tl2))
+    print("circleCircleTangentsXY(circ3,circ2) :", vstr(tl3))
+
+    print("---> arc-arc intersection tests")
     arc2=[vect(4.0,2.5),vect(2.5,90.0,270.0)]
     print("arc1: {}".format(vstr(arc1)))
     print("arc2: {}".format(vstr(arc2)))
@@ -795,20 +1102,20 @@ if __name__ == "__main__":
     print("arcArcIntersectXY(arc2,arc1,True):",vstr(int11))
 
     
-    print("do some planar point checking")
+    print("---> do some planar point testing")
     # points in the x-y plane
-    p1 = vect(2.5,0)
-    p2 = vect(5,5)
-    p3 = vect(0,5)
-    p4 = vect(2.5,10)
+    p1 = point(2.5,0)
+    p2 = point(5,5)
+    p3 = point(0,5)
+    p4 = point(2.5,10)
 
     # points in the x,z plane
-    p5 = vect(1,0,-5)
-    p6 = vect(10,0,10)
+    p5 = point(1,0,-5)
+    p6 = point(10,0,10)
     
     # points in the y-z plane
-    p7 = vect(0,2.-1)
-    p8 = vect(0,10,10)
+    p7 = point(0,2.-1)
+    p8 = point(0,10,10)
 
     print('expect True: isCardinalPlanar("xy",[p1,p2,p3,p4]) : {}'.format(
         isCardinalPlanar("xy",[p1,p2,p3,p4])))
@@ -830,48 +1137,49 @@ if __name__ == "__main__":
     except ValueError as err:
         print('got expected result:',err)
 
-    print("polygon inside testing")
+
+    print("---> convex polygon inside testing")
     tri1 = [p1,p2,p3]
     poly1 = [p1,p2,p4,p3]
-    p = vect(2.5,1.0)
-    q = vect(2.5,5.0)
-    r = vect(2.5,7.0)
-    s= vect(-10,-10)
-    t= vect(10,10)
+    p = point(2.5,1.0)
+    q = point(2.5,5.0)
+    r = point(2.5,7.0)
+    s= point(-10,-10)
+    t= point(10,10)
     print ("p: {}, q: {}, r: {}, s: {}, t: {}".format(vstr(p), vstr(q),
                                                       vstr(r), vstr(s),
                                                       vstr(t)))
     print ("tri1: {}".format(vstr(tri1)))
-    print("expect True: isinsidetriangleXY(p,tri1): {}"\
-          .format(isinsidetriangleXY(p,tri1)))
-    print("expect True: isinsidetriangleXY(q,tri1): {}"\
-          .format(isinsidetriangleXY(q,tri1)))
-    print("expect False: isinsidetriangleXY(r,tri1): {}"\
-          .format(isinsidetriangleXY(r,tri1)))
-    print("expect False: isinsidetriangleXY(s,tri1): {}"\
-          .format(isinsidetriangleXY(s,tri1)))
-    print("expect False: isinsidetriangleXY(t,tri1): {}"\
-          .format(isinsidetriangleXY(t,tri1)))
+    print("expect True: isInsideTriangleXY(p,tri1): {}"\
+          .format(isInsideTriangleXY(p,tri1)))
+    print("expect True: isInsideTriangleXY(q,tri1): {}"\
+          .format(isInsideTriangleXY(q,tri1)))
+    print("expect False: isInsideTriangleXY(r,tri1): {}"\
+          .format(isInsideTriangleXY(r,tri1)))
+    print("expect False: isInsideTriangleXY(s,tri1): {}"\
+          .format(isInsideTriangleXY(s,tri1)))
+    print("expect False: isInsideTriangleXY(t,tri1): {}"\
+          .format(isInsideTriangleXY(t,tri1)))
     print("inside poly testing")
     print ("tri1: {}".format(vstr(tri1)))
     print ("poly1: {}".format(vstr(poly1)))
-    print("expect True: isinsidepolyXY(p,tri1): {}"\
-          .format(isinsidepolyXY(p,tri1)))
-    print("expect True: isinsidepolyXY(q,tri1): {}"\
-          .format(isinsidepolyXY(q,tri1)))
-    print("expect False: isinsidepolyXY(r,tri1): {}"\
-          .format(isinsidepolyXY(r,tri1)))
+    print("expect True: isInsideConvexPolyXY(p,tri1): {}"\
+          .format(isInsideConvexPolyXY(p,tri1)))
+    print("expect True: isInsideConvexPolyXY(q,tri1): {}"\
+          .format(isInsideConvexPolyXY(q,tri1)))
+    print("expect False: isInsideConvexPolyXY(r,tri1): {}"\
+          .format(isInsideConvexPolyXY(r,tri1)))
     
-    print("expect True: isinsidepolyXY(p,poly1): {}"\
-          .format(isinsidepolyXY(p,poly1)))
-    print("expect True: isinsidepolyXY(q,poly1): {}"\
-          .format(isinsidepolyXY(q,poly1)))
-    print("expect True: isinsidepolyXY(r,poly1): {}"\
-          .format(isinsidepolyXY(r,poly1)))
-    print("expect False: isinsidepolyXY(s,tri1): {}"\
-          .format(isinsidepolyXY(s,tri1)))
-    print("expect False: isinsidepolyXY(t,tri1): {}"\
-          .format(isinsidepolyXY(t,tri1)))
+    print("expect True: isInsideConvexPolyXY(p,poly1): {}"\
+          .format(isInsideConvexPolyXY(p,poly1)))
+    print("expect True: isInsideConvexPolyXY(q,poly1): {}"\
+          .format(isInsideConvexPolyXY(q,poly1)))
+    print("expect True: isInsideConvexPolyXY(r,poly1): {}"\
+          .format(isInsideConvexPolyXY(r,poly1)))
+    print("expect False: isInsideConvexPolyXY(s,tri1): {}"\
+          .format(isInsideConvexPolyXY(s,tri1)))
+    print("expect False: isInsideConvexPolyXY(t,tri1): {}"\
+          .format(isInsideConvexPolyXY(t,tri1)))
     
     print("done!")
 
