@@ -9,13 +9,30 @@ from geom import *
 ## pure geometry will be the foundation of creating drawable
 ## representations.
 
-class poly:
+class Poly:
     """simple base class for multi-element geometric figures"""
     elements=[]
     closed=True
 
+    def __init__(self,a=False):
+        self.elements=[]
+        self.outline=[]
+        self.length=0
+        if isinstance(a,Poly):
+            self.elements = deepcopy(a.elements)
+            self.outline = deepcopy(a.outline)
+            self.length = deepcopy(a.length)
+        elif isinstance(a,list):
+            for i in a:
+                if ispoint(i) or isline(i) or isarc(i):
+                    self.elements.append(i)
+                else:
+                    raise ValueError("bad argument to Poly constructor")
+            
+                
+        
     def __repr__(self):
-        return 'an abstract multi-element geometric figure'
+        return 'Poly({})'.format(vstr(self.elements))
 
     ## add another drawing element
     def addPoint(self,element):
@@ -56,7 +73,7 @@ class poly:
             else:
                 raise ValueError('bad element in poly elements')
         if len(self.elements) > 0:
-            p = scale(p,1.0/length(self.elements))
+            p = scale(p,1.0/len(self.elements))
         return p
                 
     def remove(self,element):
@@ -77,7 +94,7 @@ class poly:
             ll = []
             length = 0
             for o in self.outline:
-                if isarc(o) and o[1][3] == -1:  # arc with "marked" psuedovector
+                if isarc(o):
                     length=arclength(o)
                 elif isline(o): # line
                     length=linelength(o)
@@ -127,14 +144,17 @@ class poly:
                 self._calclength()
             ## if there are fewer than one elements, there is nothing to do
             return
-
         ## we have work to do.  Construct all lines and circle-tangent
         ## lines first, inserting explicit line and arc elements.
         ## Then go back and convert circles to arcs.  Finally compute
         ## total length and length list for use in sample() function.
 
-        for i in range(1,len(self.elements)):
-            e0 = self.elements[i-1]
+        
+        for i in range(len(self.elements)):
+            if i == 0:
+                e0 = self.elements[-1]
+            else:
+                e0 = self.elements[i-1]
             e1 = self.elements[i]
             if i == len(self.elements)-1: #last item
                 e2 = self.elements[0]
@@ -188,7 +208,7 @@ class poly:
                 p1=sub(pp1[0],e1[0])
                 start = (atan2(p0[1],p0[0]) % pi2) * 360.0/pi2
                 end = (atan2(p1[1],p1[0]) % pi2) * 360.0/pi2
-                if end < start:
+                if False and end < start:
                     raise NotImplementedError("not handling non-convex case for circle-tangent lines in poly outline yet")
                 newarc = arc(e1[0],e1[1][0],start,end)
                 self.outline[i]=newarc
@@ -196,24 +216,19 @@ class poly:
         _calclength()
         
     def sample(self,u):
-        if len(self.elements) == 0:
+        if len(self.outline) == 0:
             return vect(0,0)
         dist = (u % 1.0) * self.length
         d = 0
-        for e in self.outline:
-            l=0
-            if isline(e):
-                l=linelength(e)
-            elif isarc(e):
-                l=arclength(e)
-            else:
-                raise ValueError('bad element in poly outline list {}'.format(e))
+        for i in range(len(self.outline)):
+            l=self.lengths[i]
             if dist <= d+l:
                 uu = (d+l-dist)/l
+                e = self.outline[i]
                 if isline(e):
-                    return sampleline(e,uu)
+                    return sampleline(e,1.0-uu)
                 else:
-                    return samplearc(e,uu)
+                    return samplearc(e,1.0-uu)
             else:
                 d=d+l
                 
