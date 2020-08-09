@@ -554,19 +554,30 @@ def arccenter(c):
 ## function to return the length of an arc
 def arclength(c):
     r=c[1][0]
-    start=c[1][1] % 360.0
-    end=c[1][2]%360.0
+    start=c[1][1]
+    end=c[1][2]
+    if start == 0 and end == 360:
+        return r * pi2
+    else:
+        start = start % 360.0
+        end = end % 360.0
 
+    if start > end:
+        end = end+360.0
     d = pi2*r
-    l = d*(start-end)/360.0
+    l = d*(end-start)/360.0
     return l
 
 def samplearc(c,u):
     p=c[0]
     r=c[1][0]
-    start=c[1][1] % 360.0
-    end=c[1][2] %360.0
-
+    start=c[1][1]
+    end=c[1][2]
+    if start != 0 and end != 360:
+        start = start % 360.0
+        end = end % 360.0
+        if end < start:
+            end += 360.0
     if len(c) == 3:
         norm = c[2]
         if dist(norm,vect(0,0,1)) > epsilon:
@@ -729,7 +740,8 @@ def _lineArcIntersectXY(l,c,inside=True):
     ## of the arc?  If that is greater than r, then there is no
     ## intersection
     dist = linePointXYDist(l,x,inside)
-    if dist > r:
+    if dist > r+epsilon:
+        print("tooooo far: ",dist,r)
         return False
 
     ## start by treating the arc as a circle.  At this point we know
@@ -759,11 +771,11 @@ def _lineArcIntersectXY(l,c,inside=True):
     b = 2*(V[0]*P[0]+V[1]*P[1])
     c = P[0]*P[0]+P[1]*P[1]-r*r
     d = b*b-4*a*c
-    if d < 0:
-        raise ValueError("imaginary solution to circle line intersection -- shouldn't happen here")
-    if d < epsilon: # one point of intersection
+    if abs(d) < epsilon: # one point of intersection
         b0 = -b/(2*a)
         b1 = False
+    elif d < 0:
+        raise ValueError("imaginary solution to circle line intersection -- shouldn't happen here")
     else: # two points of intersection
         b0 = (-b + sqrt(d))/(2*a)
         b1 = (-b - sqrt(d))/(2*a)
