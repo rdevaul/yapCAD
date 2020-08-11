@@ -1,50 +1,169 @@
 # pure geometry polyline and polygon support for yapCAD
 from geom import *
 
-## the goal is to describe open and closed multi-element geometric
+## The goal is to describe open and closed multi-element geometric
 ## figures that are specified in terms of point, line, and arc
-## primitives.  For example, a rounded rectangle or rounded triangle.
-## These figures can be sampled as though they are continuous curves
-## and can be subject to operations like "grow" or "intersect."  The
-## pure geometry will be the foundation of creating drawable
-## representations.
+## primitives.  For example, a "chamfered" line with arcs instead of
+## sharp line intersection corners, or rounded polygons like rounded
+## rectangles or rounded triangles.  These figures can be sampled as
+## though they are continuous curves and can be subject to operations
+## like "grow" or "intersect."
 
-class Poly:
-    """simple base class for multi-element geometric figures"""
-    elements=[]
-    closed=True
+## These classes can be seen as extensions of the pure geometry
+## list-based poly() and polygon() respresentations that represent
+## figures with line segments
+
+
+
+class Polyline:
+    """Generalized multi-element open figure class"""
 
     def __init__(self,a=False):
-        self.elements=[]
-        self.outline=[]
-        self.length=0
-        if isinstance(a,Poly):
-            self.elements = deepcopy(a.elements)
-            self.outline = deepcopy(a.outline)
-            self.length = deepcopy(a.length)
+        self._elements=[]
+        self._length=0.0
+        self._lengths=[]
+        self._lines=[]
+        self._update=True
+        self._closed=False
+        self._center=point(0,0,0)
+        self._bbox=line(point(-epsilon,-epsilon),
+                        point(epsilon,epsilon))
+        if isinstance(a,Polyline):
+            self._elements = deepcopy(a._elements)
+            self._updateInternals()
         elif isinstance(a,list):
             for i in a:
-                if ispoint(i) or isline(i) or isarc(i):
-                    self.elements.append(i)
+                if ispoint(i): 
+                    self._elements.append(i)
                 else:
-                    raise ValueError("bad argument to Poly constructor")
-            
-                
-        
+                    raise ValueError("bad argument to Polygon constructor")
+
     def __repr__(self):
-        return 'Poly({})'.format(vstr(self.elements))
+        return 'Polyline({})'.format(vstr(self._elements))
 
     ## add another drawing element
     def addPoint(self,element):
-        if isvect(element):
-            self.elements.append(element)
+        if ispoint(element):
+            self._update=True  # flag that we need to recalculate stuff
+            self._elements.append(element)
         else:
-            raise ValueError('attempt to add a non point, line or arc to poly')
+            raise ValueError('attempt to add a non point to Polyline')
+
+    ## set a point to a specified value
+    def setPoint(self,i,p):
+        if not ispoint(p):
+            raise ValueError('bad point passed to Polyline.setPoint(): '.format(p))
+        if i < len(self.elements):
+            self._elements[i]=point(p)
+        elif i == len(self.elements):
+            self._elements.append(p)
+        else:
+            raise ValueError('index out of range in PolylinesetPoint(): '.format(i))
+        self._update=True
+        
+    ## return a copy of the elements list
+    def getElements(self):
+        return deepcopy(self._elements)
     
+    def _updateInternals(self):
+        if self._update:
+            self._updateCenter()
+            self._updateLines()
+            self._update=False
+            
+    ## compute barycentric center of figure by equally weighting the
+    ## points.  If last and first points are the same, ignore the
+    ## last point.
+    def _updateCenter(self):
+        l = len(self._elements)
+        if l == 0:
+            return
+        elif l == 1:
+            self._center = point(self._elements[0]) # center is sole point
+            e = point(epsilon,epsilon)            # make bounding box
+            self._bbox = line(sub(self._center,e),
+                             add(self._center,e))
+        else:
+            if dist(self._elements[0],self._elements[-1]) < epsilon:
+                l -= 1
+
+            p = point(0,0,0)
+            for i in range(l):
+                p = add(self._elements[i],p)
+
+            self._center = p.scale(p,1/l)
+        return
+
+    ## return the center of the figure.  If necessary, recompute that
+    def getCenter(self):
+        if self._update:
+            self._updateInternals()
+        return self._center
+
+
+    def getLength(self):
+        if self._update:
+            self._updateInternals()
+        return self._length
+    
+    ## function to take the points in the elements[] list and build a
+    ## list of the individual lines, line lengths and total length to
+    ## facilitate sampling
+    
+    def _updateLines(self):
+        for i in range(1,len(self._elements)):
+            p0=  self._elements[i-1]
+            p1=  self._elements[i]
+            self._lines.append(line(p0,p1))
+            l = dist(p0,p1)
+            self._lengths.append(l)
+            self._length += l
+        if len(self._elements) > 2 and dist(self._elements[0],
+                                            self._elements[-1]) < epsilon:
+            self._closed = True
+
+    def sample(self,u):
+        dist = u * self._length;
+        d = 0
+        if self._closed:
+            u = u%1.0
+        if u < 1.0:
+            for i in range(len(self._lines)):
+                l=self._lengths[i]
+                if dist <= d+l:
+                    uu = 1.0 - (d+l-dist)/l
+                    return sampleline(self._lines[i],uu)
+                else:
+                    d+=l
+        else:
+            uu = (dist-self._length+self._lengths[-1])/self._lengths[-1]
+            return sampleline(self._lines[-1],uu)
+        
+
+class Polygon(Polyline):
+    """Generalized multi-element closed figure class"""
+
+    def __init__(self,a=False):
+        super().__init__(a)
+        self.outline=[]
+
+        elm = self._elements
+
+        # if first and last element are identicial points or circles,
+        # remove them
+        if ispoint(elm[0]) and ispoint(elm[-1]) and \
+           dist(elm[0],elm[-1]) < epsilon or \
+           iscircle(elm[0]) and iscircle(elm[-1]) and \
+           abs(elm[0][1][0] - elm[-1][1][0]) < epsilon:
+               self._elements.pop()
+        
+    def __repr__(self):
+        return 'Polygon({})'.format(vstr(self._elements))
+
     ## add another drawing element
     def addLine(self,element):
         if isline(element):
-            self.elements.append(element)
+            self._elements.append(element)
         else:
             raise ValueError('attempt to add a non point, line or arc to poly')
     
@@ -53,7 +172,7 @@ class Poly:
         if isarc(element):
             ## mark the psuedovector with a w=-1 tag to indicate that
             ## this is an arc, not a line
-            self.elements.append(element)
+            self._elements.append(element)
         else:
             raise ValueError('attempt to add a non point, line or arc to poly')
 
@@ -61,7 +180,7 @@ class Poly:
     ## center of all of the elements
     def center(self):
         p = point(0,0)
-        for e in self.elements:
+        for e in self._elements:
             if ispoint(e):
                 p = add(p,e)
             elif isline(e):
@@ -72,12 +191,12 @@ class Poly:
                 p = add(p,arccenter(e))
             else:
                 raise ValueError('bad element in poly elements')
-        if len(self.elements) > 0:
-            p = scale(p,1.0/len(self.elements))
+        if len(self._elements) > 0:
+            p = scale(p,1.0/len(self._elements))
         return p
                 
     def remove(self,element):
-        self.elements.remove(element)
+        self._elements.remove(element)
                 
     ## function to take the elements in the elements[] list and
     ## construct the full outline.  For example, consider a list of
@@ -102,8 +221,8 @@ class Poly:
                     raise ValueError("bad element in outline list for _calclength()")
                 l += length
                 ll.append(length)
-            self.length = l
-            self.lengths=ll
+            self._length = l
+            self._lengths=ll
             
         def _fromPointAdd(p0,e1,e2):
             if isvect(e1): #r1 is a point -- simplest case
@@ -117,7 +236,7 @@ class Poly:
                 self.outline.append(line(p0,p))
                 self.outline.append(arc(e1))
             elif iscircle(e1): ## complicated
-                c = self.center() # center of the current figure
+                c = self.getCenter() # center of the current figure
                 ## get the two tangent lines from point p0 to the
                 ## circle e1
                 ll = pointCircleTangentsXY(p0,e1)
@@ -134,13 +253,13 @@ class Poly:
                 raise ValueError('bad object in element list')
             
         self.outline=[]
-        self.length=0
-        self.lengths=[]
+        self._length=0
+        self._lengths=[]
 
-        if len(self.elements) < 2:
+        if len(self._elements) < 2:
             ## if one element, the outline is the element
-            if len(self.elements) == 1:
-                self.outline=deepcopy(self.elements)
+            if len(self._elements) == 1:
+                self.outline=deepcopy(self._elements)
                 self._calclength()
             ## if there are fewer than one elements, there is nothing to do
             return
@@ -150,16 +269,16 @@ class Poly:
         ## total length and length list for use in sample() function.
 
         
-        for i in range(len(self.elements)):
+        for i in range(len(self._elements)):
             if i == 0:
-                e0 = self.elements[-1]
+                e0 = self._elements[-1]
             else:
-                e0 = self.elements[i-1]
-            e1 = self.elements[i]
-            if i == len(self.elements)-1: #last item
-                e2 = self.elements[0]
+                e0 = self._elements[i-1]
+            e1 = self._elements[i]
+            if i == len(self._elements)-1: #last item
+                e2 = self._elements[0]
             else:
-                e2 = self.elements[i+1]
+                e2 = self._elements[i+1]
             ## work through element types
             if isvect(e0): #e0 is a point
                 _fromPointAdd(e0,e1,e2)
@@ -169,7 +288,7 @@ class Poly:
                 p0 = samplearc(e0,1.0)
                 _fromPointAdd(p0,e1,e2)
             elif iscircle(e0):
-                c = self.center()
+                c = self.getCenter()
                 ll = circleCircleTangentsXY(e0,e1)
                 d1 = dist(c,linecenter(ll[0]))
                 d2 = dist(c,linecenter(ll[1]))
@@ -218,10 +337,10 @@ class Poly:
     def sample(self,u):
         if len(self.outline) == 0:
             return vect(0,0)
-        dist = (u % 1.0) * self.length
+        dist = (u % 1.0) * self._length
         d = 0
         for i in range(len(self.outline)):
-            l=self.lengths[i]
+            l=self._lengths[i]
             if dist <= d+l:
                 uu = (d+l-dist)/l
                 e = self.outline[i]
