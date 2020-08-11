@@ -932,6 +932,85 @@ def barycentricXY(a,p1,p2,p3):
         raise ValueError('non-XY points in barycentricXY call')
     return _barycentricXY(a,p1,p2,p3)
 
+## Functions that operate on simple polylines/polygons
+
+## A simple polyline/polygon is a list of three or more points, which
+## define the verticies of the line.  If the last point and the first
+## point are coincident, i.e. dist(points[0],points[-1]) < epsilon,
+## then the line will be interpreted as a closed polygon.
+
+## polygons with positive area are defined in right-hand
+## (counterclockwise) order
+
+## polylines can be sampled, can be intersected with arcs, lines, and
+## other polylines, and when closed allow for inside-outside
+## testing. polylines also have bounding boxes.
+
+def poly(*args):
+    if len(args) == 0 or len(args) == 2:
+        raise ValueError('bad number of arguments {} passed to poly()'.format(len(args)))
+    if len(args) == 1:
+        if ispoly(args[0]):
+            return deepcopy(args[0])
+        else:
+            raise VauleError('non-poly list passed to poly()')
+    # args is of length 3 or greater.  Check to see if args are points
+    a = list(args)
+    b = list(filter(lambda x: not ispoint(x),a))
+    if len(b) > 0:
+        raise ValueError('non-point arguments to poly(): {} '.format(b))
+    return deepcopy(a)
+
+def ispoly(a):
+    return isinstance(a,list) and len(a) > 2 and \
+        len(list(filter(lambda x: not ispoint(x),a))) == 0
+
+## Note: this does not test for all points lying in the same plane
+def ispolygon(a):
+    return ispoly(a) and dist(a[0],a[-1]) < epsilon
+
+## is it a polygon with all points in the same x-y plane
+def ispolygonXY(a):
+    return ispolygon(a) and isXYPlanar(a)
+
+def samplepoly(a,u):
+    if not ispoly(a):
+        raise ValueError('non-poly passed to samplepoly')
+
+    closed=False
+    lines=[]
+    lengths=[]
+    length=0
+    
+    for i in range(1,len(a)):
+        p0=  a[i-1]
+        p1=  a[i]
+        lines.append(line(p0,p1))
+        l = dist(p0,p1)
+        lengths.append(l)
+        length += l
+    if len(a) > 2 and dist(a[0],a[-1]) < epsilon:
+        closed = True
+
+    if closed:
+        u=u%1.0
+        
+    dst = u * length;
+    d = 0
+    if u < 1.0:
+        for i in range(len(lines)):
+            l=lengths[i]
+            if dst <= d+l:
+                uu = 1.0 - (d+l-dst)/l
+                return sampleline(lines[i],uu)
+            else:
+                d+=l
+    else:
+        uu = (dst-length+lengths[-1])/lengths[-1]
+        return sampleline(lines[-1],uu)
+        
+    
+
 ## given a triangle defined as a list of three points and an
 ## additional test point, determine if that test point lies inside or
 ## outside the triangle, assuming that all points lie in the x-y plane
