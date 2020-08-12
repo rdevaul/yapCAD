@@ -1,15 +1,18 @@
 ## drawing and computational geometry example for yapCAD
-print("yapCAD computational geometry and DXF drawing example")
-print("Create three circles, then compute intersections between circles and draw")
-print("tangent lines between pairs of circles.")
-print("output file name is example3-out.dxf")
+print("example3.py -- yapCAD computational geometry and DXF drawing example")
+print('''
+Create three circles, then compute intersections between circles and
+draw tangent lines between pairs of circles.''')
 
 from ezdxf_drawable import *
 from geom import *
 
 #set up DXF rendering
 drawable=ezdxfDraw()
-drawable.saveas("example3-out")
+
+filename="example3-out"
+print("\nOutput file name is {}.dxf".format(filename))
+drawable.saveas(filename)
 
 a = point(5,5)
 b = point(-5,5)
