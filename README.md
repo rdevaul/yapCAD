@@ -120,19 +120,20 @@ don't need to see those coordinates.
     >>> [0, -5]
 
 ### pure geometry
-Pure geometry includes vectors, lines, triangles, and polygons.  A
-vector is a list of exactly four numbers, each of which is a float or
-integer.  A line is a list of two vectors, a triangle a list of three,
-and a polygon a list of 3 or more.
+Pure geometry includes vectors, points, lines, and polygons.  A vector
+is a list of exactly four numbers, each of which is a float or
+integer.  A point is a vector that lies in a w>0 hyperplane; Points
+are used to represent coordinates in yapCAD geometry.  A line is a
+list of two points, and a polygon a list of 3 or more.
 
-Pure geometry also includes arcs.  An arc is a list of two or three
-vectors. (technically, one or two vectors and a pseudovector) The
-first list element is interpreted as the vector center of the arc, the
-second is interpreted as three scalar parameters `[r, s, e]`: the
-radius, the start angle in degrees, and the end angle in degrees.  The
-third (if it exists) is the normal vector for the plane of the arc,
-which is assumed to be `[0, 0, 1]` (the x-y plane) if it is not
-specified.
+Pure geometry also includes arcs.  An arc is a list of a point and a
+vector, followed optionally by another point. The first list element
+is the center of the arc, the second is a vector in the w=-1
+hyperplane whose first three elements are the scalar parameters `[r,
+s, e]`: the radius, the start angle in degrees, and the end angle in
+degrees.  The third element (if it exists) is the normal for the plane
+of the arc, which is assumed to be `[0, 0, 1]` (the x-y plane) if it
+is not specified.
 
 ### drawable geometry
 
@@ -142,9 +143,9 @@ objects.
 
 Drawable geometry in yapCAD are subclasses of `Drawable`, which at
 present include `Point`, `Line`, and `Arc` subclasses. Support for
-`Polyline`, `Polygon`, and `RoundedPolygon` is planned.
+`Polyline` and `Polygon` is in progress.
 
-To setup a drawing environment, you will create an instance of the
+To setup a drawing environment, you create an instance of the
 `Drawable` base class corresponding to the rendering system you want
 to use.
 
