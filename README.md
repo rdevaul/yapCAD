@@ -13,6 +13,8 @@ The initial implementation of yapCAD provides DXF file creation support through 
 
 ## examples
 
+(for a more complete list, see the [examples folder](./examples/README.md))
+
 It's pretty easy to make a DXF drawing with yapCAD.  Here is an example:
 
 	from ezdxf_drawable import *
@@ -72,6 +74,8 @@ The yapCAD system isn't just about rendering, of course, it's about computationa
     print("intersection of l1 and l2:",vstr(int0))
     print("intersection of l1 and arc1:",vstr(int1))
 	
+And there are lots more [examples](examples/README.md) available to demonstrate the various computational geometry and rendering capabilities of yapCAD.
+
 ## geometry
 
 yapCAD distinguishes between "pure" geometric elements, such as
