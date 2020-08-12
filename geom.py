@@ -215,7 +215,10 @@ def vstr(a):
     else: #it's none of those things, fall back to default string
           #formatting
         return str(a)
-    
+
+
+## COMPUTATIONAL GEOMETRY
+## ======================
 ## operations on points
 ## --------------------
 
@@ -243,7 +246,27 @@ def ispoint(x):
     if isvect(x) and x[3] > 0.0:
         return True
     return False
-    
+
+## the length of a point is by definition zero
+def pointlength(x):
+    return 0.0
+
+## the center of a point is.... the same point
+def pointcenter(x):
+    return point(x)
+
+## this only makes sense in the context of generaling computational
+## geometry operations
+def samplepoint(x,u):
+    return point(x)
+
+## compute bounding box of point, which is 2 epsilon on a side.  Note,
+## this guarantees that two points that are wtihin epsilon of
+## eachother will be within eiach other's bbox
+def bboxpoint(x):
+    ee = point(epsilon,epsilon)
+    return [sub(x,ee),add(x,ee)]
+
 ## operations on lines
 ## --------------------
 
@@ -282,6 +305,14 @@ def sampleline(l,u):
     p2=l[1]
     p = 1.0-u
     return add(scale(p1,p),scale(p2,u))
+
+## compute line bounding box
+def bboxline(l):
+    p1=l[0]
+    p2=l[1]
+    return [ point(min(p1[0],p2[0]),min(p1[1],p2[1])),
+             point(max(p1[0],p2[0]),max(p1[1],p2[1])) ]
+
 
 ## Compute the intersection of two lines that lie in the same x,y plane
 def intersectXY(l1,l2,inside=True):
@@ -446,8 +477,8 @@ def linePointXY(l,p,inside=True,distance=False):
 def linePointXYDist(l,p,inside=True):
     return linePointXY(l,p,inside,distance=True)
 
-
 ## functions that operate on 2D arcs/circles
+##------------------------------------------------------------
 
 ## an arc or circle is defined by a center, a radius, a start angle,
 ## an end angle, and a normal that specifies the plane of the
@@ -533,8 +564,8 @@ def isarc(a):
 ## test to see if an arc is a circle.  NOTE that due to modulus
 ## arithmetic, it's not possible to specify an arc with a full 360
 ## degees range, as this would "wrap around" to an arc of 0 degrees
-## range.  To solve this, we use a special convention for start and
-## end to signal a true full circle
+## range.  To solve this, we use a special integer convention for
+## start and end to signal a true full circle
 
 def iscircle(a):
     if isarc(a):
@@ -588,7 +619,19 @@ def samplearc(c,u):
 
     return add(p,q)
 
-## Intersection functions for arcs and circles.
+def arcbbox(c):
+    if iscircle(c):
+        rr=point(c[1][0],c[1][0])
+        return [sub(c[0],rr),add(c[0],rr)]
+    else:
+        pp = []
+        for i in range(5):
+            u = i/4
+            pp.append(samplearc(c,u))
+        return polybbox(pp)
+    
+
+## Intersection functions for arcs and circles
 ## we can compute the intersection of an arc and a line, or an arc and
 ## an arc, when these all lie in the same plane.
 
@@ -741,7 +784,6 @@ def _lineArcIntersectXY(l,c,inside=True):
     ## intersection
     dist = linePointXYDist(l,x,inside)
     if dist > r+epsilon:
-        print("tooooo far: ",dist,r)
         return False
 
     ## start by treating the arc as a circle.  At this point we know
@@ -882,6 +924,7 @@ def _circleCircleTangentsXY(c1,c2):
 
     return [l1,l2]
 
+## value safe wrapper
 def circleCircleTangentsXY(c0,c1):
     if not iscircle(c0) or not iscircle(c1):
         raise ValueError('non circles passed to circleCirlceTangentsXY')
@@ -900,6 +943,7 @@ def circleCircleTangentsXY(c0,c1):
 
 
 ## functions that compute barycentric coordinates for 2D triangles
+## -----------------------------------------------------------
 
 ## given a point a and three vertices, all of which fall into the x-y
 ## plane, compute the barycentric coordinates lam1, lam2, and lam3
@@ -933,6 +977,7 @@ def barycentricXY(a,p1,p2,p3):
     return _barycentricXY(a,p1,p2,p3)
 
 ## Functions that operate on simple polylines/polygons
+## ---------------------------------------------------
 
 ## A simple polyline/polygon is a list of three or more points, which
 ## define the verticies of the line.  If the last point and the first
@@ -968,6 +1013,42 @@ def ispoly(a):
 ## Note: this does not test for all points lying in the same plane
 def ispolygon(a):
     return ispoly(a) and dist(a[0],a[-1]) < epsilon
+
+## if it's a polyline, sample the middle.  If it's a polygon, compute
+## the barycentric cemter with equal vertex weighting.
+def polycenter(a):
+    if ispolygon(a):
+        p=point(0,0)
+        l= len(a)-1
+        for i in range(l):
+            p = add(p,a[i])
+        return scale(p,1.0/l)
+    else:
+        return samplepoly(a,0.5)
+
+## we heart poly bboxes
+def polybbox(a):
+    if len(a) == 0:
+        return False
+    elif len(a) == 1:
+        return pointbbox(a[0])
+    else:
+        minx = maxx = a[0][0]
+        miny = maxy = a[0][1]
+        for i in range(1,len(a)):
+            p = a[i]
+            x=a[i][0]
+            y=a[i][1]
+            if x < minx:
+                minx =x
+            elif x > maxx:
+                maxx = x
+            if y < miny:
+                miny = y
+            elif y > maxy:
+                maxy = y
+        return [ point(minx,miny),point(maxx,maxy)]
+    
 
 ## is it a polygon with all points in the same x-y plane
 def ispolygonXY(a):
@@ -1008,8 +1089,17 @@ def samplepoly(a,u):
     else:
         uu = (dst-length+lengths[-1])/lengths[-1]
         return sampleline(lines[-1],uu)
-        
-    
+
+def polycenter(a):
+    return samplepoly(a,0.5)
+
+def polylength(a):
+    if len(a) < 2:
+        return 0.0
+    l = 0.0
+    for i in range(1,len(a)):
+        l += dist(a[i-1],a[i])
+    return l
 
 ## given a triangle defined as a list of three points and an
 ## additional test point, determine if that test point lies inside or
@@ -1050,8 +1140,68 @@ def isInsideConvexPolyXY(a,poly):
         raise ValueError('bad poly length or non-XY points in insidepolyXY call')
     return _isInsideConvexPolyXY(a,poly)
 
+## Generalized computational geometry functions
+## ----------------------------------------
 
-# -------------------------------------------------------------
+## Functions that operate on points, lines, arcs, and polys,
+## determining the nature of their arguments and generalizing the
+## operations of sampling, finding centers, computing bounding boxes,
+## and finding intersections.
+
+def length(x):
+    if ispoint(x):
+        # return pointlength(x):
+        return 0.0
+    elif isline(x):
+        return linelength(x)
+    elif isarc(x):
+        return arclength(x)
+    elif ispoly(x):
+        return polylength(x)
+    else:
+        raise ValueError("inappropriate type for length(): ".format(x))
+
+def center(x):
+    if ispoint(x):
+        # return pointcenter(x)
+        return point(x)
+    elif isline(x):
+        return linecenter(x)
+    elif isarc(x):
+        return arccenter(x)
+    elif ispoly(x):
+        return polycenter(x)
+    else:
+        raise ValueError("inappropriate type for center(): ",format(x))
+    
+def bbox(x):
+    if ispoint(x):
+        return pointbbox(x)
+    elif isline(x):
+        return linebbox(x)
+    elif isarc(x):
+        return arcbbox(x)
+    elif ispoly(x):
+        return polybbox(x)
+    else:
+        raise ValueError("inappropriate type for bbox(): ",format(x))
+    
+def sample(x,u):
+    if ispoint(x):
+        # return pointsample(x)
+        return point(x)
+    elif isline(x):
+        return linesample(x,u)
+    elif isarc(x):
+        return arcsample(x,u)
+    elif ispoly(x):
+        return polysample(x,u)
+    else:
+        raise ValueError("inappropriate type for sample(): ",format(x))
+    
+
+## UNIT TESTS
+## ========================================
 ## check to see if we have been invoked on the command line
 ## if so, run some tests
 
