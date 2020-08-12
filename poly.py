@@ -53,9 +53,9 @@ class Polyline:
     def setPoint(self,i,p):
         if not ispoint(p):
             raise ValueError('bad point passed to Polyline.setPoint(): '.format(p))
-        if i < len(self.elements):
+        if i < len(self._elements):
             self._elements[i]=point(p)
-        elif i == len(self.elements):
+        elif i == len(self._elements):
             self._elements.append(p)
         else:
             raise ValueError('index out of range in PolylinesetPoint(): '.format(i))
@@ -70,20 +70,32 @@ class Polyline:
             self._updateCenter()
             self._updateLines()
             self._update=False
-            
+
+
     ## compute barycentric center of figure by equally weighting the
     ## points.  If last and first points are the same, ignore the
     ## last point.
     def _updateCenter(self):
+        def _getcenter(e):
+            if ispoint(e):
+                return e
+            elif isline(e):
+                return linecenter(e)
+            elif isarc(e):
+                return e[0]
+            else:
+                raise ValueError('bad element passed to _getcenter() :'.format(e))
+            
         l = len(self._elements)
         if l == 0:
             return
         elif l == 1:
-            self._center = point(self._elements[0]) # center is sole point
+            self._center = _getcenter(self._elements[0]) # center is sole point
             e = point(epsilon,epsilon)            # make bounding box
             self._bbox = line(sub(self._center,e),
                              add(self._center,e))
         else:
+            
             if dist(self._elements[0],self._elements[-1]) < epsilon:
                 l -= 1
 
@@ -149,13 +161,15 @@ class Polygon(Polyline):
 
         elm = self._elements
 
-        # if first and last element are identicial points or circles,
-        # remove them
-        if ispoint(elm[0]) and ispoint(elm[-1]) and \
-           dist(elm[0],elm[-1]) < epsilon or \
-           iscircle(elm[0]) and iscircle(elm[-1]) and \
-           abs(elm[0][1][0] - elm[-1][1][0]) < epsilon:
-               self._elements.pop()
+        l = len(elm)
+        if l > 2:
+            # if first and last element are identicial points or circles,
+            # remove them
+            if ispoint(elm[0]) and ispoint(elm[-1]) and \
+               dist(elm[0],elm[-1]) < epsilon or \
+               iscircle(elm[0]) and iscircle(elm[-1]) and \
+               abs(elm[0][1][0] - elm[-1][1][0]) < epsilon:
+                self._elements.pop()
         
     def __repr__(self):
         return 'Polygon({})'.format(vstr(self._elements))
