@@ -1,14 +1,19 @@
 ## drawing and computational geometry example for yapCAD
-print("yapCAD computational geometry and DXF drawing example")
+print("example4.py -- yapCAD computational geometry and DXF drawing example")
 print("create and render rounded polygons")
-print("\n\
-This example demonstrates how 'rounded' polygons can be used to\n\
-calculate standoff distance from conventional polygons.  In this\n\
-case, we create a regular pentagon, then grow that by a distance \n\
-of 2.0 to create a rounded version that represents an iso-distance \n\
-line.  Then grow it again by 4 to crate another poly that we \n\
-sample to find the centers for 11 circles that are equally spaced\n\
-along the isodistance line d = 4.0")
+print('''
+
+This example demonstrates how to work with the yapCAD Polygon class.
+The Polygon class is a generalization of the simple multi-vertex
+polygon (see the poly() function in geom.py) intended to support the
+creation of 'rounded' geometry and to allow the calculation of
+iso-distance lines.
+
+In this case, we create a regular pentagon, then grow that by a
+distance of 2.0 to create a rounded version that represents an
+iso-distance line.  Then grow it again by 4 to crate another poly that
+we sample to find the centers for 11 circles that are equally spaced
+along the isodistance line d = 4.0''')
 
 from ezdxf_drawable import *
 from geom import *
@@ -16,7 +21,10 @@ from poly import *
 
 #set up DXF rendering
 drawable=ezdxfDraw()
-drawable.saveas("example4-out")
+
+filename="example4-out"
+print("\nOutput file name is {}.dxf".format(filename))
+drawable.saveas(filename)
 
 # make a circle with radius 10, centered at the origin
 a = point(0,0)
@@ -33,18 +41,18 @@ center = arc(a,2.0)
 Arc(center).draw()
 
 # make a polygon and add five points as corners
-poly0 = Poly()
+poly0 = Polygon()
 for p in points:
     poly0.addPoint(p)
 
 # make a polygon and add five circles with radius 2.0 as corners
-poly1 = Poly()
+poly1 = Polygon()
 for p in points:
     a = arc(p,2.0)
     poly1.addArc(a)
 
 # make a third polygon and add circles with radius 4.0 as corners
-poly2 = Poly()
+poly2 = Polygon()
 for p in points:
     a = arc(p,4.0)
     poly2.addArc(a)
