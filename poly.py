@@ -76,34 +76,25 @@ class Polyline:
     ## points.  If last and first points are the same, ignore the
     ## last point.
     def _updateCenter(self):
-        def _getcenter(e):
-            if ispoint(e):
-                return e
-            elif isline(e):
-                return linecenter(e)
-            elif isarc(e):
-                return e[0]
-            else:
-                raise ValueError('bad element passed to _getcenter() :'.format(e))
-            
         l = len(self._elements)
         if l == 0:
             return
         elif l == 1:
-            self._center = _getcenter(self._elements[0]) # center is sole point
+            self._center = center(self._elements[0]) # center is sole point
             e = point(epsilon,epsilon)            # make bounding box
             self._bbox = line(sub(self._center,e),
                              add(self._center,e))
         else:
             
-            if dist(self._elements[0],self._elements[-1]) < epsilon:
+            if dist(center(self._elements[0]),
+                    center(self._elements[-1])) < epsilon:
                 l -= 1
 
             p = point(0,0,0)
             for i in range(l):
-                p = add(self._elements[i],p)
+                p = add(center(self._elements[i]),p)
 
-            self._center = p.scale(p,1/l)
+            self._center = scale(p,1/l)
         return
 
     ## return the center of the figure.  If necessary, recompute that
@@ -124,14 +115,14 @@ class Polyline:
     
     def _updateLines(self):
         for i in range(1,len(self._elements)):
-            p0=  self._elements[i-1]
-            p1=  self._elements[i]
+            p0=  center(self._elements[i-1])
+            p1=  center(self._elements[i])
             self._lines.append(line(p0,p1))
             l = dist(p0,p1)
             self._lengths.append(l)
             self._length += l
-        if len(self._elements) > 2 and dist(self._elements[0],
-                                            self._elements[-1]) < epsilon:
+        if len(self._elements) > 2 and dist(center(self._elements[0]),
+                                            center(self._elements[-1])) < epsilon:
             self._closed = True
 
     def sample(self,u):
