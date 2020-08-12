@@ -13,7 +13,7 @@ The initial implementation of yapCAD provides DXF file creation support through 
 
 ## examples
 
-(for a more complete list, see the [examples folder](./examples/README.md))
+(for a more complete list, see the [examples folder](./examples/))
 
 It's pretty easy to make a DXF drawing with yapCAD.  Here is an example:
 
