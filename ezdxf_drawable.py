@@ -12,6 +12,12 @@ class ezdxfDraw(drawable.Drawable):
     msp = doc.modelspace()
     filename = "yapCAD-out"
 
+    def __init__(self):
+        super().__init__()
+
+    def __repr__(self):
+        return 'an instance of ezdxfDraw'
+        
     def draw_line(self,p1,p2):
         self.msp.add_line((p1[0], p1[1]), (p2[0], p2[1]))
 

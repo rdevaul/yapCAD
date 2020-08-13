@@ -44,9 +44,23 @@ class Drawable:
         self.draw_line(p3,p4)
         return;
 
+    ## utiitly function to draw a point based on the current point style
+    def draw_point(self,p):
+        if 'x' in self.pointstyle:
+            self.draw_x(p,0.2)
+
+        if 'o' in self.pointstyle:
+            self.draw_circle(p,0.1)
+
+    def __init__(self):
+        self.pointstyle = 'xo'
+        self.linestyle = '1'
+        self.linecolor = 'white'
+        self.fillcolor = 'none'
+        self.layer = 'default'
 
     def __repr__(self):
-        return 'an abstract, generic drawable object'
+        return 'an abstract Drawable instance'
 
     def str(self):
         return self.__repr__()
@@ -56,8 +70,7 @@ class Drawable:
 
     def draw(self,x):
         if ispoint(x):
-            self.draw_x(x,0.2)
-            self.draw_circle(x,0.1)
+            self.draw_point(x)
         elif isline(x):
             self.draw_line(x[0],x[1])
         elif isarc(x):

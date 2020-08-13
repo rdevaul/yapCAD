@@ -8,11 +8,11 @@ from ezdxf_drawable import *
 from geom import *
 
 #set up DXF rendering
-drawable=ezdxfDraw()
+d=ezdxfDraw()
 
 filename="example3-out"
 print("\nOutput file name is {}.dxf".format(filename))
-drawable.saveas(filename)
+d.saveas(filename)
 
 a = point(5,5)
 b = point(-5,5)
@@ -30,28 +30,18 @@ i2 = arcArcIntersectXY(circ2,circ3,False)
 
 points = i1 + i2
 
-arc1 = Arc(circ1)
-arc2 = Arc(circ2)
-arc3 = Arc(circ3)
+d.draw(circ1)
+d.draw(circ2)
+d.draw(circ3)
 
-tl11 = Line(tl1[0])
-tl12 = Line(tl1[1])
+d.draw(tl1[0])
+d.draw(tl1[1])
 
-tl21 = Line(tl2[0])
-tl22 = Line(tl2[1])
+d.draw(tl2[0])
+d.draw(tl2[1])
 
+d.pointstyle='o'
 for p in points:
-    P = Point(p,'o')
-    P.draw()
+    d.draw(p)
 
-arc1.draw()
-arc2.draw()
-arc3.draw()
-
-tl11.draw()
-tl12.draw()
-
-tl21.draw()
-tl22.draw()
-
-drawable.display()
+d.display()
