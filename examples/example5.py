@@ -16,7 +16,6 @@ increase in size to show the direction of increasing sample parameter.
 
 from ezdxf_drawable import *
 from geom import *
-from poly import *
 
 #set up DXF rendering
 drawable=ezdxfDraw()
