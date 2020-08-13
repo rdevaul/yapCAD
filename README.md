@@ -73,12 +73,14 @@ And there are lots more [examples](examples/README.md) available to demonstrate 
 
 ## geometry
 
-yapCAD distinguishes between "pure" geometric elements, such as
-vectors, and things you draw, such `Point` instances.  The reason for this
-distinction is that the pure geometry doesn't care about details like
-how you might draw it, it's just vectors and scalar geometric
-parameters.  This makes geometric operations cleaner and faster, as we
-are just passing around Python 3 lists.
+yapCAD distinguishes between "pure" geometric elements, such as lines,
+and things you draw, which are object specific to the rendering
+back-end. The reason for this distinction is that the pure geometry
+doesn't care about details like how you might draw it, it's just
+vectors and scalar geometric parameters.  As a rule, pure geonetry
+representations capture only the minimum necessary to perform
+computational geometry, and the rest gets dealt with by the subclasses
+of `Drawable` that actually render stuff. 
 
 ### geometric representations
 For the sake of uniformity, all yapCAD vectors are stored as
@@ -97,8 +99,8 @@ parameters you may not want to specify.  ***e.g.***
 	>>> add(vect(10,4),vect(10,9))  ## add operates in 3-space
     [20, 13, 0, 1.0]
 	
-Of course, you can specify all three coordinates using `vect`.  To
-specify all four coordinates, just make the vector manually.
+Of course, you can specify all three (or even four) coordinates using
+`vect`. 
 
 Since it gets ugly to look at a bunch of [x, y, z, w] lists that all
 end in `0, 1]` when you are doing 2D stuff, yapCAD provides a
@@ -130,23 +132,34 @@ degrees.  The third element (if it exists) is the normal for the plane
 of the arc, which is assumed to be `[0, 0, 1]` (the x-y plane) if it
 is not specified.
 
+Pure geometry also includes instances of the Polyline and Polygon
+class.  Instances of these classes are used for representing
+multi-figure drawing elements with C0 continuity.  They differ from
+the point-list-based `poly()` representation in that the elements of a
+Polyline or Polygon can include lines and arcs as well as points.
+These elements need not be contiguous, as successive elements will be
+automatically joined by lines.  Polygons are special in that they are
+closed, and that full circle elements are interpreted as "rounded
+corners," with the actual span of the arc calculated after tangent
+lines are drawn.
+
 ### drawable geometry
 
 The idea is that you will do your computational geometry with "pure"
-geometry, and then generate rendered previews or output with Drawable
-objects.
+geometry, and then generate rendered previews or output with one or
+more Drawable instances.
 
-Drawable geometry in yapCAD are subclasses of `Drawable`, which at
-present include `Point`, `Line`, and `Arc` subclasses. Support for
-`Polyline` and `Polygon` is in progress.
+Drawable instances in yapCAD are instances of subclasses of
+`Drawable`, which at present include `ezdxfDrawable`, a class for
+producing DXF renderinsgs using the awesome `ezdxf` package.
 
 To setup a drawing environment, you create an instance of the
 `Drawable` base class corresponding to the rendering system you want
 to use.
 
-To draw, create the geometry and then invoke the `draw` method.  To
-display or write out the results you will invoke the `display` method
-of the drawable instance. 
+To draw, create the pure geometry and then pass that to the drawbles's
+`draw()` method.  To display or write out the results you will invoke
+the `display` method of the drawable instance.
 
 #### supported rendering systems
 
