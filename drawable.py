@@ -54,8 +54,22 @@ class Drawable:
     def print(self):
         print(self.str())
 
-    def draw(self):
-        print('abstract draw function called')
+    def draw(self,x):
+        if ispoint(x):
+            self.draw_x(x,0.2)
+            self.draw_circle(x,0.1)
+        elif isline(x):
+            self.draw_line(x[0],x[1])
+        elif isarc(x):
+            self.draw_arc(x[0],x[1][0],x[1][1],x[1][2])
+        elif ispoly(x):
+            for e in x:
+                self.draw(e)
+        elif isinstance(x,Drawable):
+            x.draw()
+        else:
+            raise ValueError('bad argument to Drawable.draw(): '.format(x))
+        
 
     ## function to return a coordinate (point) given a parameter u,
     ## such that 0 <= u <=1 will map to the range of the

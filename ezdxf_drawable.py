@@ -6,7 +6,7 @@ import ezdxf
 import drawable
 
 ## base class to provide dxf drawing functionality
-class ezdxfDraw:
+class ezdxfDraw(drawable.Drawable):
     doc = ezdxf.new(dxfversion='R2010')
     doc.layers.new('DEFAULT', dxfattribs={'color': 2})
     msp = doc.modelspace()
