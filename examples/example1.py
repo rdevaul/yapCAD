@@ -6,6 +6,7 @@ from geom import *
 
 #set up DXF rendering
 d=ezdxfDraw()
+
 filename="example1-out"
 print("\nOutput file name is {}.dxf".format(filename))
 d.saveas(filename)
