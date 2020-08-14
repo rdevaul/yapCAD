@@ -20,11 +20,11 @@ from geom import *
 from poly import *
 
 #set up DXF rendering
-drawable=ezdxfDraw()
+d=ezdxfDraw()
 
 filename="example4-out"
 print("\nOutput file name is {}.dxf".format(filename))
-drawable.saveas(filename)
+d.saveas(filename)
 
 # make a circle with radius 10, centered at the origin
 a = point(0,0)
@@ -38,7 +38,7 @@ for i in range(5):
 
 # make a circle of radius 2 at the center
 center = arc(a,2.0)
-Arc(center).draw()
+d.draw(center)
 
 # make a polygon and add five points as corners
 poly0 = Polygon()
@@ -65,12 +65,7 @@ poly2.makeoutline()
 def drawOutline(ply):    
     # draw the outline
     for e in ply.outline:
-        if isline(e):
-            l = Line(e)
-            l.draw()
-        else: #it's an arc
-            a = Arc(e)
-            a.draw()
+        d.draw(e)
             
 drawOutline(poly0)
 drawOutline(poly1)
@@ -82,10 +77,11 @@ for i in range(12):
     p = poly2.sample(x)
     # add some points to the drawing
     if i == 0:
-        Point(p,'xo').draw()    # mark the first point differently
+        d.pointstyle = 'xo'
     else:
-        Point(p,'o').draw()
+        d.pointstyle = 'o'
+    d.draw(p)
         
-    Arc(arc(p,2.0)).draw()
+    d.draw(arc(p,2.0))
 
-drawable.display()
+d.display()
