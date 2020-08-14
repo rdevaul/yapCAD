@@ -18,10 +18,10 @@ from ezdxf_drawable import *
 from geom import *
 
 #set up DXF rendering
-drawable=ezdxfDraw()
+d=ezdxfDraw()
 filename="example5-out"
 print("Output file name is {}.dxf".format(filename))
-drawable.saveas(filename)
+d.saveas(filename)
 
 # make circles centered at -10.0,10.0
 a = point(-10.0,10.0)
@@ -66,14 +66,14 @@ for p in points2:
 for ply in ply1:
     for i in range(1,len(ply)):
         l = line(ply[i-1],ply[i])
-        Line(l).draw()
+        d.draw(l)
 
 
 i = 4
 for ply in ply1:
     for j in range(i*3):
         p = samplepoly(ply,j/(i*3))
-        Arc(arc(p,0.2+j/(i*10))).draw()
+        d.draw(arc(p,0.2+j/(i*10)))
     i = i+1
     
-drawable.display()
+d.display()
