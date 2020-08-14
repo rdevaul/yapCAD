@@ -47,13 +47,14 @@ class Drawable:
     ## utiitly function to draw a point based on the current point style
     def draw_point(self,p):
         if 'x' in self.pointstyle:
-            self.draw_x(p,0.2)
+            self.draw_x(p,self.pointsize*2)
 
         if 'o' in self.pointstyle:
-            self.draw_circle(p,0.1)
+            self.draw_circle(p,self.pointsize)
 
     def __init__(self):
         self.pointstyle = 'xo'
+        self.pointsize = 0.1
         self.linestyle = '1'
         self.linecolor = 'white'
         self.fillcolor = 'none'
