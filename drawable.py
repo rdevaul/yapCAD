@@ -76,7 +76,7 @@ class Drawable:
             self.draw_line(x[0],x[1])
         elif isarc(x):
             self.draw_arc(x[0],x[1][0],x[1][1],x[1][2])
-        elif ispoly(x):
+        elif ispoly(x) or isgeomlist(x):
             for e in x:
                 self.draw(e)
         elif isinstance(x,Drawable):
