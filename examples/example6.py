@@ -18,10 +18,10 @@ from geom import *
 from poly import *
 
 #set up DXF rendering
-drawable=ezdxfDraw()
+d=ezdxfDraw()
 filename="example6-out"
 print("Output file name is {}.dxf".format(filename))
-drawable.saveas(filename)
+d.saveas(filename)
 
 # make circles centered at -10.0,10.0
 a = point(-10.0,10.0)
@@ -55,12 +55,7 @@ for i in range(7,10):
 def drawOutline(ply):    
     # draw the outline
     for e in ply.outline:
-        if isline(e):
-            l = Line(e)
-            l.draw()
-        else: #it's an arc
-            a = Arc(e)
-            a.draw()
+        d.draw(e)
 
 for ply in polys1:
     drawOutline(ply)
@@ -70,7 +65,7 @@ i = 4
 for ply in polys1:
     for j in range(i*3):
         p = ply.sample(j/(i*3))
-        Arc(arc(p,0.2+j/(i*10))).draw()
+        d.draw(arc(p,0.2+j/(i*10)))
     i = i+1
     
-drawable.display()
+d.display()
