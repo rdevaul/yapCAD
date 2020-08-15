@@ -52,13 +52,8 @@ for i in range(7,10):
     poly.makeoutline()
 
     
-def drawOutline(ply):    
-    # draw the outline
-    for e in ply.outline:
-        d.draw(e)
-
 for ply in polys1:
-    drawOutline(ply)
+    d.draw(ply.outline)
 
 
 i = 4

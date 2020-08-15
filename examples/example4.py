@@ -62,14 +62,8 @@ poly0.makeoutline()
 poly1.makeoutline()
 poly2.makeoutline()
 
-def drawOutline(ply):    
-    # draw the outline
-    for e in ply.outline:
-        d.draw(e)
-            
-drawOutline(poly0)
-drawOutline(poly1)
-#drawOutline(poly2)
+d.draw(poly0.outline)
+d.draw(poly1.outline)
 
 # sample 12 points from a polygon
 for i in range(12):
