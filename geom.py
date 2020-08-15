@@ -1101,6 +1101,28 @@ def polylength(a):
         l += dist(a[i-1],a[i])
     return l
 
+## geometry lists ----------------------- functions for lists of
+## geometry.  There is no guarantee of continutiy for geometry
+## elements, only that they are all valid geometry representationsm,
+## or other geometry lists.
+
+def isgeomlist(a):
+    if not isinstance(a,list):
+        return False
+    b = list(filter(lambda x: not (ispoint(x) or isline(x) \
+                                   or isarc(x) or ispoly(x) \
+                                   or isgeomlist(a)),a))
+    return not len(b) > 0
+
+## functions on trangles -- a subset of polys
+## ------------------------------------------
+
+## a triangle is a list of three points, or four points if the first
+## and the last are the same.
+def istriangle(a):
+    return ispoly(a) and ( length(a) == 3 or \
+                           length(a) == 4 and dist(a[0],a[3]) < epsilon )
+
 ## given a triangle defined as a list of three points and an
 ## additional test point, determine if that test point lies inside or
 ## outside the triangle, assuming that all points lie in the x-y plane
@@ -1119,8 +1141,8 @@ def _isInsideTriangleXY(a,poly): #no value checking version
 
 # value-safe wrapper for triangle inside testing
 def isInsideTriangleXY(a,poly):
-    if len(poly) != 3 or not isXYPlanar(poly + [a ]):
-        raise ValueError('bad poly length or non-XY points in insidetriangleXY call')
+    if not istriangle(a) or not isXYPlanar(poly + [a ]):
+        raise ValueError('bad triangle or non-XY points in insidetriangleXY call')
     return _isInsideTriangleXY(a,poly)
 
 ## given a convex polygon defined as a list of three or more points
