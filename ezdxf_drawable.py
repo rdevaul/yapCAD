@@ -22,7 +22,10 @@ class ezdxfDraw(drawable.Drawable):
         self.msp.add_line((p1[0], p1[1]), (p2[0], p2[1]))
 
     def draw_arc(self,p,r,start,end):
-        self.msp.add_arc((p[0],p[1]),r,start,end)
+        if start==0 and end==360:
+            self.msp.add_circle((p[0],p[1]),r)
+        else:
+            self.msp.add_arc((p[0],p[1]),r,start,end)
 
     def saveas(self,name):
         self.filename = name
