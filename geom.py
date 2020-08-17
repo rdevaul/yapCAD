@@ -5,7 +5,7 @@
 from math import *
 
 ## constants
-epsilon=0.0000001
+epsilon=0.000001
 pi2 = 2.0*pi
 
 ## operations on vectors
