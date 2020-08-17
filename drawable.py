@@ -79,6 +79,8 @@ class Drawable:
         elif ispoly(x) or isgeomlist(x):
             for e in x:
                 self.draw(e)
+        elif isinstance(x,Geometry):
+            self.draw(x.geom())
         elif isinstance(x,Drawable):
             x.draw()
         else:
