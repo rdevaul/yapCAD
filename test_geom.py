@@ -21,6 +21,7 @@ class TestPoint:
         b = point(0,5)
         assert ispoint(a)
         assert ispoint(b)
+        assert not ispoint(vect(1,2,3,-1))
         assert ispoint([0,2,2,1])
         assert not ispoint([1,2])
 
@@ -32,7 +33,48 @@ class TestPoint:
         assert vstr(b) == '[2, 3, 2]'
         assert vstr(c) == '[1, 2, 3, 4]'
 
+class TestOperations:
+    def test_vect(self):
+        def close(a,b):
+            return abs(a-b) < epsilon
+        def vclose(a,b):
+            return close(mag(sub(a,b)),0)
+        
+        a = point(5,0)
+        b = point(0,5)
+        c = point(-3,-3)
+        d = point(1,1)
+        e = point(10,10)
+        assert close(mag(a),5.0)
+        assert vclose(add(a,b),point(5,5))
+        assert vclose(sub(a,b),point(5,-5))
+        assert close(dot(a,b),0)
+        assert close(dot(d,c),-6)
+        assert vclose(cross(a,b),point(0,0,25))
+        assert vclose(cross(b,a),point(0,0,-25))
+        assert close(mag(sub(a,b)),sqrt(50))
+
 class TestLine:
+    def test_create(self):
+        def close(a,b):
+            return abs(a-b) < epsilon
+        def vclose(a,b):
+            return close(mag(sub(a,b)),0)
+        
+        a = point(5,0)
+        b = point(0,5)
+        c = point(-3,-3)
+        d = point(1,1)
+        e = point(10,10)
+        f = vect(1,2,3,-1)
+
+        assert line(a,b) == [a,b]
+        assert isline(line(a,b))
+        assert isline([a,b])
+        assert not isline([a,f])
+        with pytest.raises(ValueError):
+            assert not lsine(line(a,f))
+        
     def test_sample(self):
         a = point(-5,-1)
         b = point(5,3)
@@ -59,7 +101,25 @@ class TestLine:
         assert abs(u4-1.5) < epsilon
         p = point(100,100)
         assert not unsampleline(l,p)
-        
+
+class TestUtility:
+    def test_copy(self):
+        a = point(-5,-1)
+        b = point(5,3)
+        c = point(-3,-3)
+        d = point(1,1)
+        e = point(10,10)
+        l = line(a,b)
+        l2 = [c,d]
+        l3 = line(c,e)
+        foo = [a,b,l3,l2,d]
+        foobar = deepcopy(foo)
+        assert foobar == foo
+        foo[0]=e
+        assert not foobar==foo
+        bar = [a,b,[1,2],l2,l3]
+        assert not deepcopy(bar)
+
 class TestPoly:
     def test_create(self):
         with pytest.raises(ValueError):
