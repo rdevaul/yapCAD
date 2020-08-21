@@ -46,19 +46,19 @@ The yapCAD system isn't just about rendering, of course, it's about computationa
 	from geom import *
 
     # define some points
-    a = vect(5,0)
-    b = vect(0,5)
-    c = vect(-3,0)
-    d = vect(10,10)
+    a = point(5,0)
+    b = point(0,5)
+    c = point(-3,0)
+    d = point(10,10)
 
     # make a couple of lines
-    l1 = [a,b]
-    l2 = [c,d]
+    l1 = line(a,b)
+    l2 = line(c,d)
 
     # define a semicircular arc centerd at 2.5, 2,5 with a radius of 2.5
     # extending from 90 degress to 135 degrees
 
-    arc1=[vect(2.5,2.5),vect(2.5,90.0,270.0)]
+    arc1=arc(point(2.5,2.5),2.5,90.0,270.0)
 
     # calculate the intersection of lines l1 and l2
     int0 = intersectXY(l1,l2)
@@ -69,7 +69,9 @@ The yapCAD system isn't just about rendering, of course, it's about computationa
     print("intersection of l1 and l2:",vstr(int0))
     print("intersection of l1 and arc1:",vstr(int1))
 	
-And there are lots more [examples](examples/README.md) available to demonstrate the various computational geometry and rendering capabilities of yapCAD.
+And there are lots more [examples](examples/README.md) available to
+demonstrate the various computational geometry and rendering
+capabilities of yapCAD.
 
 ## geometry
 
