@@ -306,6 +306,25 @@ def sampleline(l,u):
     p = 1.0-u
     return add(scale(p1,p),scale(p2,u))
 
+## function to "unsample" a line -- given a point on a line, provide
+## the corresponding parametric value.  If check is true, return False
+## if the distance of the point from the line is greater than epsilon
+
+def unsampleline(l,p,check=True):
+    v1 = sub(l[1],l[0])
+    v2 = sub(p,l[0])
+    if check:
+        z = cross(v1,v2)        # magnitude of cross product is zero
+                                # if vectors parallel
+        if mag(z) > epsilon:         #  not parallel
+            return False
+    len1 = mag(v1)
+    len2 = mag(v2)
+    if dot(v1,v2) > 0:
+        return len2/len1
+    else:
+        return -len2/len1
+        
 ## compute line bounding box
 def bboxline(l):
     p1=l[0]
@@ -315,7 +334,7 @@ def bboxline(l):
 
 
 ## Compute the intersection of two lines that lie in the same x,y plane
-def intersectXY(l1,l2,inside=True):
+def intersectXY(l1,l2,inside=True,params=False):
     x1=l1[0][0]
     y1=l1[0][1]
     z1=l1[0][2]
@@ -346,6 +365,10 @@ def intersectXY(l1,l2,inside=True):
     t = ((x1-x3)*(y3-y4) - (y1-y3)*(x3-x4))/denom
     u = -1 * ((x1-x2)*(y1-y3) - (y1-y2)*(x1-x3))/denom
 
+    ## return the paramater space intersection
+    if params:
+        return [t,u]
+    
     ## do we care about falling inside the line segments? if so,
     ## check that the intersection falls within
     if inside and ( t < 0.0 or t > 1.0 or u < 0.0 or u > 1.0):
@@ -365,13 +388,16 @@ def intersectXY(l1,l2,inside=True):
 ## two-step operation of calling linePoint() and then dist() on the
 ## result.
 
-def linePointXY(l,p,inside=True,distance=False):
+def linePointXY(l,p,inside=True,distance=False,params=False):
     a=l[0]
     b=l[1]
     # check for degenerate case of zero-length line
     abdist = dist(a,b)
     if abdist < epsilon:
-        return False
+        raise ValueError('zero-length line passed to linePointXY')
+
+    if distance and params:
+        raise ValueError('incompatible distance and params parameters passed to linePointXY')
 
     x0=p[0]
     y0=p[1]
@@ -417,23 +443,32 @@ def linePointXY(l,p,inside=True,distance=False):
     pi2 = add(p,ordir2)
 
     ## compute distances
-    d1 =  dist(a,pi1)+dist(pi1,b) # "triangle" with pi1
-    d2 =  dist(a,pi2)+dist(pi2,b) # "triangle" with pi2
+    d1pa = dist(a,pi1)
+    d1pb = dist(pi1,b)
+    d1 =  d1pa+d1pb # "triangle" with pi1
+
+    d2pa = dist(a,pi2)
+    d2pb = dist(pi2,b)
+    d2 =  d2pa+d2pb # "triangle" with pi2
 
     ## the shortest "triangle" distance will signal the point that
     ## is actually on the line, even if that point falls outside
     ## the a,b line interval
     
-    if not inside: # if we don't care about being inside the line
-                   # segment
+    if params or not inside: # if we don't care about being inside the
+                             # line segment
         if d1 <= d2:
             if distance:
                 return d1
+            elif params:
+                return d1pb/abdist
             else:
                 return pi1
         else:
             if distance:
                 return d2
+            elif params:
+                return d2pb/abdist
             else:
                 return pi2
         
@@ -636,7 +671,7 @@ def arcbbox(c):
 ## an arc, when these all lie in the same plane.
 
 ## arc-arc jtersection calculation, non-value-safe version
-def _arcArcIntersectXY(c1,c2,inside=True):
+def _arcArcIntersectXY(c1,c2,inside=True,params=False):
     x1=c1[0]
     x2=c2[0]
     r1=c1[1][0]
@@ -708,7 +743,7 @@ def _arcArcIntersectXY(c1,c2,inside=True):
     if not s or len(s) == 0:
         raise ValueError('no computed intersections, something is wrong')
 
-    if not inside:
+    if not inside and not params:
         return s
     
     ## jump back to arc1 and arc2 space and check angles
@@ -725,37 +760,54 @@ def _arcArcIntersectXY(c1,c2,inside=True):
 
     ## check each intersection against angles for each arc.  
     ss = []
+    uparams = []
     for i in range(len(s)):
         p1 =s1[i]
         p2 =s2[i]
         ang1 = (atan2(p1[1],p1[0]) % pi2)*360.0/pi2
         ang2 = (atan2(p2[1],p2[0]) % pi2)*360.0/pi2
 
-        good = False
-        ## check angle against first arc
-        if end1 > start1 and ang1 >= start1 and ang1 <= end1:
-            good = True
-        elif start1 < end1 and ang1 <= start1 and ang1>= end1:
-            good = True
-
-        ## check angle against second arc
-        if end2 > start2 and ang2 >= start2 and ang2 <= end2:
-            good = good and True
-        elif start2 < end2 and ang2 <= start2 and ang2>= end2:
-            good = good and True
+        if params:
+            if end1 > start1:
+                end = end1
+            else:
+                end = end1+360
+            uparams = uparams + [ (ang1-start1)/(end-start1) ]
+            if end2 > start2:
+                end = end2
+            else:
+                emd = end2+360
+            uparams = uparams + [ (ang2-start2)/(end-start2) ]
         else:
             good = False
+            ## check angle against first arc
+            if end1 > start1 and ang1 >= start1 and ang1 <= end1:
+                good = True
+            elif start1 < end1 and ang1 <= start1 and ang1>= end1:
+                good = True
 
-        ## only add instersection to the list if both checks were passed
-        if good:
-            ss = ss + [ s[i] ]
-    if len(ss) == 0:
+            ## check angle against second arc
+            if end2 > start2 and ang2 >= start2 and ang2 <= end2:
+                good = good and True
+            elif start2 < end2 and ang2 <= start2 and ang2>= end2:
+                good = good and True
+            else:
+                good = False
+
+            ## only add instersection to the list if both checks were passed
+            if good:
+                ss = ss + [ s[i] ]
+                
+    if not params and len(ss) == 0:
         return False
     else:
-        return ss
+        if params:
+            return uparams
+        else:
+            return ss
 
 ## value-safe wrapper for arc-arc intersection function
-def arcArcIntersectXY(c1,c2,inside=True):
+def arcArcIntersectXY(c1,c2,inside=True,params=False):
     for c in [c1,c2]:
         if len(c) == 3:
             norm = c[2]
@@ -763,11 +815,11 @@ def arcArcIntersectXY(c1,c2,inside=True):
                 raise ValueError('arc passed to lineArcIntersectXY does not lie in x-y plane')
     if not isXYPlanar([c1[0],c2[0]]):
         raise ValueError('arcs passed to arcArcIntersectXY do not lie in same x-y plane')
-    return _arcArcIntersectXY(c1,c2,inside)
+    return _arcArcIntersectXY(c1,c2,inside,params)
     
 
 ## non-value-safe line-arc intersection function
-def _lineArcIntersectXY(l,c,inside=True):
+def _lineArcIntersectXY(l,c,inside=True,params=False):
     x=c[0]
     r=c[1][0]
 
