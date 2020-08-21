@@ -49,8 +49,8 @@ def vect(a=False,b=False,c=False,d=False):
     return r
 
 ## function to deep-copy geometry, which is to say lists containing
-## non-zero-length lists or 4-vectors.  Returns False if argument
-## isn't valid geometry list
+## non-zero-length lists or 4-vectors.  Returns False if a isn't valid
+## geometry list
 
 def deepcopy(a):
     if isvect(a):
@@ -66,7 +66,7 @@ def deepcopy(a):
             return False
     else:
         return False
-
+    
 ## check to see if argument is a proper vector for our purposes
 def isvect(x):
     return isinstance(x,list) and len(x) == 4 and isgoodnum(x[0]) and isgoodnum(x[1]) and isgoodnum(x[2]) and isgoodnum(x[3])
@@ -307,17 +307,16 @@ def sampleline(l,u):
     return add(scale(p1,p),scale(p2,u))
 
 ## function to "unsample" a line -- given a point on a line, provide
-## the corresponding parametric value.  If check is true, return False
-## if the distance of the point from the line is greater than epsilon
+## the corresponding parametric value.  Return False if the distance
+## of the point from the line is greater than epsilon
 
-def unsampleline(l,p,check=True):
+def unsampleline(l,p):
     v1 = sub(l[1],l[0])
     v2 = sub(p,l[0])
-    if check:
-        z = cross(v1,v2)        # magnitude of cross product is zero
+    z = cross(v1,v2)            # magnitude of cross product is zero
                                 # if vectors parallel
-        if mag(z) > epsilon:         #  not parallel
-            return False
+    if mag(z) > epsilon:        #  not parallel case
+        return False
     len1 = mag(v1)
     len2 = mag(v2)
     if dot(v1,v2) > 0:
@@ -634,6 +633,7 @@ def arclength(c):
     l = d*(end-start)/360.0
     return l
 
+## Sample the arc over the start-end angle interval
 def samplearc(c,u):
     p=c[0]
     r=c[1][0]
@@ -653,6 +653,30 @@ def samplearc(c,u):
     q = scale(vect(cos(radians),sin(radians)),r)
 
     return add(p,q)
+
+## unsample the arc, which is to day given a point that is on the
+## circle, return it's corresponding sample parameter, or False if the
+## point doesn't lie on the circle
+def unsamplearc(c,p):
+    x = sub(p,c[0])
+    r=c[1][0]
+    start=c[1][1]
+    end=c[1][2]
+    if start != 0 and end != 360:
+        start = start % 360.0
+        end = end % 360.0
+        if end < start:
+            end += 360.0    
+    if len(c) == 3:
+        norm = c[2]
+        if dist(norm,vect(0,0,1)) > epsilon:
+            raise NotImplementedError('non x-y plane arc unsampling not yet supported')
+    if abs(mag(x)-r) > epsilon:
+        return False            # point is not on arc circle
+    ang = (atan2(x[1],x[0]) % pi2)*360/pi2
+    u = (ang-start)/(end-start)
+    return u
+    
 
 def arcbbox(c):
     if iscircle(c):
@@ -1106,15 +1130,11 @@ def polybbox(a):
 def ispolygonXY(a):
     return ispolygon(a) and isXYPlanar(a)
 
-def samplepoly(a,u):
-    if not ispoly(a):
-        raise ValueError('non-poly passed to samplepoly')
-
-    closed=False
+## utility function used by both samplepoly() and unsamplepoly()
+def __lineslength(a):
     lines=[]
     lengths=[]
     length=0
-    
     for i in range(1,len(a)):
         p0=  a[i-1]
         p1=  a[i]
@@ -1122,6 +1142,18 @@ def samplepoly(a,u):
         l = dist(p0,p1)
         lengths.append(l)
         length += l
+    return lines,lengths,length
+
+## map the interval 0 to 1 to the total length of all poly segments
+## and return the sample point corresponding to the parameter u
+
+def samplepoly(a,u):
+    if not ispoly(a):
+        raise ValueError('non-poly passed to samplepoly')
+
+    closed=False
+
+    lines,lengths,length = __lineslength(a)
     if len(a) > 2 and dist(a[0],a[-1]) < epsilon:
         closed = True
 
@@ -1141,6 +1173,36 @@ def samplepoly(a,u):
     else:
         uu = (dst-length+lengths[-1])/lengths[-1]
         return sampleline(lines[-1],uu)
+
+## anlogous to the unsampleline() and unsamplearc() functions, given a
+## point on a poly, return the corresponding sample parameter, or
+## False if the point is more than epsilon away from any poly line
+## segment
+
+def unsamplepoly(a,p):
+    if not ispoly(a):
+        raise ValueError('non-poly passed to unsamplepoly')
+    lines,lengths,length = __lineslength(a)
+    if len(lines) == 1:
+        return unsampleline(lines[0],p)
+    else:
+        uu1 = unsampleline(lines[0],p)
+        if uu1 and uu1 < 1.0:
+            return uu1*lengths[0]/length
+        dist = lengths[0]
+        if len(lines) > 2:
+            for i in range(1,len(lines)-1):
+                uu = unsampleline(lines[i],p)
+                if uu and uu >= 0.0 and uu < 1.0:
+                    return (uu*lengths[i]+dist)/length
+                else:
+                    dist = dist+lengths[i]
+        uu2 = unsampleline(lines[-1],p)
+        
+        if uu2 and uu2 >= 0.0:
+            return (uu2*lengths[-1]+dist)/length
+        else:
+            return False
 
 def polycenter(a):
     return samplepoly(a,0.5)
@@ -1172,8 +1234,8 @@ def isgeomlist(a):
 ## a triangle is a list of three points, or four points if the first
 ## and the last are the same.
 def istriangle(a):
-    return ispoly(a) and ( length(a) == 3 or \
-                           length(a) == 4 and dist(a[0],a[3]) < epsilon )
+    return ispoly(a) and ( len(a) == 3 or \
+                           len(a) == 4 and dist(a[0],a[3]) < epsilon )
 
 ## given a triangle defined as a list of three points and an
 ## additional test point, determine if that test point lies inside or
@@ -1193,7 +1255,10 @@ def _isInsideTriangleXY(a,poly): #no value checking version
 
 # value-safe wrapper for triangle inside testing
 def isInsideTriangleXY(a,poly):
-    if not istriangle(a) or not isXYPlanar(poly + [a ]):
+    if not istriangle(poly) or not isXYPlanar(poly + [a ]):
+        print("isInsideTriangleXY -- a: ",vstr(a)," poly: ",vstr(poly))
+        print("istriangle(a): ",istriangle(a)," isXYPlanar(poly + [a ]) :",isXYPlanar(poly + [a ]))
+        print("ispoly(a): ",ispoly(a))
         raise ValueError('bad triangle or non-XY points in insidetriangleXY call')
     return _isInsideTriangleXY(a,poly)
 
@@ -1289,34 +1354,34 @@ if __name__ == "__main__":
     c = point(-3,-3)
     d = point(1,1)
     e = point(10,10)
-    print("---> point creation and testing")
-    print("some points: a:" + vstr(a) + ", b:"
-          + vstr(b) + ", c:" + vstr(c) + ", d:" + vstr(d) + ", e:" + vstr(e))
-    print("ispoint(a): ",ispoint(a))
-    print("ispoint(point(a)): ",ispoint(point(a)))
-    print("ispoint([1,2]: ",ispoint([1,2]))
-    print("ispoint(vect(1,2)): ",ispoint(vect(1,2)))
-    print("ispoint(vect(1,2,3,4)): ",ispoint(vect(1,2,3,4)))
-    print("ispoint(vect(1,2,3,-1)): ",ispoint(vect(1,2,3,-1)))
+    # print("---> point creation and testing")
+    # print("some points: a:" + vstr(a) + ", b:"
+    #       + vstr(b) + ", c:" + vstr(c) + ", d:" + vstr(d) + ", e:" + vstr(e))
+    # print("ispoint(a): ",ispoint(a))
+    # print("ispoint(point(a)): ",ispoint(point(a)))
+    # print("ispoint([1,2]: ",ispoint([1,2]))
+    # print("ispoint(vect(1,2)): ",ispoint(vect(1,2)))
+    # print("ispoint(vect(1,2,3,4)): ",ispoint(vect(1,2,3,4)))
+    # print("ispoint(vect(1,2,3,-1)): ",ispoint(vect(1,2,3,-1)))
     
     print("---> basic vector operations tests")
-    print("mag a: " + str(mag(a)))
-    print("add(a,b): " + vstr(add(a,b)))
-    print("sub(a,b): " + vstr(sub(a,b)))
-    print("mag(sub(a,b)): " + str(mag(sub(a,b))))
-    print("mag(sub(a,b)) == sqrt(50): " + str(mag(sub(a,b))==sqrt(50.0)))
+    # print("mag a: " + str(mag(a)))
+    # print("add(a,b): " + vstr(add(a,b)))
+    # print("sub(a,b): " + vstr(sub(a,b)))
+    # print("mag(sub(a,b)): " + str(mag(sub(a,b))))
+    # print("mag(sub(a,b)) == sqrt(50): " + str(mag(sub(a,b))==sqrt(50.0)))
 
     print("---> line creation and testing")
-    l1 = [a,b]
-    print("l1 = [a,b] -- l1:",vstr(l1))
-    l11 = line(a,b)
-    print("l11 = line(a,b) -- l1:",vstr(l11))
-    l2 = [c,d]
-    l22 = line(l2)
-    print("l2 = [c,d], l22 = line(l2) -- l22: ",vstr(l22))
-    l3 = line(c,e)
-    print("l3 = line(c,e), isline(l3) : ",isline(l3))
-    print("a {}, isline(a): {}".format(vstr(a),isline(a)))
+    # l1 = [a,b]
+    # print("l1 = [a,b] -- l1:",vstr(l1))
+    # l11 = line(a,b)
+    # print("l11 = line(a,b) -- l1:",vstr(l11))
+    # l2 = [c,d]
+    # l22 = line(l2)
+    # print("l2 = [c,d], l22 = line(l2) -- l22: ",vstr(l22))
+    # l3 = line(c,e)
+    # print("l3 = line(c,e), isline(l3) : ",isline(l3))
+    # print("a {}, isline(a): {}".format(vstr(a),isline(a)))
     
     
     print("---> vector and geometry copying tests")
@@ -1429,7 +1494,7 @@ if __name__ == "__main__":
     p6 = point(10,0,10)
     
     # points in the y-z plane
-    p7 = point(0,2.-1)
+    p7 = point(0,2,-1)
     p8 = point(0,10,10)
 
     print('expect True: isCardinalPlanar("xy",[p1,p2,p3,p4]) : {}'.format(
@@ -1442,8 +1507,8 @@ if __name__ == "__main__":
     print('expect True: isCardinalPlanar("xz",[p1,p5,p6]) : {}'.format(
         isCardinalPlanar("xz",[p1,p5,p6])))
 
-    print('expect True: isCardinalPlanar("yz",[p2,p7,p8]) : {}'.format(
-        isCardinalPlanar("yz",[p2,p7,p8])))
+    print('expect True: isCardinalPlanar("yz",[p3,p7,p8]) : {}'.format(
+        isCardinalPlanar("yz",[p3,p7,p8])))
 
     try:
         print('deliberate bad plane specification, should raise ValueError')
@@ -1465,6 +1530,8 @@ if __name__ == "__main__":
                                                       vstr(r), vstr(s),
                                                       vstr(t)))
     print ("tri1: {}".format(vstr(tri1)))
+    print ("ispoly(tri1): ",ispoly(tri1))
+    print ("istriangle(tri1): ",istriangle(tri1))
     print("expect True: isInsideTriangleXY(p,tri1): {}"\
           .format(isInsideTriangleXY(p,tri1)))
     print("expect True: isInsideTriangleXY(q,tri1): {}"\
