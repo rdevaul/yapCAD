@@ -61,7 +61,7 @@ The yapCAD system isn't just about rendering, of course, it's about computationa
     arc1=arc(point(2.5,2.5),2.5,90.0,270.0)
 
     # calculate the intersection of lines l1 and l2
-    int0 = intersectXY(l1,l2)
+    int0 = lineLineIntersectXY(l1,l2)
 
     # calculate the intersection of the line l1 and the arc arc1
     int1 = lineArcIntersectXY(l1,arc1,True)
