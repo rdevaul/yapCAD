@@ -8,6 +8,22 @@ from math import *
 epsilon=0.000001
 pi2 = 2.0*pi
 
+## operations on scalars
+## -----------------------
+
+## utility function to determine if argument is a "real" python
+## number, since booleans are considered ints (True=1 and False=0 for
+## integer arithmatic) but 1 and 0 are not considered boolean
+
+def isgoodnum(n):
+    return (not isinstance(n,bool)) and isinstance(n,(int,float))
+
+## utilty function to determine if scalars a and b are the same to
+## within epsilon
+def close(a,b):
+    return abs(a-b) < epsilon
+
+
 ## operations on vectors
 ## ------------------------
 
@@ -20,13 +36,6 @@ pi2 = 2.0*pi
 ## assumed to be scaled by w.  Simple vector operations are assumed to
 ## operate in the w=1 hyperplane, and no checking of w is performed.
 ## See https://en.wikipedia.org/wiki/Homogeneous_coordinates
-
-## utility function to determine if argument is a "real" python
-## number, since booleans are considered ints (True=1 and False=0 for
-## integer arithmatic) but 1 and 0 are not considered boolean
-
-def isgoodnum(n):
-    return (not isinstance(n,bool)) and isinstance(n,(int,float))
 
 ## Convenience function for making a homogeneous coordinates 4 vector
 ## from practically anything
@@ -48,24 +57,9 @@ def vect(a=False,b=False,c=False,d=False):
                 r[i]=x
     return r
 
-## function to deep-copy geometry, which is to say lists containing
-## non-zero-length lists or 4-vectors.  Returns False if a isn't valid
-## geometry list
-
-def deepcopy(a):
-    if isvect(a):
-        return vect(a)
-    elif isinstance(a,list):
-        if len(a) > 0:
-            c = list(map(deepcopy,a))
-            for i in c:
-                if not i:
-                    return False
-            return c
-        else:
-            return False
-    else:
-        return False
+## determine if two vectors are the same, to within epsilon
+def vclose(a,b):
+    return close(mag(sub(a,b)),0)
     
 ## check to see if argument is a proper vector for our purposes
 def isvect(x):
@@ -180,6 +174,25 @@ def dist4(a,b):  # compute distance between two points a & b
 ## misc operations
 ## -----------------------------------------
 
+## function to deep-copy geometry, which is to say lists containing
+## non-zero-length lists or 4-vectors.  Returns False if a isn't valid
+## geometry list
+
+def deepcopy(a):
+    if isvect(a):
+        return vect(a)
+    elif isinstance(a,list):
+        if len(a) > 0:
+            c = list(map(deepcopy,a))
+            for i in c:
+                if not i:
+                    return False
+            return c
+        else:
+            return False
+    else:
+        return False
+    
 # pretty printing string formatter for vectors, lines, and polygons.
 # You can use this anywhere you use str(), since it will fall back to
 # str() if the argument isn't a yapCAD vector, line, or polygon.
@@ -333,7 +346,7 @@ def bboxline(l):
 
 
 ## Compute the intersection of two lines that lie in the same x,y plane
-def intersectXY(l1,l2,inside=True,params=False):
+def lineLineIntersectXY(l1,l2,inside=True,params=False):
     x1=l1[0][0]
     y1=l1[0][1]
     z1=l1[0][2]
@@ -674,6 +687,8 @@ def unsamplearc(c,p):
     if abs(mag(x)-r) > epsilon:
         return False            # point is not on arc circle
     ang = (atan2(x[1],x[0]) % pi2)*360/pi2
+    if end > 360.0 and ang <= end-360.0:
+        ang = ang + 360.0
     u = (ang-start)/(end-start)
     return u
     
@@ -694,7 +709,7 @@ def arcbbox(c):
 ## we can compute the intersection of an arc and a line, or an arc and
 ## an arc, when these all lie in the same plane.
 
-## arc-arc jtersection calculation, non-value-safe version
+## arc-arc intersection calculation, non-value-safe version
 def _arcArcIntersectXY(c1,c2,inside=True,params=False):
     x1=c1[0]
     x2=c2[0]
@@ -776,15 +791,28 @@ def _arcArcIntersectXY(c1,c2,inside=True,params=False):
     s2 = list(map(lambda x: sub(x,x2),s))
 
     ## compute start and end angles for arcs
-    start1=c1[1][1] % 360.0
-    end1=c1[1][2] %360.0
-
-    start2=c2[1][1] % 360.0
-    end2=c2[1][2] %360.0
+    start1=c1[1][1]
+    end1=c1[1][2]
+    if not (start1 == 0 and end1 == 360):
+        start1 = start1 % 360.0
+        end1 = end1 % 360.0
+        if end1 < start1:
+            end1 = end1 + 360.0
+        
+    start2=c2[1][1]
+    end2=c2[1][2]
+    
+    if not (start2 == 0 and end2 == 360):
+        start2 = start2 % 360.0
+        end2 = end2 % 360.0
+        if end2 < start2:
+            end2 = end2 + 360.0
+        
 
     ## check each intersection against angles for each arc.  
     ss = []
-    uparams = []
+    uparam1 = []
+    uparam2 = []
     for i in range(len(s)):
         p1 =s1[i]
         p2 =s2[i]
@@ -792,28 +820,30 @@ def _arcArcIntersectXY(c1,c2,inside=True,params=False):
         ang2 = (atan2(p2[1],p2[0]) % pi2)*360.0/pi2
 
         if params:
-            if end1 > start1:
-                end = end1
-            else:
-                end = end1+360
-            uparams = uparams + [ (ang1-start1)/(end-start1) ]
-            if end2 > start2:
-                end = end2
-            else:
-                emd = end2+360
-            uparams = uparams + [ (ang2-start2)/(end-start2) ]
+            if end1 <= 360.0 or ang1 >= start1 or \
+               ( end1 > 360.0 and ang1 > end1-360.0):
+                uparam1 = uparam1 + [ (ang1-start1)/(end1-start1) ]
+            elif end1 > 360.0:
+                uparam1 = uparam1 + [ (ang1+360.0-start1)/(end1-start1) ]
+                
+            if end2 <= 360.0 or ang2 >= start2 or \
+               ( end2 > 360.0 and ang2 > end1-360.0):
+                uparam2 = uparam2 + [ (ang2-start2)/(end2-start2) ]
+            elif end2 > 360.0:
+                uparam2 = uparam2 + [ (ang2+360.0-start2)/(end2-start2) ]
+                
         else:
             good = False
             ## check angle against first arc
-            if end1 > start1 and ang1 >= start1 and ang1 <= end1:
+            if end1 <= 360.0 and ang1 >= start1 and ang1 <= end1:
                 good = True
-            elif start1 < end1 and ang1 <= start1 and ang1>= end1:
+            elif end1 > 360.0 and (ang1 >= start1 or ang1<= end1-360.0):
                 good = True
 
             ## check angle against second arc
-            if end2 > start2 and ang2 >= start2 and ang2 <= end2:
+            if end2 <= 360.0 and  ang2 >= start2 and ang2 <= end2:
                 good = good and True
-            elif start2 < end2 and ang2 <= start2 and ang2>= end2:
+            elif end2 > 360.0 and (ang2 >= start2 or ang2<= end2-360.0):
                 good = good and True
             else:
                 good = False
@@ -826,7 +856,7 @@ def _arcArcIntersectXY(c1,c2,inside=True,params=False):
         return False
     else:
         if params:
-            return uparams
+            return [uparam1,uparam2]
         else:
             return ss
 
@@ -1372,14 +1402,14 @@ if __name__ == "__main__":
     # print("mag(sub(a,b)) == sqrt(50): " + str(mag(sub(a,b))==sqrt(50.0)))
 
     print("---> line creation and testing")
-    # l1 = [a,b]
+    l1 = [a,b]
     # print("l1 = [a,b] -- l1:",vstr(l1))
     # l11 = line(a,b)
     # print("l11 = line(a,b) -- l1:",vstr(l11))
-    # l2 = [c,d]
+    l2 = [c,d]
     # l22 = line(l2)
     # print("l2 = [c,d], l22 = line(l2) -- l22: ",vstr(l22))
-    # l3 = line(c,e)
+    l3 = line(c,e)
     # print("l3 = line(c,e), isline(l3) : ",isline(l3))
     # print("a {}, isline(a): {}".format(vstr(a),isline(a)))
     
@@ -1393,49 +1423,49 @@ if __name__ == "__main__":
     print("expect False: deepcopy(bar)",vstr(deepcopy(bar)))
         
     print("---> line-line intersection tests")
-    print("l1:" + vstr(l1) + ", l2:" + vstr(l2) +", l3:" + vstr(l3))
+    # print("l1:" + vstr(l1) + ", l2:" + vstr(l2) +", l3:" + vstr(l3))
 
-    int0 = intersectXY(l1,l1)
-    int1 = intersectXY(l1,l2,False)
-    int2 = intersectXY(l1,l2,True)
-    int3 = intersectXY(l1,l3,True)
+    # int0 = lineLineIntersectXY(l1,l1)
+    # int1 = lineLineIntersectXY(l1,l2,False)
+    # int2 = lineLineIntersectXY(l1,l2,True)
+    # int3 = lineLineIntersectXY(l1,l3,True)
 
-    print("expect False: intersectXY(l1,l1): " + vstr(int0))
-    print("expect [2.5, 2.5]: intersectXY(l1,l2,False): " + vstr(int1))
-    print("expect False: intersectXY(l1,l2,True): " + vstr(int2))
-    print("expect [2.5, 2.5]: intersectXY(l1,l3,True): " + vstr(int3))
+    # print("expect False: lineLineIntersectXY(l1,l1): " + vstr(int0))
+    # print("expect [2.5, 2.5]: lineLineIntersectXY(l1,l2,False): " + vstr(int1))
+    # print("expect False: lineLineIntersectXY(l1,l2,True): " + vstr(int2))
+    # print("expect [2.5, 2.5]: lineLineIntersectXY(l1,l3,True): " + vstr(int3))
     
-    print("linePointXY(l1,vect(0,0)): "
-          + vstr(linePointXY(l1,vect(0,0))))
-    print("linePointXYDist(l1,vect(0,0)) == sqrt(12.5): "
-          + vstr(abs(linePointXYDist(l1,vect(0,0))-sqrt(12.5))<epsilon))
-    print("linePointXY(l1,vect(0,10),False): "
-          + vstr(linePointXY(l1,vect(vect(0,10)),False)))
-    print("linePointXY(l1,vect(0,10),True): "
-          + vstr(linePointXY(l1,vect(0,10),True)))
-    print("linePointXY(l1,vect(10,0),False): "
-          + vstr(linePointXY(l1,vect(10,0),False)))
-    print("linePointXY(l1,vect(10,0),True): "
-          + vstr(linePointXY(l1,vect(10,0),True)))
+    # print("linePointXY(l1,vect(0,0)): "
+    #       + vstr(linePointXY(l1,vect(0,0))))
+    # print("linePointXYDist(l1,vect(0,0)) == sqrt(12.5): "
+    #       + vstr(abs(linePointXYDist(l1,vect(0,0))-sqrt(12.5))<epsilon))
+    # print("linePointXY(l1,vect(0,10),False): "
+    #       + vstr(linePointXY(l1,vect(vect(0,10)),False)))
+    # print("linePointXY(l1,vect(0,10),True): "
+    #       + vstr(linePointXY(l1,vect(0,10),True)))
+    # print("linePointXY(l1,vect(10,0),False): "
+    #       + vstr(linePointXY(l1,vect(10,0),False)))
+    # print("linePointXY(l1,vect(10,0),True): "
+    #       + vstr(linePointXY(l1,vect(10,0),True)))
 
     print("---> arc creation and testing")
-    arc1=[vect(2.5,2.5),vect(2.5,90.0,270.0,-1)]
-    print("arc1=[vect(2.5,2.5),vect(2.5,90.0,270.0,-1)], arc1: ",vstr(arc1))
-    arc11=arc(vect(2.5,2.5),2.5,90.0,270.0)
-    print("arc11=arc(vect(2.5,2.5),2.5,90.0,270.0), arc11: ",vstr(arc11))
-    print("isarc(arc1): {}  isarc(arc11): {}".format(isarc(arc1),isarc(arc11)))
-    arc12=arc(arc11)
-    print("arc12=arc(arc11), arc12: {}, isarc(arc12): {}".format(vstr(arc12),isarc(arc12)))
-    try:
-        print("try creating an arc with a negative radius, should raise ValueError")
-        print("arc(vect(0,0),-2): ",arc(vect(0,0),-2))
-    except ValueError as err:
-        print('got expected result:',err)
-    print("--> line-arc disambiguation")
-    print("l1: ",vstr(l1)," arc1: ",vstr(arc1))
-    print("isline(l1): {} isline(arc1): {}".format(isline(l1),isline(arc1)))
-    print("isarc(l1): {} isarc(arc1): {}".format(isarc(l1),isarc(arc1)))
-    print("---> arc-line intersection tests")
+    # arc1=[vect(2.5,2.5),vect(2.5,90.0,270.0,-1)]
+    # print("arc1=[vect(2.5,2.5),vect(2.5,90.0,270.0,-1)], arc1: ",vstr(arc1))
+    # arc11=arc(vect(2.5,2.5),2.5,90.0,270.0)
+    # print("arc11=arc(vect(2.5,2.5),2.5,90.0,270.0), arc11: ",vstr(arc11))
+    # print("isarc(arc1): {}  isarc(arc11): {}".format(isarc(arc1),isarc(arc11)))
+    # arc12=arc(arc11)
+    # print("arc12=arc(arc11), arc12: {}, isarc(arc12): {}".format(vstr(arc12),isarc(arc12)))
+    # try:
+    #     print("try creating an arc with a negative radius, should raise ValueError")
+    #     print("arc(vect(0,0),-2): ",arc(vect(0,0),-2))
+    # except ValueError as err:
+    #     print('got expected result:',err)
+    # print("--> line-arc disambiguation")
+    # print("l1: ",vstr(l1)," arc1: ",vstr(arc1))
+    # print("isline(l1): {} isline(arc1): {}".format(isline(l1),isline(arc1)))
+    # print("isarc(l1): {} isarc(arc1): {}".format(isarc(l1),isarc(arc1)))
+    # print("---> arc-line intersection tests")
     arc1=[vect(2.5,2.5),vect(2.5,90.0,270.0)]
     print("arc1: {}".format(vstr(arc1)))
     print("l1: {}".format(vstr(l1)))
