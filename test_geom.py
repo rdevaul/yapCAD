@@ -35,10 +35,6 @@ class TestPoint:
 
 class TestOperations:
     def test_vect(self):
-        def close(a,b):
-            return abs(a-b) < epsilon
-        def vclose(a,b):
-            return close(mag(sub(a,b)),0)
         
         a = point(5,0)
         b = point(0,5)
@@ -56,10 +52,6 @@ class TestOperations:
 
 class TestLine:
     def test_create(self):
-        def close(a,b):
-            return abs(a-b) < epsilon
-        def vclose(a,b):
-            return close(mag(sub(a,b)),0)
         
         a = point(5,0)
         b = point(0,5)
@@ -79,29 +71,207 @@ class TestLine:
         a = point(-5,-1)
         b = point(5,3)
         l = line(a,b)
+        print("sample tests")
         p0 =sampleline(l,-0.5)
         p1 =sampleline(l,0.0)
         p2 =sampleline(l,0.5)
         p3 =sampleline(l,1.0)
         p4 =sampleline(l,1.5)
-        assert mag(sub(p0,point(-10,-3))) < epsilon
-        assert mag(sub(p1,a)) < epsilon
-        assert mag(sub(p2,point(0,1))) < epsilon
-        assert mag(sub(p3,b)) < epsilon
-        assert mag(sub(p4,point(10,5))) < epsilon
+        assert vclose(p0,point(-10,-3))
+        assert vclose(p1,a)
+        assert vclose(p2,point(0,1))
+        assert vclose(p3,b)
+        assert vclose(p4,point(10,5))
+        print("unsample tests")
         u0 = unsampleline(l,p0)
         u1 = unsampleline(l,p1)
         u2 = unsampleline(l,p2)
         u3 = unsampleline(l,p3)
         u4 = unsampleline(l,p4)
-        assert abs(u0+0.5) < epsilon
-        assert abs(u1) < epsilon
-        assert abs(u2-0.5) < epsilon
-        assert abs(u3-1.0) < epsilon
-        assert abs(u4-1.5) < epsilon
+        assert close(u0,-0.5)
+        assert close(u1,0.0)
+        assert close(u2,0.5)
+        assert close(u3,1.0)
+        assert close(u4,1.5)
         p = point(100,100)
         assert not unsampleline(l,p)
 
+    def test_intersect(self):
+        print("---> line-line intersection tests")
+        a = point(5,0)
+        b = point(0,5)
+        c = point(-3,-3)
+        d = point(1,1)
+        e = point(10,10)
+        l1 = line(a,b)
+        print("l1:",vstr(l1))
+        l2 = line(c,d)
+        l3 = line(c,e)
+        print("l1:" + vstr(l1) + ", l2:" + vstr(l2) +", l3:" + vstr(l3))
+
+        int0 = lineLineIntersectXY(l1,l1)
+        int0u = lineLineIntersectXY(l1,l1,params=True)
+        int1 = lineLineIntersectXY(l1,l2,False)
+        int1u = lineLineIntersectXY(l1,l2,params=True)
+        int2 = lineLineIntersectXY(l1,l2,True)
+        int2u = lineLineIntersectXY(l1,l2,params=True)
+        int3 = lineLineIntersectXY(l1,l3,True)
+        int3u = lineLineIntersectXY(l1,l3,params=True)
+        
+        assert not int0
+        assert not int0u
+        assert vclose(int1,point(2.5,2.5))
+        assert len(int1u) == 2
+        assert close(int1u[0],0.5)
+        assert close(int1u[1],1.375)
+        assert not int2
+        assert close(int2u[0],0.5)
+        assert close(int2u[1],1.375)
+        assert vclose(int3,point(2.5,2.5))
+        assert close(int3u[0], 0.5)
+        assert close(int3u[1], 0.4230769230769231)
+        
+class TestArc:
+    def test_create(self):
+        arc1=[vect(2.5,2.5),vect(2.5,90.0,270.0,-1)]
+        arc11=arc(point(2.5,2.5),2.5,90.0,270.0)
+        assert isarc(arc1)
+        assert isarc(arc11)
+        assert arc1 == arc11
+        arc12=arc(arc11)
+        assert isarc(arc12)
+        assert arc12==arc11
+        arc11[1][0]=5.0         # modify arc11
+        assert arc12[1][0]==2.5 # assert that this didn't change arc12
+        with pytest.raises(ValueError):
+            assert not arc(vect(0,0),-2)
+
+    def test_sample(self):
+        arc1=arc(point(0,0),1.0,90.0,270.0)
+        print("sample tests")
+        print("arc1: ",vstr(arc1))
+        for i in range(5):
+            u = i/4
+            theta = 90+i*45.0
+            p = samplearc(arc1,u)
+            x = point(cos(theta*pi2/360.0),sin(theta*pi2/360.0))
+            print("sample: ",i," theta: ",theta)
+            print("  sampled point p: ",vstr(p))
+            print("  reference point x: ",vstr(x))
+            print("  assert that these are the same")
+            assert vclose(p,x)
+        print("unsample tests")
+        for i in range(5):
+            u = i/4
+            theta = 90+i*45.0
+            x = point(cos(theta*pi2/360.0),sin(theta*pi2/360.0))
+            uu = unsamplearc(arc1,x)
+            print("unsample: ",i," theta: ",theta)
+            print("  test point x: ",vstr(x))
+            print("  unsampled parameter uu: ",uu)
+            print("  calculated parameter u: ",u)
+            print("  assert that these are the same")
+            assert close(u,uu)
+
+    def test_intersect_line(self):
+        print("test intersection and tangent calculation for arcs")
+        arc1=[vect(2.5,2.5),vect(2.5,90.0,270.0)]
+        print("arc1: {}".format(vstr(arc1)))
+        a = point(5,0)
+        b = point(0,5)
+        c = point(-3,-3)
+        d = point(0.0)
+        l1 = line(a,b)
+        print("---> line-arc intersection testing")
+        print("l1: {}".format(vstr(l1)))
+        l2 = line(c,d)
+        print("l2: {}".format(vstr(l2)))
+        int4 = lineArcIntersectXY(l1,arc1,False)
+        int5 = lineArcIntersectXY(l1,arc1,True)
+        int6 = lineArcIntersectXY([vect(0,5),vect(5,5)],arc1,True)
+        int7 = lineArcIntersectXY(l2,arc1,True)
+        int8 = lineArcIntersectXY(l2,arc1,False)
+
+        p1 = point(4.267766952966369, 0.7322330470336311)
+        p2 = point(0.7322330470336311, 4.267766952966369)
+        print("lineArcIntersectXY(l1,arc1,False): {}".format(vstr(int4)))
+        assert len(int4) == 2
+        assert vclose(int4[0],p1)
+        assert vclose(int4[1],p2)
+        print("lineArcIntersectXY(l1,arc1,True): {}".format(vstr(int5)))
+        assert len(int5) == 1
+        assert vclose(int5[0],p2)
+        print("tangent line, one intersection test")
+        assert len(int6) == 1
+        print("lineArcIntersectXY([vect(0,5),vect(5,5)],arc1,True): {}".format(vstr(int6)))
+        assert vclose(int6[0],point(2.5,5.0))
+        print("lineArcIntersectXY(l2,arc1,False): {}".format(vstr(int7)))
+        assert not int7
+        print("lineArcIntersectXY(l2,arc1,True): {}".format(vstr(int8)))
+        assert len(int8) == 2
+        assert vclose(int8[0], point(0.7322330470336311, 0.7322330470336311))
+        assert vclose(int8[1], point(4.267766952966369, 4.267766952966369))
+
+    def test_intersect_arc(self):
+        print("---> arc-arc intersection tests")
+        arc1=arc(vect(-2.5,0),2.5,90.0,270.0)
+        arc2=arc(vect(2.5,0),2.5,90.0,270.0)
+
+        print("arc1: {}".format(vstr(arc1)))
+        print("arc2: {}".format(vstr(arc2)))
+        print("single point of intersection test")
+        int9 = arcArcIntersectXY(arc1,arc2,False)
+        int9u =  arcArcIntersectXY(arc1,arc2,params=True)
+        print("arcArcIntersectXY(arc1,arc2,False):",vstr(int9))
+        print("arcArcIntersectXY(arc1,arc2,params=True):",int9u)
+        
+        assert len(int9) == 1
+        assert vclose(int9[0],point(0,0))
+        assert len(int9u) == 2
+        assert close(int9u[0][0],-0.5)
+        assert close(int9u[1][0],0.5)
+        int10 = arcArcIntersectXY(arc1,arc2,True)
+        int11 = arcArcIntersectXY(arc2,arc1,True)
+        
+        print("arcArcIntersectXY(arc1,arc2,True):",vstr(int10))
+        print("arcArcIntersectXY(arc2,arc1,True):",vstr(int11))
+        assert not int10
+        assert not int11
+
+        x = cos(pi/4)
+        arc3=arc(vect(-x,-x),2.0,315.0,135.0)
+        arc4=arc(vect(x,x),2.0,135.0,315.0)
+        print("arc3: {}".format(vstr(arc3)))
+        print("arc4: {}".format(vstr(arc4)))
+        int12 = arcArcIntersectXY(arc3,arc4,True)
+        int12u = arcArcIntersectXY(arc3,arc4,params=True)
+        int13 = arcArcIntersectXY(arc3,arc4,False)
+        print("arcArcIntersectXY(arc3,arc4,True):",vstr(int12))
+        print("arcArcIntersectXY(arc3,arc4,False):",vstr(int13))
+        print("arcArcIntersectXY(arc3,arc4,params=True):",int12u)
+        assert len(int12u) == 2
+        assert len(int12u[0])==2
+        assert len(int12u[1])==2
+        print("cross-verifying intersection points and samples")
+        for i in range(2):
+            u1 = int12u[0][i]
+            u2 = int12u[1][i]
+            p=int12[i]
+            p1 = samplearc(arc3,u1)
+            p2 = samplearc(arc4,u2)
+            uu1 = unsamplearc(arc3,p)
+            uu2 = unsamplearc(arc4,p)
+            print("i: ",i,"u1: ",u1,"u2: ", u2,"p: ",vstr(p),
+                  "p1: ",p1,"p2: ",p2)
+            print("uu1: ",uu1," uu2: ",uu2)
+            assert close(uu1,u1)
+            assert close(uu2,u2)
+            assert vclose(p,p1)
+            assert vclose(p,p2)
+            
+
+
+        
 class TestUtility:
     def test_copy(self):
         a = point(-5,-1)
