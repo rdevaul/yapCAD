@@ -888,8 +888,8 @@ def _lineArcIntersectXY(l,c,inside=True,params=False):
     ## what is the shortest distance between the line and the center
     ## of the arc?  If that is greater than r, then there is no
     ## intersection
-    dist = linePointXYDist(l,x,inside)
-    if dist > r+epsilon:
+    dst = linePointXYDist(l,x,inside)
+    if dst > r+epsilon:
         return False
 
     ## start by treating the arc as a circle.  At this point we know
@@ -1221,28 +1221,119 @@ def samplepoly(a,u):
 def unsamplepoly(a,p):
     if not ispoly(a):
         raise ValueError('non-poly passed to unsamplepoly')
+    closed = False
+    if len(a) > 2 and dist(a[0],a[-1]) < epsilon:
+        closed = True
     lines,lengths,length = __lineslength(a)
     if len(lines) == 1:
         return unsampleline(lines[0],p)
     else:
         uu1 = unsampleline(lines[0],p)
-        if not isinstance(uu1,bool) and uu1 < 1.0:
+        if not isinstance(uu1,bool) and uu1 < 1.0 and\
+           (not closed or uu1 >= 0.0):
             return uu1*lengths[0]/length
-        dist = lengths[0]
+        dst = lengths[0]
         if len(lines) > 2:
             for i in range(1,len(lines)-1):
                 uu = unsampleline(lines[i],p)
                 if not isinstance(uu,bool) and uu >= 0.0 and uu < 1.0:
-                    return (uu*lengths[i]+dist)/length
+                    return (uu*lengths[i]+dst)/length
                 else:
-                    dist = dist+lengths[i]
+                    dst = dst+lengths[i]
         uu2 = unsampleline(lines[-1],p)
         
-        if uu2 and uu2 >= 0.0:
-            return (uu2*lengths[-1]+dist)/length
+        if not isinstance(uu2,bool) and uu2 >= 0.0 and\
+           (not closed or uu2 <= 1.0):
+            return (uu2*lengths[-1]+dst)/length
         else:
             return False
 
+
+## ccompute the intersection between non-compound geometric element g,
+## and poly a.
+def intersectSimplePolyXY(g,a,inside=True,params=False):
+    if not (ispoly(a) and isXYPlanar(a)):
+        raise ValueError('non-XY-planar or bad poly argument to intersecctSimplePOlyXY: {}'.format(vstr(p)))
+    closed = False
+    ARC=False
+    LINE=False
+    if len(a) > 2 and dist(a[0],a[-1]) < epsilon:
+        closed = True
+    if isline(g):
+        LINE=True
+    elif isarc(g):
+        ARC=True
+    else:
+        raise ValueError('bad non-line or non-arc argument passed to intersectSimplePolyXY: {}'.format(vstr(g)))
+    pnts = []
+    uu1s = []
+    uu2s = []
+    lines, lengths, length = __lineslength(a)
+    if len(lines) == 1:
+        return inter(lines[0],g,inside,params)
+    dst = 0.0
+    if len(lines) > 2:
+        for i in range(len(lines)):
+            if LINE:
+                uu = lineLineIntersectXY(lines[i],g,params=True)
+                if not isinstance(uu,bool) and \
+                   (((closed or (i > 0 and i < len(lines)-1)) and \
+                     uu[0] >= 0.0 and uu[0] <= 1.0) or\
+                    (not closed and i == 0 and uu[0] <= 1.0) or\
+                    (not closed and i == len(lines)-1 and uu[0] >= 0.0)):
+                    if params:
+                        uu1s.append((uu[0]*lengths[i]+dst)/length)
+                        uu2s.append(uu[1])
+                    else:
+                        if (not inside) or \
+                           (uu[0] >= 0.0 and uu[0] <= 1.0) and \
+                           (uu[1] >= 0.0 and uu[1] <= 1.0):
+                            pnts.append(sampleline(g,uu[1]))
+            elif ARC:
+                uu = lineArcIntersectXY(lines[i],g,params=True)
+                if not isinstance(uu,bool):
+                    for i in range(len(uu[0])):
+                        if (((closed or (i > 0 and i < len(lines)-1)) and \
+                             uu[0] >= 0.0 and uu[0] <= 1.0) or\
+                            (not closed and i == 0 and uu[0] <= 1.0) or\
+                            (not closed and \
+                             i == len(lines)-1 and uu[0] >= 0.0)):
+                            if params:
+                                uu1s.append((uu[0][i]*lengths[i]+dst)/length)
+                                uu2s.append(uu[1][i])
+                            else:
+                                if (not inside) or \
+                                   (uu[0] >= 0.0 and uu[0] <= 1.0) and \
+                                   (uu[1] >= 0.0 and uu[1] <= 1.0):
+                                    pnts.append(samplearc(g,uu[1]))
+                else:
+                    raise ValueError('unknown geometry type -- should never happen here')
+                        
+            else: ## not params
+                if LINE:
+                    pp = lineLineIntersectXY(lines[i],g,inside,params=False)
+                    if not isinstance(pp,bool):
+                        pnts.append(pp)
+                elif ARC:
+                    pp = lineArcIntersectXY(lines[i],g,inside,params=False)
+                    if not isinstance(pp,bool):
+                        pnts = pnts + pp
+                else:
+                    raise ValueError('unknown geometry type -- should never happen here')
+            dst = dst+lengths[i]
+
+    if params:
+        if len(uu1s) > 0:
+            return [ uu1s, uu2s]
+        else:
+            return False
+    else:
+        if len(pnts) > 0:
+            return pnts
+        else:
+            return False
+        
+    
 def polycenter(a):
     return samplepoly(a,0.5)
 
