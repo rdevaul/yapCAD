@@ -907,7 +907,7 @@ def _lineArcIntersectXY(l,c,inside=True,params=False):
     ##       b^2(Vx^2 + Vy^2) + 2b(VxPx+VyPy) + Px^2 + Py^2 - r^2 = 0
     ## let a = Vx^2 + Vy^2,
     ##     b = 2*(VxPx + VyPy)
-    ##     c = Px^2 + Py^2 - r^2
+    ##     cc = Px^2 + Py^2 - r^2
     ## b0 = ( -b + sqrt(b^2 - 4ac) )/ 2a
     ## b1 = ( -b - sqrt(b^2 - 4ac) )/ 2a
     
@@ -917,8 +917,8 @@ def _lineArcIntersectXY(l,c,inside=True,params=False):
     if abs(a) < epsilon:
         raise ValueError('degenerate line in lineArcIntersectXY')
     b = 2*(V[0]*P[0]+V[1]*P[1])
-    c = P[0]*P[0]+P[1]*P[1]-r*r
-    d = b*b-4*a*c
+    cc = P[0]*P[0]+P[1]*P[1]-r*r
+    d = b*b-4*a*cc
     if abs(d) < epsilon: # one point of intersection
         b0 = -b/(2*a)
         b1 = False
@@ -934,9 +934,18 @@ def _lineArcIntersectXY(l,c,inside=True,params=False):
     if b1:
         s = s + [ add(scale(V,b1),p1) ]
 
-    if not inside or circle:              # transform back into world
+    if not inside or circle or params:              # transform back into world
                                           # coordinates
-        return list(map(lambda q: add(q,x),s))
+        pp = list(map(lambda q: add(q,x),s))
+        if params:
+            uu1 = []
+            uu2 = []
+            for i in range(len(pp)):
+                uu1 = uu1 + [ unsampleline(l,pp[i]) ]
+                uu2 = uu2 + [ unsamplearc(c,pp[i]) ]
+            return [uu1, uu2]
+        else:
+            return pp
 
     ## see if any of the intersections we've found lie between
     ## start and end of the arc
@@ -955,7 +964,7 @@ def _lineArcIntersectXY(l,c,inside=True,params=False):
     return ss
 
 ## value-safe wrapper for line-arc intersection function
-def lineArcIntersectXY(l,c,inside=True):
+def lineArcIntersectXY(l,c,inside=True,params=False):
     if len(c) == 3:
         norm = c[2]
         if dist(norm,vect(0,0,1)) > epsilon:
@@ -963,7 +972,7 @@ def lineArcIntersectXY(l,c,inside=True):
     points = l + [ c[0] ]
     if not isXYPlanar(points):
         raise ValueError('line and circle passed to lineArcIntersectXY do not all lie in same x-y plane')
-    return _lineArcIntersectXY(l,c,inside)
+    return _lineArcIntersectXY(l,c,inside,params)
 
 
 ## function to compute tangent lines to two coplanar circles lying in
@@ -1217,13 +1226,13 @@ def unsamplepoly(a,p):
         return unsampleline(lines[0],p)
     else:
         uu1 = unsampleline(lines[0],p)
-        if uu1 and uu1 < 1.0:
+        if not isinstance(uu1,bool) and uu1 < 1.0:
             return uu1*lengths[0]/length
         dist = lengths[0]
         if len(lines) > 2:
             for i in range(1,len(lines)-1):
                 uu = unsampleline(lines[i],p)
-                if uu and uu >= 0.0 and uu < 1.0:
+                if not isinstance(uu,bool) and uu >= 0.0 and uu < 1.0:
                     return (uu*lengths[i]+dist)/length
                 else:
                     dist = dist+lengths[i]
