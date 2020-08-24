@@ -18,7 +18,7 @@ l1 = line(a,b)
 l2 = line(c,d)
 
 # calculate the intersection of l1 and l2
-int0 = intersectXY(l1,l2,True)
+int0 = lineLineIntersectXY(l1,l2,True)
 
 # define a semicircular arc centerd at 2.5, 2,5 with a radius of 2.5
 # extending from 90 degress to 135 degrees
