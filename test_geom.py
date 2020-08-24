@@ -374,6 +374,57 @@ class TestPoly:
             print("i: ",i," p: ",vstr(pp[i])," u: ",u," uu: ",uu)
             assert close(u,uu)
             
+    def test_intersect(self):
+        a = point(0,-5)
+        b = point(5,0)
+        c = point(0,5)
+        d = point(-5,0)
+        
+        pol1 = poly(a,b,c,d)
+        pol2 = poly(a,b,c,d,a)
 
+        line1 = line(point(0,0),point(5,5))
+        line2 = line(point(0,-10),point(0,10))
 
-            
+        arc1 = arc(point(0,0),4.0,0,360)
+        arc2 = arc(point(0,0),5.0,0,360)
+
+        print("--> polyline and polygon intersection testing")
+        print("pol1: ",vstr(pol1))
+        print("pol2: ",vstr(pol2))
+        print("line1: ",vstr(line1))
+        print("line2: ",vstr(line2))
+        print("arc1: ",vstr(arc1))
+        print("arc2: ",vstr(arc2))
+        
+        int0 = intersectSimplePolyXY(line1,pol1,True)
+        int1 = intersectSimplePolyXY(line1,pol1,False)
+        int0u = intersectSimplePolyXY(line1,pol1,params=True)
+        print("intersectSimplePolyXY(line1,pol1,True): ",vstr(int0))
+        print("intersectSimplePolyXY(line1,pol1,False): ",vstr(int1))
+        print("intersectSimplePolyXY(line1,pol1,params=True): ",vstr(int0u))
+        assert len(int0) == 1
+        assert vclose(int0[0],point(2.5,2.5))
+        assert len(int1) == 1
+        assert vclose(int1[0],point(2.5,2.5))
+        assert len(int0u[0]) == 1
+        assert close(int0u[0][0],0.5)
+        assert close(int0u[1][0],0.5)
+
+        int0 = intersectSimplePolyXY(line1,pol2,True)
+        int1 = intersectSimplePolyXY(line1,pol2,False)
+        int0u = intersectSimplePolyXY(line1,pol2,params=True)
+        print("intersectSimplePolyXY(line1,pol2,True): ",vstr(int0))
+        print("intersectSimplePolyXY(line1,pol2,False): ",vstr(int1))
+        print("intersectSimplePolyXY(line1,pol2,params=True): ",vstr(int0u))
+        assert len(int0) == 1
+        assert vclose(int0[0],point(2.5,2.5))
+        assert len(int1) == 2
+        assert vclose(int1[0],point(2.5,2.5))
+        assert vclose(int1[1],point(-2.5,-2.5))
+        assert len(int0u[0]) == 2
+        assert close(int0u[0][0],0.375)
+        assert close(int0u[0][1],0.875)
+        assert close(int0u[1][0],0.5)
+        assert close(int0u[1][1],-0.5)
+        assert False
