@@ -174,7 +174,7 @@ class TestArc:
             assert close(u,uu)
 
     def test_intersect_line(self):
-        print("test intersection and tangent calculation for arcs")
+        print("---> line-arc intersection testing")
         arc1=[vect(2.5,2.5),vect(2.5,90.0,270.0)]
         print("arc1: {}".format(vstr(arc1)))
         a = point(5,0)
@@ -182,11 +182,28 @@ class TestArc:
         c = point(-3,-3)
         d = point(0.0)
         l1 = line(a,b)
-        print("---> line-arc intersection testing")
-        print("l1: {}".format(vstr(l1)))
+        print("l1: ", vstr(l1))
         l2 = line(c,d)
-        print("l2: {}".format(vstr(l2)))
+        print("l2: ",vstr(l2))
         int4 = lineArcIntersectXY(l1,arc1,False)
+        int4u = lineArcIntersectXY(l1,arc1,params=True)
+        print("cross-verifying intersection points and samples")
+        for i in range(2):
+            u1 = int4u[0][i]
+            u2 = int4u[1][i]
+            p=int4[i]
+            p1 = sampleline(l1,u1)
+            p2 = samplearc(arc1,u2)
+            uu1 = unsampleline(l1,p)
+            uu2 = unsamplearc(arc1,p)
+            print("i: ",i,"u1: ",u1,"u2: ", u2,"p: ",vstr(p),
+                  "p1: ",vstr(p1),"p2: ",vstr(p2))
+            print("uu1: ",uu1," uu2: ",uu2)
+            assert close(uu1,u1)
+            assert close(uu2,u2)
+            assert vclose(p,p1)
+            assert vclose(p,p2)
+
         int5 = lineArcIntersectXY(l1,arc1,True)
         int6 = lineArcIntersectXY([vect(0,5),vect(5,5)],arc1,True)
         int7 = lineArcIntersectXY(l2,arc1,True)
@@ -194,23 +211,26 @@ class TestArc:
 
         p1 = point(4.267766952966369, 0.7322330470336311)
         p2 = point(0.7322330470336311, 4.267766952966369)
-        print("lineArcIntersectXY(l1,arc1,False): {}".format(vstr(int4)))
+        print("lineArcIntersectXY(l1,arc1,False): ", vstr(int4))
         assert len(int4) == 2
         assert vclose(int4[0],p1)
         assert vclose(int4[1],p2)
-        print("lineArcIntersectXY(l1,arc1,True): {}".format(vstr(int5)))
+        print("lineArcIntersectXY(l1,arc1,params=True)",vstr(int4u))
+        print("lineArcIntersectXY(l1,arc1,True): ", vstr(int5))
         assert len(int5) == 1
         assert vclose(int5[0],p2)
         print("tangent line, one intersection test")
         assert len(int6) == 1
-        print("lineArcIntersectXY([vect(0,5),vect(5,5)],arc1,True): {}".format(vstr(int6)))
+        print("lineArcIntersectXY([vect(0,5),vect(5,5)],arc1,True): ",
+              vstr(int6))
         assert vclose(int6[0],point(2.5,5.0))
-        print("lineArcIntersectXY(l2,arc1,False): {}".format(vstr(int7)))
+        print("lineArcIntersectXY(l2,arc1,False): ",vstr(int7))
         assert not int7
-        print("lineArcIntersectXY(l2,arc1,True): {}".format(vstr(int8)))
+        print("lineArcIntersectXY(l2,arc1,True): ",vstr(int8))
         assert len(int8) == 2
         assert vclose(int8[0], point(0.7322330470336311, 0.7322330470336311))
         assert vclose(int8[1], point(4.267766952966369, 4.267766952966369))
+
 
     def test_intersect_arc(self):
         print("---> arc-arc intersection tests")
@@ -262,15 +282,13 @@ class TestArc:
             uu1 = unsamplearc(arc3,p)
             uu2 = unsamplearc(arc4,p)
             print("i: ",i,"u1: ",u1,"u2: ", u2,"p: ",vstr(p),
-                  "p1: ",p1,"p2: ",p2)
+                  "p1: ",vstr(p1),"p2: ",vstr(p2))
             print("uu1: ",uu1," uu2: ",uu2)
             assert close(uu1,u1)
             assert close(uu2,u2)
             assert vclose(p,p1)
             assert vclose(p,p2)
             
-
-
         
 class TestUtility:
     def test_copy(self):
@@ -332,3 +350,30 @@ class TestPoly:
         assert ispolygon(pol2)
         assert not ispolygon(pol1)
         assert not ispolygon([])
+
+    def test_sample(self):
+        a = point(0,-5)
+        b = point(5,0)
+        c = point(0,5)
+        d = point(-5,0)
+
+        pol1 = poly(a,b,c,d)
+        print("---> tests for sampling and unsampling of polylines")
+        print("pol1: ",vstr(pol1))
+        pp = []
+        print("sampled points: ")
+        for i in range(9):
+            u = i/8
+            p = samplepoly(pol1,u)
+            pp = pp+ [ p ]
+            print("i: ",i,"u: ",u," p: ",vstr(p))
+        print("unsampling polygon")
+        for i in range(len(pp)):
+            u = i/(len(pp)-1)
+            uu = unsamplepoly(pol1,pp[i])
+            print("i: ",i," p: ",vstr(pp[i])," u: ",u," uu: ",uu)
+            assert close(u,uu)
+            
+
+
+            
