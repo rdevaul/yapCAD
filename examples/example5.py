@@ -29,46 +29,38 @@ a = point(-10.0,10.0)
 # make circles centered at 10.0,-10.0
 b = point(10.0,-10.0)
 
-# sample points from the circles to make regular polygons
+## sample points from the circles to make regular polygons
 
-points1 = []
-points2 = []
+## this will be a list of polys, which is to say a list of lists of
+## points
+polys = []
 
+## NOTE: a simple polyline is just a list of points
 for i in range(4,7):
-    p = []
+    poly = []
     circ1 = arc(a,i**1.4)
     for j in range(i):
         x=j/i
-        p.append(samplearc(circ1,x))
-    p.append(p[0])
-    points1.append(p)
+        poly.append(samplearc(circ1,x)) # sample a point and add it
+    poly.append(poly[0]) # make the figure closed
+    polys.append(poly) # add the finished poly to the list
 
 for i in range(7,10):
-    p = []
+    poly = []
     circ2 = arc(b,(i*0.7)**1.4)
     for j in range(i):
         x=j/i
-        p.append(samplearc(circ2,x))
-    p.append(p[0])
-    points2.append(p)
-
-ply1=[]
-ply2=[]
-
-for p in points1:
-    ply = poly(p)
-    ply1.append(ply)
-
-for p in points2:
-    ply = poly(p)
-    ply1.append(ply)
-
-for ply in ply1:
-    for i in range(1,len(ply)):
-        l = line(ply[i-1],ply[i])
-        d.draw(l)
+        poly.append(samplearc(circ2,x)) # sample a point and add it
+    poly.append(poly[0]) # make the figure closed
+    polys.append(poly) # add the finished poly to the list
 
 
+## draw the geometry list of polys
+d.draw(polys)
+
+# Sample spome points along each poly and use the centers to draw
+# circles of increasing size.  This allows the visual confirmation of
+# even spacing and shows the counter-clockwise progression of samples
 i = 4
 for ply in ply1:
     for j in range(i*3):
