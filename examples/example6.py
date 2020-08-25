@@ -6,7 +6,8 @@ print("create, sample, and draw Polylines and Polygons")
 print("""
 
 In this demo we largely reproduce example5 using the Polygon class --
-we sample circles to find the points to create regular polygons, then we use those points to create circular corners for Polygon instances. 
+we sample circles to find the points to create regular polygons, then
+we use those points to create circular corners for Polygon instances.
 
 We then use drawable objects to draw the figures, and sample each
 Polygon instance to create a series of circles drawn on top.  The
