@@ -386,7 +386,7 @@ class TestPoly:
         line1 = line(point(0,0),point(5,5))
         line2 = line(point(0,-10),point(0,10))
 
-        arc1 = arc(point(0,0),4.0,0,360)
+        arc1 = arc(point(0,0),4.0,270,90)
         arc2 = arc(point(0,0),5.0,0,360)
 
         print("--> polyline and polygon intersection testing")
@@ -427,4 +427,13 @@ class TestPoly:
         assert close(int0u[0][1],0.875)
         assert close(int0u[1][0],0.5)
         assert close(int0u[1][1],-0.5)
+
+        int0 = intersectSimplePolyXY(arc1,pol2,True)
+        int1 = intersectSimplePolyXY(arc1,pol2,False)
+        int0u = intersectSimplePolyXY(arc1,pol2,params=True)
+        print("intersectSimplePolyXY(arc1,pol2,True): ",vstr(int0))
+        print("intersectSimplePolyXY(arc1,pol2,False): ",vstr(int1))
+        print("intersectSimplePolyXY(arc1,pol2,params=True): ",vstr(int0u))
+
+
         assert False
