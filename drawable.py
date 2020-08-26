@@ -53,11 +53,14 @@ class Drawable:
             self.draw_circle(p,self.pointsize)
 
     def __init__(self):
+        ## valid pointstyles 'x', 'o', 'xo'
         self.pointstyle = 'xo'
         self.pointsize = 0.1
         self.linestyle = '1'
         self.linecolor = 'white'
         self.fillcolor = 'none'
+        ## valid polystyles: 'points', 'lines', 'both'
+        self.polystyle = 'lines'
         self.layer = 'default'
 
     def __repr__(self):
@@ -76,11 +79,24 @@ class Drawable:
             self.draw_line(x[0],x[1])
         elif isarc(x):
             self.draw_arc(x[0],x[1][0],x[1][1],x[1][2])
-        elif ispoly(x) or isgeomlist(x):
+        elif ispoly(x):
+            if self.polystyle in ('points','lines','both'):
+                if self.polystyle == 'points' or \
+                   self.polystyle == 'both':
+                    for e in x:
+                        self.draw(e)
+                if self.polystyle == 'lines' or \
+                   self.polystyle == 'both':
+                    for i in range(1,len(x)):
+                        self.draw(line(x[i-1],x[i]))
+            else:
+                raise ValueError("bad value for polystyle: {}".format(self.polystyle))
+            
+        elif isgeomlist(x):
             for e in x:
                 self.draw(e)
-        elif isinstance(x,Geometry):
-            self.draw(x.geom())
+        # elif isinstance(x,Geometry):
+        #     self.draw(x.geom())
         elif isinstance(x,Drawable):
             x.draw()
         else:
