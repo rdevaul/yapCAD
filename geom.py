@@ -1270,7 +1270,10 @@ def intersectSimplePolyXY(g,a,inside=True,params=False):
     uu2s = []
     lines, lengths, length = __lineslength(a)
     if len(lines) == 1:
-        return inter(lines[0],g,inside,params)
+        if LINE:
+            return lineLineIntersectXY(lines[0],g,inside,params)
+        else:
+            return lineArcIntersectXY(lines[0],g,inside,params)
     dst = 0.0
     if len(lines) > 2:
         for i in range(len(lines)):
@@ -1294,32 +1297,21 @@ def intersectSimplePolyXY(g,a,inside=True,params=False):
                 if not isinstance(uu,bool):
                     for i in range(len(uu[0])):
                         if (((closed or (i > 0 and i < len(lines)-1)) and \
-                             uu[0] >= 0.0 and uu[0] <= 1.0) or\
-                            (not closed and i == 0 and uu[0] <= 1.0) or\
+                             uu[i][0] >= 0.0 and uu[i][0] <= 1.0) or\
+                            (not closed and i == 0 and uu[i][0] <= 1.0) or\
                             (not closed and \
-                             i == len(lines)-1 and uu[0] >= 0.0)):
+                             i == len(lines)-1 and uu[i][0] >= 0.0)):
                             if params:
                                 uu1s.append((uu[0][i]*lengths[i]+dst)/length)
                                 uu2s.append(uu[1][i])
                             else:
                                 if (not inside) or \
-                                   (uu[0] >= 0.0 and uu[0] <= 1.0) and \
-                                   (uu[1] >= 0.0 and uu[1] <= 1.0):
-                                    pnts.append(samplearc(g,uu[1]))
-                else:
-                    raise ValueError('unknown geometry type -- should never happen here')
-                        
-            else: ## not params
-                if LINE:
-                    pp = lineLineIntersectXY(lines[i],g,inside,params=False)
-                    if not isinstance(pp,bool):
-                        pnts.append(pp)
-                elif ARC:
-                    pp = lineArcIntersectXY(lines[i],g,inside,params=False)
-                    if not isinstance(pp,bool):
-                        pnts = pnts + pp
-                else:
-                    raise ValueError('unknown geometry type -- should never happen here')
+                                   (uu[i][0] >= 0.0 and uu[i][0] <= 1.0) and \
+                                   (uu[i][1] >= 0.0 and uu[i][1] <= 1.0):
+                                    pnts.append(samplearc(g,uu[i][1]))
+
+            else:
+                raise ValueError('unknown geometry type -- should never happen here')
             dst = dst+lengths[i]
 
     if params:
