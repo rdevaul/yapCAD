@@ -73,13 +73,43 @@ int1 = intersectSimplePolyXY(line2,pol1,True)
 int2 = intersectSimplePolyXY(arc1,pol1,True)
 int2u =intersectSimplePolyXY(arc1,pol1,params=True)
 int3 = intersectSimplePolyXY(arc2,pol1,True)
+int3u = intersectSimplePolyXY(arc2,pol1,params=True)
 
 dd.polystyle = 'points'
-#dd.draw(int0)
-#dd.draw(int1)
-dd.draw(int2)
-print("intersectSimplePolyXY(arc1,pol1,params=True): ",int2u)
-print("intersectSimplePolyXY(arc1,pol1,True): ",vstr(int2))
-#dd.draw(int3)
+
+dd.draw(int0 + int1)
+
+dd.pointstyle='o'
+i = 6
+for p in int2:
+    dd.draw(p)
+    # dd.draw(arc(p,0.1*i))
+    i = i+1
+
+dd.pointstyle='x'
+i = 6
+for u in int2u[1]:
+    p = samplepoly(pol1,u)
+    #print("sample point: ",vstr(p))
+    dd.draw(p)
+    #dd.draw(arc(p,0.1*i))
+    i = i+1
+
+dd.pointstyle='o'
+i = 6
+for p in int3:
+    dd.draw(p)
+    #dd.draw(arc(p,0.1*i))
+    i = i+1
+
+dd.pointstyle='x'
+i = 6
+for u in int3u[1]:
+    p = samplepoly(pol1,u)
+    #print("sample point: ",vstr(p))
+    dd.draw(p)
+    #dd.draw(arc(p,0.1*i))
+    i = i+1
+
 
 dd.display()
