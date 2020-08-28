@@ -62,7 +62,7 @@ d.draw(polys)
 # circles of increasing size.  This allows the visual confirmation of
 # even spacing and shows the counter-clockwise progression of samples
 i = 4
-for ply in ply1:
+for ply in polys:
     for j in range(i*3):
         p = samplepoly(ply,j/(i*3))
         d.draw(arc(p,0.2+j/(i*10)))

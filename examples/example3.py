@@ -41,6 +41,7 @@ d.draw(tl2[0])
 d.draw(tl2[1])
 
 d.pointstyle='o'
+d.polystyle='points'
 d.draw(points)
 
 d.display()
