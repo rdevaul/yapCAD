@@ -956,7 +956,7 @@ def _lineArcIntersectXY(l,c,inside=True,params=False):
 
         if end > start and ang >= start and ang <= end:
             ss = ss + [ add(x,i) ]
-        elif start < end and ang <= start and ang>= end:
+        elif end < start and (ang >= start or ang<= end):
             ss = ss + [ add(x,i) ]
 
     if len(ss) == 0:
@@ -1294,21 +1294,22 @@ def intersectSimplePolyXY(g,a,inside=True,params=False):
                             pnts.append(sampleline(g,uu[1]))
             elif ARC:
                 uu = lineArcIntersectXY(lines[i],g,params=True)
+                print("ARC: uu: ",vstr(uu))
                 if not isinstance(uu,bool):
-                    for i in range(len(uu[0])):
+                    for j in range(len(uu[0])):
                         if (((closed or (i > 0 and i < len(lines)-1)) and \
-                             uu[i][0] >= 0.0 and uu[i][0] <= 1.0) or\
-                            (not closed and i == 0 and uu[i][0] <= 1.0) or\
+                             uu[0][j] >= 0.0 and uu[0][j] <= 1.0) or\
+                            (not closed and i == 0 and uu[0][j] <= 1.0) or\
                             (not closed and \
-                             i == len(lines)-1 and uu[i][0] >= 0.0)):
+                             i == len(lines)-1 and uu[0][j] >= 0.0)):
                             if params:
-                                uu1s.append((uu[0][i]*lengths[i]+dst)/length)
-                                uu2s.append(uu[1][i])
+                                uu1s.append((uu[0][j]*lengths[i]+dst)/length)
+                                uu2s.append(uu[1][j])
                             else:
                                 if (not inside) or \
-                                   (uu[i][0] >= 0.0 and uu[i][0] <= 1.0) and \
-                                   (uu[i][1] >= 0.0 and uu[i][1] <= 1.0):
-                                    pnts.append(samplearc(g,uu[i][1]))
+                                   (uu[0][j] >= 0.0 and uu[0][j] <= 1.0) and \
+                                   (uu[1][j] >= 0.0 and uu[1][j] <= 1.0):
+                                    pnts.append(samplearc(g,uu[1][j]))
 
             else:
                 raise ValueError('unknown geometry type -- should never happen here')
@@ -1316,7 +1317,7 @@ def intersectSimplePolyXY(g,a,inside=True,params=False):
 
     if params:
         if len(uu1s) > 0:
-            return [ uu1s, uu2s]
+            return [ uu2s, uu1s]
         else:
             return False
     else:
