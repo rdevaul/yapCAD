@@ -1294,7 +1294,6 @@ def intersectSimplePolyXY(g,a,inside=True,params=False):
                             pnts.append(sampleline(g,uu[1]))
             elif ARC:
                 uu = lineArcIntersectXY(lines[i],g,params=True)
-                print("ARC: uu: ",vstr(uu))
                 if not isinstance(uu,bool):
                     for j in range(len(uu[0])):
                         if (((closed or (i > 0 and i < len(lines)-1)) and \
