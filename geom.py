@@ -888,7 +888,7 @@ def _lineArcIntersectXY(l,c,inside=True,params=False):
     ## what is the shortest distance between the line and the center
     ## of the arc?  If that is greater than r, then there is no
     ## intersection
-    dst = linePointXYDist(l,x,inside)
+    dst = linePointXYDist(l,x,inside and not params)
     if dst > r+epsilon:
         return False
 
