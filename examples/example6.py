@@ -52,11 +52,35 @@ for i in range(7,10):
         poly.addArc(arc(samplearc(circ2,x),1.0))
     poly.makeoutline()
 
-    
+l = line(a,b)
+d.draw(l)
+
+pp = []
+uu1s = []
+uu2s = []
 for ply in polys1:
+    z = intersectGeomListXY(l,ply.outline,inside=False)
+    u = intersectGeomListXY(l,ply.outline,inside=False,params=True)
+    if z:
+        pp = pp + z
+    if u:
+        uu1s = uu1s + u[0]
+        uu2s = uu2s + u[1]
     d.draw(ply.outline)
 
+d.polystyle='points'
+d.pointstyle='o'
+print("pp: ",vstr(pp))
+d.draw(pp)
+print("uu1s: ",uu1s)
+uin = list(filter(lambda x: x >= 0 and x <= 1, uu1s))
+print("uu1s inside: ",uin)
 
+d.pointstyle='x'
+for u in uu1s:
+    p=sampleline(l,u)
+    d.draw(p)
+    
 i = 4
 for ply in polys1:
     for j in range(i*3):
