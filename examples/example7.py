@@ -75,13 +75,20 @@ int2u =intersectSimplePolyXY(arc1,pol1,params=True)
 int3 = intersectSimplePolyXY(arc2,pol1,True)
 int3u = intersectSimplePolyXY(arc2,pol1,params=True)
 
+int10 = intersectSimplePolyXY(line3,pol2,True)
+int11 = intersectSimplePolyXY(line4,pol2,True)
+int12 = intersectSimplePolyXY(arc3,pol2,True)
+int12u =intersectSimplePolyXY(arc3,pol2,params=True)
+int13 = intersectSimplePolyXY(arc4,pol2,True)
+int13u = intersectSimplePolyXY(arc4,pol2,params=True)
+
 dd.polystyle = 'points'
 
-dd.draw(int0 + int1)
+dd.draw(int0 + int1 + int10 + int11)
 
 dd.pointstyle='o'
 i = 6
-for p in int2:
+for p in int2 + int12:
     dd.draw(p)
     # dd.draw(arc(p,0.1*i))
     i = i+1
@@ -95,9 +102,16 @@ for u in int2u[1]:
     #dd.draw(arc(p,0.1*i))
     i = i+1
 
+i = 6
+for u in int12u[1]:
+    p = samplepoly(pol2,u)
+    dd.draw(p)
+    #dd.draw(arc(p,0.1*i))
+    i = i+1
+    
 dd.pointstyle='o'
 i = 6
-for p in int3:
+for p in int3 + int13:
     dd.draw(p)
     #dd.draw(arc(p,0.1*i))
     i = i+1
@@ -109,6 +123,13 @@ for u in int3u[1]:
     #print("sample point: ",vstr(p))
     dd.draw(p)
     #dd.draw(arc(p,0.1*i))
+    i = i+1
+
+i = 6
+for u in int13u[1]:
+    p = samplepoly(pol2,u)
+    dd.draw(p)
+    dd.draw(arc(p,0.1*i))
     i = i+1
 
 
