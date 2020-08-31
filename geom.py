@@ -1268,7 +1268,7 @@ def intersectSimplePolyXY(g,a,inside=True,params=False):
     pnts = []
     uu1s = []
     uu2s = []
-    lines, lengths, length = __lineslength(a)
+    lines, lengths, leng = __lineslength(a)
     if len(lines) == 1:
         if LINE:
             return lineLineIntersectXY(lines[0],g,inside,params)
@@ -1285,7 +1285,7 @@ def intersectSimplePolyXY(g,a,inside=True,params=False):
                     (not closed and i == 0 and uu[0] <= 1.0) or\
                     (not closed and i == len(lines)-1 and uu[0] >= 0.0)):
                     if params:
-                        uu1s.append((uu[0]*lengths[i]+dst)/length)
+                        uu1s.append((uu[0]*lengths[i]+dst)/leng)
                         uu2s.append(uu[1])
                     else:
                         if (not inside) or \
@@ -1302,7 +1302,7 @@ def intersectSimplePolyXY(g,a,inside=True,params=False):
                             (not closed and \
                              i == len(lines)-1 and uu[0][j] >= 0.0)):
                             if params:
-                                uu1s.append((uu[0][j]*lengths[i]+dst)/length)
+                                uu1s.append((uu[0][j]*lengths[i]+dst)/leng)
                                 uu2s.append(uu[1][j])
                             else:
                                 if (not inside) or \
@@ -1349,6 +1349,185 @@ def isgeomlist(a):
                                    or isarc(x) or ispoly(x) \
                                    or isgeomlist(a)),a))
     return not len(b) > 0
+
+
+def __geomlistlength(gl):
+    leng=0.0
+    lengths=[]
+    for g in gl:
+        l = length(g)
+        lengths.append(l)
+        leng=leng+l
+    return lengths,leng
+
+## map the interval 0 to 1 to the total length of all geometry list
+## elements and return the sample point corresponding to the parameter
+## u.  Note that points elements are ignored for the purpose of
+## sampling.
+
+def samplegeomlist(gl,u):
+    if not isgeomlist(gl):
+        raise ValueError('non-geomlist passed to samplegeomlist')
+    
+    lengths,leng = __geomlistlength(gl)
+        
+    dst = u * leng;
+    d = 0
+    if u < 1.0:
+        for i in range(len(gl)):
+            l=lengths[i]
+            if dst <= d+l:
+                uu = 1.0 - (d+l-dst)/l
+                return sample(gl[i],uu)
+            else:
+                d+=l
+    else:
+        uu = (dst-leng+lengths[-1])/lengths[-1]
+        return sample(gl[-1],uu)
+
+
+## determint if the contents of a geometry list lie in the same x-y
+## plane
+def isgeomlistXYPlanar(gl):
+    if not isgeomlist(gl):
+        return False
+    pp = []
+    for g in gl:
+        if ispoint(g):
+            pp.append(g)
+        elif isline(g) or ispoly(g):
+            pp = pp + g
+        elif isarc(g):
+            pp.append(g[0])
+            if len(g) > 2 and not vclose(g[2],point(0,0,1)):
+                return False
+        elif isgeomlist(g):
+            if not isgeomlistXYPlanar(g):
+                return False
+    return isXYPlanar(pp)
+
+## compute the intersection between geometric element g, and geometry
+## list gl.  NOTE: this function does not impose continuity
+## requirements on the geometry list, and point elements are ignored
+## for intersection testing.
+
+def intersectGeomListXY(g,gl,inside=True,params=False):
+    if not isgeomlistXYPlanar(gl + [ g ]):
+        raise ValueError('non-XY-planar or geometry arguments to intersecctSimpleGeomListXY: {}'.format(vstr(gl + [ g])))
+    gTypes = ('point','line','arc','poly','glist')
+    def typeString(geom):
+        if ispoint(geom):
+            return 'point'
+        elif isline(geom):
+            return 'simple'
+        elif isarc(geom):
+            return 'simple'
+        elif ispoly(geom):
+            return 'poly'
+        elif isgeomlist(g):
+            return 'glist'
+        else:
+            return False
+    gtype = typeString(g)
+    if not gtype or gtype == 'point':
+        raise ValueError('bad geometry argument passed to intersectGeomListXY: {}'.format(vstr(g)))
+    pnts = []
+    uu1s = []
+    uu2s = []
+    lengths, leng = __geomlistlength(gl)
+    if len(gl) == 1:
+        if gtype == 'simple':
+            return _intersectSimpleXY(g,gl[0],inside,params)
+        if gtype == 'poly':
+            r = intersectSimplePolyXY(gl[0],g,inside,params)
+            if params:
+                return [ r[1], r[0] ]
+            else:
+                return r
+        if gtype == 'glist':
+            r = intersectGeomListXY(gl[0],g,inside,params)
+            if params:
+                return [ r[1], r[0] ]
+            else:
+                return r
+        else:
+            raise ValueError('bad gtype in intersectGeomListXY, this should never happen')
+        
+    dst = 0.0
+    if len(gl) > 2:
+        for i in range(len(gl)):
+            g2 = gl[i]
+            uu = []
+            gtype2 = typeString(g2)
+            if not gtype2:
+                raise ValueError('This should never happen: bad contents of geometry list after checks in intersectGeomListXY')
+            if gtype2 == 'point':
+                continue
+            elif gtype == 'simple' and  gtype2 == 'simple':
+                uu = _intersectSimpleXY(g,g2,params=True)
+            elif gtype == 'simple' and  gtype2 == 'poly':
+                uu = intersectSimplePolyXY(g,g2,params=True)
+            elif gtype == 'poly' and gtype2 == 'simple':
+                z = intersectSimplePolyXY(g2,g,params=True)
+                if not isinstance(z,bool):
+                    uu = [z[1],z[0]]
+            elif gtype == 'poly' and gtype2 == 'poly':
+                zz1 = []
+                zz2 = []
+                for i in range(1,len(g)):
+                    zz = intersectSimplePolyXY(line(g[i-1],g[i]),
+                                               g2, params=True)
+                    if not isinstance(zz,bool):
+                        zz1.append(zz[0])
+                        zz2.append(zz[1])
+                if len(zz1) > 0:
+                    uu = [ zz1,zz2 ]
+            elif gtype == 'simple' and gtype2 == 'glist':
+                uu = intersectGeomListXY(g,g2,params=True)
+            elif gtype == 'glist' and gtype2 == 'simple':
+                z = intersectGeomListXY(g2,g,params=True)
+                if not isinstance(z,bool):
+                    uu = [z[1],z[0]]
+            elif gtype == 'glist' and gtype2 == 'glist':
+                zz1 = []
+                zz2 = []
+                for gg in g:
+                    zz = intersectGeomListXY(gg,g2,params=True)
+                    if not isinstance(z,bool):
+                        zz1.append(zz[0])
+                        zz2.append(zz[1])
+                if len(zz1) > 0:
+                    uu = [zz1,zz2 ]
+            else:
+                raise ValueError('Aaaaahhhhh.... this should never happen')
+
+            ## if there was at least one intersection
+            if not isinstance(uu,bool) and len(uu) > 0:
+                for j in range(len(uu[0])):
+                    if params:
+                        if ((not inside) or \
+                            (uu[0][j] >= 0.0 and uu[0][j] <= 1.0)) and \
+                            (uu[1][j] >= 0.0 and uu[1][j] <= 1.0):
+                            uu1s.append(uu[0][j])
+                            uu2s.append((uu[1][j]*lengths[i]+dst)/leng)
+                    else:
+                        if ((not inside) or \
+                           (uu[0][j] >= 0.0 and uu[0][j] <= 1.0)) and \
+                           (uu[1][j] >= 0.0 and uu[1][j] <= 1.0):
+                            pnts.append(sample(g,uu[0][j]))
+            dst = dst+lengths[i]
+
+    if params:
+        if len(uu1s) > 0:
+            return [ uu1s, uu2s]
+        else:
+            return False
+    else:
+        if len(pnts) > 0:
+            return pnts
+        else:
+            return False
+
 
 ## functions on trangles -- a subset of polys
 ## ------------------------------------------
@@ -1444,22 +1623,73 @@ def bbox(x):
         return arcbbox(x)
     elif ispoly(x):
         return polybbox(x)
+    elif isgeom(x):
+        raise NotImplementedError('bboxes for geomlists not yet implemented')
     else:
         raise ValueError("inappropriate type for bbox(): ",format(x))
-    
+
+## 
 def sample(x,u):
     if ispoint(x):
         # return pointsample(x)
         return point(x)
     elif isline(x):
-        return linesample(x,u)
+        return sampleline(x,u)
     elif isarc(x):
-        return arcsample(x,u)
+        return samplearc(x,u)
     elif ispoly(x):
-        return polysample(x,u)
+        return samplepoly(x,u)
+    elif isgeomlist(x):
+        return samplegeomlist(x,u)
     else:
         raise ValueError("inappropriate type for sample(): ",format(x))
     
+
+## Non-vaue-safe intersection calculation for non-compound geometic
+## elements.
+
+## If params is true, return a list of two lists of intersection
+## parameters. If not, return a list of intersection points, or False
+## if no intersections
+
+def _intersectSimpleXY(g1,g2,inside=True,params=False):
+    g1line = True
+    g2line = True
+    if isarc(g1):
+        g1line=False
+    if isarc(g2):
+        g2line=False
+    if g1line and g2line:
+        r = lineLineIntersectXY(g1,g2,inside,params)
+        if isinstance(r,bool):
+            return False
+        elif params:
+            return [ [ r[0] ],[ r[1] ]]
+        else:
+            return [ r ]
+    elif g1line and not g2line:
+        return lineArcIntersectXY(g1,g2,inside,params)
+    elif g2line and not g1line:
+        r = lineArcIntersectXY(g2,g1,inside,params)
+        if params:
+            return [ r[1],r[0]]
+        else:
+            return r
+    elif not (g2line or g1line):
+        return arcArcIntersectXY(g1,g2,inside,params)
+    raise ValueError('this should never happen, something wrong in _intersectSimpleXY')
+
+    
+## Value-safe simple wrapper for calculation of intersection of
+## non-compound geometric elements
+def intersectSimpleXY(g1,g2,inside=True,params=False):
+    if not (isline(g1) or isarc(g1)) \
+       or not (isline(g2) or isarc(g2)):
+        raise ValueError('bad geometry passed to intersectSimpleXY')
+    if not isgeomlistXYPlanar([g1,g2]):
+        raise ValueError('geometry not in same XY plane in intersectSimpleXY')
+
+    return _intersectSimpleXY(g1,g2,inside,params)
 
 ## UNIT TESTS
 ## ========================================
