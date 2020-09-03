@@ -32,10 +32,12 @@ class Polyline(SampleGeometry):
         if isinstance(a,Polyline):
             self._elem = deepcopy(a._elem)
             self._updateInternals()
-        elif isinstance(a,list):
+        elif isgeomlist(a):
             for i in a:
-                if ispoint(i): 
+                if ispoint(i) or isarc(i) or isline(i): 
                     self._elem.append(i)
+                elif ispoly(i):
+                    self._elem = self._elem + i
                 else:
                     raise ValueError("bad argument to Polygon constructor")
 
@@ -224,11 +226,50 @@ class Polygon(Polyline):
                 elif isline(o): # line
                     length=linelength(o)
                 else:
+                    #print("self.outline: ",vstr(self.outline))
+                    print("o: ",vstr(o))
                     raise ValueError("bad element in outline list for _calclength()")
                 l += length
                 ll.append(length)
             self._length = l
             self._lengths=ll
+
+        def _handleCircle(e0,e1,e2):
+            c = self.getCenter() # center of the current figure
+            ## get the two tangent lines from point p0 to the
+            ## circle e1
+            ll = circleCircleTangentsXY(e0,e1)
+            l=[]
+            x0=center(e0)
+            x1=center(e1)
+            x2=center(e2)
+            print("x0: ",vstr(x0)," x1: ",vstr(x1)," x2: ",vstr(x2))
+            v1= sub(x1,x0)
+            v2= sub(x2,x1)
+            r0 = cross(v1,v2)
+            x3 = linecenter(ll[0])
+            x4 = linecenter(ll[1])
+            r1 = cross(v1,sub(x3,x1))
+            r2 = cross(v1,sub(x4,x1))
+
+            if r0[2] >= 0:
+                #print("foo")
+                if r1[2] >= 0:
+                    #print("zap")
+                    print("r1: ",r1[2]," r2: ",r2[2])
+                    l = ll[1]
+                else:
+                    #print("baz")
+                    print("r1: ",r1[2]," r2: ",r2[2])
+                    l = ll[0]
+            else:
+                print("bar")
+                if r2[2] >= 0:
+                    l = ll[1]
+                else:
+                    l = ll[0]
+                        
+            self.outline.append(line(l))
             
         def _fromPointAdd(p0,e1,e2):
             if isvect(e1): #r1 is a point -- simplest case
@@ -241,19 +282,8 @@ class Polygon(Polyline):
                 p = samplearc(e1,0.0)
                 self.outline.append(line(p0,p))
                 self.outline.append(arc(e1))
-            elif iscircle(e1): ## complicated
-                c = self.getCenter() # center of the current figure
-                ## get the two tangent lines from point p0 to the
-                ## circle e1
-                ll = pointCircleTangentsXY(p0,e1)
-                d1 = dist(c,linecenter(ll[0]))
-                d2 = dist(c,linecenter(ll[1]))
-                l=[]
-                if d1 < d2:
-                    l = ll[1]
-                else:
-                    l = ll[0]
-                self.outline.append(line(l))
+            elif iscircle(e1): 
+                _handleCircle(arc(p0,0),e1,e2)
                 self.outline.append(arc(e1))
             else:
                 raise ValueError('bad object in element list')
@@ -295,18 +325,27 @@ class Polygon(Polyline):
                 _fromPointAdd(p0,e1,e2)
             elif iscircle(e0):
                 c = self.getCenter()
-                ll = circleCircleTangentsXY(e0,e1)
-                d1 = dist(c,linecenter(ll[0]))
-                d2 = dist(c,linecenter(ll[1]))
-                l = []
-                if d1 < d2:
-                    l = ll[1]
+                c2 = []
+                if ispoint(e1):
+                    c2 = arc(e1,0.0)
+                if iscircle(e1):
+                    c2 = e1
                 else:
-                    l = ll[0]
-                self.outline.append(line(l))
-                self.outline.append(arc(e1)) # note: this appends the
-                                             # full circle.  We will
-                                             # fix it in post. :)
+                    p = sample(e1,0.0)
+                    c2 = arc(p,0.0)
+                _handleCircle(e0,c2,e2)
+                
+                # ll = circleCircleTangentsXY(e0,c2)
+                # d1 = dist(c,linecenter(ll[0]))
+                # d2 = dist(c,linecenter(ll[1]))
+                # l = []
+                # if d1 < d2:
+                #     l = ll[1]
+                # else:
+                #     l = ll[0]
+                # self.outline.append(line(l))
+                if not ispoint(e1):
+                    self.outline.append(deepcopy(e1))
 
         ## OK, now go back through and replace full circles with arcs
         ## and catch any intersecting lines due to non-convex
@@ -383,3 +422,29 @@ class Polygon(Polyline):
         return False
 
     
+## Utility functions
+
+## make rounded rectangle with specified width, height, and chamfer,
+## centered at the origin by default
+
+def makeRoundRect(width,height,chamf,center=point(0,0,0)):
+    cr=chamf/2.0
+    wid=width-chamf
+    hei=height-chamf
+    w=wid/2.0
+    h=hei/2.0
+    p0=add(point(-w,h),center)
+    p1=add(point(-w,-h),center)
+    p2=add(point(w,-h),center)
+    p3=add(point(w,h),center)
+    c0=arc(p0,cr)
+    c1=arc(p1,cr)
+    c2=arc(p2,cr)
+    c3=arc(p3,cr)
+    poly = Polygon()
+    poly.addArc(c0)
+    poly.addArc(c1)
+    poly.addArc(c2)
+    poly.addArc(c3)
+    poly.makeoutline()
+    return poly
