@@ -214,6 +214,8 @@ class Polygon(Polyline):
     ## "rounded triangle" composed of the circle-tangent lines joined
     ## by three arcs.  Elements that are explicitly specified lines or
     ## non-circular arcs are joined to adjacent elements by lines
+
+    debugList=[]
     
     def makeoutline(self):
         def _calclength():
@@ -235,56 +237,58 @@ class Polygon(Polyline):
             self._lengths=ll
 
         def _handleCircle(e0,e1,e2):
-            c = self.getCenter() # center of the current figure
-            ## get the two tangent lines from point p0 to the
-            ## circle e1
-            ll = circleCircleTangentsXY(e0,e1)
+            ## get the two tangent lines from circle e1 to the circle
+            ## e2
+            ll = circleCircleTangentsXY(e1,e2)
             l=[]
             x0=center(e0)
             x1=center(e1)
             x2=center(e2)
-            print("x0: ",vstr(x0)," x1: ",vstr(x1)," x2: ",vstr(x2))
+            #print("x0: ",vstr(x0)," x1: ",vstr(x1)," x2: ",vstr(x2))
+            #print("ll: ",vstr(ll))
             v1= sub(x1,x0)
             v2= sub(x2,x1)
             r0 = cross(v1,v2)
             x3 = linecenter(ll[0])
             x4 = linecenter(ll[1])
-            r1 = cross(v1,sub(x3,x1))
-            r2 = cross(v1,sub(x4,x1))
+            #print("x3: ",vstr(x3),"x4: ",vstr(x4))
+            #print("v1: ",vstr(v1),"v2: ",vstr(v2))
+            v3 = sub(x3,x2)
+            v4 = sub(x4,x2)
+            r1 = cross(v2,v3)
+            r2 = cross(v2,v4)
+            #print("v3: ",vstr(v3)," v4: ",vstr(v4))
+            #print("r0: ", r0[2], " r1: ",r1[2]," r2: ",r2[2])
 
             if r0[2] >= 0:
-                #print("foo")
+                #print("left-hand turn")
                 if r1[2] >= 0:
-                    #print("zap")
-                    print("r1: ",r1[2]," r2: ",r2[2])
                     l = ll[1]
                 else:
-                    #print("baz")
-                    print("r1: ",r1[2]," r2: ",r2[2])
                     l = ll[0]
             else:
-                print("bar")
+                #print("right hand turn")
                 if r2[2] >= 0:
-                    l = ll[1]
-                else:
                     l = ll[0]
+                else:
+                    l = ll[1]
                         
             self.outline.append(line(l))
             
-        def _fromPointAdd(p0,e1,e2):
-            if isvect(e1): #r1 is a point -- simplest case
-                ll = dist(p0,e1)
-                self.outline.append(line(p0,e1))
-            elif isline(e1):
-                self.outline.append(line(p0,e1[0]))
-                self.outline.append(line(e1))
-            elif isarc(e1) and not iscircle(e1):
-                p = samplearc(e1,0.0)
-                self.outline.append(line(p0,p))
-                self.outline.append(arc(e1))
-            elif iscircle(e1): 
-                _handleCircle(arc(p0,0),e1,e2)
-                self.outline.append(arc(e1))
+        def _fromPointAdd(e0,p1,e2):
+            if ispoint(e2): #r1 is a point -- simplest case
+                ll = dist(p1,e2)
+                self.outline.append(line(p1,e2))
+            elif isline(e2):
+                self.outline.append(line(p1,e2[0]))
+                self.outline.append(line(e2))
+            elif isarc(e2) and not iscircle(e2):
+                p = samplearc(e2,1*epsilon)
+                self.outline.append(line(p1,p))
+                self.outline.append(arc(e2))
+            elif iscircle(e2): 
+                _handleCircle(e0,arc(p1,1*epsilon),e2)
+                self.outline.append(arc(e2))
             else:
                 raise ValueError('bad object in element list')
             
@@ -316,24 +320,23 @@ class Polygon(Polyline):
             else:
                 e2 = self._elem[i+1]
             ## work through element types
-            if isvect(e0): #e0 is a point
+            if isvect(e1): #e0 is a point
                 _fromPointAdd(e0,e1,e2)
-            elif isline(e0):
-                _fromPointAdd(e0[1],e1,e2)
-            elif isarc(e0) and not iscircle(e0):
-                p0 = samplearc(e0,1.0)
-                _fromPointAdd(p0,e1,e2)
-            elif iscircle(e0):
-                c = self.getCenter()
+            elif isline(e1):
+                _fromPointAdd(e0,e1[0],e2)
+            elif isarc(e1) and not iscircle(e1):
+                p1 = samplearc(e1,1.0)
+                _fromPointAdd(e0,p1,e2)
+            elif iscircle(e1):
                 c2 = []
-                if ispoint(e1):
-                    c2 = arc(e1,0.0)
-                if iscircle(e1):
-                    c2 = e1
+                if ispoint(e2):
+                    c2 = arc(e2,1*epsilon)
+                if iscircle(e2):
+                    c2 = e2
                 else:
-                    p = sample(e1,0.0)
-                    c2 = arc(p,0.0)
-                _handleCircle(e0,c2,e2)
+                    p = sample(e2,0.0)
+                    c2 = arc(p,1*epsilon)
+                _handleCircle(e0,e1,c2)
                 
                 # ll = circleCircleTangentsXY(e0,c2)
                 # d1 = dist(c,linecenter(ll[0]))
@@ -344,8 +347,8 @@ class Polygon(Polyline):
                 # else:
                 #     l = ll[0]
                 # self.outline.append(line(l))
-                if not ispoint(e1):
-                    self.outline.append(deepcopy(e1))
+                if not ispoint(e2):
+                    self.outline.append(deepcopy(e2))
 
         ## OK, now go back through and replace full circles with arcs
         ## and catch any intersecting lines due to non-convex
