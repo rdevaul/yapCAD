@@ -68,13 +68,14 @@ for ply in polys1:
         uu2s = uu2s + u[1]
     d.draw(ply.outline)
 
+
 d.polystyle='points'
 d.pointstyle='o'
-print("pp: ",vstr(pp))
+#print("pp: ",vstr(pp))
 d.draw(pp)
-print("uu1s: ",uu1s)
+#print("uu1s: ",uu1s)
 uin = list(filter(lambda x: x >= 0 and x <= 1, uu1s))
-print("uu1s inside: ",uin)
+#print("uu1s inside: ",uin)
 
 d.pointstyle='x'
 for u in uu1s:
