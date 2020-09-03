@@ -5,7 +5,7 @@
 from math import *
 
 ## constants
-epsilon=0.000001
+epsilon=0.000005
 pi2 = 2.0*pi
 
 ## operations on scalars
@@ -75,6 +75,10 @@ def sub(a,b):
 
 def scale(a,c):
     return [a[0]*c,a[1]*c,a[2]*c,1.0]
+
+## component-wise 3vect multiplication
+def mul(a,b):
+    return [a[0]*b[0],a[1]*b[1],a[2]*b[2],1.0]
 
 ## NOTE: this function assumes that a lies in the x,y plane.  If this
 ## is not the case, the results are bogus.
@@ -923,6 +927,7 @@ def _lineArcIntersectXY(l,c,inside=True,params=False):
         b0 = -b/(2*a)
         b1 = False
     elif d < 0:
+        print("value of d: ",d)
         raise ValueError("imaginary solution to circle line intersection -- shouldn't happen here")
     else: # two points of intersection
         b0 = (-b + sqrt(d))/(2*a)
@@ -1012,7 +1017,7 @@ def _circleCircleTangentsXY(c1,c2):
     dr = r2-r1
 
     if d <= dr: #centers too close
-        return False
+        raise ValueError('circleCircleTangentsXY: centers of circles too close')
     
     beta = sqrt( d*d - dr*dr)
     theta = atan2(dr,beta)
@@ -1056,6 +1061,9 @@ def circleCircleTangentsXY(c0,c1):
         raise ValueError('circles passed to circleCircleTangentsXY do not all lie in same x-y plane')
     return _circleCircleTangentsXY(c0,c1)
 
+def pointCircleTangentsXY(p,c1):
+    c0 = arc(p,epsilon)
+    return circleCircleTangentsXY(c0,c1)
 
 ## functions that compute barycentric coordinates for 2D triangles
 ## -----------------------------------------------------------
@@ -1527,6 +1535,53 @@ def intersectGeomListXY(g,gl,inside=True,params=False):
             return pnts
         else:
             return False
+
+## function to mirror the contents of a geometry list
+
+def mirrorgeomlist(geomlist,plane):
+    if not isgeomlist(geomlist):
+        raise ValueError('non-geomlist passed to mirrorgeomlist')
+    r= []
+    flip=point(1,1,1)
+    if plane == 'xz':
+        flip[1]= -1
+    elif plane == 'yz':
+        flip[0]= -1
+    elif plane == 'xy':
+        flip[2]= -1
+    else:
+        raise ValueError('bad reflection plane passed to mirror')
+    for g in geomlist:
+
+        if ispoint(g):
+            r.append(point(mul(g,flip)))
+        elif isarc(g):
+            a2=arc(g)
+            a2[0] = mul(g[0],flip)
+            start = g[1][1]
+            end  = g[1][2]
+            if not (start == 0 and end == 360):
+                ## mirror the arc segment
+                ps = point(cos(start*pi2/360.0),sin(start*pi2/360.0))
+                pe = point(cost(end*pi2/360.0),sin(end*pi2/360.0))
+                ps = mul(ps,flip)
+                pe = mul(pe,flip)
+                start = (atan2(ps[1],ps[0])%pi2)*360/pi2
+                end = (atan2(pe[1],pe[0])%pi2)*360/pi2
+                a2[1][1]=start
+                a2[1][2]=end
+            r.append(a2)
+        elif ispoly(g):
+            ply = []
+            for p in g:
+                ply.append(mul(p,flip))
+            r.append(ply)
+        elif isgeomlist(g):
+            r.append(mirror(g,axes))
+        else:
+            raise ValueError('bad thing in list passed to mirror: {}'.format(g))
+    return r
+    
 
 
 ## functions on trangles -- a subset of polys
