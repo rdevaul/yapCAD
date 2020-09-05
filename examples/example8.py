@@ -38,14 +38,18 @@ def flower(center = point(0,0),
         glist.append(pnt2)
 
     p = Polygon(glist)
-    p.makeoutline()
+    #p.makeoutline()
     if returnPoly:
         return p
     else:
-        return p.outline
+        return p.geom()
 
 def mirrorArray(pnt=point(-45,45)):
     glist = flower(pnt)
+    bb = bbox(glist)
+    ply = [point(bb[0]), point(bb[1][0],bb[0][1]),
+           point(bb[1]), point(bb[0][0],bb[1][1])]
+    glist = glist + ply
     glist = glist + mirrorgeomlist(glist,'yz')
     glist = glist + mirrorgeomlist(glist,'xz')
     return glist

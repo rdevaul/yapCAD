@@ -41,7 +41,6 @@ for i in range(4,7):
     for j in range(i):
         x=j/i
         poly.addArc(arc(samplearc(circ1,x),1.0))
-    poly.makeoutline()
 
 for i in range(7,10):
     poly = Polygon()
@@ -50,7 +49,6 @@ for i in range(7,10):
     for j in range(i):
         x=j/i
         poly.addArc(arc(samplearc(circ2,x),1.0))
-    poly.makeoutline()
 
 l = line(a,b)
 d.draw(l)
@@ -59,14 +57,14 @@ pp = []
 uu1s = []
 uu2s = []
 for ply in polys1:
-    z = intersectGeomListXY(l,ply.outline,inside=False)
-    u = intersectGeomListXY(l,ply.outline,inside=False,params=True)
+    z = intersectGeomListXY(l,ply.geom(),inside=False)
+    u = intersectGeomListXY(l,ply.geom(),inside=False,params=True)
     if z:
         pp = pp + z
     if u:
         uu1s = uu1s + u[0]
         uu2s = uu2s + u[1]
-    d.draw(ply.outline)
+    d.draw(ply.geom())
 
 
 d.polystyle='points'

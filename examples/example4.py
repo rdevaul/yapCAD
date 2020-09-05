@@ -57,13 +57,9 @@ for p in points:
     a = arc(p,4.0)
     poly2.addArc(a)
 
-# create the outlines
-poly0.makeoutline()
-poly1.makeoutline()
-poly2.makeoutline()
-
-d.draw(poly0.outline)
-d.draw(poly1.outline)
+# draw the generated geometry
+d.draw(poly0.geom())
+d.draw(poly1.geom())
 
 # sample 12 points from a polygon
 for i in range(12):
