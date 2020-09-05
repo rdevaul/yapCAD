@@ -229,7 +229,7 @@ class Polygon(Polyline):
                     length=linelength(o)
                 else:
                     #print("self.outline: ",vstr(self.outline))
-                    print("o: ",vstr(o))
+                    #print("o: ",vstr(o))
                     raise ValueError("bad element in outline list for _calclength()")
                 l += length
                 ll.append(length)
@@ -338,15 +338,6 @@ class Polygon(Polyline):
                     c2 = arc(p,1*epsilon)
                 _handleCircle(e0,e1,c2)
                 
-                # ll = circleCircleTangentsXY(e0,c2)
-                # d1 = dist(c,linecenter(ll[0]))
-                # d2 = dist(c,linecenter(ll[1]))
-                # l = []
-                # if d1 < d2:
-                #     l = ll[1]
-                # else:
-                #     l = ll[0]
-                # self.outline.append(line(l))
                 if not ispoint(e2):
                     self.outline.append(deepcopy(e2))
 
@@ -360,6 +351,15 @@ class Polygon(Polyline):
                 e2 = self.outline[0]
             else:
                 e2 = self.outline[i+1]
+            if isline(e1) and isline(e2):
+                pi = lineLineIntersectXY(e1,e2,inside=True)
+                if pi == False:
+                    # print("not expected: adjacent lines don't intersect. We will fix that")
+                    pi = lineLineIntersectXY(e1,e2,inside=False)
+                    if pi == False:
+                        raise ValueError('parallel adjacent lines -- no clue')
+                self.outline[i] = line(e1[1],pi)
+                self.outline[(i+1)%len(self.outline)] = line(pi,e2[1])
             if iscircle(e1):
                 if not isline(e0) or not isline(e2):
                     raise ValueError('circle not bracketed by lines')
