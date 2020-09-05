@@ -1355,7 +1355,7 @@ def isgeomlist(a):
         return False
     b = list(filter(lambda x: not (ispoint(x) or isline(x) \
                                    or isarc(x) or ispoly(x) \
-                                   or isgeomlist(a)),a))
+                                   or isgeomlist(x)),a))
     return not len(b) > 0
 
 
@@ -1563,11 +1563,11 @@ def mirrorgeomlist(geomlist,plane):
             if not (start == 0 and end == 360):
                 ## mirror the arc segment
                 ps = point(cos(start*pi2/360.0),sin(start*pi2/360.0))
-                pe = point(cost(end*pi2/360.0),sin(end*pi2/360.0))
+                pe = point(cos(end*pi2/360.0),sin(end*pi2/360.0))
                 ps = mul(ps,flip)
                 pe = mul(pe,flip)
-                start = (atan2(ps[1],ps[0])%pi2)*360/pi2
-                end = (atan2(pe[1],pe[0])%pi2)*360/pi2
+                end = (atan2(ps[1],ps[0])%pi2)*360/pi2
+                start = (atan2(pe[1],pe[0])%pi2)*360/pi2
                 a2[1][1]=start
                 a2[1][2]=end
             r.append(a2)
@@ -1577,7 +1577,7 @@ def mirrorgeomlist(geomlist,plane):
                 ply.append(mul(p,flip))
             r.append(ply)
         elif isgeomlist(g):
-            r.append(mirror(g,axes))
+            r.append(mirrorgeomlist(g,plane))
         else:
             raise ValueError('bad thing in list passed to mirror: {}'.format(g))
     return r
