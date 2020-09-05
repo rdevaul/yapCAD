@@ -1,19 +1,27 @@
-# pure geometry polyline and polygon support for yapCAD
+# Polyline and Polygon geometry generating classes for yapCAD
 from geom import *
 from geometry import *
 
-## The goal is to describe open and closed multi-element geometric
-## figures that are specified in terms of point, line, and arc
-## primitives.  For example, a "chamfered" line with arcs instead of
-## sharp line intersection corners, or rounded polygons like rounded
-## rectangles or rounded triangles.  These figures can be sampled as
-## though they are continuous curves and can be subject to operations
-## like "grow" or "intersect."
+## These geometry-generating classes are somewhat analogous to the
+## polygonal representations available by way of poly() point lists.
+## There are two important diferences that might lead you to use these
+## classes rather than the point-list based representations.
 
-## These classes can be seen as extensions of the pure geometry
-## list-based poly() and polygon() respresentations that represent
-## figures with line segments
+## First, because instances of these classes can cache
+## meta-information about the geometry, it means that sampling and
+## intersection operations might be more efficient for class instances
+## than utilizing the functions avalable for the list-based
+## representations. 
 
+## Seond, and more importantly, these geometry-generating classes,
+## they can support a richer set of representations and operations.
+## For example, the Polygon() class for closed figures allows you to
+## specify points, lines, arcs, or circles as elements of the
+## geometry, and will intelligently interpolate between these to
+## generate the resulting geometry.  This means you can use circles to
+## represented rounded corners without having to worry about
+## converting them into just the right arc, since the tangent lines
+## and arc trimming are done automatically.
 
 
 class Polyline(SampleGeometry):
@@ -128,7 +136,14 @@ class Polyline(SampleGeometry):
                                             center(self._elem[-1])) < epsilon:
             self._closed = True
 
+    def geom(self):
+        if self._update:
+            self._updateInternals()
+        return deepcopy(self._lines)
+
     def sample(self,u):
+        if self._update:
+            self._updateInternals()
         dist = u * self._length;
         d = 0
         if self._closed:
@@ -147,11 +162,11 @@ class Polyline(SampleGeometry):
         
 
 class Polygon(Polyline):
-    """Generalized multi-element closed figure class"""
+    """Generalized multi-element closed figure geometry generation class"""
 
     def __init__(self,a=False):
         super().__init__(a)
-        self.outline=[]
+        self._outline=[]
 
         elm = self._elem
 
@@ -168,9 +183,16 @@ class Polygon(Polyline):
     def __repr__(self):
         return 'Polygon({})'.format(vstr(self._elem))
 
+    def _updateInternals(self):
+        if self._update:
+            self._updateCenter()
+            self._makeoutline()
+            self._update=False
+
     ## add another drawing element
     def addLine(self,element):
         if isline(element):
+            self._update=True  # flag that we need to recalculate stuff
             self._elem.append(element)
         else:
             raise ValueError('attempt to add a non point, line or arc to poly')
@@ -178,8 +200,7 @@ class Polygon(Polyline):
     ## add another drawing element
     def addArc(self,element):
         if isarc(element):
-            ## mark the psuedovector with a w=-1 tag to indicate that
-            ## this is an arc, not a line
+            self._update=True  # flag that we need to recalculate stuff
             self._elem.append(element)
         else:
             raise ValueError('attempt to add a non point, line or arc to poly')
@@ -204,6 +225,7 @@ class Polygon(Polyline):
         return p
                 
     def remove(self,element):
+        self._update=True  # flag that we need to recalculate stuff
         self._elem.remove(element)
                 
     ## function to take the elements in the elem[] list and
@@ -217,18 +239,18 @@ class Polygon(Polyline):
 
     debugList=[]
     
-    def makeoutline(self):
+    def _makeoutline(self):
         def _calclength():
             l = 0
             ll = []
             length = 0
-            for o in self.outline:
+            for o in self._outline:
                 if isarc(o):
                     length=arclength(o)
                 elif isline(o): # line
                     length=linelength(o)
                 else:
-                    #print("self.outline: ",vstr(self.outline))
+                    #print("self._outline: ",vstr(self._outline))
                     #print("o: ",vstr(o))
                     raise ValueError("bad element in outline list for _calclength()")
                 l += length
@@ -273,33 +295,33 @@ class Polygon(Polyline):
                 else:
                     l = ll[1]
                         
-            self.outline.append(line(l))
+            self._outline.append(line(l))
             
         def _fromPointAdd(e0,p1,e2):
             if ispoint(e2): #r1 is a point -- simplest case
-                ll = dist(p1,e2)
-                self.outline.append(line(p1,e2))
+                #ll = dist(p1,e2)
+                self._outline.append(line(p1,e2))
             elif isline(e2):
-                self.outline.append(line(p1,e2[0]))
-                self.outline.append(line(e2))
+                self._outline.append(line(p1,e2[0]))
+                self._outline.append(line(e2))
             elif isarc(e2) and not iscircle(e2):
                 p = samplearc(e2,1*epsilon)
-                self.outline.append(line(p1,p))
-                self.outline.append(arc(e2))
+                self._outline.append(line(p1,p))
+                self._outline.append(arc(e2))
             elif iscircle(e2): 
                 _handleCircle(e0,arc(p1,1*epsilon),e2)
-                self.outline.append(arc(e2))
+                self._outline.append(arc(e2))
             else:
                 raise ValueError('bad object in element list')
             
-        self.outline=[]
+        self._outline=[]
         self._length=0
         self._lengths=[]
 
         if len(self._elem) < 2:
             ## if one element, the outline is the element
             if len(self._elem) == 1:
-                self.outline=deepcopy(self._elem)
+                self._outline=deepcopy(self._elem)
                 self._calclength()
             ## if there are fewer than one elem, there is nothing to do
             return
@@ -320,7 +342,7 @@ class Polygon(Polyline):
             else:
                 e2 = self._elem[i+1]
             ## work through element types
-            if isvect(e1): #e0 is a point
+            if ispoint(e1): #e1 is a point
                 _fromPointAdd(e0,e1,e2)
             elif isline(e1):
                 _fromPointAdd(e0,e1[0],e2)
@@ -339,18 +361,18 @@ class Polygon(Polyline):
                 _handleCircle(e0,e1,c2)
                 
                 if not ispoint(e2):
-                    self.outline.append(deepcopy(e2))
+                    self._outline.append(deepcopy(e2))
 
         ## OK, now go back through and replace full circles with arcs
         ## and catch any intersecting lines due to non-convex
         ## curvature
-        for i in range(1,len(self.outline)):
-            e0 = self.outline[i-1]
-            e1 = self.outline[i]
-            if i == len(self.outline)-1: #last item
-                e2 = self.outline[0]
+        for i in range(1,len(self._outline)):
+            e0 = self._outline[i-1]
+            e1 = self._outline[i]
+            if i == len(self._outline)-1: #last item
+                e2 = self._outline[0]
             else:
-                e2 = self.outline[i+1]
+                e2 = self._outline[i+1]
             if isline(e1) and isline(e2):
                 pi = lineLineIntersectXY(e1,e2,inside=True)
                 if pi == False:
@@ -358,8 +380,8 @@ class Polygon(Polyline):
                     pi = lineLineIntersectXY(e1,e2,inside=False)
                     if pi == False:
                         raise ValueError('parallel adjacent lines -- no clue')
-                self.outline[i] = line(e1[1],pi)
-                self.outline[(i+1)%len(self.outline)] = line(pi,e2[1])
+                self._outline[i] = line(e1[0],pi)
+                self._outline[(i+1)%len(self._outline)] = line(pi,e2[1])
             if iscircle(e1):
                 if not isline(e0) or not isline(e2):
                     raise ValueError('circle not bracketed by lines')
@@ -379,29 +401,39 @@ class Polygon(Polyline):
                 if False and end < start:
                     raise NotImplementedError("not handling non-convex case for circle-tangent lines in poly outline yet")
                 newarc = arc(e1[0],e1[1][0],start,end)
-                self.outline[i]=newarc
+                self._outline[i]=newarc
                 
         _calclength()
+        self._bbox = geomlistbbox(self._outline)
         
     def sample(self,u):
-        if len(self.outline) == 0:
+        if self._update:
+            self._updateInternals()
+        if len(self._outline) == 0:
             return vect(0,0)
         dist = (u % 1.0) * self._length
         d = 0
-        for i in range(len(self.outline)):
+        for i in range(len(self._outline)):
             l=self._lengths[i]
             if dist <= d+l:
                 uu = (d+l-dist)/l
-                e = self.outline[i]
+                e = self._outline[i]
                 if isline(e):
                     return sampleline(e,1.0-uu)
                 else:
                     return samplearc(e,1.0-uu)
             else:
                 d=d+l
+
+    def geom(self):
+        if self._update:
+            self._updateInternals()
+        return deepcopy(self._outline)
                 
     def bounding(self):
-        return vect(0,0)
+        if self._update:
+            self._updateInternals()
+        return line(self._bbox)
 
     def is_inside(self,p):
         return False
@@ -449,5 +481,4 @@ def makeRoundRect(width,height,chamf,center=point(0,0,0)):
     poly.addArc(c1)
     poly.addArc(c2)
     poly.addArc(c3)
-    poly.makeoutline()
     return poly
