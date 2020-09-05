@@ -1039,8 +1039,13 @@ def _circleCircleTangentsXY(c1,c2):
     p3 = add(scale(n2,r1),smallC[0])
     p4 = add(scale(n2,r2),bigC[0])
 
-    l1 = line(p1,p2)
-    l2 = line(p3,p4)
+    l1 = l2 = []
+    if bigIsOne:
+        l1=line(p2,p1)
+        l2=line(p4,p3)
+    else:
+        l1 = line(p1,p2)
+        l2 = line(p3,p4)
 
     return [l1,l2]
 
@@ -1394,6 +1399,23 @@ def samplegeomlist(gl,u):
         return sample(gl[-1],uu)
 
 
+def geomlistbbox(gl):
+    if not isgeomlist(gl):
+        raise ValueError('non geomlist passed to geomlistbbox: {}'.format(gl))
+    ply=[]
+    for g in gl:
+        if ispoint(g):
+            ply.append(g)
+        elif isline(g) or ispoly(g):
+            ply = ply+g
+        elif isarc(g):
+            ply = ply + arcbbox(g)
+        elif isgeomlist(g):
+            ply = ply + geomlistbbox(g)
+        else:
+            raise ValueError('bad thing in geomlist passed to geomlistbbox -- should never happen')
+    return polybbox(ply)
+
 ## determint if the contents of a geometry list lie in the same x-y
 ## plane
 def isgeomlistXYPlanar(gl):
@@ -1678,8 +1700,8 @@ def bbox(x):
         return arcbbox(x)
     elif ispoly(x):
         return polybbox(x)
-    elif isgeom(x):
-        raise NotImplementedError('bboxes for geomlists not yet implemented')
+    elif isgeomlist(x):
+        return geomlistbbox(x)
     else:
         raise ValueError("inappropriate type for bbox(): ",format(x))
 
