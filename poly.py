@@ -24,7 +24,7 @@ from geometry import *
 ## and arc trimming are done automatically.
 
 
-class Polyline(SampleGeometry):
+class Polyline(IntersectGeometry):
     """Generalized multi-element open figure class"""
 
     def __init__(self,a=False):
@@ -442,18 +442,6 @@ class Polygon(Polyline):
         return False
 
     def shrink(self,r):
-        return False
-
-    def lineIntersect(self,l,inside=True):
-        return False
-
-    def arcIntersect(self,c,inside=True):
-        return False
-    
-    def polyIntersectPoints(self,other):
-        return False
-
-    def polyIntersect(self,other):
         return False
 
     
