@@ -1768,6 +1768,105 @@ def intersectSimpleXY(g1,g2,inside=True,params=False):
 
     return _intersectSimpleXY(g1,g2,inside,params)
 
+
+## is the argument a "simple" (non-compound) geometry object
+def issimple(g):
+    if ispoint(g) or isline(g) or isarc(g):
+        return True
+    else:
+        return False
+
+## grand unified XY plane intersection calculation, for any two simple
+## or compound geometry instances.  The true swiss-army-knife of
+## intersection.  Booo-ya. 
+
+def intersectXY(g1,g2,inside=True,params=False):
+    if ispoint(g1) or ispoint(g2):
+        return False
+    elif issimple(g1):
+        if issimple(g2):
+            return intersectSimpleXY(g1,g2,inside,params)
+        elif ispoly(g2):
+            return intersectSimplePolyXY(g1,g2,inside,params)
+        elif isgeomlist(g2):
+            return intersectGeomListXY(g1,g2,inside,params)
+        else:
+            raise ValueError('bad thing passed to intersectXY, should never get here')
+    elif issimple(g2):
+        rr = []
+        if ispoly(g1):
+            rr = intersectSimplePolyXY(g2,g1,inside,params)
+        elif isgeomlist(g1):
+            rr = intersectGeomListXY(g2,g1,inside,params)
+            
+        if rr == False:
+            return False
+        if params:
+            return [ rr[1],rr[0] ]
+        else:
+            return rr
+    elif ispoly(g2):
+        if ispoly(g1):
+            closed = False
+            if len(g1) > 2 and dist(g1[0],g1[-1]) < epsilon:
+                closed= True
+            uu1s = uu2s = []
+            pnts = []
+            lines, lengths, leng =  __lineslength(g1)
+            if lines == []:
+                return False
+            if len(lines) == 1:
+                return intersectSimplePolyXY(lines[0],g2,inside,params)
+            dst = 0.0
+            for i in range(len(lines)):
+                uu = intersectSimplePolyXY(lines[i],g2,params=True)
+                if not uu == False:
+                    for j in range(len(uu[0])):
+                        if (((closed or (i > 0 and i < len(lines)-1)) and \
+                             uu[0][j] >= 0.0 and uu[0][j] <= 1.0) or\
+                            (not closed and i == 0 and uu[0][j] <= 1.0) or\
+                            (not closed and i == len(lines)-1 and\
+                             uu[0][j] >= 0.0)):
+                            if params:
+                                uu1s.append((uu[0][j]*lengths[i]+dst)/leng)
+                                uu2s.append(uu[1][j])
+                            else:
+                                if (not inside) or \
+                                   (uu[0][j] >= 0.0 and uu[0][j] <= 1.0) and \
+                                   (uu[1][j] >= 0.0 and uu[1][j] <= 1.0):
+                                    pnts.append(sample(g2,uu[1][j]))
+            if params:
+                if len(uu1s) > 0:
+                    return [ uu2s, uu1s]
+                else:
+                    return False
+            else:
+                if len(pnts) > 0:
+                    return pnts
+                else:
+                    return False
+        elif isgeomlist(g1):
+            rr = intersectGeomListXY(g2,g1,inside,params)
+            if rr == False:
+                return False
+            if params:
+                return [ rr[1],rr[0] ]
+            else:
+                return rr
+        else:
+            raise ValueError('bad thing, this should never happen')
+
+    elif isgeomlist(g2):
+        return intersectGeomListXY(g1,g2,inside,params)
+    else:
+        raise ValueError('very bad thing, this should never happen')
+    
+        
+            
+            
+        
+    
+
 ## UNIT TESTS
 ## ========================================
 ## check to see if we have been invoked on the command line
