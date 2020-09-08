@@ -11,6 +11,21 @@ from geom import *
 from poly import *
 import random
 
+def drawLegend(d):
+    ## Put some documentary text on the drawing
+    d.layerset('DOCUMENTATION')
+
+    d.draw_text("yapCAD", point(5,15),\
+                attr={'style': 'OpenSans-Bold',
+                      'height': 1.5})
+
+    d.draw_text("example6.py",
+                point(5,12))
+    d.draw_text("Polygon() flowers, mirrored geometry",
+                point(5,10))
+    d.layerset() # back to default layer
+
+
 def flower(center = point(0,0),
            petals = 12,
            minDiam=5.0,
@@ -64,5 +79,7 @@ if __name__ == "__main__":
     dd.saveas(filename)
 
     glist = mirrorArray()
+
+    drawLegend(dd)
     dd.draw(glist)
     dd.display()

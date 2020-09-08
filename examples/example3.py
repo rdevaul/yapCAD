@@ -14,6 +14,17 @@ filename="example3-out"
 print("\nOutput file name is {}.dxf".format(filename))
 d.saveas(filename)
 
+d.layerset('DOCUMENTATION') # select the DOCUMENTATION layer
+d.draw_text("yapCAD", point(-9,7),\
+            attr={'style': 'OpenSans-Bold',
+                  'height': 1.5})
+
+d.draw_text("example3.py",
+            point(-9,5.0))
+d.draw_text("circles, tangents, and intersections",
+            point(-9,3.5))
+d.layerset() # select the default layer
+
 a = point(5,5)
 b = point(-5,5)
 c = point(0,0)
@@ -25,8 +36,8 @@ circ3 = arc(c,1)
 tl1 = circleCircleTangentsXY(circ1,circ2)
 tl2 = circleCircleTangentsXY(circ3,circ1)
 
-i1 = arcArcIntersectXY(circ1,circ2,False)
-i2 = arcArcIntersectXY(circ2,circ3,False)
+i1 = intersectXY(circ1,circ2,False)
+i2 = intersectXY(circ2,circ3,False)
 
 points = i1 + i2
 
@@ -40,8 +51,10 @@ d.draw(tl1[1])
 d.draw(tl2[0])
 d.draw(tl2[1])
 
+## configure point drawing, draw on DOCUMENTATION layer
 d.pointstyle='o'
 d.polystyle='points'
+d.layerset('DOCUMENTATION')
 d.draw(points)
 
 d.display()

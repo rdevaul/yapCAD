@@ -16,6 +16,20 @@ filename="example7-out"
 print("Output file name is {}.dxf".format(filename))
 dd.saveas(filename)
 
+dd.layerset('DOCUMENTATION')
+
+dd.draw_text("yapCAD", point(-12,13),\
+            attr={'style': 'OpenSans-Bold',
+                  'height': 1.5})
+
+dd.draw_text("example7.py",
+            point(-12,10))
+dd.draw_text("polygons, polylines, arcs,",
+            point(-12,8))
+dd.draw_text("and intersections",
+            point(-12,6.5))
+dd.layerset()
+
 # make some points centerd at the origin to be used as vertices for
 # our polys
 a = point(0,-5)
@@ -56,34 +70,42 @@ dd.polystyle='lines'
 dd.draw(pol1)
 dd.draw(pol2)
 
+dd.layerset('PATHS')
+dd.colorset(1)
+
 dd.draw(line1)
 dd.draw(line2)
 dd.draw(line3)
 dd.draw(line4)
 
+dd.colorset(4)
 dd.draw(arc1)
 dd.draw(arc2)
 dd.draw(arc3)
 dd.draw(arc4)
 
+dd.colorset()
+
 ## Do some intersection calculation
 
-int0 = intersectSimplePolyXY(line1,pol1,True)
-int1 = intersectSimplePolyXY(line2,pol1,True)
-int2 = intersectSimplePolyXY(arc1,pol1,True)
-int2u =intersectSimplePolyXY(arc1,pol1,params=True)
-int3 = intersectSimplePolyXY(arc2,pol1,True)
-int3u = intersectSimplePolyXY(arc2,pol1,params=True)
+int0 = intersectXY(line1,pol1,True)
+int1 = intersectXY(line2,pol1,True)
+int2 = intersectXY(arc1,pol1,True)
+int2u =intersectXY(arc1,pol1,params=True)
+int3 = intersectXY(arc2,pol1,True)
+int3u = intersectXY(arc2,pol1,params=True)
 
-int10 = intersectSimplePolyXY(line3,pol2,True)
-int11 = intersectSimplePolyXY(line4,pol2,True)
-int12 = intersectSimplePolyXY(arc3,pol2,True)
-int12u =intersectSimplePolyXY(arc3,pol2,params=True)
-int13 = intersectSimplePolyXY(arc4,pol2,True)
-int13u = intersectSimplePolyXY(arc4,pol2,params=True)
+int10 = intersectXY(line3,pol2,True)
+int11 = intersectXY(line4,pol2,True)
+int12 = intersectXY(arc3,pol2,True)
+int12u =intersectXY(arc3,pol2,params=True)
+int13 = intersectXY(arc4,pol2,True)
+int13u = intersectXY(arc4,pol2,params=True)
 
+## draw intersection points on documentation layer
+
+dd.layerset('DOCUMENTATION')
 dd.polystyle = 'points'
-
 dd.draw(int0 + int1 + int10 + int11)
 
 dd.pointstyle='o'
@@ -128,7 +150,9 @@ for u in int3u[1]:
 i = 6
 for u in int13u[1]:
     p = samplepoly(pol2,u)
+    dd.layerset('DOCUMENTATION')
     dd.draw(p)
+    dd.layerset('DRILLS')
     dd.draw(arc(p,0.1*i))
     i = i+1
 

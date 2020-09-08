@@ -18,7 +18,7 @@ l1 = line(a,b)
 l2 = line(c,d)
 
 # calculate the intersection of l1 and l2
-int0 = lineLineIntersectXY(l1,l2,True)
+int0 = intersectXY(l1,l2,True)
 
 # define a semicircular arc centerd at 2.5, 2,5 with a radius of 2.5
 # extending from 90 degress to 135 degrees
@@ -27,7 +27,7 @@ arc1=arc(point(2.5,2.5),2.5,90.0,270.0)
 
 # calculate the intersection of the line l1 and the arc arc1
 
-int1 = lineArcIntersectXY(l1,arc1,True)
+int1 = intersectXY(l1,arc1,True)
 
 # print the results
 print("line l1:",vstr(l1))

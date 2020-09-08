@@ -26,6 +26,21 @@ filename="example4-out"
 print("\nOutput file name is {}.dxf".format(filename))
 d.saveas(filename)
 
+## Put some documentary text on the drawing
+d.layerset('DOCUMENTATION')
+
+d.draw_text("yapCAD", point(5,15),\
+            attr={'style': 'OpenSans-Bold',
+                  'height': 1.5})
+
+d.draw_text("example6.py",
+            point(5,12))
+d.draw_text("polygons, circles, lines,",
+            point(5,10))
+d.draw_text("and intersections",
+            point(5,8.5))
+d.layerset()
+
 # make a circle with radius 10, centered at the origin
 a = point(0,0)
 circ = arc(a,10.0)
@@ -70,8 +85,10 @@ for i in range(12):
         d.pointstyle = 'xo'
     else:
         d.pointstyle = 'o'
+    d.layerset('DOCUMENTATION')
     d.draw(p)
         
+    d.layerset('DRILLS')
     d.draw(arc(p,2.0))
 
 d.display()
