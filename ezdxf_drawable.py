@@ -84,7 +84,7 @@ class ezdxfDraw(drawable.Drawable):
     def draw_text(self,text,location,
                   align='LEFT',
                   attr={'style': 'LiberationMono',
-                        'height': 1.0}):
+                        'height': .75}):
         layer=self.layer
         if layer == False:
             layer = '0'
