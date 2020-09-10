@@ -468,7 +468,7 @@ class Drawable:
         def _f2b(c):
             return [ round(c[0]*255.0),rount(c[1]*255.0),round(c[2]*255.0) ]
         def _b2i(c):
-            for i in len(colormap):
+            for i in range(len(colormap)):
                 if colormap[i] == thing:
                     return i
             return False
