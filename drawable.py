@@ -153,7 +153,7 @@ class Drawable:
     def set_linecolor(self,c):
         if isinstance(c,list) and len(c) == 3 or \
            isinstance(c,int) and c >= 0 or\
-           isinstance(c,string) and c in self.colordict:
+           isinstance(c,str) and c in self.colordict:
             self.linecolor = c
 
     def get_linecolor(self):
@@ -515,12 +515,12 @@ class Drawable:
             else:
                 c = cd[0]
         elif isinstance(thing,int):
-            if index < 0 or index > len(colormap):
-                raise ValueError('colormap index out of range: {}'.format(index))
+            if thing < 0 or thing > len(colormap):
+                raise ValueError('colormap index out of range: {}'.format(thing))
             if convert == 'i':
                 return thing
             else:
-                c = colormap[index]
+                c = colormap[thing]
         else:
             raise ValueError('bad thing passed to thing2color: {}'.format(thing))
         if c == False:

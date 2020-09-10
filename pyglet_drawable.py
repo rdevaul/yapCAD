@@ -56,6 +56,7 @@ class pygletDraw(drawable.Drawable):
         self.glSetup()
         self.center= point(0,0)
         self.magnify = 0.08
+        self.cameradist = 100.0
         self.points= []
         self.rx = 0
         self.ry = 0
@@ -104,7 +105,7 @@ class pygletDraw(drawable.Drawable):
 
             #gl.glMatrixMode(gl.GL_MODELVIEW)
             gl.glLoadIdentity()
-            gl.glTranslatef(0,0,-100.)
+            gl.glTranslatef(0,0,-1*self.cameradist)
             gl.glRotatef(self.ry%360.0, 1, 0, 0)
             gl.glRotatef(self.rx%360.0, 0, 1, 0)
             batch.draw()
