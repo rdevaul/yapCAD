@@ -19,7 +19,7 @@ class ezdxfDraw(drawable.Drawable):
         self.filename = "yapCAD-out"
 
         self.layer=False        # no layer set, use '0'
-        self.color=False    # default is 256 = autocad BYLAYER
+        self.linecolor=False    # default is 256 = autocad BYLAYER
         self.linetype=False # default is 'Continuous'
         
         super().__init__()
@@ -31,12 +31,13 @@ class ezdxfDraw(drawable.Drawable):
         if not layer in self.layerlist:
             raise ValueError('bad layer passed to layerset: {}'.format(layer))
         self.layer=layer
-        
+
+    # only support index colors right now
     def colorset(self,color=False):
         if not color in range(257):
             raise ValueError('bad color in colorset: {}'.format(color))
-        self.color=color
-
+        self.linecolor=color
+        
     def linetypeset(self,linetype=False):
         if not linetype in self.linetypelist:
             raise ValueError('bad linetype in linetypeset: {}'.format(linetype))
@@ -46,8 +47,10 @@ class ezdxfDraw(drawable.Drawable):
         layer=self.layer
         if layer == False:
             layer = '0'
-        color = self.color
-        if color == False:
+        color = self.linecolor
+        if color:
+            color = self.thing2color(self.linecolor,'i')
+        else:
             color = 256 # bylaer
         linetype = self.linetype
         if linetype == False:
@@ -63,8 +66,10 @@ class ezdxfDraw(drawable.Drawable):
         layer=self.layer
         if layer == False:
             layer = '0'
-        color = self.color
-        if color == False:
+        color = self.linecolor
+        if color:
+            color = self.thing2color(self.linecolor,'i')
+        else:
             color = 256 # bylaer
         linetype = self.linetype
         if linetype == False:
@@ -88,8 +93,10 @@ class ezdxfDraw(drawable.Drawable):
         layer=self.layer
         if layer == False:
             layer = '0'
-        color = self.color
-        if color == False:
+        color = self.linecolor
+        if color:
+            color = self.thing2color(self.linecolor,'i')
+        else:
             color = 256 # bylaer
         dxfattr = dict(attr)
         dxfattr.update({ 'layer': layer,
