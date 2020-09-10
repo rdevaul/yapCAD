@@ -1,46 +1,113 @@
-## First drawing example for yapCAD
-print("example1.py -- yapCAD DXF drawing example")
+## multi-rendering-back-end drawing example for yapCAD
+print("example1.py -- yapCAD DXF and OpenGL drawing example")
 
 from ezdxf_drawable import *
+from pyglet_drawable import *
 from geom import *
 
+#set up openGL rendering
+def setupGL():
+    dGl =pygletDraw()
+    dGl.magnify = 1.0
+    dGl.set_linecolor('white')
+    dGl.cameradist = 25
+    return dGl
+
 #set up DXF rendering
-d=ezdxfDraw()
+def setupDXF():
+    d=ezdxfDraw()
+    filename="example1-out"
+    print("\nOutput file name is {}.dxf".format(filename))
+    d.saveas(filename)
+    return d
 
-filename="example1-out"
-print("\nOutput file name is {}.dxf".format(filename))
-d.saveas(filename)
+## Draw some documentary text using the specified drawable.
+## Text in the OpenGL rendering isn't working very well yet.
 
-## Put some documentary text on the drawing
-d.layerset('DOCUMENTATION') # select the DOCUMENTATION layer
+def legend(d):
 
-d.draw_text("yapCAD", point(5,15),\
-            attr={'style': 'OpenSans-Bold',
-                  'height': 2.0})
+    d.draw_text("yapCAD", point(5,15),\
+                attr={'style': 'OpenSans-Bold',
+                      'height': 2.0})
+    d.draw_text("example1.py",
+                point(5,12))
 
-d.draw_text("example1.py",
-            point(5,12))
-d.draw_text("drawing primitives",
-            point(5,10))
-d.layerset() # select the default layer
+    d.draw_text("drawing primitives",
+                point(5,10))
 
-## make dxf-renderable geometry
+    
+## make geometry for drawing, and return it as a geometry list
+def geometry():
+    p = point(10,8)
+    l = line(point(-5,15),
+             point(10,-5))
+    a = arc(arc(point(1,3),6,45,135))
 
-# make a point located at 10,8 in the x-y plane, rendered as a small
-# red cross and circle
+    return [p,l,a]
 
-d.pointstyle = 'xo' # set the point rendering style
-d.colorset(1) #set color to red (DXF index color)
-d.draw(point(10,8))
 
-d.colorset(7) #set color to white
-# make a line segment between the points -5,15 and 10,-5 in the x-y plane
-d.draw(line(point(-5,15),
-            point(10,-5)))
+## Do the rendering with the specified drawable
+## Note: if we just wanted to render all of this the same way,
+## we could just call d.draw(glist)
 
-# make an arc with a center at 1,3 with a radius of 6, from 45 degrees
-# to 135 degrees
-d.draw(arc(point(1,3),6,45,135))
+def drawGlist(glist,d):
 
-# write out the geometry as example1-out.dxf
-d.display()
+    ## extract the point, line, and arc from the list
+    p = glist[0]
+    l = glist[1]
+    a = glist[2]
+
+    ## in this example we show three different ways of specifying the
+    ## line color used for rendering.  By color index (based on the
+    ## AutoCAD standard color index table), by standard HTML color
+    ## name, and by specifying the RGB tripple.  All of these methods
+    ## should work regardless of the drawable back-end used.
+    
+    ## render the point
+    d.pointstyle = 'xo' # set the point rendering style
+    d.set_linecolor(1) # set color to red (DXF index color)
+    d.draw(p)
+
+    ## render the line in white
+    d.set_linecolor('white') #set color to white, by name
+    d.draw(l)
+
+    ## render the arc in aqua, by specifying the RGB tripple.
+    ## NOTE:
+    ## only RGB tripples that correspond to AutoCAD color table
+    ## entries will produce the desired results in DXF rendering at
+    ## present.
+    
+    d.set_linecolor([0,255,255]) # corresponds to 'aqua'
+    d.draw(a)
+
+if __name__ == "__main__":
+
+    ## setup DXF rendering
+    d= setupDXF()
+
+    ## setup OpenGL rendering
+    dGl = setupGL()
+
+    ## make the geometry
+    geomlist = geometry()
+
+    ## draw the geometry in DXF
+    drawGlist(geomlist,d)
+
+    ## add a dawing legend on the DXF drawing, in the DOCUMENTATION
+    ## layer, with default layer color
+    
+    d.layerset('DOCUMENTATION')
+    d.set_linecolor(256) ## set layer default color
+    legend(d)
+    
+    ## draw the geometry in OpenGL
+    drawGlist(geomlist,dGl)
+
+    ## write out the DXF file as example1-out.dxf
+    d.display()
+
+    ## create the interactive OpenGL rendering -- do this last
+    dGl.display()
+    
