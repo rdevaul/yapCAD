@@ -5,11 +5,11 @@ yet another procedural CAD and computational geometry system written in python 3
 
 ## **yapCAD** goals
 
-The purpose of **yapCAD** is to support 2D and 3D computational geometry and CAD projects in python3.  **yapCAD** is designed to support multiple rendering back-ends, such that a relatively small amount of code is necessary to add support for a 2D or 3D cad or drawing file format.
+The purpose of **yapCAD** is to support 2D and 3D computational geometry and procedural CAD projects in python3.  **yapCAD** is designed to support multiple rendering back-ends, such that a relatively small amount of code is necessary to add support for a 2D or 3D cad or drawing file format.  At present, **yapCAD** supports the AutoCad DXF file format for creating two-dimensional drawings and OpenGL for creating interactive 2D and 3D renderings. 
 
-The foundations of **yapCAD** are grounded in decades of the author's experience with graphics system programming, 3D CAD and simulation. At the same time, **yapCAD** should make the easy stuff easy, and the more advanced stuff possible. 
+The foundations of **yapCAD** are grounded in decades of the author's experience with graphics system programming, 3D CAD and simulation. **yapCAD** has an underlying framework and architecture designed to support sohpisticated computational geometry and procedural CAD applications.  At the same time, the design of **yapCAD** should make easy stuff relatively easy, and the more advanced stuff possible. 
 
-The initial implementation of **yapCAD** provides DXF file creation support through the awesome [ezdxf](https://github.com/mozman/ezdxf) package.
+The initial implementation of **yapCAD** provides DXF file creation support through the awesome [ezdxf](https://github.com/mozman/ezdxf) package, and interactive OpenGL visualization using the amazing [pyglet](https://github.com/pyglet/pyglet) package.
 
 ## **yapCAD** examples
 
@@ -17,8 +17,8 @@ The initial implementation of **yapCAD** provides DXF file creation support thro
 
 It's pretty easy to make a DXF drawing with **yapCAD**.  Here is an example:
 
-	from ezdxf_drawable import *
-	from geom import *
+	from yapcad.ezdxf_drawable import *
+	from yapcad.geom import *
 
 	#set up DXF rendering
 	drawable=ezdxfDraw()
@@ -43,7 +43,7 @@ It's pretty easy to make a DXF drawing with **yapCAD**.  Here is an example:
 
 The **yapCAD** system isn't just about rendering, of course, it's about computational geometry.  For example, if you want to calculate the intersection of lines and arcs in a plane, we have you covered:
 
-	from geom import *
+	from yapcad.geom import *
 
     # define some points
     a = point(5,0)
@@ -211,7 +211,8 @@ more `Drawable` instances.
 
 In **yapCAD**, geometry is rendered with instances of subclasses of
 `Drawable`, which at present include `ezdxfDrawable`, a class for
-producing DXF renderinsgs using the awesome `ezdxf` package.
+producing DXF renderinsgs using the awesome `ezdxf` package, and
+`pygletDrawable`, a class for interactive 2D and 3D OpenGL rendering.
 
 To setup a drawing environment, you create an instance of the
 `Drawable` base class corresponding to the rendering system you want
@@ -223,8 +224,9 @@ the `display` method of the drawable instance.
 
 #### supported rendering systems
 
-DXF rendering using `ezdxf` is currently supported, and the design of
-**yapCAD** makes it easy to support other rendering backends.
+DXF rendering using `ezdxf` and interactive OpenGL rendering using
+`pyglet` are currently supported, and the design of **yapCAD** makes
+it easy to support other rendering backends.
 
 ## **yapCAD** architecture
 
