@@ -2,13 +2,12 @@
 
 print("example7.py -- yapCAD computational geometry and DXF drawing example")
 print("""
-
 In this demo we create open and closed polyline figures and calculate
 intersections with lines and arcs.  We draw the elememnts so we can
 visibly confirm the correctness of the intersection calculations.""")
 
-from ezdxf_drawable import *
-from geom import *
+from yapcad.ezdxf_drawable import *
+from yapcad.geom import *
 
 #set up DXF rendering
 dd=ezdxfDraw()

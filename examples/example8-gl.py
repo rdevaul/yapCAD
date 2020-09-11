@@ -2,22 +2,21 @@
 
 print("example8-gl.py -- yapCAD computational geometry openGL drawing example")
 print("""
-
 This is a demo of the Polygon() and mirror capabilities of yapCAD,
 making and then mirroring random "flowers."
 """)
 
-from geom import *
-from poly import *
+from yapcad.geom import *
+from yapcad.poly import *
 import random
 
 from example8 import *
 
 if __name__ == "__main__":
 
-    from pyglet_drawable import *
+    from yapcad.pyglet_drawable import *
     dd=pygletDraw()
-    dd.magnify = 0.01
+    dd.cameradist=150.0
     glist = mirrorArray()
 
     #drawLegend(dd)

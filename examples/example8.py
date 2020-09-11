@@ -2,13 +2,12 @@
 
 print("example8.py -- yapCAD computational geometry and DXF drawing example")
 print("""
-
 This is a demo of the Polygon() and mirror capabilities of yapCAD,
 making and then mirroring random "flowers."
 """)
 
-from geom import *
-from poly import *
+from yapcad.geom import *
+from yapcad.poly import *
 import random
 
 def drawLegend(d):
@@ -19,7 +18,7 @@ def drawLegend(d):
                 attr={'style': 'OpenSans-Bold',
                       'height': 1.5})
 
-    d.draw_text("example6.py",
+    d.draw_text("example8.py",
                 point(5,12))
     d.draw_text("Polygon() flowers, mirrored geometry",
                 point(5,10))
@@ -71,7 +70,7 @@ def mirrorArray(pnt=point(-45,45)):
 
 if __name__ == "__main__":
 
-    from ezdxf_drawable import *
+    from yapcad.ezdxf_drawable import *
     #set up DXF rendering
     dd=ezdxfDraw()
     filename="example8-out"

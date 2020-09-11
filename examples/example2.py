@@ -4,8 +4,7 @@ print('''
 In this example, we create points, lines and arcs, and compute the
 intersection of lines and arcs.''')
 
-from geom import *
-print("yapCAD 2D computational geometry examples")
+from yapcad.geom import *
 
 # define some points
 a = point(5,0)

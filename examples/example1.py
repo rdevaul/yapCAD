@@ -1,9 +1,9 @@
 ## multi-rendering-back-end drawing example for yapCAD
 print("example1.py -- yapCAD DXF and OpenGL drawing example")
 
-from ezdxf_drawable import *
-from pyglet_drawable import *
-from geom import *
+from yapcad.ezdxf_drawable import *
+from yapcad.pyglet_drawable import *
+from yapcad.geom import *
 
 #set up openGL rendering
 def setupGL():

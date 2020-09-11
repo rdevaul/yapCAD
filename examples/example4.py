@@ -15,9 +15,9 @@ iso-distance line.  Then grow it again by 4 to crate another poly that
 we sample to find the centers for 11 circles that are equally spaced
 along the isodistance line d = 4.0''')
 
-from ezdxf_drawable import *
-from geom import *
-from poly import *
+from yapcad.ezdxf_drawable import *
+from yapcad.geom import *
+from yapcad.poly import *
 
 #set up DXF rendering
 d=ezdxfDraw()
@@ -33,11 +33,11 @@ d.draw_text("yapCAD", point(5,15),\
             attr={'style': 'OpenSans-Bold',
                   'height': 1.5})
 
-d.draw_text("example6.py",
+d.draw_text("example4.py",
             point(5,12))
-d.draw_text("polygons, circles, lines,",
+d.draw_text("polygons, circles, and",
             point(5,10))
-d.draw_text("and intersections",
+d.draw_text("geometry sampling",
             point(5,8.5))
 d.layerset()
 

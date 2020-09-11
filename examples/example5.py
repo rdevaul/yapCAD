@@ -14,8 +14,8 @@ polyline to create a series of circles drawn on top.  The circles
 increase in size to show the direction of increasing sample parameter.
 """)
 
-from ezdxf_drawable import *
-from geom import *
+from yapcad.ezdxf_drawable import *
+from yapcad.geom import *
 
 #set up DXF rendering
 d=ezdxfDraw()
@@ -29,7 +29,7 @@ d.draw_text("yapCAD", point(5,15),\
             attr={'style': 'OpenSans-Bold',
                   'height': 1.5})
 
-d.draw_text("example6.py",
+d.draw_text("example5.py",
             point(5,12))
 d.draw_text("constructing simple polys",
             point(5,10))

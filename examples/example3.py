@@ -4,8 +4,8 @@ print('''
 Create three circles, then compute intersections between circles and
 draw tangent lines between pairs of circles.''')
 
-from ezdxf_drawable import *
-from geom import *
+from yapcad.ezdxf_drawable import *
+from yapcad.geom import *
 
 #set up DXF rendering
 d=ezdxfDraw()
