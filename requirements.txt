@@ -1,0 +1,4 @@
+## reqirements for yapCAD
+ezdxf
+pyglet
+
