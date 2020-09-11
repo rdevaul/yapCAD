@@ -16,11 +16,11 @@ from example8 import *
 if __name__ == "__main__":
 
     from pyglet_drawable import *
-    #set up DXF rendering
     dd=pygletDraw()
     dd.magnify = 0.01
     glist = mirrorArray()
 
     #drawLegend(dd)
+    dd.set_linecolor('white')
     dd.draw(glist)
     dd.display()
