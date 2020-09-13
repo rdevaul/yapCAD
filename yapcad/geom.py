@@ -3,6 +3,7 @@
 ## Richard DeVaul
 
 from math import *
+import copy
 
 ## constants
 epsilon=0.000005
@@ -182,21 +183,23 @@ def dist4(a,b):  # compute distance between two points a & b
 ## non-zero-length lists or 4-vectors.  Returns False if a isn't valid
 ## geometry list
 
-def deepcopy(a):
-    if isvect(a):
-        return vect(a)
-    elif isinstance(a,list):
-        if len(a) > 0:
-            c = list(map(deepcopy,a))
-            for i in c:
-                if not i:
-                    return False
-            return c
-        else:
-            return False
-    else:
-        return False
-    
+# def deepcopy(a):
+#     if isvect(a):
+#         return vect(a)
+#     elif isinstance(a,list):
+#         if len(a) > 0:
+#             c = list(map(deepcopy,a))
+#             for i in c:
+#                 if not i:
+#                     return False
+#             return c
+#         else:
+#             return False
+#     else:
+#         return False
+
+deepcopy = copy.deepcopy
+
 # pretty printing string formatter for vectors, lines, and polygons.
 # You can use this anywhere you use str(), since it will fall back to
 # str() if the argument isn't a yapCAD vector, line, or polygon.
@@ -204,9 +207,11 @@ def vstr(a):
     # utility functions for recursively checking and formatting lists
     def _isallvect(foo):
         if len(foo)==1:
-            return isvect(foo[0])
+            return isinstance(foo[0],list) and \
+                (isvect(foo[0]) or _isallvect(foo[0]))
         else:
-            return isvect(foo[0]) and _isallvect(foo[1:])
+            return (isvect(foo[0]) or _isallvect(foo[0])) and \
+                _isallvect(foo[1:])
     def _makestr(foo):
         if len(foo) ==1:
             return vstr(foo[0])
@@ -284,6 +289,11 @@ def bboxpoint(x):
     ee = point(epsilon,epsilon)
     return [sub(x,ee),add(x,ee)]
 
+## inside testing for points.  Only true if points are the same
+## within epsilon
+def insidepoint(x,p):
+    return dist(x,p) < epsilon
+
 ## operations on lines
 ## --------------------
 
@@ -348,6 +358,11 @@ def bboxline(l):
     return [ point(min(p1[0],p2[0]),min(p1[1],p2[1])),
              point(max(p1[0],p2[0]),max(p1[1],p2[1])) ]
 
+## inside testing for line -- only true of point lies on line, to
+## within epsilon
+
+def insildeline(l,p):
+    return linePointXY(l,p,distance=True) < epsilon
 
 ## Compute the intersection of two lines that lie in the same x,y plane
 def lineLineIntersectXY(l1,l2,inside=True,params=False):
@@ -707,7 +722,26 @@ def arcbbox(c):
             u = i/4
             pp.append(samplearc(c,u))
         return polybbox(pp)
-    
+
+def insidearc(c,p):
+    x = c[0]
+    r = c[1][0]
+    if dist(x,p) > r:
+        return False
+    if iscircle(c):
+        return True
+    start = c[1][1]%360.0
+    end = c[1][2]%360.0
+    if end < start:
+        end+= 360.0
+    p2 = sub(p,x)
+    ang = (atan2(p2[1],p2[0]) % pi2)*360/pi2
+
+    if end <= 360.0:
+        return (ang >= start and ang <= end)
+    else:
+        return ang >= start or ang <= (end-360.0)
+        
 
 ## Intersection functions for arcs and circles
 ## we can compute the intersection of an arc and a line, or an arc and
@@ -1176,7 +1210,26 @@ def polybbox(a):
             elif y > maxy:
                 maxy = y
         return [ point(minx,miny),point(maxx,maxy)]
-    
+
+## only valid for closed polylines.  Count the intersections for a
+## line drawn from point to test to a point outside the bounding
+## box. Inside only if the number of intersections is odd.
+def insidepoly(a,p):
+    closed=False
+
+    if len(a) > 2 and dist(a[0],a[-1]) < epsilon:
+        closed = True
+
+    ## return false if poly is not closed
+    if not closed:
+        return False
+    bb = polybbox(a)
+    p2 = add([1,1,0,1],bb[1])
+    l = line(p,p2)
+    pp = intersectSimplePolyXY(l,a)
+    if pp == False:
+        return False
+    return len(pp) % 2 == 1
 
 ## is it a polygon with all points in the same x-y plane
 def ispolygonXY(a):
@@ -1720,7 +1773,18 @@ def sample(x,u):
         return samplegeomlist(x,u)
     else:
         raise ValueError("inappropriate type for sample(): ",format(x))
-    
+
+def inside(x,p):
+    if ispoint(x):
+        return insidepoint(x,p)
+    elif isline(x):
+        return insideline(x,p)
+    elif isarc(x):
+        return insidearc(x,p)
+    elif ispoly(x):
+        return insidepoly(x,p)
+    else:
+        raise ValueError("bad thing passed to inside: {}".format(x))
 
 ## Non-vaue-safe intersection calculation for non-compound geometic
 ## elements.
