@@ -18,6 +18,10 @@
 ## classically-definalble gap (or the possibility thereof) then
 ## implement Geometry instead
 
+import copy
+from yapcad.geom import *
+
+
 class Geometry:
     """ generalized computational geometry class """
 
@@ -25,13 +29,15 @@ class Geometry:
         return 'geometry base class wrapper for: {}'.format(vstr(self._elem))
 
     def __init__(self,a=False):
-        if not (ispoint(x) or isline (x) or isarc(x) or ispoly(x) \
-                or isgeomlist(x)):
-            raise ValueError('bad argument to Geometry class constructor: {}'.format(a))
         self._update=True
         self._elem=[]
         if a:
-            deepcopy(a)
+            if ispoint(a) or isline (a) or isarc(a) or ispoly(a) \
+                or isgeomlist(a) or isinstance(a,Geometry):
+                self._elem=[ deepcopy(a) ]
+            else:
+                raise ValueError('bad argument to Geometry class constructor: {}'.format(a))
+        
 
     def _updateInternals(self):
         return
@@ -56,7 +62,7 @@ class SampleGeometry(Geometry):
     def sample(self,u):
         if self._update:
             self._updateInternals()
-        return sample(self._elem,u)
+        return sample(self.geom(),u)
     
 
 class IntersectGeometry(SampleGeometry):
