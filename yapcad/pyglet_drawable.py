@@ -196,12 +196,15 @@ class pygletDraw(drawable.Drawable):
             end = end % 360.0
             if end < start:
                 end = end + 360
-        
+        theta = start*pi2/360.0
+        points.append(add(p,[math.cos(theta)*r,math.sin(theta)*r,0.0,1.0]))
         for a in range(round(start),round(end),res):
             theta = a*pi2/360.0
             pp = [math.cos(theta)*r,math.sin(theta)*r,0.0,1.0]
             pp = add(pp,p)
             points.append(pp)
+        theta = end*pi2/360.0
+        points.append(add(p,[math.cos(theta)*r,math.sin(theta)*r,0.0,1.0]))
 
         self.draw_linestrip(points)
         #self.lines.append([('v3f',tuple(verts)),
