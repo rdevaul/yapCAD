@@ -171,7 +171,7 @@ if __name__ == "__main__":
         from yapcad.pyglet_drawable import *
         dd=pygletDraw()
     else:
-        prnit("DXF rendering selected")
+        print("DXF rendering selected")
         from yapcad.ezdxf_drawable import *
         #set up DXF rendering
         dd=ezdxfDraw()

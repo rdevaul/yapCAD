@@ -18,9 +18,9 @@ The circles increase in size to show the direction of increasing
 sample parameter.  These are rendered in the 'DRILLS' layer.
 """)
 
-from ezdxf_drawable import *
-from geom import *
-from poly import *
+from yapcad.ezdxf_drawable import *
+from yapcad.geom import *
+from yapcad.poly import *
 
 #set up DXF rendering
 d=ezdxfDraw()
