@@ -99,17 +99,14 @@ class pygletDraw(drawable.Drawable):
             elif symbol == pyglet.window.key.L:
                 if not (self.light0 or self.light1):
                     self.light0 = True
-                    gl.glEnable(gl.GL_LIGHTING)
                     gl.glEnable(gl.GL_LIGHT0)
                     gl.glDisable(gl.GL_LIGHT1)
                 elif self.light0 and not self.light1:
                     self.light1 = True
-                    gl.glEnable(gl.GL_LIGHTING)
                     gl.glEnable(gl.GL_LIGHT0)
                     gl.glEnable(gl.GL_LIGHT1)
                 elif self.light0 and self.light1:
                     self.light0 = self.light1 = False
-                    gl.glDisable(gl.GL_LIGHTING)
             
                     
         self.window = self.window()
@@ -118,6 +115,7 @@ class pygletDraw(drawable.Drawable):
         self.glSetup()
         self.center= point(0,0)
         self.magnify = 0.08
+        self.arcres = 5
         self.cameradist = self.camerastartdist = 100.0
         self.maxcameradist = 255.0
         self.mincameradist = 10.0
@@ -155,8 +153,11 @@ class pygletDraw(drawable.Drawable):
             gl.glRotatef(self.ry%360.0, 1, 0, 0)
             gl.glRotatef(self.rx%360.0, 0, 1, 0)
 
+            gl.glDisable(gl.GL_LIGHTING)
             self.batch1.draw()
+            
             if self.light0 or self.light1:
+                gl.glEnable(gl.GL_LIGHTING)
                 self.batch2.draw()
 
             #gl.glDisable(gl.GL_BLEND)
@@ -167,6 +168,12 @@ class pygletDraw(drawable.Drawable):
 
     def __repr__(self):
         return 'an instance of pygletDraw'
+
+    def draw_point(self,p):
+        ar = self.arcres
+        self.arcres=30
+        super().draw_point(p)
+        self.arcres=ar
 
     def draw_line(self,p1,p2):
         color = self.thing2color(self.linecolor,'f')
@@ -191,7 +198,8 @@ class pygletDraw(drawable.Drawable):
             
 
     def draw_arc(self,p,r,start,end):
-        res=5                   # resolution of arc sampling in degrees
+        res = self.arcres
+        # resolution of arc sampling in degrees
         points = []
         if not (start==0 and end==360):
             start = start%360.0
