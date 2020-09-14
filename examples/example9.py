@@ -58,18 +58,66 @@ icaIndices = [ [1,11,3],[3,11,5],[5,11,7],[7,11,9],[9,11,1],
                [2,1,3],[2,3,4],[4,3,5],[4,5,6],[6,5,7],[6,7,8],[8,7,9],[8,9,10],[10,9,1],[10,1,2],
                [0,2,4],[0,4,6],[0,6,8],[0,8,10],[0,10,2] ]
 
+
+def addVertex(nv,nn,verts,normals):
+    for i in range(len(verts)):
+        if vclose(nv,verts[i]):
+            return i,verts,normals
+    verts.append(nv)
+    normals.append(nn)
+    return len(verts)-1,verts,normals
+
+def subdivide(f,verts,normals,rad):
+    ind1 = f[0]
+    ind2 = f[1]
+    ind3 = f[2]
+    v1 = verts[ind1]
+    v2 = verts[ind2]
+    v3 = verts[ind3]
+    n1 = normals[ind1]
+    n2 = normals[ind2]
+    n3 = normals[ind3]
+    va = add(v1,v2)
+    vb = add(v2,v3)
+    vc = add(v3,v1)
+    ma = rad/mag(va)
+    mb = rad/mag(vb)
+    mc = rad/mag(vc)
+    va = scale(va,ma)
+    vb = scale(vb,mb)
+    vc = scale(vc,mc)
+    
+    na = add(n1,n2)
+    na = scale(na,1.0/mag(na))
+    nb = add(n2,n3)
+    nb = scale(nb,1.0/mag(nb))
+    nc = add(n3,n1)
+    nc = scale(nc,1.0/mag(nc))
+
+    inda,verts,normals = addVertex(va,na,verts,normals)
+    indb,verts,normals = addVertex(vb,nb,verts,normals)
+    indc,verts,normals = addVertex(vc,nc,verts,normals)
+
+    f1 = [ind1,inda,indc]
+    f2 = [inda,ind2,indb]
+    f3 = [indb,ind3,indc]
+    f4 = [inda,indb,indc]
+
+    return verts,normals, [f1,f2,f3,f4]
+
+    
+
 # make the sphere, return a surface representation
 def sphere(diameter,center=point(0,0,0),depth=2):
-    verts,normals = makeIcoPoints(center,diameter/2)
+    rad = diameter/2
+    verts,normals = makeIcoPoints(center,rad)
     faces = icaIndices
-
+    
     for i in range(depth):
         ff = []
         for f in faces:
-            newverts, newnorms, faces = subdivide(f,verts,normals)
-            verts += newverts
-            normals += newnorms
-            ff+=faces
+            verts, norms, newfaces = subdivide(f,verts,normals,rad)
+            ff+=newfaces
         faces = ff
                       
     
@@ -82,7 +130,7 @@ if __name__ == "__main__":
     dd=pygletDraw()
     dd.set_linecolor('white')
 
-    verts,normals,faces = sphere(50.0,point(0,0,0),0)
+    verts,normals,faces = sphere(50.0,point(0,0,0),3)
     
     for f in faces:
         dd.draw(line(verts[f[0]],
