@@ -6,7 +6,9 @@ In this example, we create different types of yapCAD geometry and
 randomly gemerate test ponts.  Test points that fall inside are
 rendered as aqua crosses, points that fall outside are rendered as red
 crosses.
-""")
+
+This demo also allows you to choose the rendering back-end from the
+command line""")
 
 from yapcad.geom import *
 import random
@@ -112,22 +114,27 @@ def testPoints(points,geom):
             outpts.append(p)
     return inpts, outpts
 
-if __name__ == "__main__":
-    from yapcad.pyglet_drawable import *
-    dd=pygletDraw()
+def testAndDraw(dd):
     dd.set_linecolor('white')
 
+    ## this is the bounding box for our test area
     bbox = line([-60,-60,0,1],[60,60,0,1])
 
+    ## make 2,000 points
     tps = randomPoints(bbox,2000)
 
-    #glist = randomGeometry(bbox,20,20,10)
+    ## make 20 random arcs, 20 random circles, and 20 random polys.
     glist = randomGeometry(bbox,20,20,20)
 
+    ## test the list of points, sort in to inside points and outside
+    ## points
     inpts,outpts = testPoints(tps,glist)
 
+    ## draw the test geometry -- we are using a special draw function
+    ## that will render arcs as "pizza slices."
     drawGeom(dd,glist)
 
+    ## Draw the points.
     dd.polystyle='points'
 
     dd.set_linecolor('aqua')
@@ -138,3 +145,37 @@ if __name__ == "__main__":
     dd.pointstyle = 'x'
     dd.draw(outpts)
     dd.display()
+    
+if __name__ == "__main__":
+    import sys
+    renderOgl = False
+    filename="example10-out"
+    oglarg= ("pyglet","opengl","OpenGL")
+    dxfarg= ("ezdxf","dxf","DXF")
+    if len(sys.argv) > 1:
+        if sys.argv[1] in oglarg:
+            renderOgl=True
+        elif sys.argv[1] in dxfarg:
+            renderOgl=False
+        else:
+            print("syntax: $ python3 {} <rendertype> [filename]".format(sys.argv[0]))
+            print("    where <rendertype> is one of {} for OpenGL".format(oglarg))
+            print("    or one of {} for DXF".format(dxfarg))
+            print("    For DXF, you can optionally specify [filename].dxf as the output file")
+            quit()
+    if len(sys.argv) > 2 and renderOgl==False:
+        filename = sys.argv[2]+".dxf"
+    dd = []
+    if renderOgl:
+        print("OpenGL rendering selected")
+        from yapcad.pyglet_drawable import *
+        dd=pygletDraw()
+    else:
+        prnit("DXF rendering selected")
+        from yapcad.ezdxf_drawable import *
+        #set up DXF rendering
+        dd=ezdxfDraw()
+        dd.saveas(filename)
+    print("rendering...")
+    testAndDraw(dd)
+    print("done")
