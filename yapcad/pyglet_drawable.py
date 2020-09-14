@@ -39,9 +39,6 @@ class pygletDraw(drawable.Drawable):
         gl.glColor3f(1, 1, 1)
         gl.glEnable(gl.GL_DEPTH_TEST)
         gl.glEnable(gl.GL_CULL_FACE)
-        #gl.glEnable(gl.GL_LIGHTING)
-        #gl.glEnable(gl.GL_LIGHT0)
-        #gl.glEnable(gl.GL_LIGHT1)
 
         # Create a Material and Group for the Model
         diffuse = [0.5, 0.5, 0.3, 1.0]
@@ -52,7 +49,38 @@ class pygletDraw(drawable.Drawable):
         material = pyglet.model.Material("", diffuse, ambient, specular, emission, shininess)
         self.group = pyglet.model.MaterialGroup(material=material)
 
-    
+    def makeBatches(self):
+            
+        for p in self.points:
+            pp = p[0]
+            pc = p[1]
+            self.batch1.add(int(len(pp[1])/3),gl.GL_POINTS,self.group,pp,pc)
+
+        for l in self.lines:
+            ll = l[0]
+            lc = l[1]
+            self.batch1.add(int(len(ll[1])/3),gl.GL_LINES,self.group,ll,lc)
+        for l in self.linestrips:
+            ll = l[0]
+            lc = l[1]
+            li = l[2]
+            self.batch1.add_indexed(int(len(ll[1])/3),
+                                    gl.GL_LINES,
+                                    self.group,
+                                    li,ll,lc)
+
+        for s in self.surfaces:
+            vert = s[0]
+            norm = s[1]
+            ind = s[2]
+            self.batch2.add_indexed(int(len(vert)/3),
+                                    gl.GL_TRIANGLES,
+                                    self.group,
+                                    ind,
+                                    ('v3f/static', vert),
+                                    ('n3f/static', norm))
+
+        
     def __init__(self):
 
         def on_key_press(symbol,modifiers):
@@ -102,6 +130,8 @@ class pygletDraw(drawable.Drawable):
         self.linestrips=[]
         self.surfaces=[]
         self.labels = []
+        self.batch1 = graphics.Batch() # use for lines, points, etc.
+        self.batch2 = graphics.Batch() # use for surfaces
         self.linecolor = 'white'
 
         @self.window.event
@@ -109,54 +139,26 @@ class pygletDraw(drawable.Drawable):
             self.rx += dx
             self.ry -= dy
 
-        
+
+
         @self.window.event
         def on_draw():
             self.window.clear()
             gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT)
-            #gl.glTranslatef(0, 0, -4)
             
             # gl.glEnable(gl.GL_BLEND)
             gl.glColor3f(1., 1., 1.)
-            batch = graphics.Batch()
-            for p in self.points:
-                pp = p[0]
-                pc = p[1]
-                batch.add(int(len(pp[1])/3),gl.GL_POINTS,self.group,pp,pc)
-            for l in self.lines:
-                ll = l[0]
-                lc = l[1]
-                batch.add(int(len(ll[1])/3),gl.GL_LINES,self.group,ll,lc)
-            for l in self.linestrips:
-                ll = l[0]
-                lc = l[1]
-                li = l[2]
-                batch.add_indexed(int(len(ll[1])/3),
-                                  gl.GL_LINES,
-                                  self.group,
-                                  li,ll,lc)
-
-            for s in self.surfaces:
-                vert = s[0]
-                norm = s[1]
-                ind = s[2]
-                batch.add_indexed(int(len(vert)/3),
-                                  gl.GL_TRIANGLES,
-                                  self.group,
-                                  ind,
-                                  ('v3f/static', vert),
-                                  ('n3f/static', norm))
-            if False:
-                gl.glMatrixMode(gl.GL_PROJECTION)
-                gl.glLoadIdentity()
-                self.camera()
 
             #gl.glMatrixMode(gl.GL_MODELVIEW)
             gl.glLoadIdentity()
             gl.glTranslatef(0,0,-1*self.cameradist)
             gl.glRotatef(self.ry%360.0, 1, 0, 0)
             gl.glRotatef(self.rx%360.0, 0, 1, 0)
-            batch.draw()
+
+            self.batch1.draw()
+            if self.light0 or self.light1:
+                self.batch2.draw()
+
             #gl.glDisable(gl.GL_BLEND)
             for label in self.labels:
                 label.draw()
@@ -253,5 +255,6 @@ class pygletDraw(drawable.Drawable):
                                              anchor_y=anchor_y))
         
     def display(self):
+        self.makeBatches()
         pyglet.app.run()
 
