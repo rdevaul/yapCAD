@@ -130,9 +130,14 @@ def dist(a,b):  # compute distance between two points a & b
 ## R^3 -> bool functions
 ## ---------------------
 
+# does point p lie inside 3D bounding box bbox
+def isinsidebbox(bbox,p):
+    return p[0] >= bbox[0][0] and p[0] <= bbox[1][0] and\
+        p[1] >= bbox[0][1] and p[1] <= bbox[1][1] and\
+        p[2] >= bbox[0][2] and p[2] <= bbox[1][2]
+
 # utility function to determine if a list of points lies in one of the
 # cardinal planes: XY, YZ, XZ
-
 def isCardinalPlanar(plane="xy",points=[]):
     if plane=="xy":
         idx = 2
@@ -282,16 +287,16 @@ def pointcenter(x):
 def samplepoint(x,u):
     return point(x)
 
-## compute bounding box of point, which is 2 epsilon on a side.  Note,
+## compute 3D bounding box of point, which is 2 epsilon on a side.  Note,
 ## this guarantees that two points that are wtihin epsilon of
 ## eachother will be within eiach other's bbox
-def bboxpoint(x):
-    ee = point(epsilon,epsilon)
+def pointbbox(x):
+    ee = point(epsilon,epsilon,epsilon)
     return [sub(x,ee),add(x,ee)]
 
 ## inside testing for points.  Only true if points are the same
 ## within epsilon
-def insidepoint(x,p):
+def isinsidepoint(x,p):
     return dist(x,p) < epsilon
 
 ## operations on lines
@@ -333,6 +338,11 @@ def sampleline(l,u):
     p = 1.0-u
     return add(scale(p1,p),scale(p2,u))
 
+def segmentline(l,u1,u2):
+    p1=sampleline(l,u1)
+    p2=sampleline(l,u2)
+    return [p1,p2]
+
 ## function to "unsample" a line -- given a point on a line, provide
 ## the corresponding parametric value.  Return False if the distance
 ## of the point from the line is greater than epsilon
@@ -351,17 +361,17 @@ def unsampleline(l,p):
     else:
         return -len2/len1
         
-## compute line bounding box
-def bboxline(l):
+## compute 3D line bounding box
+def linebbox(l):
     p1=l[0]
     p2=l[1]
-    return [ point(min(p1[0],p2[0]),min(p1[1],p2[1])),
-             point(max(p1[0],p2[0]),max(p1[1],p2[1])) ]
+    return [ point(min(p1[0],p2[0]),min(p1[1],p2[1]),min(p1[2],p2[2])),
+             point(max(p1[0],p2[0]),max(p1[1],p2[1]),max(p1[2],p2[2])) ]
 
 ## inside testing for line -- only true of point lies on line, to
 ## within epsilon
 
-def insildeline(l,p):
+def isinsildeline(l,p):
     return linePointXY(l,p,distance=True) < epsilon
 
 ## Compute the intersection of two lines that lie in the same x,y plane
@@ -666,7 +676,7 @@ def arclength(c):
     return l
 
 ## Sample the arc over the start-end angle interval
-def samplearc(c,u):
+def samplearc(c,u,polar=False):
     p=c[0]
     r=c[1][0]
     start=c[1][1]
@@ -682,9 +692,19 @@ def samplearc(c,u):
             raise NotImplementedError('non x-y plane arc sampling not yet supported')
     angle = ((end-start)*u+start)
     radians = angle*pi2/360.0
+    if polar: # return polar coordinates with cartesian center
+        return [ p,r,angle]
+    
     q = scale(vect(cos(radians),sin(radians)),r)
-
     return add(p,q)
+
+# Given an arc paramaterized on a 0,1 interval, return a new arc with
+# the same center and radius spanning the interval u1,u2
+
+def segmentarc(c,u1,u2):
+    pol1=samplearc(c,u1,polar=True)
+    pol2=samplearc(c,u2,polar=True)
+    return arc(pol1[0],pol1[1],pol1[2],pol2[2])
 
 ## unsample the arc, which is to day given a point that is on the
 ## circle, return it's corresponding sample parameter, or False if the
@@ -723,7 +743,7 @@ def arcbbox(c):
             pp.append(samplearc(c,u))
         return polybbox(pp)
 
-def insidearc(c,p):
+def isinsidearc(c,p):
     x = c[0]
     r = c[1][0]
     if dist(x,p) > r:
@@ -1214,7 +1234,7 @@ def polybbox(a):
 ## only valid for closed polylines.  Count the intersections for a
 ## line drawn from point to test to a point outside the bounding
 ## box. Inside only if the number of intersections is odd.
-def insidepoly(a,p):
+def isinsidepoly(a,p):
     closed=False
 
     if len(a) > 2 and dist(a[0],a[-1]) < epsilon:
@@ -1226,6 +1246,7 @@ def insidepoly(a,p):
     bb = polybbox(a)
     p2 = add([1,1,0,1],bb[1])
     l = line(p,p2)
+
     pp = intersectSimplePolyXY(l,a)
     if pp == False:
         return False
@@ -1279,6 +1300,22 @@ def samplepoly(a,u):
         uu = (dst-length+lengths[-1])/lengths[-1]
         return sampleline(lines[-1],uu)
 
+def segmentpoly(a,u1,u2):
+    if not ispoly(a):
+        raise ValueError('non-poly passed to samplepoly')
+
+    lines,lengths,length = __lineslength(a)
+    sgl = segmentgeomlist(lines,u1,u2)
+
+    ply = []
+    for l in sgl:
+        ply.append(l[0])
+    ply.append(sgl[-1][1])
+
+    return ply
+
+    
+        
 ## anlogous to the unsampleline() and unsamplearc() functions, given a
 ## point on a poly, return the corresponding sample parameter, or
 ## False if the point is more than epsilon away from any poly line
@@ -1437,7 +1474,7 @@ def samplegeomlist(gl,u):
     
     lengths,leng = __geomlistlength(gl)
         
-    dst = u * leng;
+    dst = u * leng
     d = 0
     if u < 1.0:
         for i in range(len(gl)):
@@ -1450,6 +1487,46 @@ def samplegeomlist(gl,u):
     else:
         uu = (dst-leng+lengths[-1])/lengths[-1]
         return sample(gl[-1],uu)
+
+## given a geometry list paramaterized over a 0,1 interval, return a
+## geometry list corresponding to the interval 0 <= u1 <= u2 <=1.0
+def segmentgeomlist(gl,u1,u2):
+    if u1 < 0 or u1 > u2 or u2 < 0 or u2 > 1.0:
+        raise ValueError('bad parameters {} and {} passed to segmentgeomlist'.format(u1,u2))
+    lengths, leng = __geomlistlength(gl)
+
+    STARTED = False
+    dst1 = u1 * leng
+    dst2 = u2 * leng
+    d = 0
+    rgl = []
+    def _segment(g,u1,u2):
+        if isline(g):
+            return segmentline(g,u1,u2)
+        elif isarc(g):
+            return segmentarc(g,u1,u2)
+        elif ispoly(g):
+            return segmentpoly(g,u1,u2)
+        elif isgeomlist(g):
+            return segmentgeomlist(g,u1,u2)
+        else:
+            raise NotImplementedError("don't know how to segment {}".format(g))
+        
+    for i in range(len(gl)):
+        l=lengths[i]
+        if dst1 <= d+l:
+            if not STARTED:
+                uu = 1.0 - (d+l-dst1)/l
+                rgl.append(_segment(gl[i],uu,1.))
+                STARTED=True
+                                      
+            elif dst2 <= d+l:
+                uu = 1.0 - (d+l-dst2)/l
+                rgl.append(_segment(gl[i],0.0,uu))
+            else:
+                rgl.append(deepcopy(gl[i]))
+        d+=l
+    return rgl
 
 
 def geomlistbbox(gl):
@@ -1774,15 +1851,15 @@ def sample(x,u):
     else:
         raise ValueError("inappropriate type for sample(): ",format(x))
 
-def inside(x,p):
+def isinside(x,p):
     if ispoint(x):
-        return insidepoint(x,p)
+        return isinsidepoint(x,p)
     elif isline(x):
-        return insideline(x,p)
+        return isinsideline(x,p)
     elif isarc(x):
-        return insidearc(x,p)
+        return isinsidearc(x,p)
     elif ispoly(x):
-        return insidepoly(x,p)
+        return isinsidepoly(x,p)
     else:
         raise ValueError("bad thing passed to inside: {}".format(x))
 
