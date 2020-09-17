@@ -1,4 +1,4 @@
-## yapCAD 3D geometry example
+## yapCAD 3D inside-outside testing example
 
 print("example10.py -- yapCAD inside-outside testing demonstration")
 print("""
@@ -106,7 +106,7 @@ def testPoints(points,geom):
     for p in points:
         ins = False
         for g in geom:
-            if inside(g,p):
+            if isinside(g,p):
                 inpts.append(p)
                 ins = True
                 continue
