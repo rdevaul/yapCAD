@@ -92,20 +92,20 @@ class Polyline(IntersectGeometry):
             return
         elif l == 1:
             self._center = center(self._elem[0]) # center is sole point
-            e = point(epsilon,epsilon)            # make bounding box
-            self._bbox = line(sub(self._center,e),
-                             add(self._center,e))
+            self._bbox = bbox(self._elem[0])
         else:
             
             if dist(center(self._elem[0]),
                     center(self._elem[-1])) < epsilon:
                 l -= 1
 
-            p = point(0,0,0)
-            for i in range(l):
+            
+            p = center(self._elem[0])
+            for i in range(1,l):
                 p = add(center(self._elem[i]),p)
 
             self._center = scale(p,1/l)
+            self._bbox = bbox(self._elem)
         return
 
     ## return the center of the figure.  If necessary, recompute that
@@ -133,7 +133,7 @@ class Polyline(IntersectGeometry):
             self._lengths.append(l)
             self._length += l
         if len(self._elem) > 2 and dist(center(self._elem[0]),
-                                            center(self._elem[-1])) < epsilon:
+                                        center(self._elem[-1])) < epsilon:
             self._closed = True
 
     def geom(self):
@@ -174,10 +174,10 @@ class Polygon(Polyline):
         if l > 2:
             # if first and last element are identicial points or circles,
             # remove them
-            if ispoint(elm[0]) and ispoint(elm[-1]) and \
-               dist(elm[0],elm[-1]) < epsilon or \
-               iscircle(elm[0]) and iscircle(elm[-1]) and \
-               abs(elm[0][1][0] - elm[-1][1][0]) < epsilon:
+            if (ispoint(elm[0]) and ispoint(elm[-1]) and \
+                dist(elm[0],elm[-1]) < epsilon) or \
+               (iscircle(elm[0]) and iscircle(elm[-1]) and \
+               abs(elm[0][1][0] - elm[-1][1][0]) < epsilon):
                 self._elem.pop()
         
     def __repr__(self):
@@ -204,25 +204,6 @@ class Polygon(Polyline):
             self._elem.append(element)
         else:
             raise ValueError('attempt to add a non point, line or arc to poly')
-
-    ## compute barycentric center of figure by equally weighting the
-    ## center of all of the elem
-    def center(self):
-        p = point(0,0)
-        for e in self._elem:
-            if ispoint(e):
-                p = add(p,e)
-            elif isline(e):
-                p = add(p,linecenter(e))
-            elif iscircle(e):
-                p = add(p,e[0])
-            elif isarc(e):
-                p = add(p,arccenter(e))
-            else:
-                raise ValueError('bad element in poly elem')
-        if len(self._elem) > 0:
-            p = scale(p,1.0/len(self._elem))
-        return p
                 
     def remove(self,element):
         self._update=True  # flag that we need to recalculate stuff
@@ -237,8 +218,6 @@ class Polygon(Polyline):
     ## by three arcs.  Elements that are explicitly specified lines or
     ## non-circular arcs are joined to adjacent elements by lines
 
-    debugList=[]
-    
     def _makeoutline(self):
         def _calclength():
             l = 0
@@ -322,7 +301,7 @@ class Polygon(Polyline):
             ## if one element, the outline is the element
             if len(self._elem) == 1:
                 self._outline=deepcopy(self._elem)
-                self._calclength()
+                _calclength()
             ## if there are fewer than one elem, there is nothing to do
             return
         ## we have work to do.  Construct all lines and circle-tangent
@@ -398,8 +377,6 @@ class Polygon(Polyline):
                 p1=sub(pp1[0],e1[0])
                 start = (atan2(p0[1],p0[0]) % pi2) * 360.0/pi2
                 end = (atan2(p1[1],p1[0]) % pi2) * 360.0/pi2
-                if False and end < start:
-                    raise NotImplementedError("not handling non-convex case for circle-tangent lines in poly outline yet")
                 newarc = arc(e1[0],e1[1][0],start,end)
                 self._outline[i]=newarc
                 
@@ -410,32 +387,33 @@ class Polygon(Polyline):
         if self._update:
             self._updateInternals()
         if len(self._outline) == 0:
-            return vect(0,0)
+            raise ValueError('no geometry to sample, empty poly')
         dist = (u % 1.0) * self._length
         d = 0
         for i in range(len(self._outline)):
             l=self._lengths[i]
             if dist <= d+l:
-                uu = (d+l-dist)/l
+                u = 1.0 - (d+l-dist)/l
                 e = self._outline[i]
-                if isline(e):
-                    return sampleline(e,1.0-uu)
-                else:
-                    return samplearc(e,1.0-uu)
+                return sample(e,u)
             else:
                 d=d+l
+
+    def segment(self,u1,u2):
+        return segmentgeomlist(self.geom(),u1,u2)
 
     def geom(self):
         if self._update:
             self._updateInternals()
         return deepcopy(self._outline)
                 
-    def bounding(self):
+    def bbox(self):
         if self._update:
             self._updateInternals()
         return line(self._bbox)
 
-    def is_inside(self,p):
+    def inside(self,p):
+        
         return False
 
     def grow(self,r):
