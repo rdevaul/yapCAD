@@ -1302,8 +1302,25 @@ def samplepoly(a,u):
 
 def segmentpoly(a,u1,u2):
     if not ispoly(a):
-        raise ValueError('non-poly passed to samplepoly')
+        raise ValueError('non-poly passed to segmentpoly')
+    closed=False
+    if len(a) > 2 and dist(a[0],a[-1]) < epsilon:
+        closed = True
 
+    if closed:
+        u1%= 1.0
+        u2%= 1.0
+        if u2 < u1:
+            return segmentpoly(a,u1,1.0-epsilon) + segmentpoly(a,0.0,u2)
+        
+    else:
+        if u1 < 0 or u2 < 0 or u1 > 1 or u2 > 1:
+            raise ValueError('parameters fall outside 0,1 interval: {},{}'.format(u1,u2))
+    if u2 < u1:
+        a = deepcopy(a).reverse()
+        u1 = 1.0-u1
+        u2 = 1.0-u2
+        
     lines,lengths,length = __lineslength(a)
     sgl = segmentgeomlist(lines,u1,u2)
 
@@ -1490,12 +1507,18 @@ def samplegeomlist(gl,u):
 
 ## given a geometry list paramaterized over a 0,1 interval, return a
 ## geometry list corresponding to the interval 0 <= u1 <= u2 <=1.0
-def segmentgeomlist(gl,u1,u2):
+def segmentgeomlist(gl,u1,u2,closed=False):
+    if closed:
+        u1 %= 1.0
+        u2 %= 1.0
+        if u2 < u1:
+            return segmentgeomlist(gl,u1,1.0-epsilon) + segmentgeomlist(gl,0.0,u2)
     if u1 < 0 or u1 > u2 or u2 < 0 or u2 > 1.0:
         raise ValueError('bad parameters {} and {} passed to segmentgeomlist'.format(u1,u2))
     lengths, leng = __geomlistlength(gl)
 
     STARTED = False
+    DONE= False
     dst1 = u1 * leng
     dst2 = u2 * leng
     d = 0
@@ -1517,14 +1540,21 @@ def segmentgeomlist(gl,u1,u2):
         if dst1 <= d+l:
             if not STARTED:
                 uu = 1.0 - (d+l-dst1)/l
-                rgl.append(_segment(gl[i],uu,1.))
+                uu2 = 1.0
+                if dst2 < d+l:
+                    uu2 = 1.0 - (d+l-dst2)/l
+                    DONE=True
+                rgl.append(_segment(gl[i],uu,uu2))
                 STARTED=True
                                       
             elif dst2 <= d+l:
                 uu = 1.0 - (d+l-dst2)/l
                 rgl.append(_segment(gl[i],0.0,uu))
+                DONE=True
             else:
                 rgl.append(deepcopy(gl[i]))
+        if DONE:
+            return rgl
         d+=l
     return rgl
 
@@ -1889,7 +1919,7 @@ def _intersectSimpleXY(g1,g2,inside=True,params=False):
         return lineArcIntersectXY(g1,g2,inside,params)
     elif g2line and not g1line:
         r = lineArcIntersectXY(g2,g1,inside,params)
-        if params:
+        if r and params:
             return [ r[1],r[0]]
         else:
             return r
