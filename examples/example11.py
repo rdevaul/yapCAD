@@ -12,6 +12,7 @@ from yapcad.geom import *
 from yapcad.poly import *
 from yapcad.combine import *
 
+import math
 import random
 
 def geometry():
@@ -19,9 +20,27 @@ def geometry():
     p1.addArc(arc(point(-5,5),3.0))
 
     p2 = makeRoundRect(7,6,1)
-
+    p3 = makeRoundRect(7,6,1,point(-10.0,-10.0))
     b = Boolean('union',[p1,p2])
-    return [p1.geom(),p2.geom(),b.geom()]
+
+    p4 = Polygon()
+    p5 = Polygon()
+
+    x = point(10,-10)
+    r = 5
+    d=2
+    for i in range(8):
+        ang = (pi2/8)*i
+        p = p4
+        if i%2 ==0:
+            p = p5
+        p.addArc(arc(add(x, point(math.cos(ang)*r,
+                                  math.sin(ang)*r)),d))
+
+    b2 = Boolean('union',[p4,p5])
+        
+    return [p1.geom(),p2.geom(),b.geom(),b2.geom()]
+    #return [p1.geom(),p2.geom(),b.geom()]
 
 def testAndDraw(dd):
     dd.set_linecolor('red')
@@ -31,6 +50,7 @@ def testAndDraw(dd):
     g1 = gl[0]
     g2 = gl[1]
     g3 = gl[2]
+    g4 = gl[3]
 
 #    dd.draw(g1)
 #    dd.draw(g2)
@@ -38,6 +58,12 @@ def testAndDraw(dd):
     dd.set_linecolor('aqua')
 
     dd.draw(g3)
+
+    dd.set_linecolor('white')
+    for i in range(len(g4)):
+        dd.set_linecolor(i%7+1)
+        dd.draw(g4[i])
+    
     dd.display()
     
 if __name__ == "__main__":
