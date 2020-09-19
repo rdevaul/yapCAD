@@ -400,7 +400,7 @@ class Polygon(Polyline):
                 d=d+l
 
     def segment(self,u1,u2):
-        return segmentgeomlist(self.geom(),u1,u2)
+        return segmentgeomlist(self.geom(),u1,u2,closed=True)
 
     def geom(self):
         if self._update:
@@ -413,8 +413,16 @@ class Polygon(Polyline):
         return line(self._bbox)
 
     def inside(self,p):
-        
-        return False
+        if self._update:
+            self._updateInternals()
+        bb = self._bbox
+        p2 = add([1,1,0,1],bb[1])
+        l = line(p,p2)
+
+        pp = intersectGeomListXY(l,self.geom())
+        if pp == False:
+            return False
+        return len(pp) % 2 == 1
 
     def grow(self,r):
         return False
