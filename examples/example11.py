@@ -15,31 +15,42 @@ from yapcad.combine import *
 import math
 import random
 
+def makeStars(center,rad=5.0,diam=2.0):
+    poly1 = Polygon()
+    poly2 = Polygon()
+
+    for i in range(8):
+        ang = (pi2/8)*i
+        p = poly1
+        if i%2 ==0:
+            p = poly2
+        p.addArc(arc(add(center, point(math.cos(ang)*rad,
+                                  math.sin(ang)*rad)),diam))
+    return poly1,poly2
+
 def geometry():
     p1 = Polygon()
-    p1.addArc(arc(point(-5,5),3.0))
+    x = point(-5,5)
+    p1.addArc(arc(x,3.0,0,180))
+    p1.addArc(arc(x,3.0,180,360))
+    #p1.addArc(arc(x,3.0))
+
+    #p1 = makeRoundRect(4,4,0.2,point(-4.0,4.0))
 
     p2 = makeRoundRect(7,6,1)
     p3 = makeRoundRect(7,6,1,point(-10.0,-10.0))
-    b = Boolean('union',[p1,p2])
+    b = Boolean('union',[p2,p1])
 
-    p4 = Polygon()
-    p5 = Polygon()
+    p4,p5 = makeStars(point(10,-10))
+    b2 = Boolean('union',[p5,p4])
 
-    x = point(10,-10)
-    r = 5
-    d=2
-    for i in range(8):
-        ang = (pi2/8)*i
-        p = p4
-        if i%2 ==0:
-            p = p5
-        p.addArc(arc(add(x, point(math.cos(ang)*r,
-                                  math.sin(ang)*r)),d))
+    p6,p7 = makeStars(point(10,10))
+    b3 = Boolean('intersection',[p6,p7])
 
-    b2 = Boolean('union',[p4,p5])
-        
-    return [p1.geom(),p2.geom(),b.geom(),b2.geom()]
+    p8,p9 = makeStars(point(-20,-10))
+    b4 = Boolean('intersection',[p9,p8])
+
+    return [p1.geom(),p2.geom(),b.geom(),b2.geom(),b3.geom(),b4.geom()]
     #return [p1.geom(),p2.geom(),b.geom()]
 
 def testAndDraw(dd):
@@ -51,10 +62,9 @@ def testAndDraw(dd):
     g2 = gl[1]
     g3 = gl[2]
     g4 = gl[3]
-
-#    dd.draw(g1)
-#    dd.draw(g2)
-
+    g5 = gl[4]
+    g6 = gl[5]
+    
     dd.set_linecolor('aqua')
 
     dd.draw(g3)
@@ -64,6 +74,15 @@ def testAndDraw(dd):
         dd.set_linecolor(i%7+1)
         dd.draw(g4[i])
     
+    dd.set_linecolor('silver')
+    dd.draw(translate(g4,point(0,0,-1)))
+            
+    dd.set_linecolor('white')
+    dd.draw(g5)
+
+    dd.set_linecolor('yellow')
+    dd.draw(g6)
+
     dd.display()
     
 if __name__ == "__main__":
