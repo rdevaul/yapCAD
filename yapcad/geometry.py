@@ -74,8 +74,8 @@ class IntersectGeometry(SampleGeometry):
     def __repr__(self):
         return 'intersectable geometry base class wrapper for: {}'.format(vstr(self._elem))
         
-    def intersectXY(self,g):
+    def intersectXY(self,g,inside=True,params=False):
         if self._update:
             self._updateInternals()
-        return intersectXY(g,self.geom())
+        return intersectXY(g,self.geom(),inside,params)
     
