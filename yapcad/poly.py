@@ -47,7 +47,9 @@ class Polyline(IntersectGeometry):
                 elif ispoly(i):
                     self._elem = self._elem + i
                 else:
-                    raise ValueError("bad argument to Polygon constructor")
+                    raise ValueError("bad argument to Polyline constructor")
+        elif a != False:
+            raise ValueError("bad argument passed to Polyline constructor")
 
     def __repr__(self):
         return 'Polyline({})'.format(vstr(self._elem))
@@ -165,8 +167,21 @@ class Polygon(Polyline):
     """Generalized multi-element closed figure geometry generation class"""
 
     def __init__(self,a=False):
-        super().__init__(a)
-        self._outline=[]
+        super().__init__()
+        if isinstance(a,Polygon):
+            self._elem = deepcopy(a._elem)
+            self._updateInternals()
+        elif isgeomlist(a):
+            for i in a:
+                if ispoint(i) or isarc(i) or isline(i): 
+                    self._elem.append(i)
+                elif ispoly(i):
+                    self._elem = self._elem + i
+                else:
+                    raise ValueError("bad argument to Polygon constructor")
+
+        elif a != False:
+            raise ValueError("bad argument to Polygon constructor")
 
         elm = self._elem
 
@@ -402,6 +417,26 @@ class Polygon(Polyline):
     def segment(self,u1,u2):
         return segmentgeomlist(self.geom(),u1,u2,closed=True)
 
+    def mirror(self,plane,poly=False):
+        if poly:
+            p = Polygon()
+            p._elem = deepcopy(self._elem)
+            p._elem.reverse()
+            p._elem = mirror(p._elem,plane)
+            p._update=True
+            return p
+        
+        return mirror(self.geom(),plane)
+
+    def rotate(self,angle,cent=point(0,0,0),axis=point(0,0,1),poly=False):
+        if poly:
+            p = Polygon(self)
+            p._elem = rotate(self._elem,angle,cent,axis)
+            p._update = True
+            return p
+        
+        return rotate(self.geom(),angle,cent,axis)
+
     def geom(self):
         if self._update:
             self._updateInternals()
@@ -412,7 +447,7 @@ class Polygon(Polyline):
             self._updateInternals()
         return line(self._bbox)
 
-    def inside(self,p):
+    def isinside(self,p):
         if self._update:
             self._updateInternals()
         bb = self._bbox
@@ -425,7 +460,30 @@ class Polygon(Polyline):
         return len(pp) % 2 == 1
 
     def grow(self,r):
-        return False
+        if close(r,0.0):
+            return
+        elif r < 0:
+            raise ValueError('negative growth values not valid')
+        def _growgeom(elem):
+            ne = []
+            for e in elem:
+                if ispoint(e):
+                    ne.append(arc(e,r))
+                elif isline(e):
+                    ne.append(arc(e[0],r))
+                    ne.append(arc(e[1],r))
+                elif isarc(e):
+                    a = arc(e)
+                    a[1][0] += r
+                    ne.append(a)
+                elif ispoly(e):
+                    for p in e:
+                        ne.append(arc(p,r))
+                elif isgeomlist(e):
+                    ne += _growgeom(e)
+            return ne
+        self._elem = _growgeom(self._elem)
+        self._update=True
 
     def shrink(self,r):
         return False
