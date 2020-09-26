@@ -135,9 +135,78 @@ class Matrix:
                 result.setrow(i,scale4(self.getrow(i),x))
             return result
         
-        return False
+        raise ValueError('bad thing passed to mul(): {}'.format(x))
     
 
+# return the generalized 4x4 arbitrary axis rotation matrix
+def Rotation(axis,angle,inverse=False):
+    m = mag(axis)
+    u = axis
+    if m < epsilon:
+        raise ValueError('zero-length rotation axis not allowed')
+    if not close(m,1.0):
+        u = scale(axis,1.0/m)
+
+    if inverse:
+        angle *= -1.0
+    rad = (angle%360.0)*pi2/360.0
+
+    ux = u[0]
+    uy = u[1]
+    uz = u[2]
+    
+    cang = cos(rad)
+    cmin = 1.0-cang
+    
+    sang = sin(rad)
+    smin = 1.0-sang
+
+    # see https://en.wikipedia.org/wiki/Rotation_matrix
+    R = [[cang + ux*ux*cmin, ux*uy*cmin-uz*sang, ux*uz*cmin+uy*sang,0],
+         [uy*ux*cmin+uz*smin, cang + uy*uy*cmin, uy*yz*cmin - uz*smin,0],
+         [uz*ux*cmin-uy*smin, uz*uy*cmin+ux*smin, cang+uz*uz*cmin]]
+
+    return Matrix(R)
+
+def Translation(delta,inverse=False):
+    if inverse:
+        delta = mul(delta,-1.0)
+    dx = delta[0]
+    dy = delta[1]
+    dz = delta[2]
+    T = [[1,0,0,dx],
+         [0,1,0,dy],
+         [0,0,1,dz],
+         [0,0,0,1]]
+    return Matrix(T)
+
+def Scale(x,y=False,z=False,inverse=False):
+    sx = sy = sz = 1.0
+    if isgoodnum(x):
+        sx = x
+        if isgoodnum(y) and isgoodnum(z):
+            sy = y
+            sz = z
+        else:
+            sy = sz = x
+    elif isvect(x):
+        sx = x[0]
+        sy = x[1]
+        sz = x[2]
+    else:
+        raise ValueError('bad scaling values passed to Scale')
+
+    if inverse:
+        sx = 1.0/sx
+        sy = 1.0/sy
+        sz = 1.0/sz
+        
+    S = [[sx,0,0,0],
+         [0,sy,0,0],
+         [0,0,sz,0],
+         [0,0,0,1.0]]
+    return Matrix(S)
+    
 ## check to see if we have been invoked on the command line
 ## if so, run some tests
 if __name__ == "__main__":
