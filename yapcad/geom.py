@@ -4,6 +4,7 @@
 
 from math import *
 import copy
+import yapcad.xform
 
 ## constants
 epsilon=0.000005
@@ -211,6 +212,8 @@ deepcopy = copy.deepcopy
 def vstr(a):
     # utility functions for recursively checking and formatting lists
     def _isallvect(foo):
+        if not isinstance(foo,list):
+            return False
         if len(foo)==1:
             return isinstance(foo[0],list) and \
                 (isvect(foo[0]) or _isallvect(foo[0]))
@@ -690,7 +693,7 @@ def samplearc(c,u,polar=False):
         norm = c[2]
         if dist(norm,vect(0,0,1)) > epsilon:
             raise NotImplementedError('non x-y plane arc sampling not yet supported')
-    angle = ((end-start)*u+start)
+    angle = ((end-start)*u+start)%360.0
     radians = angle*pi2/360.0
     if polar: # return polar coordinates with cartesian center
         return [ p,r,angle]
@@ -977,7 +980,8 @@ def _lineArcIntersectXY(l,c,inside=True,params=False):
     b = 2*(V[0]*P[0]+V[1]*P[1])
     cc = P[0]*P[0]+P[1]*P[1]-r*r
     d = b*b-4*a*cc
-    if abs(d) < epsilon: # one point of intersection
+    ## Check to see if we are within epsilon, scaled by the length of the line
+    if abs(d) < sqrt(a)*epsilon: # one point of intersection
         b0 = -b/(2*a)
         b1 = False
     elif d < 0:
@@ -1718,54 +1722,8 @@ def intersectGeomListXY(g,gl,inside=True,params=False):
         else:
             return False
 
-## function to mirror the contents of a geometry list
-
-def mirrorgeomlist(geomlist,plane):
-    if not isgeomlist(geomlist):
-        raise ValueError('non-geomlist passed to mirrorgeomlist')
-    r= []
-    flip=point(1,1,1)
-    if plane == 'xz':
-        flip[1]= -1
-    elif plane == 'yz':
-        flip[0]= -1
-    elif plane == 'xy':
-        flip[2]= -1
-    else:
-        raise ValueError('bad reflection plane passed to mirror')
-    for g in geomlist:
-
-        if ispoint(g):
-            r.append(point(mul(g,flip)))
-        elif isarc(g):
-            a2=arc(g)
-            a2[0] = mul(g[0],flip)
-            start = g[1][1]
-            end  = g[1][2]
-            if not (start == 0 and end == 360):
-                ## mirror the arc segment
-                ps = point(cos(start*pi2/360.0),sin(start*pi2/360.0))
-                pe = point(cos(end*pi2/360.0),sin(end*pi2/360.0))
-                ps = mul(ps,flip)
-                pe = mul(pe,flip)
-                end = (atan2(ps[1],ps[0])%pi2)*360/pi2
-                start = (atan2(pe[1],pe[0])%pi2)*360/pi2
-                a2[1][1]=start
-                a2[1][2]=end
-            r.append(a2)
-        elif ispoly(g):
-            ply = []
-            for p in g:
-                ply.append(mul(p,flip))
-            r.append(ply)
-        elif isgeomlist(g):
-            r.append(mirrorgeomlist(g,plane))
-        else:
-            raise ValueError('bad thing in list passed to mirror: {}'.format(g))
-    return r
     
-
-
+        
 ## functions on trangles -- a subset of polys
 ## ------------------------------------------
 
@@ -1835,6 +1793,11 @@ def length(x):
         return arclength(x)
     elif ispoly(x):
         return polylength(x)
+    elif isgeomlist(x):
+        l = 0.0
+        for g in x:
+            l += length(g)
+        return l
     else:
         raise ValueError("inappropriate type for length(): ".format(x))
 
@@ -1848,6 +1811,11 @@ def center(x):
         return arccenter(x)
     elif ispoly(x):
         return polycenter(x)
+    elif isgeomlist(x):
+        pl = []
+        for g in x:
+            pl.append(center(g))
+        return polycenter(pl)
     else:
         raise ValueError("inappropriate type for center(): ",format(x))
     
@@ -1893,7 +1861,139 @@ def isinside(x,p):
     else:
         raise ValueError("bad thing passed to inside: {}".format(x))
 
-## Non-vaue-safe intersection calculation for non-compound geometic
+def translate(x,delta):
+    if ispoint(x):
+        return add(x,delta)
+    elif isline(x):
+        return [add(x[0],delta),add(x[1],delta)]
+    elif isarc(x):
+        a = deepcopy(x)
+        a[0] = add(a[0],delta)
+        return a
+    elif ispoly(x):
+        np = []
+        for p in x:
+            np.append(add(p,delta))
+        return np
+    elif isgeomlist(x):
+        ngl = []
+        for g in x:
+            ngl.append(translate(g,delta))
+        return ngl
+    else:
+        raise ValueError("don't know how to translate {}".format(x))
+
+def transform(x,m):
+    if not isinstance(m,xform.Matrix):
+        raise ValueError('bad transformation matrix passed to transform')
+    if ispoint(x):
+        return m.mul(x)
+
+    elif isline(x):
+        return [m.mul(x[0]),m.mul(x[1])]
+
+    elif isarc(x):
+        raise NotImplementedError('not yet implemented arc transformation')
+
+    elif ispoly(x):
+        rval = []
+        for p in x:
+            np = m.mul(p)
+            rval.append(np)
+        return rval
+    
+    elif isgeomlist(x):
+        gl = []
+        for g in x:
+            gl.append(transform(g,m))
+        return gl
+    else:
+        raise ValueError('bad object passed to transform')
+    
+
+# Generalized rotation function.  Note that mat should only be set during
+# recursive processing of geometry lists.
+
+def rotate(x,ang,cent=point(0,0),axis=point(0,0,1.0),mat=False):
+    if close(ang,0.0):
+        return deepcopy(x)
+    if not mat: # if matrix isn't pre-specified, calculate it
+        if vclose(cent,point(0,0,0)):
+            mat = xform.Rotation(axis,ang)
+        else:
+            mat = xform.Translation(cent,inverse=True)
+            mat = mat.mul(xform.Rotation(axis,ang))
+            mat = mat.mul(xform.Translation(cent))
+
+    # arcs are wierd, since we will have to deal with a non-trivial
+    # change of basis function to handle the interpretation of "start"
+    # and "end" if the axis of rotation isn't the z axis.
+    if isarc(x):
+        if not vclose(axis,point(0,0,1.0)):
+            raise NotImplementedError('rotation of arcs out of XY plane not yet implemented')
+        c = arc(x)
+        c[0] = mat.mul(x[0])
+        c[1][1] += ang
+        c[1][2] += ang
+        return c
+
+    elif isgeomlist(x):
+        gl = []
+        for g in x:
+            gl.append(rotate(g,ang,cent,axis,mat))
+        return gl
+    
+    else:
+        return transform(x,mat)
+    
+
+## generalized geometry mirror function
+
+def mirror(g,plane):
+    flip=point(1,1,1)
+    if plane == 'xz':
+        flip[1]= -1
+    elif plane == 'yz':
+        flip[0]= -1
+    elif plane == 'xy':
+        flip[2]= -1
+    else:
+        raise ValueError('bad reflection plane passed to mirror')
+
+    if ispoint(g):
+        return point(mul(g,flip))
+    elif isarc(g):
+        a2=arc(g)
+        a2[0] = mul(g[0],flip)
+        start = g[1][1]
+        end  = g[1][2]
+        if not (start == 0 and end == 360):
+            ## mirror the arc segment
+            ps = point(cos(start*pi2/360.0),sin(start*pi2/360.0))
+            pe = point(cos(end*pi2/360.0),sin(end*pi2/360.0))
+            ps = mul(ps,flip)
+            pe = mul(pe,flip)
+            end = (atan2(ps[1],ps[0])%pi2)*360/pi2
+            start = (atan2(pe[1],pe[0])%pi2)*360/pi2
+            a2[1][1]=start
+            a2[1][2]=end
+        return a2
+    elif ispoly(g):
+        ply = []
+        for p in g:
+            ply.append(mul(p,flip))
+        return ply
+    elif isgeomlist(g):
+        r = []
+        for x in g:
+            r.append(mirror(x,plane))
+        return r
+    else:
+        raise ValueError('bad thing in list passed to mirror: {}'.format(g))
+
+    
+    
+## Non-value-safe intersection calculation for non-compound geometic
 ## elements.
 
 ## If params is true, return a list of two lists of intersection
