@@ -21,25 +21,32 @@ It's pretty easy to make a DXF drawing with **yapCAD**.  Here is an example:
 	from yapcad.geom import *
 
 	#set up DXF rendering
-	drawable=ezdxfDraw()
-    drawable.saveas("example1-out")
+	dd=ezdxfDraw()
+    dd.saveas("example1-out")
 
     ## make dxf-renderable geometry
 
     # make a point located at 10,10 in the x-y plane, rendered as a small
-    # cross and circle
-    drawable.draw(point(10,10))
+    # red cross and circle
+	dd.pointstyle = 'xo' # also valid are 'x' or 'o'
+	dd.set_linecolor(1) # set color to red (DXF index color 1)
+    dd.draw(point(10,10))
 
     # make a line segment between the points -5,10 and 10,-5 in the x-y plane
-    drawable.draw(line(point(-5,10),
-                       point(10,-5)))
+	# and draw it in white
+	
+	dd.set_linecolor('white') # set color by name
+    dd.draw(line(point(-5,10),
+		         point(10,-5)))
 
     # make an arc with a center at 0,3 with a radius of 3, from 45 degrees
-    # to 135 degrees
-    drawable.draw(arc(point(0,3),3,45,135))
+    # to 135 degrees, and draw it in aqua
+	
+	dd.set_linecolor([0,255,255]) # RGB tripple, corresponds to 'aqua'
+    dd.draw(arc(point(0,3),3,45,135))
 
     # write out the geometry as example1-out.dxf
-	drawable.display()
+	dd.display()
 
 The **yapCAD** system isn't just about rendering, of course, it's about computational geometry.  For example, if you want to calculate the intersection of lines and arcs in a plane, we have you covered:
 
@@ -61,17 +68,17 @@ The **yapCAD** system isn't just about rendering, of course, it's about computat
     arc1=arc(point(2.5,2.5),2.5,90.0,270.0)
 
     # calculate the intersection of lines l1 and l2
-    int0 = lineLineIntersectXY(l1,l2)
+    int0 = intersectXY(l1,l2)
 
     # calculate the intersection of the line l1 and the arc arc1
-    int1 = lineArcIntersectXY(l1,arc1,True)
+    int1 = intersectXY(l1,arc1)
 
     print("intersection of l1 and l2:",vstr(int0))
     print("intersection of l1 and arc1:",vstr(int1))
 	
 And there are lots more [examples](examples/README.md) available to
 demonstrate the various computational geometry and rendering
-capabilities of **yapCAD**.
+capabilities of **yapCAD**, including 3D geometry and OpenGL rendering.
 
 ## **yapCAD** geometry
 
