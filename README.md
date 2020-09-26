@@ -1,7 +1,7 @@
 # **yapCAD**
 yet another procedural CAD and computational geometry system written in python 3
 
-![**yapCAD** image](images/example6-out.png)
+![**yapCAD** image](images/yapCadSplash.png)
 
 ## **yapCAD** goals
 
