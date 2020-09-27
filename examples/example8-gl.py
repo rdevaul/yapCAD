@@ -19,7 +19,19 @@ if __name__ == "__main__":
     dd.cameradist=150.0
     glist = mirrorArray()
 
-    #drawLegend(dd)
-    dd.set_linecolor('white')
-    dd.draw(glist)
+    def mydrawer(gl):
+        g1=[]
+        g2=[]
+        for g in gl:
+            if iscircle(g):
+                g1.append(g[0])
+            else:
+                g2.append(g)
+        dd.set_linecolor('white')
+        dd.draw(g2)
+        dd.set_linecolor('aqua')
+        dd.polystyle='points'
+        dd.draw(g1)
+
+    mydrawer(glist)
     dd.display()

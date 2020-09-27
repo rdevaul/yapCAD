@@ -8,20 +8,21 @@ making and then mirroring random "flowers."
 
 from yapcad.geom import *
 from yapcad.poly import *
+import example10
 import random
 
 def drawLegend(d):
     ## Put some documentary text on the drawing
     d.layerset('DOCUMENTATION')
 
-    d.draw_text("yapCAD", point(5,15),\
-                attr={'style': 'OpenSans-Bold',
-                      'height': 1.5})
+    att = {'style': 'OpenSans-Bold',
+           'height': 2.5}
+    
+    d.draw_text("yapCAD", point(5,15), attr = att)
 
-    d.draw_text("example8.py",
-                point(5,12))
+    d.draw_text("example8.py", point(5,11), attr=att)
     d.draw_text("Polygon() flowers, mirrored geometry",
-                point(5,10))
+                point(5,7),attr=att)
     d.layerset() # back to default layer
 
 
@@ -59,8 +60,19 @@ def flower(center = point(0,0),
         return p.geom()
 
 def mirrorArray(pnt=point(-45,45)):
-    glist = flower(pnt)
+    flwr = flower(pnt,returnPoly=True)
+    glist = flwr.geom()
     bb = bbox(glist)
+    flwr2 = deepcopy(flwr)
+    flwr2.grow(1.0)
+    glist.append(flwr2.geom())
+
+    ranp = example10.randomPoints(bb,500)
+
+    for p in ranp:
+        if flwr.isinside(p):
+            glist.append(arc(p,0.4))
+                         
     ply = [point(bb[0]), point(bb[1][0],bb[0][1]),
            point(bb[1]), point(bb[0][0],bb[1][1])]
     glist = glist + ply
@@ -79,6 +91,19 @@ if __name__ == "__main__":
 
     glist = mirrorArray()
 
+    def mydrawer(gl):
+        g1=[]
+        g2=[]
+        for g in gl:
+            if iscircle(g):
+                g1.append(g)
+            else:
+                g2.append(g)
+        dd.set_linecolor('white')
+        dd.draw(g2)
+        dd.set_linecolor('aqua')
+        dd.draw(g1)
+
     drawLegend(dd)
-    dd.draw(glist)
+    mydrawer(glist)
     dd.display()
