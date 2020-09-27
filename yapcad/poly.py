@@ -453,7 +453,6 @@ class Polygon(Polyline):
         bb = self._bbox
         p2 = add([1,1,0,1],bb[1])
         l = line(p,p2)
-
         pp = intersectGeomListXY(l,self.geom())
         if pp == False:
             return False
