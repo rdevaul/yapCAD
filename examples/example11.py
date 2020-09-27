@@ -25,32 +25,31 @@ def makeStars(center,rad=5.0,diam=2.0):
         if i%2 ==0:
             p = poly2
         p.addArc(arc(add(center, point(math.cos(ang)*rad,
-                                  math.sin(ang)*rad)),diam))
+                                       math.sin(ang)*rad)),diam))
     return poly1,poly2
 
 def geometry():
     p1 = Polygon()
-    x = point(-5,5)
-    p1.addArc(arc(x,3.0,0,180))
-    p1.addArc(arc(x,3.0,180,360))
-    #p1.addArc(arc(x,3.0))
+    x = point(-2,2)
+    p1.addArc(arc(x,3.0))
 
     #p1 = makeRoundRect(4,4,0.2,point(-4.0,4.0))
 
-    p2 = makeRoundRect(7,6,1)
-    p3 = makeRoundRect(7,6,1,point(-10.0,-10.0))
-    b = Boolean('union',[p2,p1])
+    p2 = makeRoundRect(7,6,1,point(1,-1))
+    b = Boolean('union',[p1,p2])
 
-    p4,p5 = makeStars(point(10,-10))
-    b2 = Boolean('union',[p5,p4])
+    p4,p5 = makeStars(point(12,-10))
+    b2 = Boolean('union',[p4,p5])
 
-    p6,p7 = makeStars(point(10,10))
+    p6,p7 = makeStars(point(12,10))
     b3 = Boolean('intersection',[p6,p7])
 
-    p8,p9 = makeStars(point(-20,-10))
-    b4 = Boolean('intersection',[p9,p8])
+    p8,p9 = makeStars(point(-12,-10))
+    b4 = Boolean('difference',[p9,p8])
 
-    return [p1.geom(),p2.geom(),b.geom(),b2.geom(),b3.geom(),b4.geom()]
+    p10,p11 = makeStars(point(-12,10))
+
+    return [p1.geom(),p2.geom(),b.geom(),b2.geom(),b3.geom(),b4.geom(),p10.geom(),p11.geom()]
     #return [p1.geom(),p2.geom(),b.geom()]
 
 def testAndDraw(dd):
@@ -82,6 +81,9 @@ def testAndDraw(dd):
 
     dd.set_linecolor('yellow')
     dd.draw(g6)
+
+    dd.set_linecolor('aqua')
+    dd.draw(gl[6:])
 
     dd.display()
     
