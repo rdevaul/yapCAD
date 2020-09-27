@@ -49,7 +49,7 @@ class Boolean(IntersectGeometry):
             # seg.append(arc(p2,0.4))
             if self._type == 'union':
                 if g2.isinside(p1):
-                    seg += g1.segment(g1e,g1s)
+                    seg += g2.segment(g2s,g2e)
                 else:
                     seg += g1.segment(g1s,g1e)                    
             elif self._type == 'intersection':
@@ -59,14 +59,11 @@ class Boolean(IntersectGeometry):
                     seg += g2.segment(g2s,g2e)
             elif self._type == 'difference':
                 if g2.isinside(p1):
-                    seg += g2.segment(g2e,g2s)
+                    pass
                 else:
-                    seg += g1.segment(g1s,g1e)                    
+                    seg += g1.segment(g1s,g1e)
+                    seg += g2.segment(g2s,g2e)
             return seg
-
-        ## argument alternation for cmbin
-        def swapcmbin(g1,g2,itr):
-            return cmbin(g2,g1,[itr[1],itr[0]])
 
         ## utility function to sort intersections into non-decreasing
         ## order
@@ -85,12 +82,27 @@ class Boolean(IntersectGeometry):
         if inter == False: # disjoint, but one could be inside the other
             if isinsidebbox(bbox1,bbox2[0]) and isinsidebbox(bbox1,bbox2[1]):
                 ## g2 is inside g1
-                return g1.geom()
+                if self._type == 'union':
+                    return g1.geom()
+                elif self._type == 'intersection':
+                    return g2.geom()
+                else: #difference, g2 is a hole in g1
+                    return [g1.geom(),g2.geom()]
             elif isinsidebbox(bbox2,bbox1[0]) and isinsidebbox(bbox2,bbox1[1]):
                 ## g1 is indside g2
-                return g2.geom()
-            else:
-                return [g1.geom(),g2.geom()]
+                if self._type == 'union':
+                    return g2.geom()
+                elif self._type == 'intersection':
+                    return g1.geom()
+                else: #difference, g1 is a hole in g2
+                    return [g1.geom(),g2.geom()]
+            else: # disjoint
+                if self._type == 'union':
+                    return [g1.geom(),g2.geom()]
+                elif self._type == 'difference':
+                    return g1.geom()
+                else: #intersection
+                    return []
         if len(inter[0]) == 1 and len(inter[1] == 1):
         ## single point of intersection: return a geometry list with both
             return [g1, g2]
@@ -101,14 +113,10 @@ class Boolean(IntersectGeometry):
         if len(inter[0]) % 2 == 0:
             r = []
             for i in range(1,len(inter[0])+1):
-                f = cmbin
-                #if i%2 == 1 and type != 'difference':
-                if i%2 == 1:
-                    f = swapcmbin
-                r += f(g1,g2,[[inter[0][i-1],
-                               inter[0][i%len(inter[0])]],
-                              [inter[1][i-1],
-                               inter[1][i%len(inter[0])]]])
+                r += cmbin(g1,g2,[[inter[0][i-1],
+                                   inter[0][i%len(inter[0])]],
+                                  [inter[1][i-1],
+                                   inter[1][i%len(inter[1])]]])
             return r
         else:
             raise ValueError('odd number of intersections -- bailing')
@@ -169,8 +177,9 @@ class Boolean(IntersectGeometry):
 
     def geom(self):
         if self._update:
-            if len(self._elem)==2 and \
-               self._type == 'union' or self._type == 'intersection':
+            if len(self._elem)==2:
+                #if len(self._elem)==2 and \
+                #self._type == 'union' or self._type == 'intersection':
                 self._outline = self.combine_geom(self._elem[0],self._elem[1])
                 self._update = False
             else:
