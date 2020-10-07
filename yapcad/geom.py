@@ -4,9 +4,10 @@
 
 from math import *
 import copy
-import yapcad.xform
+import yapcad.xform as xform
 
 ## constants
+#epsilon=0.0000001
 epsilon=0.000005
 pi2 = 2.0*pi
 
@@ -717,11 +718,18 @@ def unsamplearc(c,p):
     r=c[1][0]
     start=c[1][1]
     end=c[1][2]
+    # if close(end-start,360.0): #rotated circles may look like this
+    #     start = 0
+    #     end = 360
+        
     if start != 0 and end != 360:
         start = start % 360.0
         end = end % 360.0
         if end < start:
             end += 360.0    
+    if close(start,end):
+        # degenerate, zero-length arc
+        return False
     if len(c) == 3:
         norm = c[2]
         if dist(norm,vect(0,0,1)) > epsilon:
@@ -1222,7 +1230,6 @@ def polybbox(a):
         minx = maxx = a[0][0]
         miny = maxy = a[0][1]
         for i in range(1,len(a)):
-            p = a[i]
             x=a[i][0]
             y=a[i][1]
             if x < minx:
@@ -1933,8 +1940,9 @@ def rotate(x,ang,cent=point(0,0),axis=point(0,0,1.0),mat=False):
             raise NotImplementedError('rotation of arcs out of XY plane not yet implemented')
         c = arc(x)
         c[0] = mat.mul(x[0])
-        c[1][1] += ang
-        c[1][2] += ang
+        if not iscircle(c):
+            c[1][1] += ang
+            c[1][2] += ang
         return c
 
     elif isgeomlist(x):
