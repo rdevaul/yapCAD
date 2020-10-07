@@ -110,7 +110,7 @@ class Boolean(IntersectGeometry):
         inter = rsort(inter)
         # print("rsort: ",vstr(inter))
         
-        if len(inter[0]) % 2 == 0:
+        if len(inter[0]) % 2 == 0 or True:
             r = []
             for i in range(1,len(inter[0])+1):
                 r += cmbin(g1,g2,[[inter[0][i-1],
@@ -118,8 +118,8 @@ class Boolean(IntersectGeometry):
                                   [inter[1][i-1],
                                    inter[1][i%len(inter[1])]]])
             return r
-        else:
-            raise ValueError('odd number of intersections -- bailing')
+#        else:
+#            raise ValueError('odd number of intersections -- bailing')
 
     def bbox(self):
         return bbox(self.geom())
