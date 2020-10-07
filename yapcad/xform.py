@@ -1,7 +1,8 @@
 ## generalized matrix transformation operations for 3D homogeneous
 ## coordinates in yapCAD
 
-from yapcad.geom import *
+from math import *
+import yapcad.geom as geom
 
 ## a matrix is represented as a list of four four vectors. In a
 ## matrix, vectors represent rows unless the transpose property is
@@ -90,7 +91,7 @@ class Matrix:
             return self.m[j]
 
     def setrow(self,i,x):
-        if not isvect(x):
+        if not geom.isvect(x):
             return False
         if self.trans:
             self.m[0][i] = x[0]
@@ -101,7 +102,7 @@ class Matrix:
             self.m[i] = x
         
     def setcol(self,j,x):
-        if not isvect(x):
+        if not geom.isvect(x):
             return False
         if not self.trans:
             self.m[0][j] = x[0]
@@ -122,17 +123,17 @@ class Matrix:
             for i in range(4):
                 for j in range(4):
                     result.set(i,j,
-                               dot4(self.getrow(i),x.getcol(j)))
+                               geom.dot4(self.getrow(i),x.getcol(j)))
             return result
-        elif isvect(x):
-            result = vect()
+        elif geom.isvect(x):
+            result = geom.vect()
             for i in range(4):
-                result[i]=dot4(self.getrow(i),x)
+                result[i]=geom.dot4(self.getrow(i),x)
             return result
         elif isgoodnum(x):
             result = Matrix()
             for i in range(4):
-                result.setrow(i,scale4(self.getrow(i),x))
+                result.setrow(i,geom.scale4(self.getrow(i),x))
             return result
         
         raise ValueError('bad thing passed to mul(): {}'.format(x))
@@ -140,16 +141,16 @@ class Matrix:
 
 # return the generalized 4x4 arbitrary axis rotation matrix
 def Rotation(axis,angle,inverse=False):
-    m = mag(axis)
+    m = geom.mag(axis)
     u = axis
-    if m < epsilon:
+    if m < geom.epsilon:
         raise ValueError('zero-length rotation axis not allowed')
-    if not close(m,1.0):
-        u = scale(axis,1.0/m)
+    if not geom.close(m,1.0):
+        u = geom.geom.scale(axis,1.0/m)
 
     if inverse:
         angle *= -1.0
-    rad = (angle%360.0)*pi2/360.0
+    rad = (angle%360.0)*geom.pi2/360.0
 
     ux = u[0]
     uy = u[1]
@@ -163,7 +164,7 @@ def Rotation(axis,angle,inverse=False):
 
     # see https://en.wikipedia.org/wiki/Rotation_matrix
     R = [[cang + ux*ux*cmin, ux*uy*cmin-uz*sang, ux*uz*cmin+uy*sang,0],
-         [uy*ux*cmin+uz*smin, cang + uy*uy*cmin, uy*yz*cmin - uz*smin,0],
+         [uy*ux*cmin+uz*smin, cang + uy*uy*cmin, uy*uz*cmin - uz*smin,0],
          [uz*ux*cmin-uy*smin, uz*uy*cmin+ux*smin, cang+uz*uz*cmin]]
 
     return Matrix(R)
@@ -189,7 +190,7 @@ def Scale(x,y=False,z=False,inverse=False):
             sz = z
         else:
             sy = sz = x
-    elif isvect(x):
+    elif geom.isvect(x):
         sx = x[0]
         sy = x[1]
         sz = x[2]
@@ -213,7 +214,7 @@ if __name__ == "__main__":
     foo = Matrix([1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16])
     fooT = Matrix(foo,True)
     bar = Matrix([[1,0,0,1],[0,1,0,1],[0,0,1,1],[0,0,0,1]])
-    baz = vect(1,2,3)
+    baz = geom.vect(1,2,3)
     I = Matrix()
     a = 10.0
     print("foo: {}".format(foo))
