@@ -437,6 +437,15 @@ class Polygon(Polyline):
         
         return rotate(self.geom(),angle,cent,axis)
 
+    def translate(self,delta,poly=False):
+        if poly:
+            p = Polygon(self)
+            p._elem = translate(self._elem,delta)
+            p._update = True
+            return p
+
+        return translate(self.geom(),delta)
+    
     def geom(self):
         if self._update:
             self._updateInternals()
