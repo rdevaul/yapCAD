@@ -106,7 +106,7 @@ class Polyline(IntersectGeometry):
             for i in range(1,l):
                 p = add(center(self._elem[i]),p)
 
-            self._center = scale(p,1/l)
+            self._center = scale3(p,1/l)
             self._bbox = bbox(self._elem)
         return
 

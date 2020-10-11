@@ -33,7 +33,7 @@ def makeIcoPoints(center,radius):
     points = []
     normals = []
     p = lat_lon_rad(90,0,radius)
-    n = scale(p,1.0/mag(p))
+    n = scale3(p,1.0/mag(p))
     points.append(p)
     normals.append(n)
     for i in range(10):
@@ -43,12 +43,12 @@ def makeIcoPoints(center,radius):
         lat = math.atan(0.5)*360.0*sgn/pi2
         lon = i*36.0
         p = lat_lon_rad(lat,lon,radius)
-        n = scale(p,1.0/mag(p))
+        n = scale3(p,1.0/mag(p))
         points.append(p)
         normals.append(n)
 
     p = lat_lon_rad(-90,0,radius)
-    n = scale(p,1.0/mag(p))
+    n = scale3(p,1.0/mag(p))
     points.append(p)
     normals.append(n)
     return list(map( lambda x: add(x,center),points)),normals
@@ -83,16 +83,16 @@ def subdivide(f,verts,normals,rad):
     ma = rad/mag(va)
     mb = rad/mag(vb)
     mc = rad/mag(vc)
-    va = scale(va,ma)
-    vb = scale(vb,mb)
-    vc = scale(vc,mc)
+    va = scale3(va,ma)
+    vb = scale3(vb,mb)
+    vc = scale3(vc,mc)
     
     na = add(n1,n2)
-    na = scale(na,1.0/mag(na))
+    na = scale3(na,1.0/mag(na))
     nb = add(n2,n3)
-    nb = scale(nb,1.0/mag(nb))
+    nb = scale3(nb,1.0/mag(nb))
     nc = add(n3,n1)
-    nc = scale(nc,1.0/mag(nc))
+    nc = scale3(nc,1.0/mag(nc))
 
     inda,verts,normals = addVertex(va,na,verts,normals)
     indb,verts,normals = addVertex(vb,nb,verts,normals)

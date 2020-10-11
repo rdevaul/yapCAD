@@ -76,7 +76,7 @@ def add(a,b):
 def sub(a,b):
     return [a[0]-b[0],a[1]-b[1],a[2]-b[2],1.0]
 
-def scale(a,c):
+def scale3(a,c):
     return [a[0]*c,a[1]*c,a[2]*c,1.0]
 
 ## component-wise 3vect multiplication
@@ -330,7 +330,7 @@ def linelength(l):
 
 ## return the center of a line
 def linecenter(l):
-    return scale(add(l[0],l[1]),0.5)
+    return scale3(add(l[0],l[1]),0.5)
 
 ## Sample a parameterized line.  Values 0 <= u <= 1.0 will fall within
 ## the line segment, values u < 0 and u > 1 will fall outside the line
@@ -340,7 +340,7 @@ def sampleline(l,u):
     p1=l[0]
     p2=l[1]
     p = 1.0-u
-    return add(scale(p1,p),scale(p2,u))
+    return add(scale3(p1,p),scale3(p2,u))
 
 def segmentline(l,u1,u2):
     p1=sampleline(l,u1)
@@ -477,11 +477,11 @@ def linePointXY(l,p,inside=True,distance=False,params=False):
 
     ## compute unit direction vector for original line
     dir = sub(b,a)
-    dir = scale(dir,1.0/mag(dir))
+    dir = scale3(dir,1.0/mag(dir))
 
     ## compute two orthogonal direction vectors of length linedist
-    ordir1 = scale(orthoXY(dir),linedist)
-    ordir2 = scale(ordir1, -1.0)
+    ordir1 = scale3(orthoXY(dir),linedist)
+    ordir2 = scale3(ordir1, -1.0)
     
     ## there are two possible intersection points
     pi1 = add(p,ordir1)
@@ -699,7 +699,7 @@ def samplearc(c,u,polar=False):
     if polar: # return polar coordinates with cartesian center
         return [ p,r,angle]
     
-    q = scale(vect(cos(radians),sin(radians)),r)
+    q = scale3(vect(cos(radians),sin(radians)),r)
     return add(p,q)
 
 # Given an arc paramaterized on a 0,1 interval, return a new arc with
@@ -823,9 +823,9 @@ def _arcArcIntersectXY(c1,c2,inside=True,params=False):
     ## compute the point on the line connecting the two arc centers
     ## that is id away from the first arc
 
-    v1 = scale(sub(x2,x1),1.0/d) # unitary direction vector pointing
+    v1 = scale3(sub(x2,x1),1.0/d) # unitary direction vector pointing
                                  # from x1 to x2
-    v2 = scale(v1,id) # point on line between two circles in
+    v2 = scale3(v1,id) # point on line between two circles in
                       # coordinate space centered at x1
 
     ## compute direction vector o orthgonal to v1 -- the line that
@@ -1001,9 +1001,9 @@ def _lineArcIntersectXY(l,c,inside=True,params=False):
 
     # use computed parameters to calculate solutions, still in
     # circle-at-origin coordinates
-    s = [ add(scale(V,b0),p1) ]
+    s = [ add(scale3(V,b0),p1) ]
     if b1:
-        s = s + [ add(scale(V,b1),p1) ]
+        s = s + [ add(scale3(V,b1),p1) ]
 
     if not inside or circle or params:              # transform back into world
                                           # coordinates
@@ -1100,10 +1100,10 @@ def _circleCircleTangentsXY(c1,c2):
     gamma2 = phi-theta-pi/2
     n1 = point(cos(gamma1),sin(gamma1))
     n2 = point(cos(gamma2),sin(gamma2))
-    p1 = add(scale(n1,r1),smallC[0])
-    p2 = add(scale(n1,r2),bigC[0])
-    p3 = add(scale(n2,r1),smallC[0])
-    p4 = add(scale(n2,r2),bigC[0])
+    p1 = add(scale3(n1,r1),smallC[0])
+    p2 = add(scale3(n1,r2),bigC[0])
+    p3 = add(scale3(n2,r1),smallC[0])
+    p4 = add(scale3(n2,r2),bigC[0])
 
     l1 = l2 = []
     if bigIsOne:
@@ -1216,7 +1216,7 @@ def polycenter(a):
         l= len(a)-1
         for i in range(l):
             p = add(p,a[i])
-        return scale(p,1.0/l)
+        return scale3(p,1.0/l)
     else:
         return samplepoly(a,0.5)
 

@@ -592,7 +592,7 @@ class Line(Drawable):
         return sampleline([self.p1,self.p2],u)
                    
     def center(self):
-        return scale(add(self.p1,self.p2),0.5)
+        return scale3(add(self.p1,self.p2),0.5)
 
     def bounding(self):
         minx = min(self.p1[0],self.p2[0])

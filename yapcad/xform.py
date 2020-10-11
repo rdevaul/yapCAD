@@ -146,7 +146,7 @@ def Rotation(axis,angle,inverse=False):
     if m < geom.epsilon:
         raise ValueError('zero-length rotation axis not allowed')
     if not geom.close(m,1.0):
-        u = geom.geom.scale(axis,1.0/m)
+        u = geom.geom.scale3(axis,1.0/m)
 
     if inverse:
         angle *= -1.0
