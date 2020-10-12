@@ -136,7 +136,7 @@ aren't using every time you specify a vector, so **yapCAD** provides you
 with the `vect` function.  It fills in defaults for the z and w
 parameters you may not want to specify.  ***e.g.***
 
-    >>> from geom import *
+    >>> from yapcad.geom import *
     >>> vect(10,4)
     [10, 4, 0, 1]
 	>>> add(vect(10,4),vect(10,9))  ## add operates in 3-space
@@ -152,7 +152,7 @@ convenience function `vstr` that intelligently converts **yapCAD** vectors
 polygons) to strings, assuming that as long as z = 0 and w = 1, you
 don't need to see those coordinates.
 
-    >>> from geom import *
+    >>> from yapcad.geom import *
     >>> a = sub(vect(10,4),vect(10,9)) ## subtract a couple of vectors 
     >>> a
     [0, -5, 0, 1.0]
