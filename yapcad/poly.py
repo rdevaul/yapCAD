@@ -373,9 +373,12 @@ class Polygon(Polyline):
                     # print("not expected: adjacent lines don't intersect. We will fix that")
                     pi = lineLineIntersectXY(e1,e2,inside=False)
                     if pi == False:
-                        raise ValueError('parallel adjacent lines -- no clue')
-                self._outline[i] = line(e1[0],pi)
-                self._outline[(i+1)%len(self._outline)] = line(pi,e2[1])
+                        # raise ValueError('parallel adjacent lines -- no clue')
+                        print("odd parallel? adjacent line condition")
+                        continue
+                    else:
+                        self._outline[i] = line(e1[0],pi)
+                        self._outline[(i+1)%len(self._outline)] = line(pi,e2[1])
             if iscircle(e1):
                 if not isline(e0) or not isline(e2):
                     raise ValueError('circle not bracketed by lines')
@@ -460,6 +463,8 @@ class Polygon(Polyline):
         if self._update:
             self._updateInternals()
         bb = self._bbox
+        if not isinsidebbox(bb,p):
+            return False
         p2 = add([1,1,0,1],bb[1])
         l = line(p,p2)
         pp = intersectGeomListXY(l,self.geom())
