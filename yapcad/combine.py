@@ -32,21 +32,36 @@ class Boolean(IntersectGeometry):
             g2s = itr[1][0]
             g2e = itr[1][1]
 
-            def swp(a,b):
-                return b,a
-            
             seg = []
             if g1e < g1s:
-                # g1s,g1e = swp(g1e,g1s)
                 g1e+=1.0
             if g2e < g2s:
-                # g2s,g2e = swp(g2e,g2s)
                 g2e+=1.0
-                
+
             p1=g1.sample(((g1s+g1e)/2)%1.0)
             # seg.append(arc(p1,0.2))
             p2=g2.sample(((g2s+g2e)/2)%1.0)
             # seg.append(arc(p2,0.4))
+
+            ZLEN1=close(g1s,g1e)
+            ZLEN2=close(g2s,g2e)
+
+            if ZLEN1 and ZLEN2:
+                print ('both segments zero length')
+                return []
+            elif ZLEN2 and not ZLEN1:
+                print ('zero length segment 2')
+                if self._type=='union' or self._type=='difference':
+                    return g1.segment(g1s,g1e)
+                else: #intersection
+                    return []
+            elif ZLEN1 and not ZLEN2:
+                print ('zero length segment 1')
+                if self._type=='union':
+                    return g2.segment(g2s,g2e)
+                else: # difference or intersection
+                    return []
+            
             if self._type == 'union':
                 if g2.isinside(p1):
                     seg += g2.segment(g2s,g2e)
@@ -80,6 +95,16 @@ class Boolean(IntersectGeometry):
             return [rl,rr]
 
         if inter == False: # disjoint, but one could be inside the other
+            if not bbox1 and bbox2:
+                if self._type=='union':
+                    return g2.geom()
+                else:
+                    return []
+            if bbox1 and not bbox2:
+                if self._type=='union' or self._type=='difference':
+                    return g1.geom()
+            if not bbox1 and not bbox2:
+                return []
             if isinsidebbox(bbox1,bbox2[0]) and isinsidebbox(bbox1,bbox2[1]):
                 ## g2 is inside g1
                 if self._type == 'union':
@@ -94,8 +119,8 @@ class Boolean(IntersectGeometry):
                     return g2.geom()
                 elif self._type == 'intersection':
                     return g1.geom()
-                else: #difference, g1 is a hole in g2
-                    return [g1.geom(),g2.geom()]
+                else: #difference, g2 has eaten g1
+                    return []
             else: # disjoint
                 if self._type == 'union':
                     return [g1.geom(),g2.geom()]
@@ -104,8 +129,13 @@ class Boolean(IntersectGeometry):
                 else: #intersection
                     return []
         if len(inter[0]) == 1 and len(inter[1] == 1):
-        ## single point of intersection: return a geometry list with both
-            return [g1, g2]
+        ## single point of intersection:
+            if self._type == 'union':
+                return [g1.gom(), g2.geom()]
+            elif self._type == 'difference':
+                return g1.geom()
+            else: #intersection
+                return []
         ## There are two or more points of intersection.
         inter = rsort(inter)
         # print("rsort: ",vstr(inter))
