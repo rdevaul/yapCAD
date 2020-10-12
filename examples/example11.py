@@ -68,6 +68,11 @@ def testAndDraw(dd):
 
     dd.draw(g3)
 
+    g3r = rotate(g3,45)
+
+    dd.set_linecolor('red')
+    dd.draw(g3r)
+
     dd.set_linecolor('white')
     for i in range(len(g4)):
         dd.set_linecolor(i%7+1)
