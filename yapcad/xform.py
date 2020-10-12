@@ -162,10 +162,17 @@ def Rotation(axis,angle,inverse=False):
     sang = sin(rad)
     smin = 1.0-sang
 
-    # see https://en.wikipedia.org/wiki/Rotation_matrix
+    # # see https://en.wikipedia.org/wiki/Rotation_matrix
+    # R = [[cang + ux*ux*cmin, ux*uy*cmin-uz*sang, ux*uz*cmin+uy*sang,0],
+    #      [uy*ux*cmin+uz*smin, cang + uy*uy*cmin, uy*uz*cmin - uz*smin,0],
+    #      [uz*ux*cmin-uy*smin, uz*uy*cmin+ux*smin, cang+uz*uz*cmin,0],
+    #      [0,0,0,1]]
+
+    # see http://www.opengl-tutorial.org/assets/faq_quaternions/index.html#Q38
     R = [[cang + ux*ux*cmin, ux*uy*cmin-uz*sang, ux*uz*cmin+uy*sang,0],
-         [uy*ux*cmin+uz*smin, cang + uy*uy*cmin, uy*uz*cmin - uz*smin,0],
-         [uz*ux*cmin-uy*smin, uz*uy*cmin+ux*smin, cang+uz*uz*cmin]]
+         [uy*ux*cmin+uz*sang, cang + uy*uy*cmin, uy*uz*cmin - ux*sang,0],
+         [uz*ux*cmin-uy*sang, uz*uy*cmin+ux*sang, cang+uz*uz*cmin,0],
+         [0,0,0,1]]
 
     return Matrix(R)
 
