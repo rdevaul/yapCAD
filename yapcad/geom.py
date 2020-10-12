@@ -375,7 +375,7 @@ def linebbox(l):
 ## inside testing for line -- only true of point lies on line, to
 ## within epsilon
 
-def isinsildeline(l,p):
+def isinsideline(l,p):
     return linePointXY(l,p,distance=True) < epsilon
 
 ## Compute the intersection of two lines that lie in the same x,y plane
@@ -439,7 +439,9 @@ def linePointXY(l,p,inside=True,distance=False,params=False):
     # check for degenerate case of zero-length line
     abdist = dist(a,b)
     if abdist < epsilon:
-        raise ValueError('zero-length line passed to linePointXY')
+        #raise ValueError('zero-length line passed to linePointXY')
+        print('zero-length line passed to linePointXY')
+        return False
 
     if distance and params:
         raise ValueError('incompatible distance and params parameters passed to linePointXY')
@@ -575,23 +577,28 @@ def linePointXYDist(l,p,inside=True):
 ## normal = [0,0,1] if it's not specified.
 
 ## to mark that the second list element is a pseudovector, we set the
-## w component to -1.  Since negative w values should never exist for
-## vectors in our projective geometry system this should be a robust
-## convention.
+## w component to a negative value.  Since negative w values should
+## never exist for vectors in our projective geometry system this
+## should be a robust convention.  For ordinary arcs, w=-1.  For
+## sample-reversed arcs where u=0.0 begins at the end angle, and u=1.0
+## is the start agle, w=-2
 
 ## make an arc, copying points, value-safe
 ## NOTE: if start and end are not specified, a full circle is created
-def arc(c,rp=False,sn=False,e=False,n=False):
+def arc(c,rp=False,sn=False,e=False,n=False,samplereverse=False):
     if isarc(c):
         return deepcopy(c)
     elif ispoint(c):
         cen = point(c)
+        w=-1
+        if samplereverse:
+            w=-2
         if isvect(rp):
             psu = deepcopy(rp)
             r=psu[0]
             if r < 0:
                 raise ValueError('negative radius not allowed for arc')
-            psu[3]=-1
+            psu[3]=w
             if not sn:
                 return [ cen, psu ]
             else:
@@ -607,7 +614,7 @@ def arc(c,rp=False,sn=False,e=False,n=False):
             if isgoodnum(sn) and isgoodnum(e):
                 start = sn
                 end = e
-            psu = vect(r,start,end,-1)
+            psu = vect(r,start,end,w)
             if not n:
                 return [ cen, psu ]
             else:
@@ -628,7 +635,7 @@ def isarc(a):
         return False
     if not (ispoint(a[0]) and isvect(a[1])):
         return False
-    if a[1][3] != -1:           # is psuedovector marked?
+    if a[1][3] not in (-1,-2):           # is psuedovector marked?
         return False
     r =a[1][0]                
     if r < 0:
@@ -685,6 +692,9 @@ def samplearc(c,u,polar=False):
     r=c[1][0]
     start=c[1][1]
     end=c[1][2]
+    w=c[1][3]
+    if w == -2: # if arc is flagged as sample-reversed, flip u
+        u=1.0-u
     if start != 0 and end != 360:
         start = start % 360.0
         end = end % 360.0
@@ -708,7 +718,11 @@ def samplearc(c,u,polar=False):
 def segmentarc(c,u1,u2):
     pol1=samplearc(c,u1,polar=True)
     pol2=samplearc(c,u2,polar=True)
-    return arc(pol1[0],pol1[1],pol1[2],pol2[2])
+    sr= (c[1][3] == -2)
+    if sr:
+        return arc(pol1[0],pol1[1],pol2[2],pol1[2],samplereverse=True)
+    else:
+        return arc(pol1[0],pol1[1],pol1[2],pol2[2])
 
 ## unsample the arc, which is to day given a point that is on the
 ## circle, return it's corresponding sample parameter, or False if the
@@ -740,6 +754,8 @@ def unsamplearc(c,p):
     if end > 360.0 and ang <= end-360.0:
         ang = ang + 360.0
     u = (ang-start)/(end-start)
+    if c[1][3] == -2: #samplereverse
+        u = 1.0-u
     return u
     
 
@@ -784,6 +800,10 @@ def _arcArcIntersectXY(c1,c2,inside=True,params=False):
     x2=c2[0]
     r1=c1[1][0]
     r2=c2[1][0]
+
+    # check for sample reverse condition
+    sr1 = c1[1][3]==-2
+    sr2 = c2[1][3]==-2
 
     ## first check for non-intersection due to distance between the
     ## centers of the arcs, treating both arcs as circles for the moment
@@ -889,17 +909,29 @@ def _arcArcIntersectXY(c1,c2,inside=True,params=False):
         ang2 = (atan2(p2[1],p2[0]) % pi2)*360.0/pi2
 
         if params:
+            u1 = 0
+            u2 = 0
             if end1 <= 360.0 or ang1 >= start1 or \
                ( end1 > 360.0 and ang1 > end1-360.0):
-                uparam1 = uparam1 + [ (ang1-start1)/(end1-start1) ]
+                u1 = (ang1-start1)/(end1-start1)
+                if sr1:
+                    u1 = 1.0-u1
             elif end1 > 360.0:
-                uparam1 = uparam1 + [ (ang1+360.0-start1)/(end1-start1) ]
+                u1 = (ang1+360.0-start1)/(end1-start1)
+                if sr1:
+                    u1 = 1.0-u1
+            uparam1 = uparam1 + [ u1 ]
                 
             if end2 <= 360.0 or ang2 >= start2 or \
                ( end2 > 360.0 and ang2 > end1-360.0):
-                uparam2 = uparam2 + [ (ang2-start2)/(end2-start2) ]
+                u2 = (ang2-start2)/(end2-start2)
+                if sr2:
+                    u2 = 1.0-u2
             elif end2 > 360.0:
-                uparam2 = uparam2 + [ (ang2+360.0-start2)/(end2-start2) ]
+                u2 = (ang2+360.0-start2)/(end2-start2)
+                if sr2:
+                    u2 = 1.0-u2
+            uparam2 = uparam2 + [ u2]
                 
         else:
             good = False
@@ -984,7 +1016,8 @@ def _lineArcIntersectXY(l,c,inside=True,params=False):
     P = p1
     a = V[0]*V[0]+V[1]*V[1]
     if abs(a) < epsilon:
-        raise ValueError('degenerate line in lineArcIntersectXY')
+        print('degenerate line in lineArcIntersectXY')
+        return False
     b = 2*(V[0]*P[0]+V[1]*P[1])
     cc = P[0]*P[0]+P[1]*P[1]-r*r
     d = b*b-4*a*cc
@@ -1255,6 +1288,10 @@ def isinsidepoly(a,p):
     if not closed:
         return False
     bb = polybbox(a)
+    ## do quick bounding box check
+    if not isinsidebbox(bb,p):
+        return False
+    ## inside the bounding box, do intersection testing
     p2 = add([1,1,0,1],bb[1])
     l = line(p,p2)
 
@@ -1587,6 +1624,25 @@ def geomlistbbox(gl):
             raise ValueError('bad thing in geomlist passed to geomlistbbox -- should never happen')
     return polybbox(ply)
 
+## determine if a point lies inside closed regions of a geometry list.
+## only valid for geometry lists with only closed regions.  Count the
+## intersections for a line drawn from point to test to a point
+## outside the bounding box. Inside only if the number of
+## intersections is odd.
+def isinsidegeomlist(a,p):
+
+    bb = geomlistbbox(a)
+    if not isinsidebbox(bb,p):
+        return False
+    p2 = add([1,1,0,1],bb[1])
+    l = line(p,p2)
+
+    pp = intersectGeomListXY(l,a)
+    if pp == False:
+        return False
+    return len(pp) % 2 == 1
+
+
 ## determint if the contents of a geometry list lie in the same x-y
 ## plane
 def isgeomlistXYPlanar(gl):
@@ -1865,6 +1921,8 @@ def isinside(x,p):
         return isinsidearc(x,p)
     elif ispoly(x):
         return isinsidepoly(x,p)
+    elif isgeomlist(x):
+        return isinsidegeomlist(x,p)
     else:
         raise ValueError("bad thing passed to inside: {}".format(x))
 
@@ -1890,6 +1948,48 @@ def translate(x,delta):
     else:
         raise ValueError("don't know how to translate {}".format(x))
 
+def scale(x,sx=1.0,sy=False,sz=False,cent=point(0,0),mat=False):
+    if sy == False and sz == False:
+        sy = sz = sx
+    if vclose(point(sx,sy,sz),point(1.0,1.0,1.0)):
+        return deepcopy(x)
+    if not mat:
+        if vclose(cent,point(0,0,0)):
+            mat = xform.Scale(sx,sy,sz)
+        else:
+            mat = xform.Translation(cent,inverse=True)
+            mat = mat.mul(xform.Scale(sx,sy,sz))
+            mat = mat.mul(xform.Translation(cent))
+
+    if ispoint(x):
+        return mat.mul(x)
+    elif isline(x):
+        return line(mat.mul(x[0]),
+                    mat.mul(x[1]))
+    elif isarc(x):
+        c = arc(x)
+        if not close(sx,xy):
+            raise ValueError('asymmetric scaling of XY-plane arcs not allowed')
+        c[0] = mat.mul(x[0])
+        c[1][0] *= sx
+        return c
+
+    elif ispoly(x):
+        ply = []
+        for p in x:
+            ply.append(mat.mul(p))
+        return ply
+    
+    elif isgeomlist(x):
+        gl = []
+        for g in x:
+            gl.append(scale(g,sx,sy,sz,cent,mat))
+        return gl
+    else:
+        raise VauleError("don't know how to scale ",vstr(x))
+    
+
+    
 def transform(x,m):
     if not isinstance(m,xform.Matrix):
         raise ValueError('bad transformation matrix passed to transform')
@@ -1935,7 +2035,12 @@ def rotate(x,ang,cent=point(0,0),axis=point(0,0,1.0),mat=False):
     # arcs are wierd, since we will have to deal with a non-trivial
     # change of basis function to handle the interpretation of "start"
     # and "end" if the axis of rotation isn't the z axis.
-    if isarc(x):
+    if ispoint(x):
+        return mat.mul(x)
+    elif isline(x):
+        return line(mat.mul(x[0]),
+                    mat.mul(x[1]))
+    elif isarc(x):
         if not vclose(axis,point(0,0,1.0)):
             raise NotImplementedError('rotation of arcs out of XY plane not yet implemented')
         c = arc(x)
