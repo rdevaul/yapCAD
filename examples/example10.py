@@ -11,6 +11,7 @@ This demo also allows you to choose the rendering back-end from the
 command line""")
 
 from yapcad.geom import *
+import yapcad.poly as poly
 import random
 
 def randomPoints(bbox,numpoints):
@@ -99,17 +100,27 @@ def drawGeom(dd,geom):
         else:
             dd.draw(g)
 
-def testPoints(points,geom):
+def testPoints(points,geom,testElements=True):
     inpts=[]
     outpts=[]
 
     for p in points:
         ins = False
-        for g in geom:
-            if isinside(g,p):
-                inpts.append(p)
-                ins = True
-                continue
+        if testElements:
+            for g in geom:
+                if isinside(g,p):
+                    inpts.append(p)
+                    ins = True
+                    continue
+        else:
+            if isinstance(geom,poly.Polygon):
+                if geom.isinside(p):
+                    inpts.append(p)
+                    ins = True
+            else:
+                if isinside(geom,p):
+                    inpts.append(p)
+                    ins = True
         if not ins:
             outpts.append(p)
     return inpts, outpts
@@ -142,7 +153,7 @@ def testAndDraw(dd):
     dd.draw(inpts)
 
     dd.set_linecolor('red')
-    dd.pointstyle = 'x'
+    dd.pointstyle = 'o'
     dd.draw(outpts)
     dd.display()
     
