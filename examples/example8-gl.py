@@ -10,7 +10,7 @@ from yapcad.geom import *
 from yapcad.poly import *
 import random
 
-from example8 import *
+from examples.example8 import *
 
 if __name__ == "__main__":
 

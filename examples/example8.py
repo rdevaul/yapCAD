@@ -8,7 +8,7 @@ making and then mirroring random "flowers."
 
 from yapcad.geom import *
 from yapcad.poly import *
-import example10
+import examples.example10 as example10
 import random
 
 def drawLegend(d):
