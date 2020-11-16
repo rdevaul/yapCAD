@@ -1015,8 +1015,9 @@ def _lineArcIntersectXY(l,c,inside=True,params=False):
     V = sub(p0,p1)
     P = p1
     a = V[0]*V[0]+V[1]*V[1]
-    if abs(a) < epsilon:
+    if abs(a) < epsilon*epsilon:
         print('degenerate line in lineArcIntersectXY')
+        raise ValueError('bad!')
         return False
     b = 2*(V[0]*P[0]+V[1]*P[1])
     cc = P[0]*P[0]+P[1]*P[1]-r*r
@@ -1293,6 +1294,9 @@ def isinsidepoly(a,p):
         return False
     ## inside the bounding box, do intersection testing
     p2 = add([1,1,0,1],bb[1])
+    if vclose(p2,p): ## did we randomly pick an outside point near the
+                     ## test point?
+        p2 = sub(bb[0],[1,1,0,1])
     l = line(p,p2)
 
     pp = intersectSimplePolyXY(l,a)
@@ -1553,14 +1557,43 @@ def samplegeomlist(gl,u):
         uu = (dst-leng+lengths[-1])/lengths[-1]
         return sample(gl[-1],uu)
 
+## function to reverse a geometry list (presumably contiguous) for
+## sampling purposes
+def reverseGeomList(gl):
+    # print("flippy")
+    rgl = []
+    
+    for g in gl:
+        if ispoint(g):
+            rgl.insert(0,point(g))
+        elif isline(g):
+            rgl.insert(0,line(g[1],g[0]))
+        elif isarc(g):
+            c = deepcopy(g)
+            c[1][3] = -2 # set samplereverse flag
+            rgl.insert(0,c)
+        elif ispoly(g):
+            ply = deepcopy(g).reverse()
+            rgl.insert(0,ply)
+        elif isgeomlist(g):
+            rgl.insert(0,reverseGeomList(g))
+        else:
+            raise ValueError("don't know what to do with {}".format(g))
+    return rgl
+    
 ## given a geometry list paramaterized over a 0,1 interval, return a
 ## geometry list corresponding to the interval 0 <= u1 <= u2 <=1.0
-def segmentgeomlist(gl,u1,u2,closed=False):
+def segmentgeomlist(gl,u1,u2,closed=False,reverse=False):
     if closed:
         u1 %= 1.0
         u2 %= 1.0
         if u2 < u1:
-            return segmentgeomlist(gl,u1,1.0-epsilon) + segmentgeomlist(gl,0.0,u2)
+            if reverse:
+                return segmentgeomlist(gl,0.0,u2,closed=False,reverse=True) +\
+                    segmentgeomlist(gl,u1,1.0-epsilon,closed=False,reverse=True)
+            else:
+                return segmentgeomlist(gl,u1,1.0-epsilon,closed=False) \
+                    + segmentgeomlist(gl,0.0,u2,closed=False)
     if u1 < 0 or u1 > u2 or u2 < 0 or u2 > 1.0:
         raise ValueError('bad parameters {} and {} passed to segmentgeomlist'.format(u1,u2))
     lengths, leng = __geomlistlength(gl)
@@ -1602,8 +1635,12 @@ def segmentgeomlist(gl,u1,u2,closed=False):
             else:
                 rgl.append(deepcopy(gl[i]))
         if DONE:
+            if reverse:
+                rgl = reverseGeomList(rgl)
             return rgl
         d+=l
+    if reverse:
+        rgl = reverseGeomList(rgl)
     return rgl
 
 
@@ -1635,6 +1672,9 @@ def isinsidegeomlist(a,p):
     if not isinsidebbox(bb,p):
         return False
     p2 = add([1,1,0,1],bb[1])
+    if vclose(p2,p): ## did we randomly pick an outside point near the
+                     ## test point?
+        p2 = sub(bb[0],[1,1,0,1])
     l = line(p,p2)
 
     pp = intersectGeomListXY(l,a)
@@ -1721,7 +1761,11 @@ def intersectGeomListXY(g,gl,inside=True,params=False):
             if gtype2 == 'point':
                 continue
             elif gtype == 'simple' and  gtype2 == 'simple':
-                uu = _intersectSimpleXY(g,g2,params=True)
+                try:
+                    uu = _intersectSimpleXY(g,g2,params=True)
+                except ValueError:
+                    print('simple intersection problem with: ',vstr(g),' and ',vstr(g2))
+                    raise
             elif gtype == 'simple' and  gtype2 == 'poly':
                 uu = intersectSimplePolyXY(g,g2,params=True)
             elif gtype == 'poly' and gtype2 == 'simple':
@@ -1968,7 +2012,7 @@ def scale(x,sx=1.0,sy=False,sz=False,cent=point(0,0),mat=False):
                     mat.mul(x[1]))
     elif isarc(x):
         c = arc(x)
-        if not close(sx,xy):
+        if not close(sx,sy):
             raise ValueError('asymmetric scaling of XY-plane arcs not allowed')
         c[0] = mat.mul(x[0])
         c[1][0] *= sx
