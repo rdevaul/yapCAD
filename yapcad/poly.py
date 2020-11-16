@@ -43,7 +43,7 @@ class Polyline(IntersectGeometry):
         elif isgeomlist(a):
             for i in a:
                 if ispoint(i) or isarc(i) or isline(i): 
-                    self._elem.append(i)
+                    self._elem.append(deepcopy(i))
                 elif ispoly(i):
                     self._elem = self._elem + i
                 else:
@@ -173,8 +173,10 @@ class Polygon(Polyline):
             self._updateInternals()
         elif isgeomlist(a):
             for i in a:
-                if ispoint(i) or isarc(i) or isline(i): 
+                if ispoint(i) or isarc(i):
                     self._elem.append(i)
+                elif isline(i):
+                    pass
                 elif ispoly(i):
                     self._elem = self._elem + i
                 else:
@@ -208,7 +210,7 @@ class Polygon(Polyline):
     def addLine(self,element):
         if isline(element):
             self._update=True  # flag that we need to recalculate stuff
-            self._elem.append(element)
+            self._elem.append(deepcopy(element))
         else:
             raise ValueError('attempt to add a non point, line or arc to poly')
     
@@ -216,7 +218,7 @@ class Polygon(Polyline):
     def addArc(self,element):
         if isarc(element):
             self._update=True  # flag that we need to recalculate stuff
-            self._elem.append(element)
+            self._elem.append(deepcopy(element))
         else:
             raise ValueError('attempt to add a non point, line or arc to poly')
                 
@@ -397,6 +399,8 @@ class Polygon(Polyline):
                 end = (atan2(p1[1],p1[0]) % pi2) * 360.0/pi2
                 newarc = arc(e1[0],e1[1][0],start,end)
                 self._outline[i]=newarc
+
+        self._outline = cullZeroLength(self._outline)
                 
         _calclength()
         self._bbox = geomlistbbox(self._outline)
@@ -417,8 +421,8 @@ class Polygon(Polyline):
             else:
                 d=d+l
 
-    def segment(self,u1,u2):
-        return segmentgeomlist(self.geom(),u1,u2,closed=True)
+    def segment(self,u1,u2,reverse=False):
+        return segmentgeomlist(self.geom(),u1,u2,closed=True,reverse=reverse)
 
     def mirror(self,plane,poly=False):
         if poly:
@@ -439,6 +443,15 @@ class Polygon(Polyline):
             return p
         
         return rotate(self.geom(),angle,cent,axis)
+
+    def scale(self,sx,sy=False,sz=False,cent=point(0,0),poly=False):
+        if poly:
+            p = Polygon(self)
+            p._elem = scale(self._elem,sx,sy,sz,cent)
+            p._update = True
+            return p
+
+        return scale(self.geom(),sx,sy,sz,cent)
 
     def translate(self,delta,poly=False):
         if poly:
@@ -466,6 +479,9 @@ class Polygon(Polyline):
         if not isinsidebbox(bb,p):
             return False
         p2 = add([1,1,0,1],bb[1])
+        if vclose(p2,p): ## did we randomly pick an outside point near the
+                         ## test point?
+            p2 = sub(bb[0],[1,1,0,1])
         l = line(p,p2)
         pp = intersectGeomListXY(l,self.geom())
         if pp == False:
@@ -503,6 +519,51 @@ class Polygon(Polyline):
 
     
 ## Utility functions
+
+
+## function to process a geometry list and remove zero-length
+## elements, including points, zero-length lines, and zero-length
+## arcs.  Will recursively process geometry lists.
+
+def cullZeroLength(geom):
+    gl = []
+    for g in geom:
+        if ispoint(g):
+            pass
+        elif (isline(g) or isarc(g) or ispoly(g)) \
+             and length(g) > epsilon:
+            gl.append(deepcopy(g))
+        elif isgeomlist(g) and length(g) > epsilon:
+            gl.append(cullZeroLength(g))
+        else: # zero-length or unknown element
+            print("zero length element ",vstr(g)," culled")
+    return gl
+
+
+
+## make a poly containing a single circle
+
+def makeCircle(center=point(0,0,0),radius=1.0):
+    poly = Polygon()
+    poly.addArc(arc(center,radius,0.0,180.0))
+    poly.addArc(arc(center,radius,180.0,359.99))
+    return poly
+
+## make a rectangle with the specified width and height
+
+def makeRect(width,height,center=point(0,0,0)):
+    w=width/2.0
+    h=height/2.0
+    p0=add(point(-w,h),center)
+    p1=add(point(-w,-h),center)
+    p2=add(point(w,-h),center)
+    p3=add(point(w,h),center)
+    poly = Polygon()
+    poly.addPoint(p0)
+    poly.addPoint(p1)
+    poly.addPoint(p2)
+    poly.addPoint(p3)
+    return poly
 
 ## make rounded rectangle with specified width, height, and chamfer,
 ## centered at the origin by default
