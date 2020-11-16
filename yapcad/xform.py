@@ -66,7 +66,7 @@ class Matrix:
 
     #set value indexed by i,j
     def set(self,i,j,x):
-        if isgoodnum(x):
+        if geom.isgoodnum(x):
             if self.trans:
                 self.m[j][i]=x
             else:
@@ -130,7 +130,7 @@ class Matrix:
             for i in range(4):
                 result[i]=geom.dot4(self.getrow(i),x)
             return result
-        elif isgoodnum(x):
+        elif geom.isgoodnum(x):
             result = Matrix()
             for i in range(4):
                 result.setrow(i,geom.scale4(self.getrow(i),x))
@@ -190,9 +190,9 @@ def Translation(delta,inverse=False):
 
 def Scale(x,y=False,z=False,inverse=False):
     sx = sy = sz = 1.0
-    if isgoodnum(x):
+    if geom.isgoodnum(x):
         sx = x
-        if isgoodnum(y) and isgoodnum(z):
+        if geom.isgoodnum(y) and geom.isgoodnum(z):
             sy = y
             sz = z
         else:
