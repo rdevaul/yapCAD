@@ -27,7 +27,7 @@ def drawLegend(d):
 
 
 def flower(center = point(0,0),
-           petals = 12,
+           petals = 10,
            minDiam=5.0,
            maxDiam=15,
            minRadius=20,
