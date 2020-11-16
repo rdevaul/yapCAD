@@ -150,10 +150,12 @@ class Drawable:
     def display(self):
         return True
 
-    def set_linecolor(self,c):
-        if isinstance(c,list) and len(c) == 3 or \
-           isinstance(c,int) and c >= 0 or\
-           isinstance(c,str) and c in self.colordict:
+    def set_linecolor(self,c=False):
+        if c == False:
+            self.linecolor = False
+        elif isinstance(c,list) and len(c) == 3 or \
+             isinstance(c,int) and c >= 0 or\
+             isinstance(c,str) and c in self.colordict:
             self.linecolor = c
 
     def get_linecolor(self):
