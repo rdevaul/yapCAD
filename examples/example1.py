@@ -18,7 +18,7 @@ def setupDXF():
     d=ezdxfDraw()
     filename="example1-out"
     print("\nOutput file name is {}.dxf".format(filename))
-    d.saveas(filename)
+    d.set_filename(filename)
     return d
 
 ## Draw some documentary text using the specified drawable.
@@ -26,8 +26,11 @@ def setupDXF():
 
 def legend(d):
 
+    d.set_linecolor('yellow')
     d.draw_text("yapCAD", point(5,15),\
-                attr={'style': 'OpenSans-Bold',
+                attr={'style': 'OpenSans-Bold', # style for ezdxf
+                      'font_name': 'OpenSans', # style for pyglet
+                      'bold': True, # style for pyglet
                       'height': 2.0})
     d.draw_text("example1.py",
                 point(5,12))
@@ -98,9 +101,10 @@ if __name__ == "__main__":
     ## add a dawing legend on the DXF drawing, in the DOCUMENTATION
     ## layer, with default layer color
     
-    d.layerset('DOCUMENTATION')
+    d.set_layer('DOCUMENTATION')
     d.set_linecolor(256) ## set layer default color
     legend(d)
+    legend(dGl)
     
     ## draw the geometry in OpenGL
     drawGlist(geomlist,dGl)

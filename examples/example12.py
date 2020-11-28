@@ -33,7 +33,7 @@ def makeJigsawPiece(width=100,height=50,diam=30,frac=0.80,upper=False,poly=False
 
 def drawLegend(d):
     ## Put some documentary text on the drawing
-    d.layerset('DOCUMENTATION')
+    d.set_layer('DOCUMENTATION')
 
     att = {'style': 'OpenSans-Bold',
            'height': 2.5}
@@ -43,7 +43,7 @@ def drawLegend(d):
     d.draw_text("example12.py", point(5,11), attr=att)
     d.draw_text("complex boolean operations on Polygon() instances",
                 point(5,7),attr=att)
-    d.layerset() # back to default layer
+    d.set_layer() # back to default layer
 
 
 def geometry():
@@ -76,17 +76,23 @@ def testAndDraw(dd):
     geom,geom2=geometry()
 
     if not renderOgl:
-        dd.layerset('DRILLS')
-    dd.set_linecolor()
+        dd.set_layer('DRILLS')
+        dd.set_linecolor()
+
+    else:
+        dd.set_linecolor('aqua')
     dd.draw(geom2)
 
     if not renderOgl:
-        dd.layerset('DOCUMENTATION')
-    dd.set_linecolor()
+        dd.set_layer('DOCUMENTATION')
+        dd.set_linecolor()
+    else:
+        dd.set_linecolor('yellow')
     dd.draw(docGeomList)
 
     if not renderOgl:
-        dd.layerset('PATHS')
+        dd.set_layer('PATHS')
+        
     dd.set_linecolor('white')
     dd.draw(geom)
 
@@ -124,7 +130,7 @@ if __name__ == "__main__":
         from yapcad.ezdxf_drawable import *
         #set up DXF rendering
         dd=ezdxfDraw()
-        dd.saveas(filename)
+        dd.set_filename(filename)
         drawLegend(dd)
     print("rendering...")
     

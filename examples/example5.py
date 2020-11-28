@@ -21,9 +21,9 @@ from yapcad.geom import *
 d=ezdxfDraw()
 filename="example5-out"
 print("Output file name is {}.dxf".format(filename))
-d.saveas(filename)
+d.set_filename(filename)
 
-d.layerset('DOCUMENTATION')
+d.set_layer('DOCUMENTATION')
 
 d.draw_text("yapCAD", point(5,15),\
             attr={'style': 'OpenSans-Bold',
@@ -35,7 +35,7 @@ d.draw_text("constructing simple polys",
             point(5,10))
 d.draw_text("and sampling outlines",
             point(5,8.5))
-d.layerset()
+d.set_layer()
 # make circles centered at -10.0,10.0
 a = point(-10.0,10.0)
 
@@ -75,7 +75,7 @@ d.draw(polys)
 # circles of increasing size.  This allows the visual confirmation of
 # even spacing and shows the counter-clockwise progression of samples
 
-d.layerset('DRILLS') #select drills layer for circles
+d.set_layer('DRILLS') #select drills layer for circles
 
 i = 4
 for ply in polys:

@@ -186,7 +186,7 @@ if __name__ == "__main__":
         from yapcad.ezdxf_drawable import *
         #set up DXF rendering
         dd=ezdxfDraw()
-        dd.saveas(filename)
+        dd.set_filename(filename)
     print("rendering...")
     testAndDraw(dd)
     print("done")

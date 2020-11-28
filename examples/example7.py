@@ -13,9 +13,9 @@ from yapcad.geom import *
 dd=ezdxfDraw()
 filename="example7-out"
 print("Output file name is {}.dxf".format(filename))
-dd.saveas(filename)
+dd.set_filename(filename)
 
-dd.layerset('DOCUMENTATION')
+dd.set_layer('DOCUMENTATION')
 
 dd.draw_text("yapCAD", point(-12,13),\
             attr={'style': 'OpenSans-Bold',
@@ -27,7 +27,7 @@ dd.draw_text("polygons, polylines, arcs,",
             point(-12,8))
 dd.draw_text("and intersections",
             point(-12,6.5))
-dd.layerset()
+dd.set_layer()
 
 # make some points centerd at the origin to be used as vertices for
 # our polys
@@ -69,21 +69,21 @@ dd.polystyle='lines'
 dd.draw(pol1)
 dd.draw(pol2)
 
-dd.layerset('PATHS')
-dd.colorset(1)
+dd.set_layer('PATHS')
+dd.set_linecolor(1)
 
 dd.draw(line1)
 dd.draw(line2)
 dd.draw(line3)
 dd.draw(line4)
 
-dd.colorset(4)
+dd.set_linecolor(4)
 dd.draw(arc1)
 dd.draw(arc2)
 dd.draw(arc3)
 dd.draw(arc4)
 
-dd.colorset()
+dd.set_linecolor()
 
 ## Do some intersection calculation
 
@@ -103,7 +103,7 @@ int13u = intersectXY(arc4,pol2,params=True)
 
 ## draw intersection points on documentation layer
 
-dd.layerset('DOCUMENTATION')
+dd.set_layer('DOCUMENTATION')
 dd.polystyle = 'points'
 dd.draw(int0 + int1 + int10 + int11)
 
@@ -149,9 +149,9 @@ for u in int3u[1]:
 i = 6
 for u in int13u[1]:
     p = samplepoly(pol2,u)
-    dd.layerset('DOCUMENTATION')
+    dd.set_layer('DOCUMENTATION')
     dd.draw(p)
-    dd.layerset('DRILLS')
+    dd.set_layer('DRILLS')
     dd.draw(arc(p,0.1*i))
     i = i+1
 
