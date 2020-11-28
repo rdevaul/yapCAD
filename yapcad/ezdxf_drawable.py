@@ -1,11 +1,12 @@
-## simple object-oriented framework for dxf-rendered drawable objects
-## in yapCAD
+## simple yapCAD framework for dxf-rendered drawable objects using
+## ezdxf package.
+## Original author: Richard W. DeVaul
 
 from yapcad.geom import *
 import yapcad.drawable as drawable
 import ezdxf
 
-## base class to provide dxf drawing functionality
+## class to provide dxf drawing functionality
 class ezdxfDraw(drawable.Drawable):
 
     def __init__(self):
@@ -27,18 +28,12 @@ class ezdxfDraw(drawable.Drawable):
     def __repr__(self):
         return 'an instance of ezdxfDraw'
 
-    def layerset(self,layer=False):
+    def set_layer(self,layer=False):
         if not layer in self.layerlist:
             raise ValueError('bad layer passed to layerset: {}'.format(layer))
         self.layer=layer
-
-    # only support index colors right now
-    def colorset(self,color=False):
-        if not color in range(257):
-            raise ValueError('bad color in colorset: {}'.format(color))
-        self.linecolor=color
         
-    def linetypeset(self,linetype=False):
+    def set_linetype(self,linetype=False):
         if not linetype in self.linetypelist:
             raise ValueError('bad linetype in linetypeset: {}'.format(linetype))
         self.linetype=linetype
@@ -93,74 +88,28 @@ class ezdxfDraw(drawable.Drawable):
         layer=self.layer
         if layer == False:
             layer = '0'
-        color = self.linecolor
-        if color:
+
+        color = []
+        if 'color' in attr:
+            color = self.thing2color(attr['color'],'i')
+        elif self.linecolor:
             color = self.thing2color(self.linecolor,'i')
         else:
-            color = 256 # bylaer
-        dxfattr = dict(attr)
+            color = 256 # by layer
+
+        dxfattr = dict()
+        if 'style' in attr:
+            dxfattr['style'] = attr['style']
+        if 'height' in attr:
+            dxfattr['height'] = attr['height']
         dxfattr.update({ 'layer': layer,
                          'color': color})
         self.msp.add_text(text,dxfattr).set_pos((location[0],location[1]),
                                              align=align)
             
-    def saveas(self,name):
+    def set_filename(self,name):
         self.filename = name
         
     def display(self):
         self.doc.saveas("{}.dxf".format(self.filename))
 
-## multiply-inherited drawing classes
-class Point(ezdxfDraw,drawable.Point):
-    """ezdxf-rendering Point class"""
-        
-class Line(ezdxfDraw,drawable.Line):
-    """ezdxf-rendering Line class"""
-
-class Arc(ezdxfDraw,drawable.Arc):
-    """ezdxf-rendering Arc class"""
-
-if __name__ == "__main__":
-    print("testing for drawable.py")
-    print("-----------------------")
-    print("instantiating ezdxfDraw")
-    drawable=ezdxfDraw()
-    print("setting the save-as filename")
-    drawable.saveas("test2")
-    
-    print("instantiating drawables...")
-    print("instantiating Point")
-    print("point=Point(vect(10,10))")
-    point=Point(vect(10,10),"xo")
-    print(point)
-    print("instantiating Line")
-    print("line=Line(vect(-5,-5),vect(10,10))")
-    line=Line(vect(-5,10),vect(10,-5))
-    print(line)
-    print("instantiating Arc")
-    print("arc=Arc(vect(0,3),3,45,135)")
-    arc=Arc(vect(0,3),3,45,135)
-    print(arc)
-    print("draw tests")
-    point.draw()
-    line.draw()
-    arc.draw()
-
-    print("sample test")
-    print("drawing 4 samples from line")
-    line.draw()
-    for i in range(4):
-        u = i/3
-        p = line.sample(u)
-        pnt = Point(p,"o")
-        pnt.draw()
-    print("drawing 8 samples from arc")
-    arc.draw()
-    for i in range(8):
-        u = i/7
-        p = arc.sample(u)
-        pnt = Point(p,"o")
-        pnt.draw()
-
-    ## render results
-    drawable.display()
