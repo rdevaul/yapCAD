@@ -22,7 +22,7 @@ It's pretty easy to make a DXF drawing with **yapCAD**.  Here is an example:
 
 	#set up DXF rendering
 	dd=ezdxfDraw()
-    dd.saveas("example1-out")
+    dd.set_filename("example1-out")
 
     ## make dxf-renderable geometry
 
@@ -76,9 +76,13 @@ The **yapCAD** system isn't just about rendering, of course, it's about computat
     print("intersection of l1 and l2:",vstr(int0))
     print("intersection of l1 and arc1:",vstr(int1))
 	
-And there are lots more [examples](examples/README.md) available to
+And of course **yapCAD** supports calculating intersections between
+any simple and compound, or compound and compound geometry object.
+
+There are lots more [examples](examples/README.md) available to
 demonstrate the various computational geometry and rendering
-capabilities of **yapCAD**, including 3D geometry and OpenGL rendering.
+capabilities of **yapCAD**, including 3D geometry and OpenGL
+rendering.
 
 ## **yapCAD** geometry
 
@@ -161,54 +165,92 @@ don't need to see those coordinates.
 
 ### pure geometry
 Pure geometric elements in **yapCAD** form the basis for computational
-geometry operations.  Pure geometry can also be drawn, of course
-&mdash; see **drawable geometry** below.
+geometry operations, including intersection and inside-outside
+testing.  Pure geometry can also be drawn, of course &mdash; see
+**drawable geometry** below.
 
-In general, **yapCAD** pure geometry supports the operations of parametric
-sampling, intersection calculation, "unsampling" (going from a point
-on the figure to the sampling parameter that would produce it), and
-bounding box calculation.  **yapCAD** geometry is based on projective or
+In general, **yapCAD** pure geometry supports the operations of
+parametric sampling, intersection calculation, inside-outside testing
+(for closed figures), "unsampling" (going from a point on the figure
+to the sampling parameter that would produce it), and bounding box
+calculation.  **yapCAD** geometry is based on projective or
 homogeneous coordinates, thus supporting generalized affine
-transformations;  See the discussion in **architecture**, below.
+transformations; See the discussion in **architecture**, below.
 
-Pure geometry includes (among other elements) vectors, points, lines,
-and multi-segment polylines.  A vector is a list of exactly four
-numbers, each of which is a float or integer.  A point is a vector
-that lies in a w > 0 hyperplane; Points are used to represent
-coordinates in **yapCAD** geometry.  A line is a list of two points, and a
-polyline is a list of 3 or more points. 
+#### simple (non-compound) pure geometric elements
+Simple, which is to say non-compound, geometry includes vectors,
+points, and lines.  A vector is a list of exactly four numbers, each
+of which is a float or integer.  A point is a vector that lies in a 
+w > 0 hyperplane; Points are used to represent transformable
+coordinates in **yapCAD** geometry.  A line is a list of two points.
 
-Pure geometry also includes arcs.  An arc is a list of a point and a
+Simple geometry also includes arcs.  An arc is a list of a point and a
 vector, followed optionally by another point. The first list element
 is the center of the arc, the second is a vector in the w=-1
-hyperplane whose first three elements are the scalar parameters 
-`[r, s, e]`: the radius, the start angle in degrees, and the end angle
-in degrees.  The third element (if it exists) is the normal for the
-plane of the arc, which is assumed to be `[0, 0, 1]` (the x-y plane)
-if it is not specified.
+hyperplane (for right-handed arcs) whose first three elements are the
+scalar parameters `[r, s, e]`: the radius, the start angle in degrees,
+and the end angle in degrees.  The third element (if it exists) is the
+normal for the plane of the arc, which is assumed to be `[0, 0, 1]`
+(the x-y plane) if it is not specified.  Arcs are by default
+right-handed, but left-handed arcs are also supported, with parameter
+vectors lying in the w=-2 hyperplane.
 
-Simple multi-vertex polylines are represented by lists of points.  If
-the last point is the same as the first, the polyline figure is
-closed.  Closed coplanar polylines may be interpreted as polygons.
-Like other elements of pure geometry, polylines are subject to
-sampling.
+#### compound figures
 
-Pure geometry also includes instances of the `Polyline` and `Polygon`
-class.  Instances of these classes are used for representing
-multi-figure drawing elements in an XY plane with C0 continuity.  They
+A list of more than two points represents a multi-vertex polylines.
+If there are at least four points in the list and the last point is
+the same as the first, the polyline figure is closed. (We sometimes
+refer to these point-list polygons or polylines as `poly()` entities.)
+Closed coplanar polylines are drawn as polygons and may be subject to
+inside-outside testing.  Like other elements of pure geometry,
+polylines are subject to sampling, unsampling, intersection
+calculation, **etc.**
+
+If instead of sharp corners you want closed or open figures with
+rounded corners, you should use `Polyline` or `Polygon`
+instances. Instances of these classes are used for representing
+compound geometric elements in an XY plane with C0 continuity.  They
 differ from the point-list-based `poly()` representation in that the
 elements of a `Polyline` or `Polygon` can include lines and arcs as
 well as points.  These elements need not be contiguous, as successive
-elements will be computationally joined by straight lines.  `Polygons`
-are special in that they are always closed, and that full circle
+elements will be automatically joined by straight lines.  `Polygons`
+are special in that they are always closed, and that any full circle
 elements are interpreted as "rounded corners," with the actual span of
 the arc calculated after tangent lines are drawn.
 
-Pure geometry also includes geometry lists, which is to say a list of
-zero or more elements of **yapCAD** pure geometry.  Many **yapCAD**
-computational geometry functions return either geometry elements or
-geometry lists.
+The `Polygon` class supports boolean opearations, as described below,
+and also supports the `grow()` operation that makes generating a
+derived figure that is bigger by a fixed amount easy.  This grow
+feature is very useful for many engineering operations, such as
+creating an offset path for drill holes, CAM paths, etc.
 
+#### boolean operations on `Polygon` instances
+**yapCAD** supports boolean set operations on `Polygon` instances,
+allowing you to construct more complex two-dimensiomal figures from
+union, intersection, and difference operations.  Note that the
+difference operation can result in the creation of disjoint geometry
+in the form of two or more closed figures with positive area (see
+below), or closed figures with holes.
+
+See [Example 11](./examples/example11.py) for a relatively simple
+example of boolean operations, and [Example
+12](./examples/example12.py) for a more complex example.
+
+**yapCAD** employs the convention that closed figures with
+right-handed geometry (increasing the sampling parameter corresponds
+to points that trace a counter-clockwise path) represent "positive"
+area, and that closed figures with left-handed geometry represent
+holes.  This distinction is currently not operational, but will be
+important for future development such as turning polygons into rendred
+surfaces and extruding these surfaces into 3D.
+
+#### disjoint compound geometry 
+
+Boolean difference operations can result in disjoint figures.  It is
+also possible to combine **yapCAD** geometric elements in geometry
+lists, which is to say a list of zero or more elements of **yapCAD**
+pure geometry, which enforce no continuity constraints.  Geometry
+lists provide the basis for **yapCAD** rendering.
 
 ### drawable geometry
 
