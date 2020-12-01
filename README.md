@@ -22,27 +22,27 @@ It's pretty easy to make a DXF drawing with **yapCAD**.  Here is an example:
 
 	#set up DXF rendering
 	dd=ezdxfDraw()
-    dd.set_filename("example1-out")
+    dd.filename = "example1-out"
 
     ## make dxf-renderable geometry
 
     # make a point located at 10,10 in the x-y plane, rendered as a small
     # red cross and circle
 	dd.pointstyle = 'xo' # also valid are 'x' or 'o'
-	dd.set_linecolor(1) # set color to red (DXF index color 1)
+	dd.linecolor = 1 # set color to red (DXF index color 1)
     dd.draw(point(10,10))
 
     # make a line segment between the points -5,10 and 10,-5 in the x-y plane
 	# and draw it in white
 	
-	dd.set_linecolor('white') # set color by name
+	dd.linecolor='white' # set color by name
     dd.draw(line(point(-5,10),
 		         point(10,-5)))
 
     # make an arc with a center at 0,3 with a radius of 3, from 45 degrees
     # to 135 degrees, and draw it in aqua
 	
-	dd.set_linecolor([0,255,255]) # RGB tripple, corresponds to 'aqua'
+	dd.linecolor=[0,255,255] # RGB tripple, corresponds to 'aqua'
     dd.draw(arc(point(0,3),3,45,135))
 
     # write out the geometry as example1-out.dxf
