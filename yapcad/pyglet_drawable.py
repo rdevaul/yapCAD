@@ -1,6 +1,9 @@
 ## simple yapCAD framework for openGL drawing using pyglet
 ## package
-## Original Author: Richard W. DeVaul
+## Copyright (c) 2020 Richard W. DeVaul
+## Copyright (c) 2020 yapCAD contributors
+## All rights reserved
+## See licensing terms here: https://github.com/rdevaul/yapCAD/blob/master/LICENSE
 
 import math
 import pyglet
@@ -100,27 +103,27 @@ class pygletDraw(drawable.Drawable):
                     box = [ add(p,epsM),add(p,epsP) ]
             return box
             
-        if self.points == [] and \
-           self.lines == [] and \
-           self.linestrips == [] and \
-           self.surfaces == []:
+        if self.__points == [] and \
+           self.__lines == [] and \
+           self.__linestrips == [] and \
+           self.__surfaces == []:
             raise ValueError('nothing to render')
 
-        for p in self.points:
+        for p in self.__points:
             pp = p[0]
             pc = p[1]
             bbx = upbb(pp[1],bbx)
-            self.batch1.add(int(len(pp[1])/3),gl.GL_POINTS,self.group,pp,pc)
+            self.__batch1.add(int(len(pp[1])/3),gl.GL_POINTS,self.group,pp,pc)
 
-        for l in self.lines:
+        for l in self.__lines:
             ll = l[0]
             lc = l[1]
             pp = [list(ll[1][0:3])]
             pp.append(list(ll[1][3:6]))
             bbx = upbb(pp,bbx)
-            self.batch1.add(int(len(ll[1])/3),gl.GL_LINES,self.group,ll,lc)
+            self.__batch1.add(int(len(ll[1])/3),gl.GL_LINES,self.group,ll,lc)
             
-        for l in self.linestrips:
+        for l in self.__linestrips:
             ll = l[0]
             lc = l[1]
             li = l[2]
@@ -129,12 +132,12 @@ class pygletDraw(drawable.Drawable):
             for i in range(ln):
                 pp.append(ll[1][i*3:(i+1)*3])
             bbx =upbb(pp,bbx)
-            self.batch1.add_indexed(int(len(ll[1])/3),
+            self.__batch1.add_indexed(int(len(ll[1])/3),
                                     gl.GL_LINES,
                                     self.group,
                                     li,ll,lc)
 
-        for s in self.surfaces:
+        for s in self.__surfaces:
             vert = s[0]
             norm = s[1]
             ind = s[2]
@@ -143,7 +146,7 @@ class pygletDraw(drawable.Drawable):
             for i in range(ln):
                 pp.append(vert[i*3:(i+1)*3])
             bbx = upbb(pp,bbx)
-            self.batch2.add_indexed(int(len(vert)/3),
+            self.__batch2.add_indexed(int(len(vert)/3),
                                     gl.GL_TRIANGLES,
                                     self.group,
                                     ind,
@@ -151,7 +154,7 @@ class pygletDraw(drawable.Drawable):
                                     ('n3f/static', norm))
 
         ## Create a ground plane
-        self.batch3.add_indexed(4,
+        self.__batch3.add_indexed(4,
                                 gl.GL_TRIANGLES,
                                 self.group2,
                                 [0,1,2,2,3,0],
@@ -163,8 +166,8 @@ class pygletDraw(drawable.Drawable):
                               
                                   
                                 
-        self.bbox = bbx
-        rnge = sub(self.bbox[1],self.bbox[0])
+        self.__bbox = bbx
+        rnge = sub(self.__bbox[1],self.__bbox[0])
         mdim = max(rnge)
         mdim = max(mdim,10)
 
@@ -175,111 +178,110 @@ class pygletDraw(drawable.Drawable):
 
         def on_key_press(symbol,modifiers):
             if symbol == pyglet.window.key.UP:
-                self.cameradist *= 1.1
-                if self.cameradist > self.maxcameradist:
-                    self.cameradist = self.maxcameradist
+                self.__cameradist *= 1.1
+                if self.__cameradist > self.__maxcameradist:
+                    self.__cameradist = self.__maxcameradist
             elif symbol == pyglet.window.key.DOWN:
-                self.cameradist *= .90909090
-                if self.cameradist < self.mincameradist:
-                    self.cameradist = self.mincameradist
+                self.__cameradist *= .90909090
+                if self.__cameradist < self.__mincameradist:
+                    self.__cameradist = self.__mincameradist
             elif symbol == pyglet.window.key.RETURN:
-                self.cameradist = self.camerastartdist
-                self.rx = 0
-                self.ry = 0
+                self.__cameradist = self.camerastartdist
+                self.__rx = 0
+                self.__ry = 0
             elif symbol == pyglet.window.key.P:
-                self.drawground = not self.drawground
+                self.__drawground = not self.__drawground
             elif symbol == pyglet.window.key.M:
-                self.legend = not self.legend
+                self.__legend = not self.__legend
             elif symbol == pyglet.window.key.L:
-                if not (self.light0 or self.light1):
-                    self.light0 = True
+                if not (self.__light0 or self.__light1):
+                    self.__light0 = True
                     gl.glEnable(gl.GL_LIGHT0)
                     gl.glDisable(gl.GL_LIGHT1)
-                elif self.light0 and not self.light1:
-                    self.light1 = True
+                elif self.__light0 and not self.__light1:
+                    self.__light1 = True
                     gl.glEnable(gl.GL_LIGHT0)
                     gl.glEnable(gl.GL_LIGHT1)
-                elif self.light0 and self.light1:
-                    self.light0 = self.light1 = False
+                elif self.__light0 and self.__light1:
+                    self.__light0 = self.__light1 = False
             
                     
-        self.window = self.window()
-        self.window.push_handlers(on_key_press)
-        self.window.projection = pyglet.window.Projection3D()
+        self.__window = self.window()
+        self.__window.push_handlers(on_key_press)
+        self.__window.projection = pyglet.window.Projection3D()
         self.glSetup()
-        self.center= point(0,0)
-        self.magnify = 0.08
-        self.arcres = 5
-        self.cameradist = self.camerastartdist = 100.0
-        self.maxcameradist = 255.0
-        self.mincameradist = 10.0
-        self.light0 = False
-        self.light1 = False
-        self.legend = True
-        self.drawground = True
-        self.points= []
-        self.rx = 0
-        self.ry = 0
-        self.lines= []
-        self.linestrips=[]
-        self.surfaces=[]
-        self.labels = []
-        self.batch1 = graphics.Batch() # use for lines, points, etc.
-        self.batch2 = graphics.Batch() # use for surfaces
-        self.batch3 = graphics.Batch() # use for environmental features, e.g. ground plane
-        self.linecolor = 'white'
-        self.bbox = False
+        self.__center= point(0,0)
+        self.__magnify = 0.08
+        self.__arcres = 5
+        self.__cameradist = self.camerastartdist = 100.0
+        self.__maxcameradist = 255.0
+        self.__mincameradist = 10.0
+        self.__light0 = False
+        self.__light1 = False
+        self.__legend = True
+        self.__drawground = True
+        self.__rx = 0
+        self.__ry = 0
+        self.__points= []
+        self.__lines= []
+        self.__linestrips=[]
+        self.__surfaces=[]
+        self.__labels = []
+        self.__batch1 = graphics.Batch() # use for lines, points, etc.
+        self.__batch2 = graphics.Batch() # use for surfaces
+        self.__batch3 = graphics.Batch() # use for environmental features, e.g. ground plane
+        self.__bbox = False
 
-        @self.window.event
+        @self.__window.event
         def on_mouse_drag(x, y, dx, dy, buttons, modifiers):
-            self.rx += dx
-            self.ry -= dy
+            self.__rx += dx
+            self.__ry -= dy
             return pyglet.event.EVENT_HANDLED
 
 
 
-        @self.window.event
+        @self.__window.event
         def on_draw():
-            self.window.clear()
+            self.__window.clear()
             gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT)
             
-            self.window.projection = pyglet.window.Projection3D()
+            self.__window.projection = pyglet.window.Projection3D()
             # gl.glEnable(gl.GL_BLEND)
             gl.glColor3f(1., 1., 1.)
 
             #gl.glMatrixMode(gl.GL_MODELVIEW)
             gl.glLoadIdentity()
-            cent = scale3(add(self.bbox[0],self.bbox[1]),0.5)
-            rnge = sub(self.bbox[1],self.bbox[0])
+            cent = scale3(add(self.__bbox[0],self.__bbox[1]),0.5)
+            rnge = sub(self.__bbox[1],self.__bbox[0])
             mdim = max(rnge)
             mdim = max(mdim,10)
             
-            gl.glTranslatef(-cent[0],-cent[1],-cent[2]-1*self.cameradist)
-            #gl.glTranslatef(0,0,-1*self.cameradist)
-            gl.glRotatef(self.ry%360.0, 1, 0, 0)
-            gl.glRotatef(self.rx%360.0, 0, 1, 0)
+            gl.glTranslatef(-cent[0],-cent[1],-cent[2]-1*self.__cameradist)
+            #gl.glTranslatef(0,0,-1*self.__cameradist)
+            gl.glRotatef(self.__ry%360.0, 1, 0, 0)
+            gl.glRotatef(self.__rx%360.0, 0, 1, 0)
 
             #draw "ground plane"
-            if self.drawground:
+            if self.__drawground:
                 gl.glEnable(gl.GL_LIGHTING)
                 gl.glEnable(gl.GL_LIGHT0)
-                self.batch3.draw()  
+                self.__batch3.draw()  
 
             gl.glDisable(gl.GL_LIGHTING)
-            self.batch1.draw()
+            self.__batch1.draw()
             
-            if self.light0 or self.light1:
+            if self.__light0 or self.__light1:
                 gl.glEnable(gl.GL_LIGHTING)
-                self.batch2.draw()
+                self.__batch2.draw()
 
             #gl.glDisable(gl.GL_BLEND)
             gl.glDisable(gl.GL_LIGHTING)
             gl.glColor3f(1., 1., 1.)
             gl.glScalef(0.05, 0.05, 0.05)
-            for label in self.labels:
+            for label in self.__labels:
                 label.draw()
                 
-            if self.legend:
+            if self.__legend:
                 gl.glMatrixMode(gl.GL_MODELVIEW)
                 gl.glPushMatrix()
                 gl.glLoadIdentity()
@@ -287,7 +289,7 @@ class pygletDraw(drawable.Drawable):
                 gl.glPushMatrix()
                 gl.glLoadIdentity()
 
-                self.window.projection = pyglet.window.Projection2D()
+                self.__window.projection = pyglet.window.Projection2D()
                 label = pyglet.text.HTMLLabel(yapCAD_legend,
                                               x=10, y=30,
                                               anchor_x='left',anchor_y='bottom',
@@ -306,36 +308,59 @@ class pygletDraw(drawable.Drawable):
     def __repr__(self):
         return 'an instance of pygletDraw'
 
+    ## properties
+
+    @property
+    def magnify(self):
+        return self.__magnify
+
+    def _set_magnify(self,mag):
+        self.__magnify=mag
+
+    @magnify.setter
+    def magnify(self,mag=False):
+        if not isinstance(mag,(int,float)):
+            raise ValueError('invalid magnification ' + str(mag))
+        if isinstance(mag,bool) and mag ==False:
+            mag = 1.0
+        elif mag < epsilon:
+            mag = epsilon
+        self._set_magnify(mag)
+
+    @property
+    def cameradist(self):
+        return self.__cameradist
+
+    def _set_cameradist(self,dist):
+        self.__cameradist=dist
+
+    @cameradist.setter
+    def cameradist(self,dist=False):
+        if not isinstance(dist,(int,float)):
+            raise ValueError('invalid camera distance ' + str(dist))
+        if isinstance(dist,bool) and dist ==False:
+            dist = 100.0
+        elif dist < self.__mincameradist:
+            dist = self.__mincameradist
+        self._set_cameradist(dist)
+
+    
+    ## Overload virtual yapcad.drawable base class dawing methods
+    
     def draw_point(self,p):
-        ar = self.arcres
-        self.arcres=30
+        ar = self.__arcres
+        self.__arcres=30
         super().draw_point(p)
-        self.arcres=ar
+        self.__arcres=ar
 
     def draw_line(self,p1,p2):
         color = self.thing2color(self.linecolor,'f')
-        self.lines.append([ ('v3f',(p1[0],p1[1],p1[2],
-                                    p2[0],p2[1],p2[2])),
-                            ('c3f',tuple(color + color)) ])
+        self.__lines.append([ ('v3f',(p1[0],p1[1],p1[2],
+                                      p2[0],p2[1],p2[2])),
+                              ('c3f',tuple(color + color)) ])
             
-    def draw_linestrip(self,points):
-        # we simulate a linestrip useing GL_LINES and indexed drawing.
-        # This prevents extra lines
-        p2 = []
-        i2 = []
-        color = self.thing2color(self.linecolor,'f')
-        for p in points:
-            p2 = p2 + p[0:3]
-        for i in range(1,len(points)):
-            i2 = i2 + [i-1, i]
-        c2 = color * int(len(p2)/3)
-        self.linestrips.append([ ('v3f', tuple(p2)),\
-                                 ('c3f',tuple(c2)),
-                                 tuple(i2) ])
-            
-
     def draw_arc(self,p,r,start,end):
-        res = self.arcres
+        res = self.__arcres
         # resolution of arc sampling in degrees
         points = []
         if not (start==0 and end==360):
@@ -354,27 +379,9 @@ class pygletDraw(drawable.Drawable):
         points.append(add(p,[math.cos(theta)*r,math.sin(theta)*r,0.0,1.0]))
 
         self.draw_linestrip(points)
-        #self.lines.append([('v3f',tuple(verts)),
-        #                   ('c3f',tuple(colors))])
 
-    def draw_surface(self,points,normals,faces):
-        vrts = []
-        nrms= []
-        inds = []
-        for p in points:
-            vrts+=p[0:3]
-        for n in normals:
-            nrms+=n[0:3]
-        for f in faces:
-            inds+=f[0:3]
-        #print ("len(points): ",len(points),
-        #       "len(normals): ",len(normals),
-        #       "len(faces): ",len(faces))
-        self.surfaces.append([vrts,nrms,inds])
-
-
-    
     def draw_text(self,text,location,
+                  align='left',
                   attr={'name': 'Times New Roman',
                         'size': 12}):
         name = 'Times New Roman'
@@ -414,19 +421,50 @@ class pygletDraw(drawable.Drawable):
         x = location[0]
         y = location[1]
         
-        self.labels.append(pyglet.text.Label(text,
-                                             font_name=name,
-                                             font_size=size*self.magnify,
-                                             x=x*20.0, #fudge factor to make font rendering look OK
-                                             y=y*20.0,
-                                             align='left',
-                                             color=color,
-                                             bold=bold,
-                                             italic=italic,
-                                             #underline=underline,
-                                             anchor_x=anchor_x,
-                                             anchor_y=anchor_y))
+        self.__labels.append(pyglet.text.Label(text,
+                                               font_name=name,
+                                               font_size=size*self.__magnify,
+                                               x=x*20.0, #fudge factor to make font rendering look OK
+                                               y=y*20.0,
+                                               align=align,
+                                               color=color,
+                                               bold=bold,
+                                               italic=italic,
+                                               #underline=underline,
+                                               anchor_x=anchor_x,
+                                               anchor_y=anchor_y))
         
+    ## OpenGL-specific drawing methods
+    
+    def draw_linestrip(self,points):
+        # we simulate a linestrip useing GL_LINES and indexed drawing.
+        # This prevents extra lines
+        p2 = []
+        i2 = []
+        color = self.thing2color(self.linecolor,'f')
+        for p in points:
+            p2 = p2 + p[0:3]
+        for i in range(1,len(points)):
+            i2 = i2 + [i-1, i]
+        c2 = color * int(len(p2)/3)
+        self.__linestrips.append([ ('v3f', tuple(p2)),\
+                                   ('c3f',tuple(c2)),
+                                   tuple(i2) ])
+            
+
+    def draw_surface(self,points,normals,faces):
+        vrts = []
+        nrms= []
+        inds = []
+        for p in points:
+            vrts+=p[0:3]
+        for n in normals:
+            nrms+=n[0:3]
+        for f in faces:
+            inds+=f[0:3]
+        self.__surfaces.append([vrts,nrms,inds])    
+
+    ## overload base-class virtual display method
     def display(self):
         self.makeBatches()
         pyglet.app.run()

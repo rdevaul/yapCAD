@@ -1,6 +1,9 @@
 ## simple yapCAD framework for dxf-rendered drawable objects using
 ## ezdxf package.
-## Original author: Richard W. DeVaul
+## Copyright (c) 2020 Richard W. DeVaul
+## Copyright (c) 2020 yapCAD contributors
+## All rights reserved
+## See licensing terms here: https://github.com/rdevaul/yapCAD/blob/master/LICENSE
 
 from yapcad.geom import *
 import yapcad.drawable as drawable
@@ -10,34 +13,49 @@ import ezdxf
 class ezdxfDraw(drawable.Drawable):
 
     def __init__(self):
-        self.doc = ezdxf.new(dxfversion='R2010',setup=True)
-        self.doc.layers.new('PATHS',  dxfattribs={'color': 7}) #white
-        self.doc.layers.new('DRILLS',  dxfattribs={'color': 4}) #aqua
-        self.doc.layers.new('DOCUMENTATION', dxfattribs={'color': 2}) #yellow
-        self.layerlist = [False, '0','PATHS','DRILLS','DOCUMENTATION']
-        self.linetypelist = [ False,'Continuous']
-        self.msp = self.doc.modelspace()
-        self.filename = "yapCAD-out"
-
-        self.layer=False        # no layer set, use '0'
-        self.linecolor=False    # default is 256 = autocad BYLAYER
-        self.linetype=False # default is 'Continuous'
+        self.__doc = ezdxf.new(dxfversion='R2010',setup=True)
+        self.__doc.layers.new('PATHS',  dxfattribs={'color': 7}) #white
+        self.__doc.layers.new('DRILLS',  dxfattribs={'color': 4}) #aqua
+        self.__doc.layers.new('DOCUMENTATION', dxfattribs={'color': 2}) #yellow
+        self.__layerlist = [False, '0','PATHS','DRILLS','DOCUMENTATION']
+        self.__linetypelist = [ False,'Continuous']
+        self.__msp = self.__doc.modelspace()
+        self.__filename = "yapCAD-out"
         
         super().__init__()
 
     def __repr__(self):
         return 'an instance of ezdxfDraw'
 
-    def set_layer(self,layer=False):
-        if not layer in self.layerlist:
+    ## properties
+    
+    @drawable.Drawable.layer.setter
+    def layer(self,layer=False):
+        if not layer in self.__layerlist:
             raise ValueError('bad layer passed to layerset: {}'.format(layer))
-        self.layer=layer
-        
-    def set_linetype(self,linetype=False):
-        if not linetype in self.linetypelist:
+        self._set_layer(layer)
+
+    @drawable.Drawable.linetype.setter
+    def linetype(self,linetype=False):
+        if not linetype in self.__linetypelist:
             raise ValueError('bad linetype in linetypeset: {}'.format(linetype))
-        self.linetype=linetype
+        self._set_linetype(linetype)
+
+    @property
+    def filename(self):
+        return self.__filename
+
+    def _set_filename(self,name):
+        self.__filename = name
+
+    @filename.setter
+    def filename(self,name):
+        if not isinstance(name,str):
+            raise ValueError('bad (non-string) filename: '+str(name))
+        self._set_filename(name)
         
+    ## Overload virtual yapcasd.drawable base class drawing methods
+    
     def draw_line(self,p1,p2):
         layer=self.layer
         if layer == False:
@@ -51,7 +69,7 @@ class ezdxfDraw(drawable.Drawable):
         if linetype == False:
             linetype = 'Continuous'
             
-        self.msp.add_line((p1[0], p1[1]), (p2[0], p2[1]),
+        self.__msp.add_line((p1[0], p1[1]), (p2[0], p2[1]),
                           dxfattribs={'layer': layer,
                                       'color': color,
                                       'linetype': linetype})
@@ -71,12 +89,12 @@ class ezdxfDraw(drawable.Drawable):
             linetype = 'Continuous'
 
         if start==0 and end==360:
-            self.msp.add_circle((p[0],p[1]),r,
+            self.__msp.add_circle((p[0],p[1]),r,
                           dxfattribs={'layer': layer,
                                       'color': color,
                                       'linetype': linetype})
         else:
-            self.msp.add_arc((p[0],p[1]),r,start,end,
+            self.__msp.add_arc((p[0],p[1]),r,start,end,
                           dxfattribs={'layer': layer,
                                       'color': color,
                                       'linetype': linetype})
@@ -104,12 +122,9 @@ class ezdxfDraw(drawable.Drawable):
             dxfattr['height'] = attr['height']
         dxfattr.update({ 'layer': layer,
                          'color': color})
-        self.msp.add_text(text,dxfattr).set_pos((location[0],location[1]),
+        self.__msp.add_text(text,dxfattr).set_pos((location[0],location[1]),
                                              align=align)
-            
-    def set_filename(self,name):
-        self.filename = name
-        
+
     def display(self):
-        self.doc.saveas("{}.dxf".format(self.filename))
+        self.__doc.saveas("{}.dxf".format(self.filename))
 
