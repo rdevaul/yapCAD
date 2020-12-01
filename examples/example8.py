@@ -13,7 +13,7 @@ import random
 
 def drawLegend(d):
     ## Put some documentary text on the drawing
-    d.set_layer('DOCUMENTATION')
+    d.layer = 'DOCUMENTATION'
 
     att = {'style': 'OpenSans-Bold',
            'height': 2.5}
@@ -23,7 +23,7 @@ def drawLegend(d):
     d.draw_text("example8.py", point(5,11), attr=att)
     d.draw_text("Polygon() flowers, mirrored geometry",
                 point(5,7),attr=att)
-    d.set_layer() # back to default layer
+    d.layer = False # back to default layer
 
 
 def flower(center = point(0,0),
@@ -87,7 +87,7 @@ if __name__ == "__main__":
     dd=ezdxfDraw()
     filename="example8-out"
     print("Output file name is {}.dxf".format(filename))
-    dd.set_filename(filename)
+    dd.filename = filename
 
     glist = mirrorArray()
 
@@ -99,9 +99,9 @@ if __name__ == "__main__":
                 g1.append(g)
             else:
                 g2.append(g)
-        dd.set_linecolor('white')
+        dd.linecolor = 'white'
         dd.draw(g2)
-        dd.set_linecolor('aqua')
+        dd.linecolor = 'aqua'
         dd.draw(g1)
 
     drawLegend(dd)

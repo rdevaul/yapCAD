@@ -26,10 +26,10 @@ from yapcad.poly import *
 d=ezdxfDraw()
 filename="example6-out"
 print("Output file name is {}.dxf".format(filename))
-d.set_filename(filename)
+d.filename = filename
 
 ## Put some documentary text on the drawing
-d.set_layer('DOCUMENTATION')
+d.layer = 'DOCUMENTATION'
 
 d.draw_text("yapCAD", point(5,15),\
             attr={'style': 'OpenSans-Bold',
@@ -41,7 +41,7 @@ d.draw_text("polygons, circles, lines,",
             point(5,10))
 d.draw_text("and intersections",
             point(5,8.5))
-d.set_layer() # back to default layer
+d.layer = False # back to default layer
 
 # make circles centered at -10.0,10.0
 a = point(-10.0,10.0)
@@ -53,7 +53,7 @@ b = point(10.0,-10.0)
 polys1 = []
 
 ## select the 'PATHS' drawing layer
-d.set_layer('PATHS')
+d.layer = 'PATHS'
 
 ## create the first group of concentric rounded polys
 for i in range(4,7): # number of sides, 4 to 6
@@ -100,7 +100,7 @@ for ply in polys1:
 
 d.polystyle='points'
 d.pointstyle='x'
-d.set_layer('DOCUMENTATION')
+d.layer = 'DOCUMENTATION'
 d.draw(pp)
 
 ## for every intersection in line parameter space, including
@@ -116,7 +116,7 @@ for u in uu1s:
 
 ## Now, let's draw some evenly-spaced "drill holes" of successivly
 ## increasing size, tracing the outline of our polys.
-d.set_layer('DRILLS') 
+d.layer = 'DRILLS' 
 i = 4
 for ply in polys1:
     for j in range(i*3):
@@ -124,5 +124,5 @@ for ply in polys1:
         d.draw(arc(p,0.2+j/(i*10)))
     i = i+1
 
-d.set_layer() ## Reset to the default layer -- not really necessary
+d.layer = False ## Reset to the default layer -- not really necessary
 d.display() ## Send the drawing to the file

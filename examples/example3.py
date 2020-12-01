@@ -12,9 +12,9 @@ d=ezdxfDraw()
 
 filename="example3-out"
 print("\nOutput file name is {}.dxf".format(filename))
-d.set_filename(filename)
+d.filename = filename
 
-d.set_layer('DOCUMENTATION') # select the DOCUMENTATION layer
+d.layer = 'DOCUMENTATION' # select the DOCUMENTATION layer
 d.draw_text("yapCAD", point(-9,7),\
             attr={'style': 'OpenSans-Bold',
                   'height': 1.5})
@@ -23,7 +23,7 @@ d.draw_text("example3.py",
             point(-9,5.0))
 d.draw_text("circles, tangents, and intersections",
             point(-9,3.5))
-d.set_layer() # select the default layer
+d.layer = False # select the default layer
 
 a = point(5,5)
 b = point(-5,5)
@@ -54,7 +54,7 @@ d.draw(tl2[1])
 ## configure point drawing, draw on DOCUMENTATION layer
 d.pointstyle='o'
 d.polystyle='points'
-d.set_layer('DOCUMENTATION')
+d.layer = 'DOCUMENTATION'
 d.draw(points)
 
 d.display()

@@ -9,7 +9,7 @@ from yapcad.geom import *
 def setupGL():
     dGl =pygletDraw()
     dGl.magnify = 1.0
-    dGl.set_linecolor('white')
+    dGl.linecolor = 'white'
     dGl.cameradist = 25
     return dGl
 
@@ -18,7 +18,7 @@ def setupDXF():
     d=ezdxfDraw()
     filename="example1-out"
     print("\nOutput file name is {}.dxf".format(filename))
-    d.set_filename(filename)
+    d.filename = filename
     return d
 
 ## Draw some documentary text using the specified drawable.
@@ -26,7 +26,6 @@ def setupDXF():
 
 def legend(d):
 
-    d.set_linecolor('yellow')
     d.draw_text("yapCAD", point(5,15),\
                 attr={'style': 'OpenSans-Bold', # style for ezdxf
                       'font_name': 'OpenSans', # style for pyglet
@@ -68,11 +67,11 @@ def drawGlist(glist,d):
     
     ## render the point
     d.pointstyle = 'xo' # set the point rendering style
-    d.set_linecolor(1) # set color to red (DXF index color)
+    d.linecolor = 1 # set color to red (DXF index color)
     d.draw(p)
 
     ## render the line in white
-    d.set_linecolor('white') #set color to white, by name
+    d.linecolor = 'white' #set color to white, by name
     d.draw(l)
 
     ## render the arc in aqua, by specifying the RGB tripple.
@@ -81,7 +80,7 @@ def drawGlist(glist,d):
     ## entries will produce the desired results in DXF rendering at
     ## present.
     
-    d.set_linecolor([0,255,255]) # corresponds to 'aqua'
+    d.linecolor = [0,255,255] # corresponds to 'aqua'
     d.draw(a)
 
 if __name__ == "__main__":
@@ -99,11 +98,16 @@ if __name__ == "__main__":
     drawGlist(geomlist,d)
 
     ## add a dawing legend on the DXF drawing, in the DOCUMENTATION
-    ## layer, with default layer color
+    ## layer
     
-    d.set_layer('DOCUMENTATION')
-    d.set_linecolor(256) ## set layer default color
+    d.layer = 'DOCUMENTATION'
+    d.linecolor = 256 ## set layer default color
     legend(d)
+
+    ## add a drawing legend in the OpenGL rendering, setting the
+    ## color eplicitly to yellow
+    
+    dGl.linecolor = 'yellow'
     legend(dGl)
     
     ## draw the geometry in OpenGL

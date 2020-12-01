@@ -27,9 +27,9 @@ if __name__ == "__main__":
                 g1.append(g[0])
             else:
                 g2.append(g)
-        dd.set_linecolor('white')
+        dd.linecolor = 'white'
         dd.draw(g2)
-        dd.set_linecolor('aqua')
+        dd.linecolor = 'aqua'
         dd.polystyle='points'
         dd.draw(g1)
 

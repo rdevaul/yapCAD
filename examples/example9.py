@@ -128,7 +128,7 @@ def sphere(diameter,center=point(0,0,0),depth=2):
 if __name__ == "__main__":
     from yapcad.pyglet_drawable import *
     dd=pygletDraw()
-    dd.set_linecolor('white')
+    dd.linecolor = 'white'
 
     verts,normals,faces = sphere(50.0,point(0,0,0),3)
     
@@ -141,7 +141,7 @@ if __name__ == "__main__":
                      verts[f[0]]))
 
     dd.draw_surface(verts,normals,faces)
-    dd.set_linecolor('aqua')
+    dd.linecolor = 'aqua'
     dd.polystyle = 'points'
     dd.pointstyle = 'xo'
     dd.draw(verts)

@@ -53,7 +53,7 @@ def geometry():
     #return [p1.geom(),p2.geom(),b.geom()]
 
 def testAndDraw(dd):
-    dd.set_linecolor('red')
+    dd.linecolor = 'red'
 
     gl = geometry()
 
@@ -64,30 +64,30 @@ def testAndDraw(dd):
     g5 = gl[4]
     g6 = gl[5]
     
-    dd.set_linecolor('aqua')
+    dd.linecolor = 'aqua'
 
     dd.draw(g3)
 
     g3r = rotate(g3,45)
 
-    dd.set_linecolor('red')
+    dd.linecolor = 'red'
     dd.draw(g3r)
 
-    dd.set_linecolor('white')
+    dd.linecolor = 'white'
     for i in range(len(g4)):
-        dd.set_linecolor(i%7+1)
+        dd.linecolor = i%7+1
         dd.draw(g4[i])
     
-    dd.set_linecolor('silver')
+    dd.linecolor = 'silver'
     dd.draw(translate(g4,point(0,0,-1)))
             
-    dd.set_linecolor('white')
+    dd.linecolor = 'white'
     dd.draw(g5)
 
-    dd.set_linecolor('yellow')
+    dd.linecolor = 'yellow'
     dd.draw(g6)
 
-    dd.set_linecolor('aqua')
+    dd.linecolor = 'aqua'
     dd.draw(gl[6:])
 
     dd.display()
@@ -121,7 +121,7 @@ if __name__ == "__main__":
         from yapcad.ezdxf_drawable import *
         #set up DXF rendering
         dd=ezdxfDraw()
-        dd.set_filename(filename)
+        dd.filename = filename
     print("rendering...")
     testAndDraw(dd)
     print("done")

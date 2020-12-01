@@ -24,10 +24,10 @@ d=ezdxfDraw()
 
 filename="example4-out"
 print("\nOutput file name is {}.dxf".format(filename))
-d.set_filename(filename)
+d.filename = filename
 
 ## Put some documentary text on the drawing
-d.set_layer('DOCUMENTATION')
+d.layer = 'DOCUMENTATION'
 
 d.draw_text("yapCAD", point(5,15),\
             attr={'style': 'OpenSans-Bold',
@@ -39,7 +39,7 @@ d.draw_text("polygons, circles, and",
             point(5,10))
 d.draw_text("geometry sampling",
             point(5,8.5))
-d.set_layer()
+d.layer = False
 
 # make a circle with radius 10, centered at the origin
 a = point(0,0)
@@ -85,10 +85,10 @@ for i in range(12):
         d.pointstyle = 'xo'
     else:
         d.pointstyle = 'o'
-    d.set_layer('DOCUMENTATION')
+    d.layer = 'DOCUMENTATION'
     d.draw(p)
         
-    d.set_layer('DRILLS')
+    d.layer = 'DRILLS'
     d.draw(arc(p,2.0))
 
 d.display()

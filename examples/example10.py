@@ -126,7 +126,7 @@ def testPoints(points,geom,testElements=True):
     return inpts, outpts
 
 def testAndDraw(dd):
-    dd.set_linecolor('white')
+    dd.linecolor = 'white'
 
     ## this is the bounding box for our test area
     bbox = line([-60,-60,0,1],[60,60,0,1])
@@ -148,11 +148,11 @@ def testAndDraw(dd):
     ## Draw the points.
     dd.polystyle='points'
 
-    dd.set_linecolor('aqua')
+    dd.linecolor = 'aqua'
     dd.pointstyle = 'x'
     dd.draw(inpts)
 
-    dd.set_linecolor('red')
+    dd.linecolor = 'red'
     dd.pointstyle = 'o'
     dd.draw(outpts)
     dd.display()
@@ -186,7 +186,7 @@ if __name__ == "__main__":
         from yapcad.ezdxf_drawable import *
         #set up DXF rendering
         dd=ezdxfDraw()
-        dd.set_filename(filename)
+        dd.filename = filename
     print("rendering...")
     testAndDraw(dd)
     print("done")
