@@ -1,4 +1,8 @@
 ## base class of drawable for yapCAD
+## Copyright (c) 2020 Richard W. DeVaul
+## Copyright (c) 2020 yapCAD contributors
+## All rights reserved
+## See licensing terms here: https://github.com/rdevaul/yapCAD/blob/master/LICENSE
 
 from yapcad.geom import *
 
@@ -6,7 +10,7 @@ from yapcad.geom import *
 ## transform and drawing pen (color, line weight, etc.)
  
 class Drawable:
-    """simple base class for all drawable geometry"""
+    """Base class for yapCAD drawables"""
 
     ## utility functions for drawing
     ## -----------------------------
@@ -19,6 +23,12 @@ class Drawable:
 
     def draw_line(self,p1,p2):
         print("pure virtual draw_line called: {}, {}".format(p1,p2))
+        return
+
+    def draw_text(self,text,location,
+                  align='left',
+                  attr={}):
+        print("pure virtual draw_text called: {}, {}, {}, {}".format(text,location,align,attr))
         return
 
     ## non-virtual utility drawing functions 
@@ -40,23 +50,162 @@ class Drawable:
 
     ## utiitly function to draw a point based on the current point style
     def draw_point(self,p):
-        if 'x' in self.pointstyle:
-            self.draw_x(p,self.pointsize*2)
+        if 'x' in self.__pointstyle:
+            self.draw_x(p,self.__pointsize*2)
 
-        if 'o' in self.pointstyle:
-            self.draw_circle(p,self.pointsize)
+        if 'o' in self.__pointstyle:
+            self.draw_circle(p,self.__pointsize)
 
     def __init__(self):
-        ## valid pointstyles 'x', 'o', 'xo'
-        self.pointstyle = 'xo'
-        self.pointsize = 0.1
-        self.linestyle = '1'
-        self.linecolor = False
-        self.fillcolor = False
-        ## valid polystyles: 'points', 'lines', 'both'
-        self.polystyle = 'lines'
-        self.layer = 'default'
+        self.__pointstyle = 'xo'
+        self.__pointsize = 0.1
+        self.__linetype = False
+        self.__linewidth = 0.1
+        self.__linecolor = False
+        self.__fillcolor = False
+        self.__polystyle = 'lines'
+        self.__layer = False
 
+
+    ## Various property functions
+
+    @property
+    def layer(self):
+        return self.__layer
+    
+    def _set_layer(self,lyr):
+        self.__layer = lyr
+        
+    @layer.setter
+    def layer(self,lyr=False):
+        if lyr == False or lyr == 'default':
+            self._set_layer(lyr)
+        else:
+            raise ValueError('bad layer: ' + str(lyr))
+        
+    @property
+    def polystyle(self):
+        return self.__polystyle
+
+    def _set_polystyle(self,pst):
+        self.__polystyle = pst
+        
+    @polystyle.setter
+    def polystyle(self,pst=False):
+        if pst in [False, 'points','lines','both']:
+            self._set_polystyle(pst)
+        else:
+            raise ValueError('bad polystyle')
+        
+    @property
+    def pointstyle(self):
+        return self.__pointstyle
+
+    def _set_pointstyle(self,pst):
+        self.__pointstyle=pst
+    
+    @pointstyle.setter
+    def pointstyle(self,pst=False):
+        if pst in [False, 'x','o','xo']:
+            self._set_pointstyle(pst)
+        else:
+            raise ValueError('bad pointstyle: ' + str(pst))
+
+    @property
+    def pointsize(self):
+        return self.__pointsize
+
+    def _set_pointsize(self,ps):
+        self.__pointsize=ps
+        
+    @pointsize.setter
+    def pointsize(self,ps=False):
+        if not isinstance(ps,(int,float)):
+            raise ValueError('invalid pointsize ' + str(ps))
+        if isinstance(ps,bool) and ps == False:
+            self._set_pointsize(0.1)
+        elif ps < epsilon:
+            ps = epsilon
+        self._set_pointsize(ps)
+
+    @property
+    def linewidth(self):
+        return self.__linewidth
+
+    def _set_linewidth(self,lw):
+        self.__linewidth=lw
+
+    @linewidth.setter
+    def linewidth(self,lw=False):
+        if not isinstance(lw,(int,float)):
+            raise ValueError('invalid pointsize ' + str(lw))
+        if isinstance(lw,bool) and lw ==False:
+            lw = 0.1
+        elif lw < epsilon:
+            lw = epsilon
+        self._set_linewidth(lw)
+
+    @property
+    def linetype(self):
+        return self.__linetype
+
+    def _set_linetype(self,lt):
+        self.__linetype = lt
+
+    @linetype.setter
+    def linetype(self,lt=False):
+        if lt in [ False, 'Continuous' ]:       # only continuous linetype supported in base class
+            self._set_linetype(False)
+        else:
+            raise ValueError('unsupported linetype ' + str(lt))
+
+    ## color is a complex property -- it can be set as an AUTOCAD
+    ## index color, a standard color name, or an RGB tripple
+
+    def __checkcolor(self,c):
+        def isbyte(x):
+            return isinstance(x,int) and x >= 0 and x <= 255
+        if isinstance(c,bool) and c == False:
+            return True
+        elif (isinstance(c,list) and len(c) == 3 \
+              and isbyte(c[0]) and isbyte(c[1]) and isbyte(c[2])) or \
+             (isinstance(c,int) and c >= 0 and c < len(self.colormapAUTOCAD)) or\
+             isinstance(c,str) and c in self.colordict:
+            return True
+        return False
+    
+    ## line color
+    @property
+    def linecolor(self):
+        return self.__linecolor
+
+    def _set_linecolor(self,c):
+        self.__linecolor=c
+
+    @linecolor.setter
+    def linecolor(self,c=False):
+        if self.__checkcolor(c):
+            self._set_linecolor(c)
+        else:
+            raise ValueError('bad linecolor ' + str(c))
+
+    ## fill color
+    @property
+    def fillcolor(self):
+        return self.__fillcolor
+
+    def _set_fillcolor(self,c):
+        self.__fillcolor = c
+
+    @fillcolor.setter
+    def fillcolor(self,c=False):
+        if self.__checkcolor(c):
+            self._set_fillcolor(c)
+        else:
+            raise ValueError('bad fillcolor ' + str(c))
+
+    ## non-property methods
+    
     def __repr__(self):
         return 'an abstract Drawable instance'
 
@@ -89,28 +238,16 @@ class Drawable:
         elif isgeomlist(x):
             for e in x:
                 self.draw(e)
-        # elif isinstance(x,Geometry):
-        #     self.draw(x.geom())
-        elif isinstance(x,Drawable):
-            x.draw()
         else:
             raise ValueError('bad argument to Drawable.draw(): '.format(x))
         
-    ## cause drawing page to be rendered -- pure virtual
+    ## cause drawing page to be rendered -- pure virtual in base class
     def display(self):
+        print('pure virtual display function called')
         return True
 
-    def set_linecolor(self,c=False):
-        if c == False:
-            self.linecolor = False
-        elif isinstance(c,list) and len(c) == 3 or \
-             isinstance(c,int) and c >= 0 or\
-             isinstance(c,str) and c in self.colordict:
-            self.linecolor = c
 
-    def get_linecolor(self):
-        return self.linecolor
-
+    ## Standard color names, ala HTML: https://www.rapidtables.com/web/color/RGB_Color.html
     colordict= {
         'black':   [ [0,0,0], 0],
         'white':   [ [255,255,255], 7],
@@ -129,6 +266,9 @@ class Drawable:
         'fuchsia': [ [255,0,255], 6],
         'purple':  [ [128,0,128], 214] }
     
+    ## AUTOCAD color index:
+    ## https://forums.autodesk.com/t5/visual-lisp-autolisp-and-general/
+    ## rgb-values-of-the-256-standard-indexed-colors/td-p/848912
     colormapAUTOCAD = [
         [0,0,0],
 	[255,0,0],
@@ -414,6 +554,7 @@ class Drawable:
         False                   # bylaer
     ]
 
+    ## function to convert between different color representations 
     def thing2color(self,thing,convert='b',colormap=None,colordict=None):
         def _b2f(c):
             return [ c[0]/255.0,c[1]/255.0,c[2]/255.0 ]
@@ -460,7 +601,7 @@ class Drawable:
                 return thing
         elif isinstance(thing,str):
             cd = colordict[thing]
-            if cd == False:
+            if isinstance(cd,bool) and cd == False:
                 raise ValueError('bad color name passed to thing2color: {}'.format(thing))
             if convert == 'i':
                 return cd[1]
@@ -475,7 +616,7 @@ class Drawable:
                 c = colormap[thing]
         else:
             raise ValueError('bad thing passed to thing2color: {}'.format(thing))
-        if c == False:
+        if isinstance(c,bool) and c == False:
             return False
         if convert == 'i':
             return _b2i(c)
