@@ -1,6 +1,163 @@
-## simple computational geometry library for yapCAD
+## foundational computational geometry library for yapCAD
 ## Born on 29 July, 2020
-## Richard DeVaul
+## Copyright (c) 2020 Richard DeVaul
+
+# Permission is hereby granted, free of charge, to any person
+# obtaining a copy of this software and associated documentation files
+# (the "Software"), to deal in the Software without restriction,
+# including without limitation the rights to use, copy, modify, merge,
+# publish, distribute, sublicense, and/or sell copies of the Software,
+# and to permit persons to whom the Software is furnished to do so,
+# subject to the following conditions:
+# 
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+# 
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+# NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
+# BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+# ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+# CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+"""foundational computational geometry library for yapCAD
+
+====================
+OVERVIEW
+====================
+
+The yapcad.geom module provides foundational computatinal geometry
+functions for yapCAD.  This includes operations for computing
+intersections, bounding boxes, inside-outside testing, *etc.*, on both
+simple and compound geometry.
+
+=====================================
+yapcad.geom geometric representations
+=====================================
+
+The yapcad.geom module includes constants, scalar operations, vector
+operations, operations on non-compound geometry elements such as
+points, lines and arcs, as well as operations on compound geometry
+elements such as multi-vertex polylines and polygons, and arbitrary
+geometry lists.
+
+constants
+=========
+
+yapcad.geom provides the "constants" `epsilon` and `pi2` (2*pi).
+Redefine these at your peril.
+
+scalars
+=======
+
+Scalar numbers in yapCAD are ordnary Python3 `int` or `float`
+numbers. This means that in general you will have ordinary
+double-precision floating point dynamic range and precison for your
+computational geometry operations.  These precision limitations are
+reflected in the empirically-chosen value of `epsilon` of 5E-6.
+
+vectors
+=======
+
+vectors are defined as a list of four numbers, i.e. `[x,y,z,w]`
+
+When vectors in yapCAD are interpreted as three-dimensional
+coordinates (as opposed to lists of parameters) the "extra" w
+coordinte is a normalization factor. This approach is sometimes
+referred to as generalized homogemeous coordinates or projective
+coordinates, and was popular with computer graphicists in the
+1990s. See https://en.wikipedia.org/wiki/Homogeneous_coordinates
+
+In this interpretation, the w coordinate is a normalization
+coordinate, and is either 1.0 or all coordinates are assumed to be
+scaled by 1/w.  The inclusion of the w coordinate allows the general
+use of transformation matricies for affine transforms.  
+
+There is a yapcad.geom convenience function, `vect()`, that will make
+a vector out of just about any pausible set of arguments.  Unspecified
+w values are set to 1, and unspecified z values are set to 0.
+
+points
+======
+
+Ordinary yapCAD geometry is assumed to lie in the w=1 hyperplane, and
+when a vector lies in that plane it is usually interpreted as
+transformable coordinate, or point. Because we
+expect w=1 unless certain types of affine transforms have been
+applied, most yapCAD geometry operations do not look at the w
+coordinate, and operate as though w=1.  
+
+Any vector that lies in the w>0 half-space is a valid coordinate, or
+point. And in yapCAD, `[x,y,z,w]` corresponds to the same 3D
+coordinate as `[x/w,y/w,z/w,1]`
+
+yapcad.geom provides the `point()` convenience function that operates
+much like `vect()`, except that `point()` enforces that w is always
+greater than zero.
+ 
+lines
+=====
+
+Lines are Python3 lists of two points, e.g. the following are all lines:
+
+   [point(x1,y1,z1),point(x2,y2,z2)], or
+   [point(x1,y1),point(x2,y2), or
+   [[x1,y1,z1,1.0],[x2,y2,z2,1.0]]
+
+arcs
+====
+
+In yapcad.geom, an arc or circle is defined by a center, a radius, a
+start angle, an end angle, and a normal that specifies the plane of
+the arc/cicle.
+
+Angles are specified in degrees, and by default are right-handed,
+which is to say a positive angle specifies a counter-clockwise sweep.
+
+A full circle is specified through special values of start and end; If
+and only if start = 0 and end = 360 (both integer values) then the arc
+is a full circle.  **NOTE:** Other values for start and end that span a
+360 degree difference will actually produce a zero-length arc, which
+is probably not what you want.
+
+An arc is is represented as a list of one or two vectors and a
+pseudovector, *e.g.* `[ center, [radius, start, end, -1 ], <normal>]`.
+Most of the time, we assume that arcs lie in the x-y plane, which is
+to say yapCAD assumes normal = [0,0,1] if it's not
+specified. **NOTE:** At present, yapCAD doesn't support non-unit-z
+normal vectors for arcs, though it will not stop you from specifying
+one.
+
+To mark that the second list element is a pseudovector, we set the w
+component to a negative value.  Since negative w values should never
+exist for points in our projective geometry system this should be a
+robust convention.  For ordinary arcs, w=-1.  For sample-reversed arcs
+(left-handed arcs, where u=0.0 begins at the end angle, and u=1.0 is
+the start agle) w=-2
+
+======================
+COMPUTATIONAL GEOMETRY
+======================
+
+operations on points
+====================
+
+Points are defined as vectors that lie in a positive, non-zero
+hyperplane, i.e. `[x, y, z, w]` such that w > 0.  points are
+distinguished from pesuedovectors, such as the parameters to an
+arc, which don't transform as vectors.
+
+Pseudovectors, by contrast, lie in a w < 0 hyperplane.  For example,
+by convention right-handed arc parameters lie in the pseudovector w=-1
+hyperplane.
+
+Since points are vectors that happen to lie in a positive hyperplane,
+we don't have a lot of special operations on points, except to
+explicitly create them and to test for them.
+
+"""
 
 from math import *
 import copy
@@ -14,36 +171,32 @@ pi2 = 2.0*pi
 ## operations on scalars
 ## -----------------------
 
+    
 ## utility function to determine if argument is a "real" python
 ## number, since booleans are considered ints (True=1 and False=0 for
 ## integer arithmatic) but 1 and 0 are not considered boolean
 
 def isgoodnum(n):
+    """ determine if an argument is actually a scalar number, and not boolean
+    """
     return (not isinstance(n,bool)) and isinstance(n,(int,float))
 
 ## utilty function to determine if scalars a and b are the same to
 ## within epsilon
 def close(a,b):
+    """ are two scalars the same within epsilon
+    """
     return abs(a-b) < epsilon
 
 
 ## operations on vectors
 ## ------------------------
 
-## vectors are defined as a list of four numbers, i.e. [x,y,z,w]
-
-## The use of four coordinates supports the generalized homogemeous
-## coordinates or projective coordinates popular with computer
-## graphicists in the 1990s. In general, the w coordinate is a
-## normalization coordinate, and is either 1.0 or all coordinates are
-## assumed to be scaled by w.  Simple vector operations are assumed to
-## operate in the w=1 hyperplane, and no checking of w is performed.
-## See https://en.wikipedia.org/wiki/Homogeneous_coordinates
-
-## Convenience function for making a homogeneous coordinates 4 vector
-## from practically anything
 
 def vect(a=False,b=False,c=False,d=False):
+    """Convenience function for making a homogeneous coordinates 4 vector
+from practically anything
+    """
     r = [0,0,0,1]
     if isgoodnum(a):
         r[0]=a
@@ -211,7 +364,8 @@ deepcopy = copy.deepcopy
 # You can use this anywhere you use str(), since it will fall back to
 # str() if the argument isn't a yapCAD vector, line, or polygon.
 def vstr(a):
-    # utility functions for recursively checking and formatting lists
+    """ utility function for recursively checking and formatting lists
+    """
     def _isallvect(foo):
         if not isinstance(foo,list):
             return False
@@ -306,8 +460,8 @@ def isinsidepoint(x,p):
 ## operations on lines
 ## --------------------
 
-## lines are defined as lists of two points, i.e.  [vect(x1,
-## y1),vect(x2, y2)].  Lines must lie in a positive hyperplane,
+## lines are defined as lists of two points, i.e.  [point(x1,
+## y1),point(x2, y2)].  Lines must lie in a positive hyperplane,
 ## viz. w>0
 
 ## make a line, copying points, value-safe
@@ -2520,4 +2674,3 @@ if __name__ == "__main__":
           .format(isInsideConvexPolyXY(t,tri1)))
     
     print("done!")
-
