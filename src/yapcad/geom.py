@@ -1026,6 +1026,10 @@ def linePointXYDist(l,p,inside=True):
 ## make an arc, copying points, value-safe
 ## NOTE: if start and end are not specified, a full circle is created
 def arc(c,rp=False,sn=False,e=False,n=False,samplereverse=False):
+    """
+    Construct an arc by copying an eisting arc or specifying a center ``c`` and various optional parameters.
+
+    """
     if isarc(c):
         return deepcopy(c)
     elif ispoint(c):
@@ -1068,6 +1072,7 @@ def arc(c,rp=False,sn=False,e=False,n=False,samplereverse=False):
 ## arc.
 
 def isarc(a):
+    """ is it an arc? """
     if not isinstance(a,list):
         return False
     n = len(a)
@@ -1095,6 +1100,7 @@ def isarc(a):
 ## start and end to signal a true full circle
 
 def iscircle(a):
+    """ is it a circle? """
     if isarc(a):
         start=a[1][1] 
         end=a[1][2]
@@ -1107,10 +1113,12 @@ def iscircle(a):
 
 ## function to return the midpoint of an arc
 def arccenter(c):
+    """ return the midpoint of an arc.  **NOTE:** if you want the center point of an arc or circle, this is not the droid you are looking for."""
     return samplearc(c,0.5)
     
 ## function to return the length of an arc
 def arclength(c):
+    """return scalar length of an arc"""
     r=c[1][0]
     start=c[1][1]
     end=c[1][2]
@@ -1128,6 +1136,7 @@ def arclength(c):
 
 ## Sample the arc over the start-end angle interval
 def samplearc(c,u,polar=False):
+    """sample the arc ``c`` at parameter ``u``. If ``polar`` is true, return polar coordinates of angle and radius with cartesian center."""
     p=c[0]
     r=c[1][0]
     start=c[1][1]
@@ -1156,6 +1165,11 @@ def samplearc(c,u,polar=False):
 # the same center and radius spanning the interval u1,u2
 
 def segmentarc(c,u1,u2):
+    """
+    Given an arc paramaterized on a 0,1 interval, return a new arc with
+    the same center and radius spanning the interval u1,u2
+    """
+
     pol1=samplearc(c,u1,polar=True)
     pol2=samplearc(c,u2,polar=True)
     sr= (c[1][3] == -2)
@@ -1168,6 +1182,7 @@ def segmentarc(c,u1,u2):
 ## circle, return it's corresponding sample parameter, or False if the
 ## point doesn't lie on the circle
 def unsamplearc(c,p):
+    """unsample the arc"""
     x = sub(p,c[0])
     r=c[1][0]
     start=c[1][1]
@@ -1200,6 +1215,7 @@ def unsamplearc(c,p):
     
 
 def arcbbox(c):
+    """return bounding box for arc"""
     if iscircle(c):
         rr=point(c[1][0],c[1][0])
         return [sub(c[0],rr),add(c[0],rr)]
