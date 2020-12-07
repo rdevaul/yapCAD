@@ -22,14 +22,14 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-"""foundational computational geometry library for yapCAD
+"""foundational computational geometry library for **yapCAD**
 
 ====================
 OVERVIEW
 ====================
 
 The yapcad.geom module provides foundational computational geometry
-functions for yapCAD.  This includes operations for computing
+functions for **yapCAD**.  This includes operations for computing
 intersections, bounding boxes, inside-outside testing, *etc.*, on both
 simple and compound geometry.
 
@@ -52,7 +52,7 @@ Redefine these at your peril.
 scalars
 =======
 
-Scalar numbers in yapCAD are ordinary Python3 ``int`` or ``float``
+Scalar numbers in **yapCAD** are ordinary Python3 ``int`` or ``float``
 numbers. This means that in general you will have ordinary
 double-precision floating point dynamic range and precision for your
 computational geometry operations.  These precision limitations are
@@ -63,7 +63,7 @@ vectors
 
 vectors are defined as a list of four numbers, i.e. ``[x,y,z,w]``
 
-When vectors in yapCAD are interpreted as three-dimensional
+When vectors in **yapCAD** are interpreted as three-dimensional
 coordinates (as opposed to lists of parameters) the "extra" w
 coordinate is a normalization factor. This approach is sometimes
 referred to as generalized homogeneous coordinates or projective
@@ -82,15 +82,15 @@ w values are set to 1, and unspecified z values are set to 0.
 points
 ======
 
-Ordinary yapCAD geometry is assumed to lie in the w=1 hyperplane, and
+Ordinary **yapCAD** geometry is assumed to lie in the w=1 hyperplane, and
 when a vector lies in that plane it is usually interpreted as
 transformable coordinate, or point. Because we
 expect w=1 unless certain types of affine transforms have been
-applied, most yapCAD geometry operations do not look at the w
+applied, most **yapCAD** geometry operations do not look at the w
 coordinate, and operate as though w=1.  
 
 Any vector that lies in the w>0 half-space is a valid coordinate, or
-point. And in yapCAD, ``[x,y,z,w]`` corresponds to the same 3D
+point. And in **yapCAD**, ``[x,y,z,w]`` corresponds to the same 3D
 coordinate as ``[x/w,y/w,z/w,1]``
 
 yapcad.geom provides the ``point()`` convenience function that operates
@@ -168,8 +168,8 @@ degrees "wrap around" to the corresponding angle modulus 360.
 An arc is is represented as a list of one or two vectors and a
 quasivector, *e.g.* ``[ center, [radius, start, end, -1 ], <normal>]``.
 Most of the time, we assume that arcs lie in the x-y plane, which is
-to say yapCAD assumes ``normal = [0,0,1]`` if it's not
-specified. **NOTE:** At present, yapCAD doesn't support non-unit-z
+to say **yapCAD** assumes ``normal = [0,0,1]`` if it's not
+specified. **NOTE:** At present, **yapCAD** doesn't support non-unit-z
 normal vectors for arcs, though it will not stop you from specifying
 one.
 
@@ -337,6 +337,23 @@ them as 4 vectors.
 *operations on lines*
 ---------------------
 
+There are several line-specific computational geometry operations, notably:
+
+- ``linePointXY(l,p,inside=True,distance=False,params=False)`` -- For
+  a point ``p`` and a line ``l`` that lie in the same XY plane,
+  compute the point on ``l`` that is closest to ``p``, and return
+  that point. If ``inside`` is true, then return the closest distance
+  point between the point and the line segment. If ``distance`` is
+  true, return the closest distance, not the point. If ``params`` is
+  true, return the sampling parameter value of the closest point.
+
+- ``linePointXYDist(l,p,inside=True)`` -- Convenience function
+  wrapping fast point-line distance calculation using
+  ``linePointXY()``
+
+*operations on arcs*
+--------------------
+
 """
 
 from math import *
@@ -399,35 +416,46 @@ def vclose(a,b):
     
 ## check to see if argument is a proper vector for our purposes
 def isvect(x):
+    """
+    check to see if argument is a proper vector for our purposes
+    """
     return isinstance(x,list) and len(x) == 4 and isgoodnum(x[0]) and isgoodnum(x[1]) and isgoodnum(x[2]) and isgoodnum(x[3])
     
 ## R^3 -> R^3 functions: ignore w component
 ## ------------------------------------------------
 def add(a,b):
+    """ 3 vector, `a + b`"""
     return [a[0]+b[0],a[1]+b[1],a[2]+b[2],1.0]
 
 def sub(a,b):
+    """ 3 vector, `a - b`"""
     return [a[0]-b[0],a[1]-b[1],a[2]-b[2],1.0]
 
 def scale3(a,c):
+    """ 3 vector, vector ''a'' times scalar ``c``, `a * c`"""
     return [a[0]*c,a[1]*c,a[2]*c,1.0]
 
 ## component-wise 3vect multiplication
 def mul(a,b):
+    """ component-wise 3 vector multiplication"""
     return [a[0]*b[0],a[1]*b[1],a[2]*b[2],1.0]
 
 ## NOTE: this function assumes that a lies in the x,y plane.  If this
 ## is not the case, the results are bogus.
 def orthoXY(a):
-    # compute an orthogonal vector to a, by
-    # crossing [a1, a2, a3] with [0, 0, 1]
+    """compute an orthogonal vector to vector ``a`` which lies in an XY
+plane by crossing `[a1, a2, a3]` with `[0, 0, 1]`"""
 
     return [ a[1], -a[0], 0, 1.0 ]
 
 ## Compute the cross generalized product of a x b, assuming that both
 ## fall into the w=1 hyperplane
 def cross(a,b):
+    """Compute the cross generalized product of a x b, assuming that both
+    fall into the w=1 hyperplane
 
+    """
+    
     return [ a[1]*b[2] - a[2]*b[1],
              a[2]*b[0] - a[0]*b[2],
              a[0]*b[1] - a[1]*b[0],
@@ -435,17 +463,21 @@ def cross(a,b):
 
 ## R^4 -> R^4 functions: operate on w component
 def add4(a,b):
+    """ 4 vector `a + b`"""
     return [a[0]+b[0],a[1]+b[1],a[2]+b[2],a[3]+b[3]]
 
 def sub4(a,b):
+    """ 4 vector `a - b`"""
     return [a[0]-b[0],a[1]-b[1],a[2]-b[2],a[3]-b[3]]
 
 def scale4(a,c):
+    """ 4 vector ``a`` times scalar ``c``"""
     return [a[0]*c,a[1]*c,a[2]*c,a[3]*c]
 
 ## Homogenize, or project back to the w=1 plane by scaling all values
 ## by w
 def homo(a):
+    """Homogenize, or project back to the w=1 plane by scaling all values by w"""
     return [ a[0]/a[3],
              a[1]/a[3],
              a[2]/a[3],
@@ -454,12 +486,15 @@ def homo(a):
 ## R^3 -> R functions -- ignore w component
 ## ----------------------------------------
 def dot(a,b):
+    """ 3 vector ``a`` dot ``b`` """
     return a[0]*b[0]+a[1]*b[1]+a[2]*b[2]
 
 def mag(a):
+    """ compute the magnitude of 3 vector ``a``"""
     return sqrt(a[0]*a[0]+a[1]*a[1]+a[2]*a[2])
 
 def dist(a,b):  # compute distance between two points a & b
+    """ compute the euclidean disgtance between two 3 vector points ``a`` and ``b``"""
     return mag(sub(a,b))
 
 ## R^3 -> bool functions
@@ -467,13 +502,16 @@ def dist(a,b):  # compute distance between two points a & b
 
 # does point p lie inside 3D bounding box bbox
 def isinsidebbox(bbox,p):
+    """ does point ``p`` lie inside 3D bounding box ``bbox``?"""
     return p[0] >= bbox[0][0] and p[0] <= bbox[1][0] and\
         p[1] >= bbox[0][1] and p[1] <= bbox[1][1] and\
         p[2] >= bbox[0][2] and p[2] <= bbox[1][2]
 
-# utility function to determine if a list of points lies in one of the
-# cardinal planes: XY, YZ, XZ
+# utility function to determine if a list of points lies in the specified
+# cardinal plane, one of XY, YZ, XZ
 def isCardinalPlanar(plane="xy",points=[]):
+    """ utility function to determine if a list of points lies in the specified
+# cardinal plane, one of XY, YZ, XZ"""
     if plane=="xy":
         idx = 2
     elif plane == "yz":
@@ -495,25 +533,31 @@ def isCardinalPlanar(plane="xy",points=[]):
 
 ## conveniience functions
 def isXYPlanar(points=[]):
+    """do all points in list lie in XY plane?"""
     return isCardinalPlanar("xy",points)
 
 def isYZPlanar(points=[]):
+    """do all points in list lie in YZ plane?"""
     return isCardinalPlanar("yz",points)
 
 def isXZPlanar(points=[]):
+    """do all points in list lie in XZ plane?"""
     return isCardinalPlanar("xz",points)
 
 
 ## R^4 -> R functions 
 ## ----------------------------------------
 def dot4(a,b):
+    """ 4 vect dot product"""
     return a[0]*b[0]+a[1]*b[1]+a[2]*b[2]+a[3]*b[3]
 
 def mag4(a):
+    """ 4 vect magnitude calculation"""
     return sqrt(a[0]*a[0]+a[1]*a[1]+a[2]*a[2]+a[3]*a[3])
 
 def dist4(a,b):  # compute distance between two points a & b
-    return mag(sub4(a,b))
+    """ 4 vector distance calculation"""
+    return mag4(sub4(a,b))
 
 
 ## misc operations
@@ -600,41 +644,63 @@ def vstr(a):
 ## on points, except to explicitly create them and to test for them.
 
 def point(x=False,y=False,z=False,w=False):
+    """Point creation from point or scalars"""
     if ispoint(x):
         return deepcopy(x)
-    elif isgoodnum(x) and isgoodnum(y) and isgoodnum(z) and isgoodnum(w)\
-       and w > 0:
-        return [ x,y,z,w ]
-    return vect(x,y,z)
+    r = [0,0,0,1]
+    if isgoodnum(x):
+        r[0]=x
+        if isgoodnum(y):
+            r[1]=y
+            if isgoodnum(z):
+                r[2]=z
+                if isgoodnum(w):
+                    r[3]=w
+    if r[3] > 0:
+        return r
+    else:
+        raise ValueError('bad w argument to point()')
+
 
 def ispoint(x):
+    """ is it a point?"""
     if isvect(x) and x[3] > 0.0:
         return True
     return False
 
 ## the length of a point is by definition zero
 def pointlength(x):
+    """ an odd, completionist function that always returns zero"""
     return 0.0
 
 ## the center of a point is.... the same point
 def pointcenter(x):
+    """ the center of a point is.... the same point"""
     return point(x)
 
 ## this only makes sense in the context of generaling computational
 ## geometry operations
 def samplepoint(x,u):
+    """whatever parameter you pass to sampling a point, you get the same point"""
     return point(x)
 
 ## compute 3D bounding box of point, which is 2 epsilon on a side.  Note,
 ## this guarantees that two points that are wtihin epsilon of
 ## eachother will be within eiach other's bbox
 def pointbbox(x):
+    """compute 3D bounding box of point, which is 2 epsilon on a side.  Note,
+    this guarantees that two points that are wtihin epsilon of
+    eachother will be within each other's bbox
+    """
     ee = point(epsilon,epsilon,epsilon)
     return [sub(x,ee),add(x,ee)]
 
 ## inside testing for points.  Only true if points are the same
 ## within epsilon
 def isinsidepointXY(x,p):
+    """ inside testing for points.  Only true if points are the same
+    within epsilon"""
+    
     return dist(x,p) < epsilon
 
 ## operations on lines
@@ -646,6 +712,7 @@ def isinsidepointXY(x,p):
 
 ## make a line, copying points, value-safe
 def line(p1,p2=False):
+    """Value-safe line creation"""
     if isline(p1):
         return deepcopy(p1)
     elif ispoint(p1) and ispoint(p2):
@@ -655,15 +722,18 @@ def line(p1,p2=False):
 
 ## is it a line?
 def isline(l):
+    """ is it a line? """
     return isinstance(l,list) and len(l) == 2 \
         and ispoint(l[0]) and ispoint(l[1])
 
 ## return the length of a line
 def linelength(l):
+    """ return the length of a line"""
     return dist(l[0],l[1])
 
 ## return the center of a line
 def linecenter(l):
+    """ return the center of a line"""
     return scale3(add(l[0],l[1]),0.5)
 
 ## Sample a parameterized line.  Values 0 <= u <= 1.0 will fall within
@@ -671,12 +741,19 @@ def linecenter(l):
 ## segment.
 
 def sampleline(l,u):
+    """Sample a parameterized line ``l``.  Values `0 <= u <= 1.0` will
+    fall within the line segment, values `u < 0` and `u > 1` will fall
+    outside the line segment.
+
+    """
+
     p1=l[0]
     p2=l[1]
     p = 1.0-u
     return add(scale3(p1,p),scale3(p2,u))
 
 def segmentline(l,u1,u2):
+    """slice out a parameterized segment from a line and return this as a new line segment"""
     p1=sampleline(l,u1)
     p2=sampleline(l,u2)
     return [p1,p2]
@@ -686,6 +763,12 @@ def segmentline(l,u1,u2):
 ## of the point from the line is greater than epsilon
 
 def unsampleline(l,p):
+    """
+    function to "unsample" a line -- given a point on a line, provide
+    the corresponding parametric value.  Return False if the distance
+    of the point from the line is greater than epsilon
+    """
+
     v1 = sub(l[1],l[0])
     v2 = sub(p,l[0])
     z = cross(v1,v2)            # magnitude of cross product is zero
@@ -701,6 +784,7 @@ def unsampleline(l,p):
         
 ## compute 3D line bounding box
 def linebbox(l):
+    """ compute 3D line bounding box"""
     p1=l[0]
     p2=l[1]
     return [ point(min(p1[0],p2[0]),min(p1[1],p2[1]),min(p1[2],p2[2])),
@@ -710,10 +794,19 @@ def linebbox(l):
 ## within epsilon
 
 def isinsidelineXY(l,p):
+    """
+    inside testing for line -- only true of point lies on line, to within epsilon.
+    """
+
     return linePointXY(l,p,distance=True) < epsilon
 
 ## Compute the intersection of two lines that lie in the same x,y plane
 def lineLineIntersectXY(l1,l2,inside=True,params=False):
+    """Compute the intersection of two lines that lie in the same XY
+    plane. **NOTE:** It's usually preferable to use the generalized
+    ``intersectXY()`` function than this non-type-safe, line-specific one.
+    """
+
     x1=l1[0][0]
     y1=l1[0][1]
     z1=l1[0][2]
@@ -768,6 +861,16 @@ def lineLineIntersectXY(l1,l2,inside=True,params=False):
 ## result.
 
 def linePointXY(l,p,inside=True,distance=False,params=False):
+
+    """
+    For a point ``p`` and a line ``l`` that lie in the same XY plane,
+    compute the point on ``l`` that is closest to ``p``, and return
+    that point. If ``inside`` is true, then return the closest distance
+    point between the point and the line segment. If ``distance`` is
+    true, return the closest distance, not the point. If ``params`` is
+    true, return the sampling parameter value of the closest point.
+
+    """
     a=l[0]
     b=l[1]
     # check for degenerate case of zero-length line
@@ -891,6 +994,9 @@ def linePointXY(l,p,inside=True,distance=False,params=False):
 
 ## convenience function for fast distance calc
 def linePointXYDist(l,p,inside=True):
+    """
+    Convenience function wrapping point-line distance calculation using ``linePointXY()``
+    """
     return linePointXY(l,p,inside,distance=True)
 
 ## functions that operate on 2D arcs/circles
