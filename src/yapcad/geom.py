@@ -28,7 +28,7 @@
 OVERVIEW
 ====================
 
-The yapcad.geom module provides foundational computatinal geometry
+The yapcad.geom module provides foundational computational geometry
 functions for yapCAD.  This includes operations for computing
 intersections, bounding boxes, inside-outside testing, *etc.*, on both
 simple and compound geometry.
@@ -46,37 +46,37 @@ geometry lists.
 constants
 =========
 
-yapcad.geom provides the "constants" `epsilon` and `pi2` (2*pi).
+yapcad.geom provides the "constants" ``epsilon`` and ``pi2`` (2*pi).
 Redefine these at your peril.
 
 scalars
 =======
 
-Scalar numbers in yapCAD are ordnary Python3 `int` or `float`
+Scalar numbers in yapCAD are ordinary Python3 ``int`` or ``float``
 numbers. This means that in general you will have ordinary
-double-precision floating point dynamic range and precison for your
+double-precision floating point dynamic range and precision for your
 computational geometry operations.  These precision limitations are
-reflected in the empirically-chosen value of `epsilon` of 5E-6.
+reflected in the empirically-chosen value of ``epsilon`` of 5E-6.
 
 vectors
 =======
 
-vectors are defined as a list of four numbers, i.e. `[x,y,z,w]`
+vectors are defined as a list of four numbers, i.e. ``[x,y,z,w]``
 
 When vectors in yapCAD are interpreted as three-dimensional
 coordinates (as opposed to lists of parameters) the "extra" w
-coordinte is a normalization factor. This approach is sometimes
-referred to as generalized homogemeous coordinates or projective
+coordinate is a normalization factor. This approach is sometimes
+referred to as generalized homogeneous coordinates or projective
 coordinates, and was popular with computer graphicists in the
 1990s. See https://en.wikipedia.org/wiki/Homogeneous_coordinates
 
 In this interpretation, the w coordinate is a normalization
 coordinate, and is either 1.0 or all coordinates are assumed to be
 scaled by 1/w.  The inclusion of the w coordinate allows the general
-use of transformation matricies for affine transforms.  
+use of transformation matrices for affine transforms.  
 
-There is a yapcad.geom convenience function, `vect()`, that will make
-a vector out of just about any pausible set of arguments.  Unspecified
+There is a yapcad.geom convenience function, ``vect()``, that will make
+a vector out of just about any plausible set of arguments.  Unspecified
 w values are set to 1, and unspecified z values are set to 0.
 
 points
@@ -90,72 +90,252 @@ applied, most yapCAD geometry operations do not look at the w
 coordinate, and operate as though w=1.  
 
 Any vector that lies in the w>0 half-space is a valid coordinate, or
-point. And in yapCAD, `[x,y,z,w]` corresponds to the same 3D
-coordinate as `[x/w,y/w,z/w,1]`
+point. And in yapCAD, ``[x,y,z,w]`` corresponds to the same 3D
+coordinate as ``[x/w,y/w,z/w,1]``
 
-yapcad.geom provides the `point()` convenience function that operates
-much like `vect()`, except that `point()` enforces that w is always
+yapcad.geom provides the ``point()`` convenience function that operates
+much like ``vect()``, except that ``point()`` enforces that w is always
 greater than zero.
+
+All of the following are examples of a ``yapcad.geom`` point: ::
+
+   pnt1 = point(0,0)
+   pnt2 = point(2.0,-2.0,5.0)
+   pnt3 = vect(0,0,0,1)
+   pnt4 = [1.0, 2.0, 3.0, 1.0]
  
 lines
 =====
 
-Lines are Python3 lists of two points, e.g. the following are all lines:
+Lines are Python3 lists of two points, e.g. the following are all lines: ::
 
-   [point(x1,y1,z1),point(x2,y2,z2)], or
-   [point(x1,y1),point(x2,y2), or
-   [[x1,y1,z1,1.0],[x2,y2,z2,1.0]]
+   line1 = line(point(0,0),point(1,1))
+   line2 = line(point(-5,-5,-5),point(5,5,5))
+   line3 = [point(x1,y1,z1),point(x2,y2,z2)]
+
+Lines are paramaterized over the interval `0 <= u <= 1` where `u=0`
+corresponds to the first point, and `u=1` corresponds to the
+second. Points on the interval between 0 and 1 are considered to be
+"inside" the line segment, and points outside the interval are still
+on the line, but not inside the line segment.  This distinction is
+important for intersection calculations, among other operations.
+
+Lines support all standard ``yapcad.geom`` computational geometry
+operations. (see below)
+
+*bounding boxes*
+----------------
+
+One special type of ``yapcad.geom`` line is a 3D bounding box.  A
+bounding box is a line that spans the "lower bottom left" to "upper
+top right" of a figure, *e.g.* ``bbx =
+[[xmin,ymin,zmin,1],[xmax,ymax,zmax,1]]``. Bounding boxes are used
+internally to speed up inside testing and for a variety of other
+purposes.
 
 arcs
 ====
 
 In yapcad.geom, an arc or circle is defined by a center, a radius, a
 start angle, an end angle, and a normal that specifies the plane of
-the arc/cicle.
+the arc/circle.  Here are some examples of ``yapcad.geom`` arcs: ::
 
-Angles are specified in degrees, and by default are right-handed,
-which is to say a positive angle specifies a counter-clockwise sweep.
+  circle1 = arc(point(5.0,5.0),5.0) # full circle implied
+  circle2 = arc(point(5.0,5.0),5.0,0,360) # special values for start and end
+  notCirc = arc(point(5.0,5.0),5.0,90.0,450.0) # zero-length arc due to mod 360.0
+  semicirc1 = arc(point(0,0),10.0,90.0,270.0)
+  arc2 = arc(point(-1,1,10),1.0,-45.0,45.0,point(0,0,1),samplereverse=True)
 
-A full circle is specified through special values of start and end; If
-and only if start = 0 and end = 360 (both integer values) then the arc
-is a full circle.  **NOTE:** Other values for start and end that span a
-360 degree difference will actually produce a zero-length arc, which
-is probably not what you want.
+Angles are specified in degrees and are right-handed, which is to say
+a positive angle specifies a counter-clockwise sweep.
+
+A full circle is specified through special values of `start` and
+`end`; If and only if ``start == 0 and end == 360`` (both integer values)
+then the arc is a full circle.  **NOTE:** Other values for start and
+end that span a 360 degree difference will actually produce a
+zero-length arc, which is probably not what you want.
+
+Arcs are paramaterized over an interval `0 <= u <=1`, where `u=0`
+corresponds to the point on the arc at the start angle, and `u=1`
+corresponds to the point on the arc at the end angle (unless
+``samplereverse==True``, see below).  Parameters less than zero or
+greater than one correspond to point on the circle outside the angular
+interval between start and end.  **NOTE:** In the special case of a
+circle, the point at `u=0` and `u=1` is the same.  Parameters which
+correspond to angles greater than 360 degrees or less than zero
+degrees "wrap around" to the corresponding angle modulus 360.
 
 An arc is is represented as a list of one or two vectors and a
-pseudovector, *e.g.* `[ center, [radius, start, end, -1 ], <normal>]`.
+quasivector, *e.g.* ``[ center, [radius, start, end, -1 ], <normal>]``.
 Most of the time, we assume that arcs lie in the x-y plane, which is
-to say yapCAD assumes normal = [0,0,1] if it's not
+to say yapCAD assumes ``normal = [0,0,1]`` if it's not
 specified. **NOTE:** At present, yapCAD doesn't support non-unit-z
 normal vectors for arcs, though it will not stop you from specifying
 one.
 
-To mark that the second list element is a pseudovector, we set the w
-component to a negative value.  Since negative w values should never
+To mark that the second list element is a quasivector, we set the `w`
+component to a negative value.  Since negative `w` values should never
 exist for points in our projective geometry system this should be a
-robust convention.  For ordinary arcs, w=-1.  For sample-reversed arcs
-(left-handed arcs, where u=0.0 begins at the end angle, and u=1.0 is
-the start agle) w=-2
+robust convention.  For ordinary arcs, `w=-1`.  For sample-reversed arcs
+(left-handed arcs, where `u=0` begins at the end angle, and `u=1` is
+the start angle) `w=-2`
+
+**NOTE:** Sample-reverse arcs are left-handed with respect to the
+sampling parameter, not with respect to the specification of angles.
+This means that two arcs that are geometrically the same except for
+sampling order will have the beneficial property of having the same
+`start` and `end` values.
+
+Arcs support all standard ``yapcad.geom`` computational geometry
+operations. (see below)
+
+polylines/polygons
+==================
+
+A polyline is specified as a list of three or more points which define
+a series of continuous line segments.  A polygon is a list of four or
+more coplanar points, where the first and last points are coincident,
+`i.e.` ``dist(points[0],points[-1]) < epsilon``.  Here are some
+examples: ::
+
+  plyline1 =[point(-5,-5),point(5,-5),point(0,5),point(0,10)]
+  plygon1 =[point(-5,-5),point(5,-5),point(0,5),point(-5,-5)]
+
+Polylines are parameterized in much the same way as lines.  Values `0
+<= u <=1` correspond to points along the polyline or polygon between
+the start and end points.  In the case of the non-closed polyline,
+values of `u<0` correspond to points on the line in the negative `u`
+parameter space of the first line segment, and values of `u>1`
+correspond to points on the line in the `u>1` space of the last line
+segment.
+
+Polygons are parameterized in the same way, with the exception that,
+like circles, the value at `u=0` and `u=1` are the same, and `u`
+values outside the `[1,0]` interval "wrap around" (are subject to ``u
+% 1.0``) and thus always return a point on the line segments that make
+up the polygon.
+
+Polygons with positive area are defined in right-hand
+(counterclockwise) order.  A polygon with left-hand point order has
+negative area, and implies a hole in a larger surface.
+
+Polylines and polygons support all standard ``yapcad.geom``
+computational geometry operations. (see below)
+
+geometry lists
+===============
+
+Geometry lists are pretty much exactly what they sound like, which is
+to say a Python3 list of other ``yapcad.geom`` elements.  There is
+nothing enforcing continuity of elements in a geometry list, so if
+continuity, coplanar elements, a closed representation, *etc.* are
+required, these constraints must be checked or enforced by the
+functions that operate on them. 
+
+Even though there is no inherent continuity constraint, geometry lists
+do support element-ordered sampling, unsampling, and intersection, as
+well as bounding box calculation and even inside-outside testing,
+though the results of such testing will only make sense for geometry
+lists composed of closed elements.
+
+Geometry lists are paramaterized a bit like polylines, except that
+there is no guarantee of continuity.
 
 ======================
 COMPUTATIONAL GEOMETRY
 ======================
 
-operations on points
-====================
+The primary purpose of the ``yapcad.geom`` module is to support
+computational geometry operations on two-dimensional figures in
+three-dimensional space.  
+
+All of the ``yapcad.geom`` geometry representations, or *figures*,
+described here support the following operations:
+
+- ``length(x)`` -- return the scalar length of figure ``x``
+
+- ``center(x)`` -- return the center point of figure ``x`` 
+
+- ``bbox(x)`` -- return the three-dimensional bounding box of ``x``
+
+- ``sample(x,u)`` -- parameterizing figure ``x`` over the closed
+  interval `[0,1]`, return the point on ``x`` corresponding to the
+  parameter ``u``.
+
+- ``unsample(x,p)`` -- given a point ``p`` and figure ``x``,
+  parameterizing ``x`` over the closed interval `[0,1]`, return the
+  parameter `u` resulting in the point closest to ``p``, or ``False``
+  if no point on ``x`` lies within `epsilon` of ``p``.  **FIXME:**
+  Unsampling of geometry lists is currently unimplemented.
+
+- ``segment(x,u1,u2)`` -- given a figure ``x`` and two scalar
+  parameters ``u1 != u2 and u1 >= 0 and u2 >= 0 and u1 <= 1 and u2 <=
+  1``, return a new figure sliced from the original figure spanning
+  the specified sampling interval.
+
+- ``isinsideXY(x,p)`` -- for figure ``x`` and point ``p`` that lie in
+  the same XY plane, determine whether ``p`` lies within epsilon of
+  the interior of figure ``x``.  In the case where ``x`` is a point,
+  line, or polyline where there is no two-dimensional interior
+  defined, determine if ``p`` lies on or within epsilon of the
+  `0 <= u <=1` parameter domain of figure ``x``.
+
+- ``intersectXY(g1,g2,inside=True,params=False)`` -- Compute the
+  intersections of the two figures ``g1`` and ``g2`` that lie in the
+  same XY plane.  If parameter ``inside == True``, then the
+  intersection is only considered valid if it lies within the parameter
+  domain `0 <= u <= 1` for each figure.  Return a list of intersection
+  points, or the boolean value ``False`` if there are none.  If
+  ``params==True``, then return a list of intersection parameter
+  values for each figure, or ``False`` if there are no intersections.
+
+In addition to the above, ``yapcad.geom`` supports following affine
+transformation operations for all figures:
+
+- ``scale(x,sx=1.0,sy=False,sz=False,cent=point(0,0))`` -- scale the
+  figure ``x``, either uniformly or by specified factors in `x`, `y`, and
+  `z`.  Returns a new scaled figure.
+
+- ``translate(x,delta)`` -- translate the figure ``x`` by the specified
+  ``delta`` vector.  Returns a new translated figure.
+
+- ``rotate(x,ang,cent=point(0,0),axis=point(0,0,1.0))`` -- rotate the
+  figure ``x`` by angle ``ang`` degrees about point ``cent`` and axis
+  ``axis``.  Returns a new rotated figure.
+
+- ``mirror(x,plane)`` -- mirror the figure ``x`` by the axis-aligned,
+  origin-intersecting plane specified by the string ``plane in
+  ['xy','yz','xz']``.  **FIXME:** Allow for the specification of an
+  arbitrary plane described by an intersection point and a normal, or
+  by three points in space. Return a new mirrored figure.
+
+- ``transform(x,m)`` -- apply the arbitrary transformation specified
+  by matrix ``m`` (see the documentation for yapcad.xform) to figure
+  ``x``.  Return a new transformed figure.
+
+specialized computational geometry operations
+===============================================
+
+*operations on points*
+----------------------
 
 Points are defined as vectors that lie in a positive, non-zero
 hyperplane, i.e. `[x, y, z, w]` such that w > 0.  points are
-distinguished from pesuedovectors, such as the parameters to an
+distinguished from quasivectors, such as the parameters to an
 arc, which don't transform as vectors.
 
-Pseudovectors, by contrast, lie in a w < 0 hyperplane.  For example,
-by convention right-handed arc parameters lie in the pseudovector w=-1
+Quasivectors, by contrast, lie in a w < 0 hyperplane.  For example,
+by convention right-handed arc parameters lie in the quasivector w=-1
 hyperplane.
 
-Since points are vectors that happen to lie in a positive hyperplane,
-we don't have a lot of special operations on points, except to
-explicitly create them and to test for them.
+The ``yapcad.geom`` module provides a relatively full set of vector
+operations for adding, subtracting, computing inner and outer
+products, scaling, *etc.*, including versions that treat
+``yapcad.geom`` points/vectors as 3 vectors and versions that treat
+them as 4 vectors.
+
+*operations on lines*
+---------------------
 
 """
 
@@ -174,7 +354,7 @@ pi2 = 2.0*pi
     
 ## utility function to determine if argument is a "real" python
 ## number, since booleans are considered ints (True=1 and False=0 for
-## integer arithmatic) but 1 and 0 are not considered boolean
+## integer arithmetic) but 1 and 0 are not considered boolean
 
 def isgoodnum(n):
     """ determine if an argument is actually a scalar number, and not boolean
@@ -412,8 +592,8 @@ def vstr(a):
 ## distinguished from pesuedovectors, such as the parameters to an
 ## arc, which don't transform as vectors.
 
-## pseudovectors, by contrast, should lie in a w < 0 hyperplane.  For
-## example, by convention arc parameters lie in the pseudovector w=-1
+## quasivectors, by contrast, should lie in a w < 0 hyperplane.  For
+## example, by convention arc parameters lie in the quasivector w=-1
 ## hyperplane
 
 ## since points are vectors, we don't have a lot of special operations
@@ -454,7 +634,7 @@ def pointbbox(x):
 
 ## inside testing for points.  Only true if points are the same
 ## within epsilon
-def isinsidepoint(x,p):
+def isinsidepointXY(x,p):
     return dist(x,p) < epsilon
 
 ## operations on lines
@@ -529,7 +709,7 @@ def linebbox(l):
 ## inside testing for line -- only true of point lies on line, to
 ## within epsilon
 
-def isinsideline(l,p):
+def isinsidelineXY(l,p):
     return linePointXY(l,p,distance=True) < epsilon
 
 ## Compute the intersection of two lines that lie in the same x,y plane
@@ -726,11 +906,11 @@ def linePointXYDist(l,p,inside=True):
 ## infentesimal gap.
 
 ## an arc is defined as a list of one or two vectors and a
-## pseudovector: [ center, [r, s, e], <normal>].  Most of the time, we
+## quasivector: [ center, [r, s, e], <normal>].  Most of the time, we
 ## assume that arcs lie in the x-y plane, which is to say that
 ## normal = [0,0,1] if it's not specified.
 
-## to mark that the second list element is a pseudovector, we set the
+## to mark that the second list element is a quasivector, we set the
 ## w component to a negative value.  Since negative w values should
 ## never exist for vectors in our projective geometry system this
 ## should be a robust convention.  For ordinary arcs, w=-1.  For
@@ -924,7 +1104,7 @@ def arcbbox(c):
             pp.append(samplearc(c,u))
         return polybbox(pp)
 
-def isinsidearc(c,p):
+def isinsidearcXY(c,p):
     x = c[0]
     r = c[1][0]
     if dist(x,p) > r:
@@ -1433,7 +1613,7 @@ def polybbox(a):
 ## only valid for closed polylines.  Count the intersections for a
 ## line drawn from point to test to a point outside the bounding
 ## box. Inside only if the number of intersections is odd.
-def isinsidepoly(a,p):
+def isinsidepolyXY(a,p):
     closed=False
 
     if len(a) > 2 and dist(a[0],a[-1]) < epsilon:
@@ -1820,7 +2000,7 @@ def geomlistbbox(gl):
 ## intersections for a line drawn from point to test to a point
 ## outside the bounding box. Inside only if the number of
 ## intersections is odd.
-def isinsidegeomlist(a,p):
+def isinsidegeomlistXY(a,p):
 
     bb = geomlistbbox(a)
     if not isinsidebbox(bb,p):
@@ -2045,6 +2225,9 @@ def isInsideConvexPolyXY(a,poly):
 ## and finding intersections.
 
 def length(x):
+    """
+    Return the scalar length of figure x.
+    """
     if ispoint(x):
         # return pointlength(x):
         return 0.0
@@ -2063,6 +2246,9 @@ def length(x):
         raise ValueError("inappropriate type for length(): ".format(x))
 
 def center(x):
+    """
+    Return the point corresponding to the center of figure x.
+    """
     if ispoint(x):
         # return pointcenter(x)
         return point(x)
@@ -2081,6 +2267,9 @@ def center(x):
         raise ValueError("inappropriate type for center(): ",format(x))
     
 def bbox(x):
+    """
+    Given a figure x, return the three-dimensional bounding box of the figure.
+    """
     if ispoint(x):
         return pointbbox(x)
     elif isline(x):
@@ -2096,6 +2285,11 @@ def bbox(x):
 
 ## 
 def sample(x,u):
+    """
+    Given a figure x and a parameter u, return the point on the figure
+    corresponding to the specified sampling parameter.
+
+    """
     if ispoint(x):
         # return pointsample(x)
         return point(x)
@@ -2108,19 +2302,63 @@ def sample(x,u):
     elif isgeomlist(x):
         return samplegeomlist(x,u)
     else:
-        raise ValueError("inappropriate type for sample(): ",format(x))
+        raise ValueError("inappropriate type for sample(): " + str(x))
 
-def isinside(x,p):
+def unsample(x,p):
+    """
+    Invert the sampling operation: return the parameter corresponding
+    to the closest point on the figure to p as long as the distance is
+    less than epsilon.
+
+    """
     if ispoint(x):
-        return isinsidepoint(x,p)
+        if vclose(x,p):
+            return 0.0
+        else:
+            return False
     elif isline(x):
-        return isinsideline(x,p)
+        return unsampleline(x,p)
     elif isarc(x):
-        return isinsidearc(x,p)
+        return unsamplearc(x,p)
     elif ispoly(x):
-        return isinsidepoly(x,p)
+        return unsamplepoly(x,p)
     elif isgeomlist(x):
-        return isinsidegeomlist(x,p)
+        raise NotImplementedError('unsampling geometry lists currently not supported')
+    else:
+        raise ValueError("inappropriate type for unasample(): "+str(x))
+
+def segment(x,u1,u2):
+    """ given a figure x, create a new figure spanning the specified interval in the original figure
+    """
+    if not (isgoodnum(u1) and isgoodnum(u2)) or close(u1,u2) or u1<0 or u2 < 0 or u1 > 1 or u2 > 1:
+        raise ValueError('bad parameter arguments passed to segment: '+str(u1)+', '+str(u2))
+    if ispoint(x):
+        return deepcopy(x)
+    elif isline(x):
+        return segmentline(x,u1,u2)
+    elif isarc(x):
+        return segmentarc(x,u1,u2)
+    elif ispoly(x):
+        return segmentpoly(x,u1,u2)
+    elif isgeomlist(x):
+        return segmentgeomlist(x,u1,u2)
+    else:
+        raise ValueError("inappropriate figure type for segment(): "+str(x))
+    
+
+    
+    
+def isinsideXY(x,p):
+    if ispoint(x):
+        return isinsidepointXY(x,p)
+    elif isline(x):
+        return isinsidelineXY(x,p)
+    elif isarc(x):
+        return isinsidearcXY(x,p)
+    elif ispoly(x):
+        return isinsidepolyXY(x,p)
+    elif isgeomlist(x):
+        return isinsidegeomlistXY(x,p)
     else:
         raise ValueError("bad thing passed to inside: {}".format(x))
 
@@ -2260,7 +2498,7 @@ def rotate(x,ang,cent=point(0,0),axis=point(0,0,1.0),mat=False):
 
 ## generalized geometry mirror function
 
-def mirror(g,plane):
+def mirror(x,plane):
     flip=point(1,1,1)
     if plane == 'xz':
         flip[1]= -1
@@ -2271,13 +2509,13 @@ def mirror(g,plane):
     else:
         raise ValueError('bad reflection plane passed to mirror')
 
-    if ispoint(g):
-        return point(mul(g,flip))
-    elif isarc(g):
-        a2=arc(g)
-        a2[0] = mul(g[0],flip)
-        start = g[1][1]
-        end  = g[1][2]
+    if ispoint(x):
+        return point(mul(x,flip))
+    elif isarc(x):
+        a2=arc(x)
+        a2[0] = mul(x[0],flip)
+        start = x[1][1]
+        end  = x[1][2]
         if not (start == 0 and end == 360):
             ## mirror the arc segment
             ps = point(cos(start*pi2/360.0),sin(start*pi2/360.0))
@@ -2289,18 +2527,18 @@ def mirror(g,plane):
             a2[1][1]=start
             a2[1][2]=end
         return a2
-    elif ispoly(g):
+    elif ispoly(x):
         ply = []
-        for p in g:
+        for p in x:
             ply.append(mul(p,flip))
         return ply
-    elif isgeomlist(g):
+    elif isgeomlist(x):
         r = []
-        for x in g:
-            r.append(mirror(x,plane))
+        for xx in x:
+            r.append(mirror(xx,plane))
         return r
     else:
-        raise ValueError('bad thing in list passed to mirror: {}'.format(g))
+        raise ValueError('bad thing in list passed to mirror: {}'.format(x))
 
     
     
