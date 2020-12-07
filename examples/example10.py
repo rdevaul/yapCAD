@@ -108,7 +108,7 @@ def testPoints(points,geom,testElements=True):
         ins = False
         if testElements:
             for g in geom:
-                if isinside(g,p):
+                if isinsideXY(g,p):
                     inpts.append(p)
                     ins = True
                     continue
