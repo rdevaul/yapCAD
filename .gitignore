@@ -48,3 +48,6 @@ MANIFEST
 
 # Per-project virtualenvs
 .venv*/
+
+# generated DXF files in examples
+examples/*.dxf
