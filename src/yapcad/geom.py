@@ -334,6 +334,14 @@ products, scaling, *etc.*, including versions that treat
 ``yapcad.geom`` points/vectors as 3 vectors and versions that treat
 them as 4 vectors.
 
+Other notable computational geometry operations on points:
+
+- ``barycentricXY(a,p1,p2,p3):`` -- Given a point ``a`` and three
+  vertices ``p1``, ``p2``, and ``p3``, all of which fall into the same
+  XY plane, compute the barycentric coordinates lam1, lam2, and lam3
+  and return them as a list.
+    
+
 *operations on lines*
 ---------------------
 
@@ -353,6 +361,38 @@ There are several line-specific computational geometry operations, notably:
 
 *operations on arcs*
 --------------------
+
+In addition to the standard operations, there are several arc-specific
+computational geometry operations, notably:
+
+- ``lineArcIntersectXY(l,c,inside=True,params=False)`` -- Value safe
+  function to compute the intersection of a line ``l`` and an arc
+  ``c`` that lie in the same XY plane.  If ``inside == True`` only
+  return intersections that lie within the line and arc segment,
+  otherwise treat the line as infinite and the arc as a circle.
+  Return a list of intersection points, or if ``params == True``
+  return a list of intersection parameters instead.
+
+- ``circleCircleTangentsXY(c0,c1)`` -- Value-safe function to compute
+  tangent lines to two coplanar circles ``c0`` and ``c1`` lying in the
+  same XY plane.  Function will either return two lines or ``False``,
+  if the center of the circles are too close together.
+
+*operations on polylines and polygons*
+--------------------------------------
+
+In addition to the standard operations, there are several polyline-
+and polygon-specific computational geometry operations, notably:
+
+- ``samplepoly(a,u)`` -- Sample the poly ``a`` at parameter ``u``,
+  where u is mapped proportionally across the length of all line
+  segments, and return the resulting point.  If ``a`` is a closed
+  polygon, then sample at ``u % 1.0``, such that samples outside the
+  `[0,1]` interval "wrap around".  If ``a`` is not closed and ``u<0``,
+  then samples are drawn from the first line in the ``u<0`` paramter
+  space of that line.  If ``a`` is not closed and ``u>1``, then
+  samples are drawn from the last line in the ``u>1`` paramter space
+  of that line.
 
 """
 
@@ -1113,8 +1153,16 @@ def iscircle(a):
 
 ## function to return the midpoint of an arc
 def arccenter(c):
-    """ return the midpoint of an arc.  **NOTE:** if you want the center point of an arc or circle, this is not the droid you are looking for."""
-    return samplearc(c,0.5)
+    """ 
+    return the midpoint of an arc.  In the special case of a complete circle, 
+    return the center of the circle.
+    """
+    start=c[1][1] 
+    end=c[1][2]
+    if start == 0 and end == 360:
+        return c[0]
+    else:
+        return samplearc(c,0.5)
     
 ## function to return the length of an arc
 def arclength(c):
@@ -1136,7 +1184,7 @@ def arclength(c):
 
 ## Sample the arc over the start-end angle interval
 def samplearc(c,u,polar=False):
-    """sample the arc ``c`` at parameter ``u``. If ``polar`` is true, return polar coordinates of angle and radius with cartesian center."""
+    """sample the arc ``c`` at parameter ``u`` and return the resulting point.  If ``polar`` is true, return polar coordinates of angle and radius with cartesian center."""
     p=c[0]
     r=c[1][0]
     start=c[1][1]
@@ -1182,7 +1230,11 @@ def segmentarc(c,u1,u2):
 ## circle, return it's corresponding sample parameter, or False if the
 ## point doesn't lie on the circle
 def unsamplearc(c,p):
-    """unsample the arc"""
+    """
+    unsample the arc ``c`` at point ``p``, which is to day given a point that is on the
+    circle, return it's corresponding sample parameter, or False if the
+    point is more than `epsilon` from the circle.
+    """
     x = sub(p,c[0])
     r=c[1][0]
     start=c[1][1]
@@ -1227,6 +1279,13 @@ def arcbbox(c):
         return polybbox(pp)
 
 def isinsidearcXY(c,p):
+    """
+    Determine if point ``p`` lies on (within `epsilon of) the arc ``c``.  In the special
+    case where ``c`` is a circle, determine if point ``p`` lies
+    anywhere on or inside the circle.
+
+    """
+
     x = c[0]
     r = c[1][0]
     if dist(x,p) > r:
@@ -1252,6 +1311,7 @@ def isinsidearcXY(c,p):
 
 ## arc-arc intersection calculation, non-value-safe version
 def _arcArcIntersectXY(c1,c2,inside=True,params=False):
+    """non-value-safe function to compute the intersetion of two arcs"""
     x1=c1[0]
     x2=c2[0]
     r1=c1[1][0]
@@ -1419,6 +1479,17 @@ def _arcArcIntersectXY(c1,c2,inside=True,params=False):
 
 ## value-safe wrapper for arc-arc intersection function
 def arcArcIntersectXY(c1,c2,inside=True,params=False):
+    """
+    Value-safe function to compute the intersection of two arcs that
+    lie in the same XY plane.  If ``inside == True``, only count
+    intersections within the arc segments.  If ``inside == False``,
+    then treat the arcs as circles for intersection
+    calculation. Return a list of the intersection points, or if
+    ``params==True`` return a list of the intersection parameters for
+    each arc.
+
+    """
+    
     for c in [c1,c2]:
         if len(c) == 3:
             norm = c[2]
@@ -1431,6 +1502,9 @@ def arcArcIntersectXY(c1,c2,inside=True,params=False):
 
 ## non-value-safe line-arc intersection function
 def _lineArcIntersectXY(l,c,inside=True,params=False):
+    """
+    non-value-safe function for computing the intersection of a line and an arc
+    """
     x=c[0]
     r=c[1][0]
 
@@ -1526,6 +1600,16 @@ def _lineArcIntersectXY(l,c,inside=True,params=False):
 
 ## value-safe wrapper for line-arc intersection function
 def lineArcIntersectXY(l,c,inside=True,params=False):
+    """
+    Value safe function to compute the intersection of a line ``l``
+    and an arc ``c`` that lie in the same XY plane.  If ``inside ==
+    True`` only return intersections that lie within the line and arc
+    segment, otherwise treat the line as infinite and the arc as a
+    circle.  Return a list of intersection points, or if ``params ==
+    True`` return a list of intersection parameters instead.
+
+    """
+    
     if len(c) == 3:
         norm = c[2]
         if dist(norm,vect(0,0,1)) > epsilon:
@@ -1541,6 +1625,11 @@ def lineArcIntersectXY(l,c,inside=True,params=False):
 ## the center of the circles are too close together.
 
 def _circleCircleTangentsXY(c1,c2):
+    """ non-value-safe function to compute tangent lines to two coplanar circles lying in
+    an x-y plane.  Function will either return two lines or False, if
+    the center of the circles are too close together.
+    """
+
     a = c1[1][0]
     b = c2[1][0]
     if a>b:
@@ -1607,6 +1696,12 @@ def _circleCircleTangentsXY(c1,c2):
 
 ## value safe wrapper
 def circleCircleTangentsXY(c0,c1):
+    """
+    Value-safe function to compute tangent lines to two coplanar circles ``c0`` and ``c1`` lying in
+    the same XY plane.  Function will either return two lines or ``False``, if
+    the center of the circles are too close together.
+    """
+    
     if not iscircle(c0) or not iscircle(c1):
         raise ValueError('non circles passed to circleCirlceTangentsXY')
     if len(c0) == 3:
@@ -1632,6 +1727,10 @@ def pointCircleTangentsXY(p,c1):
 ## given a point a and three vertices, all of which fall into the x-y
 ## plane, compute the barycentric coordinates lam1, lam2, and lam3
 def _barycentricXY(a,p1,p2,p3):
+    """
+    given a point a and three vertices, all of which fall into the XY
+    plane, compute the barycentric coordinates lam1, lam2, and lam3
+    """
     x=a[0]
     y=a[1]
 
@@ -1656,6 +1755,11 @@ def _barycentricXY(a,p1,p2,p3):
     return [lam1,lam2,lam3]
 
 def barycentricXY(a,p1,p2,p3):
+    """Given a point ``a`` and three vertices ``p1``, ``p2``, and ``p3``,
+    all of which fall into the same XY plane, compute the barycentric
+    coordinates lam1, lam2, and lam3
+
+    """
     if not isXYPlanar([a,p1,p2,p3]):
         raise ValueError('non-XY points in barycentricXY call')
     return _barycentricXY(a,p1,p2,p3)
@@ -1676,6 +1780,8 @@ def barycentricXY(a,p1,p2,p3):
 ## testing. polylines also have bounding boxes.
 
 def poly(*args):
+    """ Make a polyline or polygon by copying an existing poly or from a list of points or individual points
+    """
     if len(args) == 0 or len(args) == 2:
         raise ValueError('bad number of arguments {} passed to poly()'.format(len(args)))
     if len(args) == 1:
@@ -1691,16 +1797,24 @@ def poly(*args):
     return deepcopy(a)
 
 def ispoly(a):
+    """is ``a`` a poly?"""
     return isinstance(a,list) and len(a) > 2 and \
         len(list(filter(lambda x: not ispoint(x),a))) == 0
 
 ## Note: this does not test for all points lying in the same plane
 def ispolygon(a):
+    """is ``a`` a polygon?"""
     return ispoly(a) and dist(a[0],a[-1]) < epsilon
 
 ## if it's a polyline, sample the middle.  If it's a polygon, compute
 ## the barycentric cemter with equal vertex weighting.
 def polycenter(a):
+    """
+    Return the midpoint of polyline ``a``.  In the case where ``a`` is
+    a closed polygon, return the barycentric center with equal vertex
+    weighting.
+
+    """
     if ispolygon(a):
         p=point(0,0)
         l= len(a)-1
@@ -1712,6 +1826,7 @@ def polycenter(a):
 
 ## we heart poly bboxes
 def polybbox(a):
+    """Compute the bounding box of polyline/polygon ``a``"""
     if len(a) == 0:
         return False
     elif len(a) == 1:
@@ -1736,14 +1851,25 @@ def polybbox(a):
 ## line drawn from point to test to a point outside the bounding
 ## box. Inside only if the number of intersections is odd.
 def isinsidepolyXY(a,p):
+    """
+    Determine if point ``p`` lies on (within `epsilon of) the polyline ``a``.  In the 
+    case where ``a`` is a closed polygon, determine if point ``p`` lies anywhere within
+    the polygon by even-odd line intersection method.
+
+    """
     closed=False
 
     if len(a) > 2 and dist(a[0],a[-1]) < epsilon:
         closed = True
 
-    ## return false if poly is not closed
+    ## if not closed, use "unsample" test to determine if ``p`` lies
+    ## on the polyline
     if not closed:
-        return False
+        if unsamplepoly(a,p) == False:
+            return False
+        else:
+            return True
+    ## poly is closed polygon
     bb = polybbox(a)
     ## do quick bounding box check
     if not isinsidebbox(bb,p):
@@ -1762,6 +1888,7 @@ def isinsidepolyXY(a,p):
 
 ## is it a polygon with all points in the same x-y plane
 def ispolygonXY(a):
+    """is ``a`` an XY-coplanar polygon?"""
     return ispolygon(a) and isXYPlanar(a)
 
 ## utility function used by both samplepoly() and unsamplepoly()
@@ -1782,6 +1909,16 @@ def __lineslength(a):
 ## and return the sample point corresponding to the parameter u
 
 def samplepoly(a,u):
+    """
+    Sample the poly ``a`` at parameter ``u`` and return the resulting
+    point.  If ``a`` is a closed polygon, then sample at ``u % 1.0``.
+    If ``a`` is not closed and ``u<0``, then samples are drawn from
+    the first line in the ``u<0`` paramter space of that line.  If
+    ``a`` is not closed and ``u>1``, then samples are drawn from the
+    last line in the ``u>1`` paramter space of that line.
+
+    """
+    
     if not ispoly(a):
         raise ValueError('non-poly passed to samplepoly')
 
@@ -1809,6 +1946,9 @@ def samplepoly(a,u):
         return sampleline(lines[-1],uu)
 
 def segmentpoly(a,u1,u2):
+    """slice out a parameterized segment from polyline or polygon ``a``
+    and return this as a new polyline"""
+
     if not ispoly(a):
         raise ValueError('non-poly passed to segmentpoly')
     closed=False
@@ -1847,6 +1987,12 @@ def segmentpoly(a,u1,u2):
 ## segment
 
 def unsamplepoly(a,p):
+    """
+    anlogous to the unsampleline() and unsamplearc() functions, given a
+    point on a poly, return the corresponding sample parameter, or
+    False if the point is more than epsilon away from any poly line
+    segment
+    """
     if not ispoly(a):
         raise ValueError('non-poly passed to unsamplepoly')
     closed = False
@@ -2347,6 +2493,7 @@ def isInsideConvexPolyXY(a,poly):
 ## and finding intersections.
 
 def length(x):
+
     """
     Return the scalar length of figure x.
     """
