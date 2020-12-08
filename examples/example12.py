@@ -1,13 +1,5 @@
 ## yapCAD boolean operations geometry example
 
-print("example12.py -- yapCAD boolean operations demonstration")
-print("""
-This is an example of a complex boolean operation on Polygon() an Boolean()
-instances
-
-This demo also allows you to choose the rendering back-end from the
-command line""")
-
 from yapcad.geom import *
 from yapcad.poly import *
 from yapcad.combine import *
@@ -103,6 +95,8 @@ if __name__ == "__main__":
     import sys
     renderOgl = False
     filename="example12-out"
+    print("example12.py -- yapCAD boolean operations demonstration")
+
     oglarg= ("pyglet","opengl","OpenGL")
     dxfarg= ("ezdxf","dxf","DXF")
     if len(sys.argv) > 1:
@@ -111,6 +105,8 @@ if __name__ == "__main__":
         elif sys.argv[1] in dxfarg:
             renderOgl=False
         else:
+            print("This is an example of a complex boolean operation on Polygon() and")
+            print("Boolean() instances. ")
             print("syntax: $ python3 {} <rendertype> [filename]".format(sys.argv[0]))
             print("    where <rendertype> is one of {} for OpenGL".format(oglarg))
             print("    or one of {} for DXF".format(dxfarg))

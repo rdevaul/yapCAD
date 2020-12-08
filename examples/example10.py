@@ -1,15 +1,5 @@
 ## yapCAD 3D inside-outside testing example
 
-print("example10.py -- yapCAD inside-outside testing demonstration")
-print("""
-In this example, we create different types of yapCAD geometry and
-randomly gemerate test ponts.  Test points that fall inside are
-rendered as aqua crosses, points that fall outside are rendered as red
-crosses.
-
-This demo also allows you to choose the rendering back-end from the
-command line""")
-
 from yapcad.geom import *
 import yapcad.poly as poly
 import random
@@ -159,6 +149,8 @@ def testAndDraw(dd):
     
 if __name__ == "__main__":
     import sys
+    print("example10.py -- yapCAD inside-outside testing demonstration")
+
     renderOgl = False
     filename="example10-out"
     oglarg= ("pyglet","opengl","OpenGL")
@@ -169,6 +161,13 @@ if __name__ == "__main__":
         elif sys.argv[1] in dxfarg:
             renderOgl=False
         else:
+            print("""
+ In this example, we create different types of yapCAD geometry and
+ randomly gemerate test points.  Test points that fall inside are
+ rendered as aqua crosses, points that fall outside are rendered as red
+ crosses.
+            """)
+
             print("syntax: $ python3 {} <rendertype> [filename]".format(sys.argv[0]))
             print("    where <rendertype> is one of {} for OpenGL".format(oglarg))
             print("    or one of {} for DXF".format(dxfarg))

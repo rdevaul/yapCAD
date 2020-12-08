@@ -1,14 +1,5 @@
 ## yapCAD 3D geometry example
 
-print("example9.py -- yapCAD 3D geometry demonstration")
-print("""
-This is a demonstration of the creation and rendering of
-three-dimensional geometry using yapCAD and the pyglet openGL draing
-engine.
-
-In this example we create an icosohedron centered at the orign and
-tesellate it spherically""")
-
 from yapcad.geom import *
 import math
 
@@ -127,6 +118,15 @@ def sphere(diameter,center=point(0,0,0),depth=2):
         
 if __name__ == "__main__":
     from yapcad.pyglet_drawable import *
+    print("example9.py -- yapCAD 3D geometry demonstration")
+    print("""
+This is a demonstration of the creation and rendering of
+three-dimensional geometry using yapCAD and the pyglet openGL draing
+engine.
+
+In this example we create an icosohedron centered at the orign and
+tesellate it spherically""")
+
     dd=pygletDraw()
     dd.linecolor = 'white'
 

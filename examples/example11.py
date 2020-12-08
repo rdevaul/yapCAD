@@ -1,13 +1,5 @@
 ## yapCAD boolean operations geometry example
 
-print("example11.py -- yapCAD boolean operations demonstration")
-print("""
-In this example, we create yapCAD Polygon() geometry generators and
-perform boolean operations on them to create combined profiles.
-
-This demo also allows you to choose the rendering back-end from the
-command line""")
-
 from yapcad.geom import *
 from yapcad.poly import *
 from yapcad.combine import *
@@ -98,12 +90,15 @@ if __name__ == "__main__":
     filename="example11-out"
     oglarg= ("pyglet","opengl","OpenGL")
     dxfarg= ("ezdxf","dxf","DXF")
+    print("example11.py -- yapCAD boolean operations demonstration")
     if len(sys.argv) > 1:
         if sys.argv[1] in oglarg:
             renderOgl=True
         elif sys.argv[1] in dxfarg:
             renderOgl=False
         else:
+            print(" In this example, we create yapCAD Polygon() geometry generators and")
+            print(" perform boolean operations on them to create combined figures.")
             print("syntax: $ python3 {} <rendertype> [filename]".format(sys.argv[0]))
             print("    where <rendertype> is one of {} for OpenGL".format(oglarg))
             print("    or one of {} for DXF".format(dxfarg))

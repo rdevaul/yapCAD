@@ -1,11 +1,5 @@
 ## yapCAD poly() intersecton and drawing examples
 
-print("example8-gl.py -- yapCAD computational geometry openGL drawing example")
-print("""
-This is a demo of the Polygon() and mirror capabilities of yapCAD,
-making and then mirroring random "flowers."
-""")
-
 from yapcad.geom import *
 from yapcad.poly import *
 import random
@@ -13,6 +7,12 @@ import random
 from examples.example8 import *
 
 if __name__ == "__main__":
+
+    print("example8-gl.py -- yapCAD computational geometry openGL drawing example")
+    print("""
+ This is a demo of the Polygon() and mirror capabilities of yapCAD,
+ making and then mirroring random "flowers."  Renders output interactively with OpenGL.
+    """)
 
     from yapcad.pyglet_drawable import *
     dd=pygletDraw()

@@ -1,11 +1,5 @@
 ## yapCAD poly() intersecton and drawing examples
 
-print("example8.py -- yapCAD computational geometry and DXF drawing example")
-print("""
-This is a demo of the Polygon() and mirror capabilities of yapCAD,
-making and then mirroring random "flowers."
-""")
-
 from yapcad.geom import *
 from yapcad.poly import *
 import examples.example10 as example10
@@ -84,6 +78,12 @@ if __name__ == "__main__":
 
     from yapcad.ezdxf_drawable import *
     #set up DXF rendering
+
+    print("example8.py -- yapCAD computational geometry and DXF drawing example")
+    print("""
+This is a demo of the Polygon() and mirror capabilities of yapCAD,
+making and then mirroring random "flowers."
+    """)
     dd=ezdxfDraw()
     filename="example8-out"
     print("Output file name is {}.dxf".format(filename))
