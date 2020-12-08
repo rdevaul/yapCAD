@@ -3,11 +3,48 @@ yet another procedural CAD and computational geometry system written in python 3
 
 ![**yapCAD** image](images/yapCadSplash.png)
 
+## **yapCAD** installation, documentation, and examples
+
+### installation
+**yapCAD** is a pure python library, so no special steps are required
+for installation.  You can install it a variety of ways, but the
+recommended method is to use pip to install it into your local
+`site-packages` directory, as follows:
+
+	pip install yapCAD --user
+	
+You can also clone the github repository and install from source:
+
+	git clone https://github.com/rdevaul/yapCAD.git
+	cd yapCAD
+	python setup.py install --user
+
+### examples
+
+The **yapCAD** github repository includes examples. To run the
+examples, clone the github repository as shown above, and make sure
+that your PYTHONPATH includes the cloned top-level `yapCAD` directory.
+You will find the examples in the `yapCAD/examples` directory.
+
+### documentation
+
+To build the HTML **yapCAD** documentation, first make sure you have the
+sphinx package installed:
+
+	pip install sphinx --user
+
+Then clone the github repository as shown above,
+`cd` to the `yapCAD` directory, and type
+
+	make -C docs html
+	
+This will build the HTML documents in the `build/sphinx/html` directory
+
 ## **yapCAD** goals
 
 The purpose of **yapCAD** is to support 2D and 3D computational geometry and procedural CAD projects in python3.  **yapCAD** is designed to support multiple rendering back-ends, such that a relatively small amount of code is necessary to add support for a 2D or 3D cad or drawing file format.  At present, **yapCAD** supports the AutoCad DXF file format for creating two-dimensional drawings and OpenGL for creating interactive 2D and 3D renderings. 
 
-The foundations of **yapCAD** are grounded in decades of the author's experience with graphics system programming, 3D CAD and simulation. **yapCAD** has an underlying framework and architecture designed to support sohpisticated computational geometry and procedural CAD applications.  At the same time, the design of **yapCAD** should make easy stuff relatively easy, and the more advanced stuff possible. 
+The foundations of **yapCAD** are grounded in decades of the author's experience with graphics system programming, 3D CAD and simulation. **yapCAD** has an underlying framework and architecture designed to support sophisticated computational geometry and procedural CAD applications.  At the same time, the design of **yapCAD** should make easy stuff relatively easy, and the more advanced stuff possible. 
 
 The initial implementation of **yapCAD** provides DXF file creation support through the awesome [ezdxf](https://github.com/mozman/ezdxf) package, and interactive OpenGL visualization using the amazing [pyglet](https://github.com/pyglet/pyglet) package.
 
@@ -62,8 +99,8 @@ The **yapCAD** system isn't just about rendering, of course, it's about computat
     l1 = line(a,b)
     l2 = line(c,d)
 
-    # define a semicircular arc centerd at 2.5, 2,5 with a radius of 2.5
-    # extending from 90 degress to 135 degrees
+    # define a semicircular arc centered at 2.5, 2,5 with a radius of 2.5
+    # extending from 90 degrees to 135 degrees
 
     arc1=arc(point(2.5,2.5),2.5,90.0,270.0)
 
@@ -94,23 +131,23 @@ exists independent of these attributes, which are themselves
 rendering-system dependent.
 
 More importantly, for every geometric element you decide to draw,
-there will typcialy be many more &mdash; perhaps dozens &mdash; that
+there will typically be many more &mdash; perhaps dozens &mdash; that
 should not be in the final rendering.  By separating these two
 elements &mdash; computation and rendering &mdash; **yapCAD** makes them
-both more intentional and reduces the likelyhood of certain type of
+both more intentional and reduces the likelihood of certain type of
 drawing-quality issues, such as redundant or spurious drawing
 elements, that can cause confusion problems for computer-aided
 manufacturing (CAM).
 
 For example, you might construct a finished drawing that includes a
-drill patern that consists of circles (drill holes with centers) that
-follow a complex, geometrically constrained patern.  This patern is
+drill pattern that consists of circles (drill holes with centers) that
+follow a complex, geometrically constrained pattern.  This pattern is
 itself the result of numerous computational geometry operations,
 perhaps driven by parameters relating to the size and shape of other
 parts. 
 
 In a program like Autodesk's Fusion360, you would typically use
-construction lines and constraints to create the underliying geometric
+construction lines and constraints to create the underlying geometric
 pattern.  These additional construction elements would have to be
 removed in order to make a clean DXF export of your drawing.  On more
 than one occasion **yapCAD**'s author has created headaches by failing to
@@ -124,7 +161,7 @@ what to draw.  It also means you can do computational geometry in
 when incorporating these geometry operations as part of a larger
 computational system, such as a tool-path generator. 
 
-As a rule, in **yapCAD** pure geonetry representations capture only the
+As a rule, in **yapCAD** pure geometry representations capture only the
 minimum necessary to perform computational geometry, and the rest gets
 dealt with by the rendering system, which are subclasses of `Drawable`
 that actually make images, CAD drawings, ***etc.***
@@ -135,7 +172,7 @@ projective geometry 4-vectors. (see discussion in **architecture**,
 below) However, most of the time you
 will work with them as though they are 3-vectors or 2-vectors.
 
-It woud be annoying to have to specify the redundant coordinates you
+It would be annoying to have to specify the redundant coordinates you
 aren't using every time you specify a vector, so **yapCAD** provides you
 with the `vect` function.  It fills in defaults for the z and w
 parameters you may not want to specify.  ***e.g.***
@@ -218,7 +255,7 @@ are special in that they are always closed, and that any full circle
 elements are interpreted as "rounded corners," with the actual span of
 the arc calculated after tangent lines are drawn.
 
-The `Polygon` class supports boolean opearations, as described below,
+The `Polygon` class supports boolean operations, as described below,
 and also supports the `grow()` operation that makes generating a
 derived figure that is bigger by a fixed amount easy.  This grow
 feature is very useful for many engineering operations, such as
@@ -226,7 +263,7 @@ creating an offset path for drill holes, CAM paths, etc.
 
 #### boolean operations on `Polygon` instances
 **yapCAD** supports boolean set operations on `Polygon` instances,
-allowing you to construct more complex two-dimensiomal figures from
+allowing you to construct more complex two-dimensional figures from
 union, intersection, and difference operations.  Note that the
 difference operation can result in the creation of disjoint geometry
 in the form of two or more closed figures with positive area (see
@@ -241,7 +278,7 @@ right-handed geometry (increasing the sampling parameter corresponds
 to points that trace a counter-clockwise path) represent "positive"
 area, and that closed figures with left-handed geometry represent
 holes.  This distinction is currently not operational, but will be
-important for future development such as turning polygons into rendred
+important for future development such as turning polygons into rendered
 surfaces and extruding these surfaces into 3D.
 
 #### disjoint compound geometry 
@@ -260,7 +297,7 @@ more `Drawable` instances.
 
 In **yapCAD**, geometry is rendered with instances of subclasses of
 `Drawable`, which at present include `ezdxfDrawable`, a class for
-producing DXF renderinsgs using the awesome `ezdxf` package, and
+producing DXF renderings using the awesome `ezdxf` package, and
 `pygletDrawable`, a class for interactive 2D and 3D OpenGL rendering.
 
 To setup a drawing environment, you create an instance of the
@@ -280,17 +317,17 @@ it easy to support other rendering backends.
 ## **yapCAD** architecture
 
 Under the hood, **yapCAD** is using [projective
-coordiates](https://en.wikipedia.org/wiki/Homogeneous_coordinates),
+coordinates](https://en.wikipedia.org/wiki/Homogeneous_coordinates),
 sometimes called homogeneous coordinates, to represent points as 3D
-coodinates in the w=1 hyperplane. If that sounds complicated, its
+coordinates in the w=1 hyperplane. If that sounds complicated, its
 because it is. :P But it does allow for a wide range of geometry
 operations, specifically [affine
 transforms](https://www.cs.utexas.edu/users/fussell/courses/cs384g-fall2011/lectures/lecture07-Affine.pdf)
-to be represented as composable transformation matricies. The benefits
-of this conceptual complexity is an architectual elegance and
+to be represented as composable transformation matrices. The benefits
+of this conceptual complexity is an architectural elegance and
 generality.
 
-Support for affine transforms is at present rudamentary, but once a
+Support for affine transforms is at present rudimentary, but once a
 proper matrix transform stack is implemented it will allow for the
 seamless implementation and relatively easy use of a wide range of
 transformation and projection operations.
@@ -298,7 +335,7 @@ transformation and projection operations.
 What does that buy you? It means that under the hood, **yapCAD** uses the
 same type of geometry engine that advanced CAD and GPU-based rendering
 systems use, and should allow for a wide range of computational
-geomety systems, possibly hardware-accelerated, to be built on top of
+geometry systems, possibly hardware-accelerated, to be built on top of
 it.
 
 The good news is that you don't need to know about homogeneous
@@ -307,5 +344,10 @@ time you can pretend that your vectors are just two-dimensional if
 everything you are doing happens to lie in the x-y plane.
 
 So, if you want to do simple 2D drawings, we have you covered.  If you
-want to buid a GPU-accelerated constructive solid geometry system, you
+want to build a GPU-accelerated constructive solid geometry system, you
 can do that, too.
+
+## Note
+
+This project has been set up using PyScaffold 3.2.3. For details and usage
+information on PyScaffold see https://pyscaffold.org/.
