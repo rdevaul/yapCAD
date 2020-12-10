@@ -1,5 +1,5 @@
 import pytest
-from geom import *
+from yapcad.geom import *
 ## unit tests for yapCAD geom.py
 
 class TestPoint:
@@ -306,8 +306,7 @@ class TestUtility:
         foo[0]=e
         assert not foobar==foo
         bar = [a,b,[1,2],l2,l3]
-        assert not deepcopy(bar)
-
+        
 class TestPoly:
     def test_create(self):
         with pytest.raises(ValueError):
@@ -423,10 +422,10 @@ class TestPoly:
         assert vclose(int1[0],point(2.5,2.5))
         assert vclose(int1[1],point(-2.5,-2.5))
         assert len(int0u[0]) == 2
-        assert close(int0u[0][0],0.375)
-        assert close(int0u[0][1],0.875)
-        assert close(int0u[1][0],0.5)
-        assert close(int0u[1][1],-0.5)
+        assert close(int0u[0][0],0.5)
+        assert close(int0u[0][1],-0.5)
+        assert close(int0u[1][0],0.375)
+        assert close(int0u[1][1],0.875)
 
         int0 = intersectSimplePolyXY(arc1,pol2,True)
         int1 = intersectSimplePolyXY(arc1,pol2,False)
@@ -436,4 +435,3 @@ class TestPoly:
         print("intersectSimplePolyXY(arc1,pol2,params=True): ",vstr(int0u))
 
 
-        assert False
