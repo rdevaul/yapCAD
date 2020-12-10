@@ -1,6 +1,30 @@
 ## generalized matrix transformation operations for 3D homogeneous
 ## coordinates in yapCAD
 
+## Copyright (c) 2020 Richard W. DeVaul
+## Copyright (c) 2020 yapCAD contributors
+## All rights reserved
+
+# Permission is hereby granted, free of charge, to any person
+# obtaining a copy of this software and associated documentation files
+# (the "Software"), to deal in the Software without restriction,
+# including without limitation the rights to use, copy, modify, merge,
+# publish, distribute, sublicense, and/or sell copies of the Software,
+# and to permit persons to whom the Software is furnished to do so,
+# subject to the following conditions:
+# 
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+# 
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+# NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
+# BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+# ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+# CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
 from math import *
 import yapcad.geom as geom
 
@@ -42,15 +66,26 @@ class Matrix:
                     for i in range(4):
                         for j in range(4):
                             x =a[i][j]
-                            if (not isinstance(x,bool)) and isinstance(x,(int,float)):
+                            if (not isinstance(x,bool)) and \
+                               isinstance(x,(int,float)):
                                 self.m[i][j]=x
+                            else:
+                                raise ValueError('bad element in matrix initialization: {}'.format(x))
             elif len(a)==16:
                 for i in range(4):
                     for j in range(4):
                         ind=i*4+j
                         x = a[ind]
-                        if (not isinstance(x,bool)) and isinstance(x,(int,float)):
+                        if (not isinstance(x,bool)) and \
+                           isinstance(x,(int,float)):
                             self.m[i][j]=x
+                        else:
+                            raise ValueError('bad element in matrix initialization: {}'.format(x))
+
+            elif a == False:
+                pass
+            else:
+                raise ValueError('bad thing used in attempt to initialize matrix: ()'.format(a))
         self.trans=trans
                             
     def __repr__(self):
@@ -59,6 +94,8 @@ class Matrix:
 
     #return value indexed by i,j
     def get(self,i,j):
+        if i < 0 or i > 3 or j < 0 or j > 3:
+            raise ValueError('bad index passed to get: {},{}'.format(i,j)) 
         if self.trans:
             return self.m[j][i]
         else:
@@ -66,13 +103,19 @@ class Matrix:
 
     #set value indexed by i,j
     def set(self,i,j,x):
+        if i < 0 or i > 3 or j < 0 or j > 3:
+            raise ValueError('bad index passed to set: {},{}'.format(i,j))
         if geom.isgoodnum(x):
             if self.trans:
                 self.m[j][i]=x
             else:
                 self.m[i][j]=x
+        else:
+            raise ValueError('bad value passed to set: {}'.format(x))
 
     def getrow(self,i):
+        if i < 0 or i > 3:
+            raise ValueError('bad row passed to getrow: {}'.format(i))
         if self.trans:
             return [self.m[0][i],
                     self.m[1][i],
@@ -82,6 +125,8 @@ class Matrix:
             return self.m[i]
         
     def getcol(self,j):
+        if j < 0 or j > 3:
+            raise ValueError('bad column passed to getcol: {}'.format(j))
         if not self.trans:
             return [self.m[0][j],
                     self.m[1][j],
@@ -92,7 +137,9 @@ class Matrix:
 
     def setrow(self,i,x):
         if not geom.isvect(x):
-            return False
+            raise ValueError('bad non-vector passed to setrow: {}'.format(x))
+        if i < 0 or i > 3:
+            raise ValueError('bad row index passed to setrow: {}'.format(i))
         if self.trans:
             self.m[0][i] = x[0]
             self.m[1][i] = x[1]
@@ -103,7 +150,9 @@ class Matrix:
         
     def setcol(self,j,x):
         if not geom.isvect(x):
-            return False
+            raise ValueError('bad non-vector passed to setcol: {}'.format(x))
+        if j < 0 or j > 3:
+            raise ValueError('bad column index passed to setcol: {}'.format(j))
         if not self.trans:
             self.m[0][j] = x[0]
             self.m[1][j] = x[1]
@@ -163,12 +212,14 @@ def Rotation(axis,angle,inverse=False):
     smin = 1.0-sang
 
     # # see https://en.wikipedia.org/wiki/Rotation_matrix
+    ## THIS TURNS OUT TO BE WRONG! Bad wikipedia! no biscuit
     # R = [[cang + ux*ux*cmin, ux*uy*cmin-uz*sang, ux*uz*cmin+uy*sang,0],
     #      [uy*ux*cmin+uz*smin, cang + uy*uy*cmin, uy*uz*cmin - uz*smin,0],
     #      [uz*ux*cmin-uy*smin, uz*uy*cmin+ux*smin, cang+uz*uz*cmin,0],
     #      [0,0,0,1]]
 
     # see http://www.opengl-tutorial.org/assets/faq_quaternions/index.html#Q38
+    ## This is correct
     R = [[cang + ux*ux*cmin, ux*uy*cmin-uz*sang, ux*uz*cmin+uy*sang,0],
          [uy*ux*cmin+uz*sang, cang + uy*uy*cmin, uy*uz*cmin - ux*sang,0],
          [uz*ux*cmin-uy*sang, uz*uy*cmin+ux*sang, cang+uz*uz*cmin,0],
@@ -214,31 +265,4 @@ def Scale(x,y=False,z=False,inverse=False):
          [0,0,sz,0],
          [0,0,0,1.0]]
     return Matrix(S)
-    
-## check to see if we have been invoked on the command line
-## if so, run some tests
-if __name__ == "__main__":
-    foo = Matrix([1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16])
-    fooT = Matrix(foo,True)
-    bar = Matrix([[1,0,0,1],[0,1,0,1],[0,0,1,1],[0,0,0,1]])
-    baz = geom.vect(1,2,3)
-    I = Matrix()
-    a = 10.0
-    print("foo: {}".format(foo))
-    print("fooT: {}".format(fooT))
-    print("bar: {}".format(bar))
-    print("baz: {}".format(baz))
-    print("I: {}".format(I))
-    print("a: {}".format(a))
-    print("I.mul(bar): {}".format(I.mul(bar)))
-    print("I.mul(foo): {}".format(I.mul(foo)))
-    print("I.mul(fooT): {}".format(I.mul(fooT)))
-    print("fooT.mul(I): {}".format(fooT.mul(I)))
-    print("I.mul(I): {}".format(I.mul(I)))
-    print("foo.mul(bar): {}".format(foo.mul(bar)))
-    print("foo.mul(baz): {}".format(foo.mul(baz)))
-    print("foo.ml(a): {}".format(foo.mul(a)))
-    print("I.mul(baz): {}".format(I.mul(baz)))
-    print("homo(foo.mul(baz)): {}".format(homo(foo.mul(baz))))
-    
     
