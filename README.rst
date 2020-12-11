@@ -9,6 +9,14 @@ python 3
 
    **yapCAD** image
 
+software status
+---------------
+
+**yapCAD** is still very much in **beta**, although it is already being
+used by for professional engineering purposes. If you are using
+**yapCAD** in interesting ways, feel free to let us know in the `yapCAD
+discussions <https://github.com/rdevaul/yapCAD/discussions>`__ forum
+
 **yapCAD** installation, documentation, and examples
 ----------------------------------------------------
 
@@ -43,6 +51,9 @@ find the examples in the ``yapCAD/examples`` directory.
 documentation
 ~~~~~~~~~~~~~
 
+Online **yapCAD** documentation can be found here:
+https://yapcad.readthedocs.io/en/latest/
+
 To build the HTML **yapCAD** documentation, first make sure you have the
 sphinx package installed:
 
@@ -58,7 +69,10 @@ Then clone the github repository as shown above, ``cd`` to the
    make -C docs html
 
 This will build the HTML documents in the ``build/sphinx/html``
-directory
+directory. You can also build documentation in the other formats
+supported by Sphinx. See the `Sphinx
+documentation <https://www.sphinx-doc.org/en/master/>`__ for more
+information.
 
 **yapCAD** goals
 ----------------
