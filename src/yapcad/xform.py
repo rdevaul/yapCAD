@@ -42,6 +42,9 @@ import yapcad.geom as geom
 ## composition, though we don't dismiss the possibility of a numeric
 ## inversion.
 
+## FIXME: only one class is defined for now
+
+
 class Matrix:
     """4x4 transformation matrix class for transforming homogemenous 3D coordinates"""
 
