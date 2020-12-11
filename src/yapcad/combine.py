@@ -60,8 +60,8 @@ class Boolean(IntersectGeometry):
                 l2 = len(x2s)
                 #print("u1: ",u1," u2: ",u2," ilist: ",ilist," x1s: ",x1s," x2s: ",x2s)
                 if l1 > 0 and l2 > 0:
-                    raise ValueError('intersections on both sides')
-                elif l1 > 0:
+                    print('WARNING: intersections on both sides')
+                elif l1 > l2:
                     print("AA")
                     if True or self._type == 'union':
                         return u1,u2+1.0,False
@@ -80,8 +80,8 @@ class Boolean(IntersectGeometry):
                 l2 = len(x2s)
                 #print("u1: ",u1," u2: ",u2," ilist: ",ilist," x1s: ",x1s," x2s: ",x2s)
                 if l1 > 0 and l2 > 0:
-                    raise ValueError('intersections on both sides')
-                elif l1 > 0:
+                    print('WARNING: intersections on both sides')
+                elif l1 > l2:
                     print("BB")
 
                     if True or self._type == 'union':
