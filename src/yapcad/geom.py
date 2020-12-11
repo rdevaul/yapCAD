@@ -397,6 +397,7 @@ and polygon-specific computational geometry operations, notably:
 """
 
 from math import *
+import mpmath as mpm
 import copy
 import yapcad.xform as xform
 
@@ -1507,7 +1508,8 @@ def _lineArcIntersectXY(l,c,inside=True,params=False):
     """
     x=c[0]
     r=c[1][0]
-
+    mpr=mpm.mpf(r)
+    
     # is the arc a full circle?
     circle = False
     if c[1][1] == 0 and c[1][2] == 360:
@@ -1544,30 +1546,38 @@ def _lineArcIntersectXY(l,c,inside=True,params=False):
     
     V = sub(p0,p1)
     P = p1
-    a = V[0]*V[0]+V[1]*V[1]
-    if abs(a) < epsilon*epsilon:
+    #a = V[0]*V[0]+V[1]*V[1]
+    mpV0 = mpm.mpf(V[0])
+    mpV1 = mpm.mpf(V[1])
+    mpP0 = mpm.mpf(P[0])
+    mpP1 = mpm.mpf(P[1])
+    a = mpV0*mpV0+mpV1*mpV1
+    mpepsilon = mpm.mpf(epsilon)
+    if mpm.fabs(a) < mpepsilon*mpepsilon:
         print('degenerate line in lineArcIntersectXY')
         raise ValueError('bad!')
         return False
-    b = 2*(V[0]*P[0]+V[1]*P[1])
-    cc = P[0]*P[0]+P[1]*P[1]-r*r
+    # b = 2*(V[0]*P[0]+V[1]*P[1])
+    b = 2*(mpV0*mpP0+mpV1*mpP1)
+    #cc = P[0]*P[0]+P[1]*P[1]-r*r
+    cc = mpP0*mpP0+mpP1*mpP1-mpr*mpr
     d = b*b-4*a*cc
     ## Check to see if we are within epsilon, scaled by the length of the line
-    if abs(d) < sqrt(a)*epsilon: # one point of intersection
+    if mpm.fabs(d) < mpm.sqrt(a)*2*mpepsilon: # one point of intersection
         b0 = -b/(2*a)
         b1 = False
     elif d < 0:
-        print("value of d: ",d)
+        print("value of d: ",d,"  value of sqrt(a)*epsilon",sqrt(a)*epsilon)
         raise ValueError("imaginary solution to circle line intersection -- shouldn't happen here")
     else: # two points of intersection
-        b0 = (-b + sqrt(d))/(2*a)
-        b1 = (-b - sqrt(d))/(2*a)
+        b0 = (-b + mpm.sqrt(d))/(2*a)
+        b1 = (-b - mpm.sqrt(d))/(2*a)
 
     # use computed parameters to calculate solutions, still in
     # circle-at-origin coordinates
-    s = [ add(scale3(V,b0),p1) ]
+    s = [ add(scale3(V,float(b0)),p1) ]
     if b1:
-        s = s + [ add(scale3(V,b1),p1) ]
+        s = s + [ add(scale3(V,float(b1)),p1) ]
 
     if not inside or circle or params:              # transform back into world
                                           # coordinates
@@ -1659,13 +1669,15 @@ def _circleCircleTangentsXY(c1,c2):
     r2 = bigC[1][0]
 
     d = dist(c1[0],c2[0])
+    mpd = mpm.mpf(d)
     dr = r2-r1
+    mpdr = mpm.mpf(dr)
 
     if d <= dr: #centers too close
         raise ValueError('circleCircleTangentsXY: centers of circles too close')
     
-    beta = sqrt( d*d - dr*dr)
-    theta = atan2(dr,beta)
+    beta = mpm.sqrt( mpd*mpd - mpdr*mpdr)
+    theta = float(mpm.atan2(dr,beta))
 
     ## now, figure out the angle created by the center of the large
     ## circle with respect to the small circle
