@@ -23,13 +23,14 @@ pretty early state, though we hope you will find it useful.
     it might be useful see `What is Parametric Design?`_ below.
 
     Much of the documentation for **yapCAD** can be found in the
-    README_ files, as well as in the `Module Reference`_, linked below.
+    **README** files, as well as in the ``yapcad.geom`` module
+    documentation linked below.
 
 Contents
 ========
 
 .. toctree::
-   :maxdepth: 3
+   :maxdepth: 4
 
    License <license>
    Authors <authors>
@@ -74,26 +75,27 @@ will fit together just so.  However, the depth of your tabs and slots
 will necessarily depend on the thickness of the material, which might
 vary slightly from sheet to sheet, or vendor to vendor. Furthermore,
 your cutting tool (perhaps a laser cutter) will create a kerf, or
-width of cut, that might be difficult to anticipate, and will likely
-vary from machine to machine.
+width of cut, that vary from machine to machine and with depth of
+focus.
 
 Finally, your box might be sized to hold a variety of contents, which
 themselves might vary in size and shape.
 
 One approach is to create a conventional design. You could draw your
 design for one size of box, material, and thickness of cut, and then
-hope you have your tolerances correct.  If there is a problem, you
-will need to go back and revise your design.  If you want to make a
-different size or shape of box, you have to start over.
+hope you have your tolerances correct.  If there is a problem, or you
+want to change box dimensions, you will need to go back and revise
+your design.  Each time you revise, you are essentially redoing the
+entire drawing from scratch.
 
 Alternately, you could create a parametric design, in which the
 desired length, width, and height of the box are input parameters,
 along with the thickness of the material and an estimate of the kerf.
-This process might be a bit more difficult than creating a
-conventional drawing, but once you are done you will be able to
-generate the design for any desired box, from any desired material
-thickness, with any kerf -- automatically, and without having to
-revise any code or drawing.
+Creating a parametric design system might be a bit more difficult than
+creating a conventional drawing, but once you are done you will be
+able to generate the design for any desired box, from any desired
+material thickness, with any kerf, simply by changing a few numbers --
+automatically, and without having to revise any code or drawing.
 
 This ability to solve for an entire family of related design problems
 with a single parametric design system is what gives this approach
@@ -104,7 +106,6 @@ this can be an impressive force multiplier on productivity.
 
 .. _AutoCad DXF: https://en.wikipedia.org/wiki/AutoCAD_DXF
 .. _parametric design: https://en.wikipedia.org/wiki/Parametric_design
-.. _README: ./README
 .. _module reference: ./api/modules
 .. _toctree: http://www.sphinx-doc.org/en/master/usage/restructuredtext/directives.html
 .. _reStructuredText: http://www.sphinx-doc.org/en/master/usage/restructuredtext/basics.html
