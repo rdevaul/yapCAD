@@ -4,10 +4,8 @@
 yet another procedural CAD and computational geometry system written in
 python 3
 
-.. figure:: images/yapCadSplash.png
+.. image:: images/yapCadSplash.png
    :alt: **yapCAD** image
-
-   **yapCAD** image
 
 software status
 ---------------
