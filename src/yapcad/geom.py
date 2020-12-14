@@ -2039,7 +2039,7 @@ def unsamplepoly(a,p):
 ## and poly a.
 def intersectSimplePolyXY(g,a,inside=True,params=False):
     if not (ispoly(a) and isXYPlanar(a)):
-        raise ValueError('non-XY-planar or bad poly argument to intersecctSimplePOlyXY: {}'.format(vstr(p)))
+        raise ValueError('non-XY-planar or bad poly argument to intersectSimplePOlyXY: {}'.format(vstr(p)))
     closed = False
     ARC=False
     LINE=False
@@ -2324,7 +2324,7 @@ def isgeomlistXYPlanar(gl):
 
 def intersectGeomListXY(g,gl,inside=True,params=False):
     if not isgeomlistXYPlanar(gl + [ g ]):
-        raise ValueError('non-XY-planar or geometry arguments to intersecctSimpleGeomListXY: {}'.format(vstr(gl + [ g])))
+        raise ValueError('non-XY-planar or geometry arguments to intersectSimpleGeomListXY: {}'.format(vstr(gl + [ g])))
     gTypes = ('point','line','arc','poly','glist')
     def typeString(geom):
         if ispoint(geom):

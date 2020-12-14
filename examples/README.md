@@ -3,6 +3,13 @@ A collection of example designs for [yapCAD](../README.md)
 
 ## Example List
 
+* [boxcut](./boxcut) &mdash; parametric design system for creating
+  squeeze-fit rectangular boxes from laser-cut acrylic or similar flat
+  sheet material.  Specify desired length, width, and height on the
+  command line and an appropriate DXF file will be created.
+  Compensates for laser-cutter kerf, optionally visualizes the
+  resulting box in 3D. 
+
 * [example1.py](./example1.py) &mdash; simple drawing example, uses
   pyglet OpenGL interactive rendering. Click and drag to rotate
   drawing, zoom in and out with the up and down arrow keys, quit with

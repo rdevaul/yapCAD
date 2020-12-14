@@ -195,6 +195,12 @@ class pygletDraw(drawable.Drawable):
         
     def __init__(self):
 
+        super().__init__()
+        # these layers added for compatibility with ezdxf_drawable
+        # default layer list.  For now, selecting a layer has
+        # no effect on drawing
+        self.layerlist = [False, '0','PATHS','DRILLS','DOCUMENTATION']
+
         def on_key_press(symbol,modifiers):
             if symbol == pyglet.window.key.UP:
                 self.__cameradist *= 1.1
@@ -227,13 +233,13 @@ class pygletDraw(drawable.Drawable):
                     
         self.__window = self.window()
         self.__window.push_handlers(on_key_press)
-        self.__window.projection = pyglet.window.Projection3D()
+        self.__window.projection = pyglet.window.Projection3D(zfar=1000.0)
         self.glSetup()
         self.__center= point(0,0)
         self.__magnify = 0.08
         self.__arcres = 5
         self.__cameradist = self.camerastartdist = 100.0
-        self.__maxcameradist = 255.0
+        self.__maxcameradist = 900.0
         self.__mincameradist = 10.0
         self.__light0 = False
         self.__light1 = False
@@ -264,7 +270,7 @@ class pygletDraw(drawable.Drawable):
             self.__window.clear()
             gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT)
             
-            self.__window.projection = pyglet.window.Projection3D()
+            self.__window.projection = pyglet.window.Projection3D(zfar=1000.0)
             # gl.glEnable(gl.GL_BLEND)
             gl.glColor3f(1., 1., 1.)
 
@@ -298,7 +304,10 @@ class pygletDraw(drawable.Drawable):
             gl.glColor3f(1., 1., 1.)
             gl.glScalef(0.05, 0.05, 0.05)
             for label in self.__labels:
-                label.draw()
+                gl.glPushMatrix()
+                gl.glTranslatef(0,0,label[1])
+                label[0].draw()
+                gl.glPopMatrix()
                 
             if self.__legend:
                 gl.glMatrixMode(gl.GL_MODELVIEW)
@@ -322,7 +331,6 @@ class pygletDraw(drawable.Drawable):
          
             return pyglet.event.EVENT_HANDLED
             
-        super().__init__()
 
     def __repr__(self):
         return 'an instance of pygletDraw'
@@ -431,7 +439,7 @@ class pygletDraw(drawable.Drawable):
             col = attr['color']
         elif self.linecolor:
             col = self.thing2color(self.linecolor,'b')
-            print ("color: ",col)
+            # print ("color: ",col)
         else:
             col = [255,255,255]
             
@@ -440,18 +448,19 @@ class pygletDraw(drawable.Drawable):
         x = location[0]
         y = location[1]
         
-        self.__labels.append(pyglet.text.Label(text,
-                                               font_name=name,
-                                               font_size=size*self.__magnify,
-                                               x=x*20.0, #fudge factor to make font rendering look OK
-                                               y=y*20.0,
-                                               align=align,
-                                               color=color,
-                                               bold=bold,
-                                               italic=italic,
-                                               #underline=underline,
-                                               anchor_x=anchor_x,
-                                               anchor_y=anchor_y))
+        self.__labels.append([pyglet.text.Label(text,
+                                                font_name=name,
+                                                font_size=size*self.__magnify,
+                                                x=x*20.0, #fudge factor to make font rendering look OK
+                                                y=y*20.0,
+                                                align=align.lower(),
+                                                color=color,
+                                                bold=bold,
+                                                italic=italic,
+                                                #underline=underline,
+                                                anchor_x=anchor_x,
+                                                anchor_y=anchor_y),
+                              location[2]*20.0])
         
     ## OpenGL-specific drawing methods
     

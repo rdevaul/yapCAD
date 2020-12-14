@@ -4,8 +4,20 @@
 yet another procedural CAD and computational geometry system written in
 python 3
 
-.. image:: images/yapCadSplash.png
+.. figure:: images/yapCadSplash.png
    :alt: **yapCAD** image
+
+   **yapCAD** image
+
+what’s **yapCAD** for?
+----------------------
+
+First and foremost, **yapCAD** is a framework for creating
+`parametric <https://en.wikipedia.org/wiki/Parametric_design>`__,
+procedural, and
+`generative <https://en.wikipedia.org/wiki/Parametric_design>`__ design
+systems. You can also use **yapCAD** for other CAD, CAM, and
+computational geometry purposes.
 
 software status
 ---------------
@@ -46,14 +58,18 @@ clone the github repository as shown above, and make sure that your
 PYTHONPATH includes the cloned top-level ``yapCAD`` directory. You will
 find the examples in the ``yapCAD/examples`` directory.
 
+For a fully worked parametric design system, see the ``boxcut`` example.
+
 documentation
 ~~~~~~~~~~~~~
 
 Online **yapCAD** documentation can be found here:
-https://yapcad.readthedocs.io/en/latest/
+https://yapcad.readthedocs.io/en/latest/ — for some reason
+``readthedocs.io`` isn’t generating the full module documentation, so
+you might want to build a local copy, as described below.
 
-To build the HTML **yapCAD** documentation, first make sure you have the
-sphinx package installed:
+To build the HTML **yapCAD** documentation locally, first make sure you
+have the sphinx package installed:
 
 ::
 
@@ -76,12 +92,12 @@ information.
 ----------------
 
 The purpose of **yapCAD** is to support 2D and 3D computational geometry
-and procedural CAD projects in python3. **yapCAD** is designed to
-support multiple rendering back-ends, such that a relatively small
-amount of code is necessary to add support for a 2D or 3D cad or drawing
-file format. At present, **yapCAD** supports the AutoCad DXF file format
-for creating two-dimensional drawings and OpenGL for creating
-interactive 2D and 3D renderings.
+and parametric, procedural, and generative design projects in python3.
+**yapCAD** is designed to support multiple rendering back-ends, such
+that a relatively small amount of code is necessary to add support for a
+2D or 3D cad or drawing file format. At present, **yapCAD** supports the
+AutoCad DXF file format for creating two-dimensional drawings and OpenGL
+for creating interactive 2D and 3D renderings.
 
 The foundations of **yapCAD** are grounded in decades of the author’s
 experience with graphics system programming, 3D CAD and simulation.

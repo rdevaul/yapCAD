@@ -65,10 +65,26 @@ class Drawable:
         self.__fillcolor = False
         self.__polystyle = 'lines'
         self.__layer = False
+        self.__layerlist = [ False, 'default' ]
 
 
     ## Various property functions
 
+    @property
+    def layerlist(self):
+        return self.__layerlist
+
+    def _set_layerlist(self,lst):
+        self.__layerlist = lst
+
+    @layerlist.setter
+    def layerlist(self,lst):
+        if isinstance(lst,list):
+            self._set_layerlist(lst)
+        else:
+            raise ValueError('bad layer list ' + str(lst))
+            
+    
     @property
     def layer(self):
         return self.__layer
@@ -78,7 +94,7 @@ class Drawable:
         
     @layer.setter
     def layer(self,lyr=False):
-        if lyr == False or lyr == 'default':
+        if lyr in self.layerlist:
             self._set_layer(lyr)
         else:
             raise ValueError('bad layer: ' + str(lyr))
