@@ -32,29 +32,30 @@ import ezdxf
 class ezdxfDraw(drawable.Drawable):
 
     def __init__(self):
+        super().__init__()
+        
         self.__doc = ezdxf.new(dxfversion='R2010',setup=True)
         self.__doc.header['$MEASUREMENT'] = 1 # metric
         self.__doc.header['$INSUNITS'] = 4 # millimeters
         self.__doc.layers.new('PATHS',  dxfattribs={'color': 7}) #white
         self.__doc.layers.new('DRILLS',  dxfattribs={'color': 4}) #aqua
         self.__doc.layers.new('DOCUMENTATION', dxfattribs={'color': 2}) #yellow
-        self.__layerlist = [False, '0','PATHS','DRILLS','DOCUMENTATION']
         self.__linetypelist = [ False,'Continuous']
         self.__msp = self.__doc.modelspace()
         self.__filename = "yapCAD-out"
-        
-        super().__init__()
+        self.layerlist = [False, '0','PATHS','DRILLS','DOCUMENTATION']
+
 
     def __repr__(self):
         return 'an instance of ezdxfDraw'
 
     ## properties
     
-    @drawable.Drawable.layer.setter
-    def layer(self,layer=False):
-        if not layer in self.__layerlist:
-            raise ValueError('bad layer passed to layerset: {}'.format(layer))
-        self._set_layer(layer)
+    # @drawable.Drawable.layer.setter
+    # def layer(self,layer=False):
+    #     if not layer in self.layerlist:
+    #         raise ValueError('bad layer passed to layerset: {}'.format(layer))
+    #     self._set_layer(layer)
 
     @drawable.Drawable.linetype.setter
     def linetype(self,linetype=False):
