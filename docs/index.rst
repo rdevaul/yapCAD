@@ -97,6 +97,11 @@ able to generate the design for any desired box, from any desired
 material thickness, with any kerf, simply by changing a few numbers --
 automatically, and without having to revise any code or drawing.
 
+.. note::
+
+   For a **yapCAD** solution to this particular problem, see the
+   ``boxcut`` example in the ``examples`` directory
+
 This ability to solve for an entire family of related design problems
 with a single parametric design system is what gives this approach
 it's power and flexibility.  For anyone who has spent hours
