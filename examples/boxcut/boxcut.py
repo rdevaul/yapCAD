@@ -31,6 +31,7 @@ side.
 
 """
 
+import math
 from yapcad.geom import *
 from yapcad.poly import *
 from yapcad.combine import *
@@ -49,15 +50,12 @@ tlen = 6.0
 
 # box dimensions, nominal default values.  Internally, all dimensions
 # are in mm.
-length = 10.0
-width = 10.0
-height = 10.0
+box_length = mindim
+box_width = mindim
+box_height = mindim
 
 # base filename for DXF generation
 outfile = "boxout"
-
-# flag for generating separate drawings rather than integrated
-separate = False
 
 # material thickness, mm
 thick = 3.175
@@ -91,7 +89,7 @@ renderDebug=False
 #      |    __  __      __  __    |
 #      +----  --  ------  --  ----+
 
-def topPoly(toplen=length,topwid=width):
+def topPoly(toplen=box_length,topwid=box_width):
     # start with a rounded rectangle the size of the face
     face = makeRoundRect(toplen+kerf*2,topwid+kerf*2,2.0)
 
@@ -162,7 +160,7 @@ def topPoly(toplen=length,topwid=width):
 #      +----__--__------__--__----+
 #                                  
 
-def frontPoly(lrlen=length,lrht=height):
+def frontPoly(lrlen=box_length,lrht=box_height):
     # start with a rounded rectangle the size of the face, less the
     # projecting tabs
     face = makeRoundRect(lrlen+kerf*2,lrht+(kerf-thick)*2,2.0)
@@ -234,7 +232,7 @@ def frontPoly(lrlen=length,lrht=height):
 #       +---__--__------__--__---+ 
 #                                  
 
-def leftPoly(lrwid=width,lrht=height):
+def leftPoly(lrwid=box_width,lrht=box_height):
     # start with a rounded rectangle the size of the face, less the
     # projecting tabs
     face = makeRoundRect(lrwid+(kerf-thick)*2,lrht+(kerf-thick)*2,2.0)
@@ -293,9 +291,9 @@ def leftPoly(lrwid=width,lrht=height):
 def makePolys():
     polylist = []
 
-    top = topPoly(length,width)
-    front = frontPoly(length,height)
-    left = leftPoly(width,height)
+    top = topPoly(box_length,box_width)
+    front = frontPoly(box_length,box_height)
+    left = leftPoly(box_width,box_height)
     
     polylist.append(top)
     polylist.append(front)
@@ -308,8 +306,8 @@ def makePolys():
 
 def legend(d):
 
-    x = (length/2)*1.2
-    y = (width/2+height)
+    x = (box_length/2)*1.2
+    y = (box_width/2+box_height)
     
     d.draw_text("yapCAD", point(x,y),\
                 attr={'style': 'OpenSans-Bold', # style for ezdxf
@@ -322,59 +320,186 @@ def legend(d):
                 attr={'height': 15.0})
 
     y -= 20
-    d.draw_text("length: {}mm".format(length),
+    d.draw_text("length: {}mm".format(box_length),
                 point(x,y),
                 attr={'height': 6.0})
     y -= 8
-    d.draw_text("width: {}mm".format(width),
+    d.draw_text("width: {}mm".format(box_width),
                 point(x,y),
                 attr={'height': 6.0})
     y -= 8
-    d.draw_text("height: {}mm".format(height),
+    d.draw_text("height: {}mm".format(box_height),
                 point(x,y),
                 attr={'height': 6.0})
 
 
-def dxfDraw(polys):
-    dd = ezdxfDraw()
-    dd.filename = outfile
+def twoDDraw(polys,dd,zoff=0.0):
 
     dd.layer = 'DOCUMENTATION'
+    dd.linecolor = 'yellow'
     legend(dd)
-    if renderDebug:
-        dd.linecolor='aqua'
-        dd.draw(debugGeomList)
-
-    dd.layer = 'PATHS'
-    dd.linecolor = 'white'
 
     # calculate some spacing intervals
-    lenhei = (length+height)/2.0
-    widhei = (width+height)/2.0
+    lenhei = (box_length+box_height)/2.0
+    widhei = (box_width+box_height)/2.0
     
     for i in range(len(polys)):
         p = polys[i]
         d1 = []
         d2 = []
+        d1s = ""
+        d2s = ""
         if i == 0:
-            d1 = point(0,0) # location of bottom 
-            d2 = point(lenhei*1.1*2,0) # location of top
+            d1 = point(0,0,zoff) # location of bottom
+            d2 = point(lenhei*1.1*2,0,zoff) # location of top
+            d1s = "bottom"
+            d2s = "top"
         elif i == 1: 
-            d1 = point(0,-widhei*1.1) # location of front
-            d2 = point(0,widhei*1.1) # location of back
+            d1 = point(0,-widhei*1.1,zoff) # location of front
+            d2 = point(0,widhei*1.1,zoff) # location of back
+            d1s = "front"
+            d2s = "back"
         else: # i == 2
-            d1 = point(-lenhei*1.1,0) #location of left
-            d2 = point(lenhei*1.1,0) #location of right
+            d1 = point(-lenhei*1.1,0,zoff) #location of left
+            d2 = point(lenhei*1.1,0,zoff) #location of right
+            d1s = "left"
+            d2s = "right"
             
-        dd.draw(p.translate(d1))
-        dd.draw(p.translate(d2))
+        dd.layer = 'PATHS'
+        dd.linecolor = 'white'
 
-    dd.display()
+        g = p.geom()
+        g1 = translate(g,d1)
+        g2 = translate(g,d2)
+        
+        dd.draw(g1)
+        dd.draw(g2)
 
-def renderOgl(polys):
-    print("draw openGL stuff here")
+        dd.layer = 'DOCUMENTATION'
+        dd.linecolor = 'yellow'
+        
+        # att = {'style': 'LiberationMono','height': 10.0}
+        att = {'height': 6.0, 'anchor_x': 'center'}
+        
+        dd.draw_text(d1s,d1, align='CENTER', attr=att)
+        dd.draw_text(d2s,d2, align='CENTER', attr=att)
     
+    
+    if renderDebug:
+        dd.linecolor='aqua'
+        dd.draw(debugGeomList)
 
+## So, yapCAD currently doesn't support rotating arcs out of the XY
+## plane. That sucks for our visualization.  To hack around this, I'm
+## creating a couple of utility functions that will replace arcs in
+## geometry lists with sampled polyline representations.
+
+# utility function to convert an arc to a polyline
+def arc2poly(c, res=10.0):
+    # resolution of arc sampling in degrees
+    points = []
+    p = c[0]
+    r = c[1][0]
+    start = c[1][1]
+    end = c[1][2]
+    if not (start==0 and end==360):
+        start = start%360.0
+        end = end % 360.0
+        if end < start:
+            end = end + 360
+        theta = start*pi2/360.0
+        points.append(add(p,[math.cos(theta)*r,math.sin(theta)*r,0.0,1.0]))
+        for a in range(round(start),round(end),round(res)):
+            theta = a*pi2/360.0
+            pp = [math.cos(theta)*r,math.sin(theta)*r,0.0,1.0]
+            pp = add(pp,p)
+            points.append(pp)
+        theta = end*pi2/360.0
+        points.append(add(p,[math.cos(theta)*r,math.sin(theta)*r,0.0,1.0]))
+    return points
+
+# utility function to replace arcs in a geometry list with sampled
+# polyline represntations
+def glistArc2poly(glist):
+    ngl = []
+    for e in glist:
+        if isarc(e):
+            ngl.append(arc2poly(e))
+        else:
+            ngl.append(e)
+    return ngl
+
+# take an XY poly, extrude in z, return geometry list. NOTE: this does
+# not produce a surface representation, only a wireframe of lines as a
+# geometry list
+
+def extrudeZ(poly,thick):
+    geom = poly.geom()
+    geom = glistArc2poly(geom)
+    # bottom = reverseGeomList(geom)
+    bottom = geom
+    bottom = translate(bottom,point(0,0,-thick/2))
+    top = geom
+    top = translate(top,point(0,0,thick/2))
+
+    def glist2struts(glist):
+        struts=[]
+        upr = point(0,0,thick)
+        for e in glist:
+            strut=[]
+            if ispoint(e):
+                strut = line(e,add(e,upr))
+                struts.append(strut)
+            elif isline(e):
+                strut = line(e[0],add(e[0],upr))
+                struts.append(strut)
+            elif isarc(e):
+                p = samplearc(e,0.0)
+                strut = line(p,add(p,upr))
+                struts.append(strut)
+            elif ispoly(e) or isgeomlist(g):
+                struts = struts + glist2struts(e)
+            else:
+                raise ValueError('bad thing passed to glist2struts')
+        return struts
+    
+    strts = glist2struts(bottom)
+    return bottom + top + strts
+    
+    
+def makeOglGeom():
+    ## regenerate geometry with zero kerf correction
+    global kerf
+    kerf = 0.0
+    polys = makePolys()
+
+    parts = []
+    for poly in polys:
+        part = extrudeZ(poly,thick)
+        parts.append(part)
+
+    model = []
+
+    for i in range(len(parts)):
+        part = parts[i]
+        comp1 = []
+        comp2 = []
+        if i == 0: # top and bottom
+            comp1 = translate(part,point(0,0,-(box_height-thick/2)/2))
+            comp2 = translate(part,point(0,0,(box_height-thick/2)/2))
+        elif i == 1: # front and back
+            part = rotate(part,90.0,axis=point(1,0,0))
+            comp1 = translate(part,point(0,-(box_width-thick/2)/2,0))
+            comp2 = translate(part,point(0,(box_width-thick/2)/2,0))
+        else: # i = 2, left and right
+            part = rotate(part,90.0,axis=point(0,1,0))
+            comp1 = translate(part,point(-(box_length-thick/2)/2,0,0))
+            comp2 = translate(part,point((box_length-thick/2)/2,0,0))
+        model.append(comp1)
+        model.append(comp2)
+
+    return model
+        
 if __name__ == "__main__":
     import argparse
     
@@ -390,8 +515,6 @@ if __name__ == "__main__":
                         default="mm",help="units for dimensions")
     parser.add_argument("-o","--outname",type=str,default="boxout",
                         help="file name base for output, default is boxout")
-    parser.add_argument("-s","--separate",action="store_true",
-                        help="make one DXF drawing per face rather than a combined tiled layout")
     parser.add_argument("-t","--thick",type=float,default=-1,
                         help="material thickness, default is 3.175 mm (1/4\")")
     parser.add_argument("-k","--kerf",type=float,default=-1,
@@ -407,20 +530,17 @@ if __name__ == "__main__":
     if args.units == "inch":
         dimmul = 25.4
 
-    width = args.width*dimmul
-    length = args.length*dimmul
-    height = args.height*dimmul
+    box_width = args.width*dimmul
+    box_length = args.length*dimmul
+    box_height = args.height*dimmul
 
-    if width < mindim or length < mindim or height < mindim:
+    if box_width < mindim or box_length < mindim or box_height < mindim:
         raise ValueError('minimum length of {}mm required for each dimension'.format(mindim))
 
     outname = args.outname
     if outname == "":
         raise ValueError('non-zero length file name base required')
     
-    if args.separate:
-        separate=True
-
     if args.debug:
         renderDebug=True
 
@@ -434,10 +554,41 @@ if __name__ == "__main__":
         ogl = True
 
     polys = makePolys()
-    dxfDraw(polys)
+    dd = ezdxfDraw()
+    dd.filename = outfile
+
+    twoDDraw(polys,dd)
+    dd.display()
 
     if ogl:
-        renderOgl(polys)
+        from yapcad.pyglet_drawable import *
+        dd2 = pygletDraw()
+        # magnification factor for text
+        dd2.magnify=1.5
+        # compute the camera distance assuming a 60 degree (pi/6) FOV
+        maxd = max((box_length*2+box_height*2)*1.1,
+                   (box_width+ box_height*2)*1.1)
+        dist = ((maxd/2) / math.sin(pi/6))*math.cos(pi/6)
+        dd2.cameradist = dist-box_height*2
+
         
+        twoDDraw(polys,dd2,-box_height*2)
+
+        oglGeom = makeOglGeom()
+        #print("oglGeom: ",oglGeom)
+
+        #oglGeom = translate(oglGeom,point(0,0,box_height))
+
+        dd2.layer='PATHS'
+        for i in range(len(oglGeom)):
+            if i == 0 or i == 1:
+                dd2.linecolor = 'silver'
+            elif i == 2 or i == 3:
+                dd2.linecolor = 'aqua'
+            else:
+                dd2.linecolor = 'fuchsia'
+                
+            dd2.draw(oglGeom[i])
+        dd2.display()
     print("done")
 

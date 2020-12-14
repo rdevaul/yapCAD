@@ -11,12 +11,10 @@ install **yapCAD**, and invoke the design system as follows:
 where options includes:
 
 	-h, --help                         # show help message
-	-u, --units {mm,inch}              # units for drawing, defult is mm
+	-u, --units {mm,inch}              # units for parameters, defult is mm
 	-o, --outname <dxf file name base> # default is boxout
-	-s, --separate                     # make one DXF per face, rather than
-	                                   # combined tiled layout
-	-t, --thick <sheet thickness mm>   # default is 3.175 mm, or 0.125"
-	-k, --kerf <kerf mm>               # default is 0.397, or 1/64"
+	-t, --thick <sheet thickness>      # default is 3.175 mm, or 0.125"
+	-k, --kerf <kerf>                  # default is 0.397, or 1/64"
 	-g, --gl                           # do a 3D visualization in openGL
 	
 	
@@ -38,7 +36,7 @@ Ok, we are ready run boxcut as follows:
 This will cause an OpenGL window to pop up with a visualization of the
 box, including instructions for manipulating the view.  Hit `esc` to exit.
 
-The design file `boxout6x4x3-combined.dxf` will also be produced.
+The design file `boxout6x4x3.dxf` will also be produced.
 When you open this file in your favorite DXF file viewer, you will see
 the profile for each of the six pieces tiled and labeled.
 
