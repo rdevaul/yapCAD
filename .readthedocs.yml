@@ -15,4 +15,4 @@ formats:
 
 submodules:
   include: all
-  
+  recursive: true
