@@ -26,7 +26,121 @@
 
 from yapcad.geom import *
 
+# determine if two bounding boxes overlap.  This is a more challenging
+# problem than it may appear at first glance.  It is not enough to
+# test the corner points of one box to see if they fall inside the
+# other, as illustrated by the following cases:
+
+# case 1:  +--------------+
+# inside   |     box1     |
+#          |  +--------+  |
+#          |  |  box2  |  |
+#          |  +--------+  |
+#          +--------------+
+
+# No corner points of box1 lie inside box2, no lines intersect.
+
+# case 2:     +------+
+# cross       | box1 |
+#     +-------+------+------+
+#     | box2  |      |      |
+#     +-------+------+------+
+#             |      |
+#             +------+
+
+# No corner point of either box lie inside the other, projected lines
+# intersect.
+
+def boxoverlap2(bbx1,bbx2,dim3=True):
+    """Determine if two bounding boxes overlap.  if dim3==True, treat the
+    bounding boxes as 3D, otherwise treat them as co-planar 2D boxes.
+
+    First, check to see if the maximum coordinates of one box are
+    smaller than the minimum coordinates of the other, or vice versa.
+    If so, no overlap is possible; return False
+
+    if overlap is possible by test #1, check for the box-in-box
+    special case for each box.  If so, return True
+
+    Finally, for the 2D case: determine if horizontal lines of box1
+    intersect with vertical lines of box2, and vice versa.  If any
+    intersections found, return True, else return False
+
+    For the 3D case, project the boxes into the XY, YZ, and XZ planes,
+    and perform the 2D lines intersection check, as above.  Return
+    True if and only if intersections are reported for each
+    projection, otherwise return False
+    """
+
+    # check minmax
+    if ((bbx1[1][0] < bbx2[0][0] and
+         bbx1[1][1] < bbx2[0][1] and
+         (not dim3 or bbx1[1][2] < bbx2[0][2])) or
+        (bbx2[1][0] < bbx1[0][0] and
+         bbx2[1][1] < bbx1[0][1] and
+         (not dim3 or bbx2[1][2] < bbx1[0][2]))):
+        return False # no overlap possible
+
+    # check for box-in-box
+    if ((bbx1[0][0] >= bbx2[0][0] and bbx1[1][0] <= bbx2[1][0] and
+         bbx1[0][1] >= bbx2[0][1] and bbx1[1][1] <= bbx2[1][1] and
+         (not dim3 or (bbx1[0][2] >= bbx2[0][2]
+                       and bbx1[1][2] <= bbx2[1][2]))) or
+        (bbx2[0][0] >= bbx1[0][0] and bbx2[1][0] <= bbx1[1][0] and
+         bbx2[0][1] >= bbx1[0][1] and bbx2[1][1] <= bbx1[1][1] and
+         (not dim3 or (bbx2[0][2] >= bbx1[0][2]
+                       and bbx2[1][2] <= bbx1[1][2])))):
+        return True
+
+    def int2D(bb1,bb2,plane='XY'):
+        """utility function for 2D box line intersection finding"""
+        i = 0
+        j = 0
+        if plane == 'XY':
+            i = 0
+            j = 1
+        elif plane == 'YZ':
+            i = 1
+            j = 2
+        elif plane == 'XZ':
+            i = 0
+            j = 2
+        else:
+            raise ValueError('bad plane in int2D')
+        
+        len1 = bb1[1][i] - bbx1[0][i] # length
+        wid1 = bb1[1][j] - bbx1[0][j] # width
+        len2 = bb2[1][i] - bbx2[0][i] # length
+        wid2 = bb2[1][j] - bbx2[0][j] # width
+
+        p0 = point(bb1[0][i],bb1[0][i])
+        p1 = add(p0,point(len1,0))
+        p2 = add(p1,point(0,wid1))
+        p3 = add(p0,point(0,wid1))
+
+        p4 = point(bb2[0][i],bb2[0][j])
+        p5 = add(p4,point(len2,0))
+        p6 = add(p5,point(0,wid2))
+        p7 = add(p4,point(0,wid2))
+
+        ply1 = poly([p0,p1,p2,p3,p0])
+        ply2 = poly([p4,p5,p6,p7,p4])
+
+        inter = intersectXY(ply1,ply2)
+
+        if inter and len(inter) > 0:
+            return True
+        return False
+
+    # do projeted box line intersection tests
+    return (int2D(bbx1,bbx2,'XY') and
+            (not dim3 or int2D(bbx1,bbx2,'YZ')) and
+            (not dim3 or int2D(bbx1,bbx2,'XZ')))
+    
+    
+      
 def boxoverlap(bbx1,bbx2,dim3=True):
+
     """determine if two bounding boxes overlap"""
     minx = bbx1[0][0]
     miny = bbx1[0][1]
@@ -77,7 +191,7 @@ def bbox2oct(bbx,refbox,center):
     """
     # print("bbox2oct :: bbx: ",vstr(bbx),"  refbox: ",vstr(refbox),"  center: ",vstr(center))
     rlist = []
-    if not (boxoverlap(refbox,bbx) or boxoverlap(bbx,refbox)):
+    if not boxoverlap2(refbox,bbx):
         return rlist           # no overlap
 
     if bbx[0][2] < center[2]:
@@ -101,8 +215,7 @@ def bbox2quad(bbx,refbox,center):
     returns (potentially empty) list of quadrants, numbered 0 to 3
     """
     rlist = []
-    if not (boxoverlap(refbox,bbx,dim3=False) or
-            boxoverlap(bbx,refbox,dim3=False)):
+    if not boxoverlap2(refbox,bbx,dim3=False):
         return rlist           # no overlap
 
     if bbx[0][0] < center[0]:
@@ -326,8 +439,7 @@ class NTree():
                 pass
             elif flag == 'e':
                 for elem in subtree[1:]:
-                    if (boxoverlap(elem[1],bbox) or
-                        boxoverlap(bbox,elem[1])):
+                    if boxoverlap2(elem[1],bbox): 
                         indices.append(elem[0])
             else:
                 for boxlist in subtree[1:]:
