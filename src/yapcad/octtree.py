@@ -55,7 +55,8 @@ def boxoverlap(bbx1,bbx2,dim3=True):
     p7=add(p4,point(0,wid1,0))
 
     points += [p4,p5,p6,p7]
-
+    #print("boxoverlap points; ",vstr(points))
+    #print("boxoverlap bbx2: ",vstr(bbx2))
     for p in points:
         if isinsidebbox(bbx2,p):
             return True
@@ -74,20 +75,20 @@ def bbox2oct(bbx,refbox,center):
       
     returns (potentially empty) list of octants, numbered 0 to 7
     """
-
+    # print("bbox2oct :: bbx: ",vstr(bbx),"  refbox: ",vstr(refbox),"  center: ",vstr(center))
     rlist = []
-    if not boxoverlap(rebox,bbx):
+    if not (boxoverlap(refbox,bbx) or boxoverlap(bbx,refbox)):
         return rlist           # no overlap
 
     if bbx[0][2] < center[2]:
-        rlist += self.box2quad(bbx)
+        rlist += bbox2quad(bbx,refbox,center)
 
     if bbx[1][2] >= center[2]:
-        rlist += list(map(lambda x: x+4, self.box2quad(bbx)))
+        rlist += list(map(lambda x: x+4, bbox2quad(bbx,refbox,center)))
 
     return rlist
     
-def box2quad(bbx,refbox,center):
+def bbox2quad(bbx,refbox,center):
     """Utility Function to take a bounding box representation and assign
        it to zero or more quads
 
@@ -100,7 +101,8 @@ def box2quad(bbx,refbox,center):
     returns (potentially empty) list of quadrants, numbered 0 to 3
     """
     rlist = []
-    if not boxoverlap(refbox,bbx,dim3=False)
+    if not (boxoverlap(refbox,bbx,dim3=False) or
+            boxoverlap(bbx,refbox,dim3=False)):
         return rlist           # no overlap
 
     if bbx[0][0] < center[0]:
@@ -126,23 +128,25 @@ def box2boxes(bbox,center,n,type='centersplit',elm=[]):
         p0 = box[0]
         p1 = box[1]
         return scale3(add(p0,p1),0.5)
-    
+
+    # print("box2boxes :: bbox: ",vstr(bbox),"  center: ",vstr(center))
     if not isinsidebbox(bbox,center):
         raise ValueError('center point does not lie inside the bounding box')
     if type != 'centersplit':
         raise NotImplementedError('we are only doing center splits for now')
     if not n in (4,8):
         raise ValueError('bad tree dimension')
-        cx = center[0]
-        cy = center[1]
-        cz = center[2]
+
+    cx = center[0]
+    cy = center[1]
+    cz = center[2]
         
-        maxx = bbox[1][0]
-        maxy = bbox[1][1]
-        maxz = bbox[1][2]
-        minx = bbox[0][0]
-        miny = bbox[0][1]
-        minz = bbox[0][2]
+    maxx = bbox[1][0]
+    maxy = bbox[1][1]
+    maxz = bbox[1][2]
+    minx = bbox[0][0]
+    miny = bbox[0][1]
+    minz = bbox[0][2]
         
     if n == 4:
         z0 = 0
@@ -151,7 +155,7 @@ def box2boxes(bbox,center,n,type='centersplit',elm=[]):
         z0 = minz
         z1 = cz
         
-    box1 = [point(cx,cy,z0)
+    box1 = [point(cx,cy,z0),
             point(maxx,maxy,z1)]
     box2 = [point(minx,cy,z0),
             point(cx,maxy,z1)]
@@ -171,7 +175,7 @@ def box2boxes(bbox,center,n,type='centersplit',elm=[]):
         z0 = cz
         z1 = maxz
         
-    box5 = [point(cx,cy,z0)
+    box5 = [point(cx,cy,z0),
             point(maxx,maxy,z1)]
     box6 = [point(minx,cy,z0),
             point(cx,maxy,z1)]
@@ -206,7 +210,7 @@ class NTree():
             else:
                 raise ValueError('geom must be valid geometry list, or None')
 
-        self._center = None
+        self.__center = None
         if center:
             if not ispoint(center):
                 raise ValueError('center must be a valid point')
@@ -260,9 +264,9 @@ class NTree():
         if not self.__center:
             self.updateCenter()
 
-        bxlist = list(map(lambda x, bbox(x)))
+        bxlist = list(map(lambda x: bbox(x), self.__geom))
         bxidxlist = []
-        for i in len(bxlist):
+        for i in range(len(bxlist)):
             bxidxlist.append([i,bxlist[i]])
             
         self.__elem_idx_bbox = bxidxlist
@@ -272,6 +276,7 @@ class NTree():
 
         # recursively build the tree
         def recurse(bbox,center,elements):
+            # print("recurse :: bbox: ",vstr(bbox),"  center: ",vstr(center))
             if elements==[]:
                 return []
             elif len(elements) <= self.__n:
@@ -279,21 +284,29 @@ class NTree():
             else:
                 boxlist = ['b'] + box2boxes(bbox,center,self.__n)
 
+                # print("boxlist: ",vstr(boxlist))
+                # print("elements: ",vstr(elements))
                 for e in elements:
                     func = None
                     if self.__n == 8:
-                        func = box2oct
+                        func = bbox2oct
                     else:
-                        func = box2quad
+                        func = bbox2quad
                     ind = func(e[1],bbox,center)
+                    print ("e[0]: ",e[0], "  e[1]: ",vstr(e[1]),"  ind: ",ind)
+                    # print ("bbox: ",vstr(bbox))
                     for i in ind:
-                        boxlist[i].append(e[0])
+                        boxlist[i+1].append(e[0])
+                        
                 for i in range(1,len(boxlist)):
                     boxlist[i] = recurse(boxlist[i][0],boxlist[i][1],
-                                         boxlist[2:])
+                                         boxlist[i][2:])
+                return boxlist
                 
         self.__tree = recurse(self.__bbox, self.__center,
-                              self,__geom)
+                              bxidxlist)
+        # print("bxidxlist: ",vstr(bxidxlist))
+        print("self.__tree",self.__tree)
         self.__update = False
 
         return
@@ -309,6 +322,22 @@ class NTree():
         def recurse(subtree):
             flag = subtree[0]
             indices = []
-            if flag == 'e':
-                
-            
+            if subtree == []:
+                pass
+            elif flag == 'e':
+                for elem in subtree[1:]:
+                    if (boxoverlap(elem[1],bbox) or
+                        boxoverlap(bbox,elem[1])):
+                        indices.append(elem[0])
+            else:
+                for boxlist in subtree[1:]:
+                    indices += recurse(boxlist)
+            return indices
+
+        idx = set(recurse(self.__tree))
+
+        print("unique indices: ",idx)
+
+        elements = list(map(lambda x: self.__geom[x], list(idx)))
+
+        return elements
