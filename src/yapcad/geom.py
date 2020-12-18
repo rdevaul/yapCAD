@@ -548,6 +548,13 @@ def isinsidebbox(bbox,p):
         p[1] >= bbox[0][1] and p[1] <= bbox[1][1] and\
         p[2] >= bbox[0][2] and p[2] <= bbox[1][2]
 
+# does point p lie inside 2D bounding box bbox
+def isinsidebbox2D(bbox,p):
+    """ does point ``p`` lie inside 2D bounding box ``bbox``?"""
+    return ( p[0] >= bbox[0][0] and p[0] <= bbox[1][0] and
+             p[1] >= bbox[0][1] and p[1] <= bbox[1][1] ) 
+
+
 # utility function to determine if a list of points lies in the specified
 # cardinal plane, one of XY, YZ, XZ
 def isCardinalPlanar(plane="xy",points=[]):
