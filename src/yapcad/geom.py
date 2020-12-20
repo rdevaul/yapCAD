@@ -1845,7 +1845,7 @@ def polycenter(a):
 
 ## we heart poly bboxes
 def polybbox(a):
-    """Compute the bounding box of polyline/polygon ``a``"""
+    """Compute the 3D bounding box of polyline/polygon ``a``"""
     if len(a) == 0:
         return False
     elif len(a) == 1:
@@ -1853,9 +1853,11 @@ def polybbox(a):
     else:
         minx = maxx = a[0][0]
         miny = maxy = a[0][1]
+        minz = maxz = a[0][2]
         for i in range(1,len(a)):
             x=a[i][0]
             y=a[i][1]
+            z=a[i][2]
             if x < minx:
                 minx =x
             elif x > maxx:
@@ -1864,7 +1866,12 @@ def polybbox(a):
                 miny = y
             elif y > maxy:
                 maxy = y
-        return [ point(minx,miny),point(maxx,maxy)]
+            if z < minz:
+                minz = z
+            elif z > maxz:
+                maxz = z
+                
+        return [ point(minx,miny,minz),point(maxx,maxy,maxz)]
 
 ## only valid for closed polylines.  Count the intersections for a
 ## line drawn from point to test to a point outside the bounding
