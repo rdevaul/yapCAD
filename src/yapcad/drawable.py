@@ -56,6 +56,40 @@ class Drawable:
         if 'o' in self.__pointstyle:
             self.draw_circle(p,self.__pointsize)
 
+    ## utility function to draw a 2D or 3D bounding box
+    def draw_bbox(self,box,dim3=False):
+        length =  box[1][0]-box[0][0]
+        width = box[1][1]-box[0][1]
+        height = box[1][2]-box[0][2]
+
+        p0=box[0]
+        p1=add(p0,point(length,0,0))
+        p2=add(p1,point(0,width,0))
+        p3=add(p0,point(0,width,0))
+
+        self.draw_line(p0,p1)
+        self.draw_line(p1,p2)
+        self.draw_line(p2,p3)
+        self.draw_line(p3,p0)
+
+        if not dim3:
+            return
+        
+        p4=add(p0,point(0,0,height))
+        p5=add(p4,point(length,0,0))
+        p6=box[1]
+        p7=add(p4,point(0,width,0))
+
+        self.draw_line(p4,p5)
+        self.draw_line(p5,p6)
+        self.draw_line(p6,p7)
+        self.draw_line(p7,p4)
+
+        self.draw_line(p0,p4)
+        self.draw_line(p1,p5)
+        self.draw_line(p2,p6)
+        self.draw_line(p3,p7)
+        
     def __init__(self):
         self.__pointstyle = 'xo'
         self.__pointsize = 0.1
