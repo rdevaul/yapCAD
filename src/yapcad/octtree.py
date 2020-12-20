@@ -108,12 +108,22 @@ def boxoverlap2(bbx1,bbx2,dim3=True):
         else:
             raise ValueError('bad plane in int2D')
         
-        len1 = bb1[1][i] - bbx1[0][i] # length
-        wid1 = bb1[1][j] - bbx1[0][j] # width
-        len2 = bb2[1][i] - bbx2[0][i] # length
-        wid2 = bb2[1][j] - bbx2[0][j] # width
+        # check for projected box-in-box
+        if ((bb1[0][i] >= bb2[0][i] and bb1[1][i] <= bb2[1][i] and
+             bb1[0][j] >= bb2[0][j] and bb1[1][j] <= bb2[1][j])
+            or
+            (bb2[0][i] >= bb1[0][i] and bb2[1][i] <= bb1[1][i] and
+             bb2[0][j] >= bb1[0][j] and bb2[1][j] <= bb1[1][j])):
+            return True
 
-        p0 = point(bb1[0][i],bb1[0][i])
+        # check for projected line intersections
+        
+        len1 = bb1[1][i] - bb1[0][i] # length
+        wid1 = bb1[1][j] - bb1[0][j] # width
+        len2 = bb2[1][i] - bb2[0][i] # length
+        wid2 = bb2[1][j] - bb2[0][j] # width
+
+        p0 = point(bb1[0][i],bb1[0][j])
         p1 = add(p0,point(len1,0))
         p2 = add(p1,point(0,wid1))
         p3 = add(p0,point(0,wid1))
@@ -314,6 +324,7 @@ class NTree():
             raise ValueError('only quad- or octtrees supported')
 
         self.__n = n
+        self.__depth = 0
 
         self.__geom=[]
         if geom:
@@ -388,12 +399,16 @@ class NTree():
             self.updateCenter()
 
         # recursively build the tree
-        def recurse(bbox,center,elements):
+        def recurse(bbox,center,elements,depth=0):
             # print("recurse :: bbox: ",vstr(bbox),"  center: ",vstr(center))
             if elements==[]:
                 return []
+            if depth > self.__depth:
+                self.__depth = depth
+                
             elif len(elements) <= self.__n:
-                return [ 'e', bbox, center ] + elements
+                return [ 'e', bbox, center ] + list(map(lambda x:
+                                                        x[0], elements))
             else:
                 boxlist = ['b'] + box2boxes(bbox,center,self.__n)
 
@@ -401,29 +416,39 @@ class NTree():
                 # print("elements: ",vstr(elements))
                 for e in elements:
                     func = None
+                    box = e[1]
                     if self.__n == 8:
                         func = bbox2oct
                     else:
                         func = bbox2quad
-                    ind = func(e[1],bbox,center)
-                    print ("e[0]: ",e[0], "  e[1]: ",vstr(e[1]),"  ind: ",ind)
+                    ind = func(box,bbox,center)
+                    # print("ind: ",ind,"  box: ",box,"  bbox: ",bbox,"  center: ",center)
+                    #print ("e[0]: ",e[0], "  e[1]: ",vstr(e[1]),"  ind: ",ind)
                     # print ("bbox: ",vstr(bbox))
-                    for i in ind:
-                        boxlist[i+1].append(e[0])
+                    for j in ind:
+                        boxlist[j+1].append(e)
                         
                 for i in range(1,len(boxlist)):
                     boxlist[i] = recurse(boxlist[i][0],boxlist[i][1],
-                                         boxlist[i][2:])
+                                         boxlist[i][2:],depth+1)
                 return boxlist
                 
         self.__tree = recurse(self.__bbox, self.__center,
                               bxidxlist)
         # print("bxidxlist: ",vstr(bxidxlist))
-        print("self.__tree",self.__tree)
+        # print("self.__tree",self.__tree)
         self.__update = False
 
         return
 
+    @property
+    def depth(self):
+        return self.__depth
+
+    @depth.setter
+    def depth(self,n):
+        raise ValueError("can't set tree depth this way")
+    
     def getElements(self,bbox):
         """return a list of geometry elements with bounding boxes that
         overalp the provided bounding box, or the empty list if none.
@@ -432,23 +457,32 @@ class NTree():
         if self.__update:
             self.updateTree()
 
-        def recurse(subtree):
-            flag = subtree[0]
+        bxidxlist = self.__elem_idx_bbox
+
+        self.mxd = 0
+        
+        def recurse(subtree,depth=0):
+            global maxdepth
             indices = []
-            if subtree == []:
+            if depth > self.mxd:
+                self.mxd = depth
+            if not subtree or subtree == []:
                 pass
-            elif flag == 'e':
-                for elem in subtree[1:]:
-                    if boxoverlap2(elem[1],bbox): 
-                        indices.append(elem[0])
+            elif subtree[0] == 'e':
+                if boxoverlap2(subtree[1],bbox):
+                    for ind in subtree[3:]:
+                        box = bxidxlist[ind][1]
+                        if boxoverlap2(bbox,box): 
+                            indices.append(ind)
             else:
                 for boxlist in subtree[1:]:
-                    indices += recurse(boxlist)
+                    indices += recurse(boxlist,depth+1)
             return indices
 
         idx = set(recurse(self.__tree))
-
-        print("unique indices: ",idx)
+        print("maxdepth: ",self.mxd)
+        
+        #print("unique indices: ",idx)
 
         elements = list(map(lambda x: self.__geom[x], list(idx)))
 
