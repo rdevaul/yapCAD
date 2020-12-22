@@ -270,6 +270,11 @@ def box2boxes(bbox,center,n,type='centersplit',elm=[]):
     minx = bbox[0][0]
     miny = bbox[0][1]
     minz = bbox[0][2]
+
+    if (maxx-minx < epsilon  or
+        maxy-miny < epsilon or
+        (n == 8 and maxz-minz < epsilon)) :
+        raise ValueError('zero dimension box')
         
     if n == 4:
         z0 = 0
@@ -314,17 +319,43 @@ def box2boxes(bbox,center,n,type='centersplit',elm=[]):
 
     return r1 + r2
 
+def bboxdim(box):
+    """ return length, width, and height of a bounding box"""
+
+    length = box[1][0] - box[0][0]
+    width = box[1][1] - box[0][1]
+    height = box[1][2] - box[0][2]
+    return [length, width, height]
+
 class NTree():
 
     """Generalized n-tree representation for yapCAD geometry"""
 
-    def __init__(self,n=8,geom=None,center=None):
+    def __init__(self,n=8,geom=None,center=None,
+                 mindim=None,maxdepth=None):
 
         if not n in [4,8]:
             raise ValueError('only quad- or octtrees supported')
 
         self.__n = n
         self.__depth = 0
+        if mindim:
+            if isinstance(mindim,(int,float)) and mindim > epsilon:
+                self.__mindim = mindim
+            else:
+                raise ValueError('bad mindim value: '+str(mindim))
+        else:
+            self.__mindim = 1.0 # minimum dimension for tree element
+
+        if maxdepth:
+            if isinstance(maxdepth,int) and maxdepth > 0:
+                self.__maxdepth = maxdepth
+            else:
+                raise ValueError('bad max depth value: '+str(maxdepth))
+        elif self.__n == 4:
+            self.__maxdepth = 8
+        else: # n=8
+            self.__maxdepth = 7
 
         self.__geom=[]
         if geom:
@@ -345,6 +376,9 @@ class NTree():
                 
         self.__tree = []
         self.__update=True
+
+    def __repr__(self):
+        return 'NTree(n={},depth={},mindim={},\n  geom={},\n  tree={})'.format(self.__n,self.__depth,self.__mindim,vstr(self.__geom),vstr(self.__tree))
 
     def addElement(self,element):
         """ add a geometry element to the collection, don't update
@@ -399,18 +433,24 @@ class NTree():
             self.updateCenter()
 
         # recursively build the tree
-        def recurse(bbox,center,elements,depth=0):
-            # print("recurse :: bbox: ",vstr(bbox),"  center: ",vstr(center))
-            if elements==[]:
-                return []
+        def recurse(box,center,elements,depth=0):
+            # print("recurse :: box: ",vstr(box),"  center: ",vstr(center))
+            bbdim = bboxdim(box)
             if depth > self.__depth:
                 self.__depth = depth
                 
-            elif len(elements) <= self.__n:
-                return [ 'e', bbox, center ] + list(map(lambda x:
+            if elements==[] or elements==None:
+                return []
+            elif (len(elements) <= self.__n or
+                  depth > self.__maxdepth or
+                  bbdim[0] < self.__mindim or
+                  bbdim[1] < self.__mindim or
+                  (self.__n == 8 and bbdim[2] < self.__mindim)):
+
+                return [ 'e', box, center ] + list(map(lambda x:
                                                         x[0], elements))
             else:
-                boxlist = ['b'] + box2boxes(bbox,center,self.__n)
+                boxlist = ['b'] + box2boxes(box,center,self.__n)
 
                 # print("boxlist: ",vstr(boxlist))
                 # print("elements: ",vstr(elements))
@@ -421,10 +461,10 @@ class NTree():
                         func = bbox2oct
                     else:
                         func = bbox2quad
-                    ind = func(box,bbox,center)
-                    # print("ind: ",ind,"  box: ",box,"  bbox: ",bbox,"  center: ",center)
+                    ind = func(box,box,center)
+                    # print("ind: ",ind,"  box: ",box,"  box: ",box,"  center: ",center)
                     #print ("e[0]: ",e[0], "  e[1]: ",vstr(e[1]),"  ind: ",ind)
-                    # print ("bbox: ",vstr(bbox))
+                    # print ("box: ",vstr(box))
                     for j in ind:
                         boxlist[j+1].append(e)
                         
@@ -447,7 +487,29 @@ class NTree():
 
     @depth.setter
     def depth(self,n):
-        raise ValueError("can't set tree depth this way")
+        raise ValueError("can't set tree depth")
+
+    @property
+    def maxdepth(self):
+        return self.__maxdepth
+
+    @maxdepth.setter
+    def maxdepth(self,d):
+        if not isinstance(d,int) or d < 1:
+            raise ValueError('bad maxdepth value: '+str(d))
+        else:
+            self.__maxdepth = d
+    
+    @property
+    def mindim(self):
+        return self.__mindim
+
+    @mindim.setter
+    def mindim(self,d):
+        if not isinstance(d,(float,int)) or d < epsilon:
+            raise ValueError('bad mindim value: '+str(d))
+        else:
+            self.__mindim = d
     
     def getElements(self,bbox):
         """return a list of geometry elements with bounding boxes that
@@ -462,26 +524,28 @@ class NTree():
         self.mxd = 0
         
         def recurse(subtree,depth=0):
-            global maxdepth
             indices = []
             if depth > self.mxd:
                 self.mxd = depth
-            if not subtree or subtree == []:
-                pass
+
+            if subtree == None or subtree == []:
+                return []
             elif subtree[0] == 'e':
-                if boxoverlap2(subtree[1],bbox):
+                if boxoverlap2(subtree[1],bbox,dim3 = (self.__n==8)):
                     for ind in subtree[3:]:
                         box = bxidxlist[ind][1]
-                        if boxoverlap2(bbox,box): 
+                        if boxoverlap2(bbox,box,dim3 = (self.__n==8)): 
                             indices.append(ind)
             else:
                 for boxlist in subtree[1:]:
-                    indices += recurse(boxlist,depth+1)
+                    if len(subtree) == 1:
+                        print('subtree ',subtree)
+                    if len(boxlist) > 0:
+                        indices += recurse(boxlist,depth+1)
             return indices
 
         idx = set(recurse(self.__tree))
-        print("maxdepth: ",self.mxd)
-        
+                
         #print("unique indices: ",idx)
 
         elements = list(map(lambda x: self.__geom[x], list(idx)))

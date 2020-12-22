@@ -4,6 +4,13 @@ from yapcad.octtree import *
 import examples.example10 as example10
 from yapcad.pyglet_drawable import *
 
+def three2two(x):
+    a = vect(x[0])
+    b = vect(x[1])
+    a[2] = 0
+    b[2] = 0
+    return [a,b]
+
 class TestOctree:
     """ Test utility functions """
 
@@ -33,19 +40,28 @@ class TestOctree:
              b10,
              b20,b21,b22]
 
-    # no overlap list
+    # no 3D overlap list
 
     gl_no_over = [b1,b2,b3,b4,b5,b6,b7]
 
-    # crossing list
+    # 3D crossing list
 
     gl_cross = [b10,
                 b20,b21,b22]
+
+    # no 2D overlap list
+    gl2D_no_over = [b1,b2,b3,b4,b5]
+    gl2D_no_over = list(map(three2two,gl2D_no_over))
+
+    # 2D crossing list
+    gl2D_cross = [b10, b20, b21]
+    gl2D_cross = list(map(three2two,gl2D_cross))
 
     def test_boxoverlap2(self):
         """ do bounding box overlap check testing """
         dd = pygletDraw()
         dd.linecolor = 'white'
+        dd.cameradist = 35
     
         dd.draw_bbox(self.b1,dim3=True)
         dd.draw_bbox(self.b2,dim3=True)
@@ -123,10 +139,103 @@ class TestOctree:
 
         print("inds: ",inds)
 
-    def test_maketree(self):
+    def test_quadtree(self):
+        dd = pygletDraw()
+        dd.cameradist = 35
+
+        # make a quadtree
+        bar = NTree(4)
+
+        for l in self.gl2D_no_over:
+            bar.addElement(l)
+
+        bar.updateTree()
+        dd.linecolor = 'red'
+        for b in self.gl2D_no_over:
+            dd.draw_bbox(b,dim3=False)
+        dd.linecolor = 'white'
+        dd.draw(self.gl2D_no_over)
+        dd.display()
+
+        # get full contents of tree
+        bigbox = bbox(self.gl2D_no_over)
+        contents = bar.getElements(bigbox)
+        print("full contents: ",vstr(contents))
+        assert len(contents) == len(self.gl2D_no_over)
+        assert len(list(filter(lambda x: not x in self.gl2D_no_over,
+                               contents))) == 0
+
+        # retrieve the elements that overlap with self.b10
+
+        contents = bar.getElements(self.b10)
+        print("selected contents: ",vstr(contents))
+
+        assert len(contents) == 1
+        cexpect = [three2two(self.b2)]
+        for c in contents:
+            assert c in cexpect
+
+        # retrieve the elements that overlap with self.b20
+
+        contents = bar.getElements(self.b20)
+        print("selected contents: ",vstr(contents))
+
+        assert len(contents) == 3
+        cexpect = list(map(three2two,[self.b1, self.b2, self.b3 ]))
+        for c in contents:
+            assert c in cexpect
+
+               
+        bar2 = NTree(4,mindim=4.0)
+        # make 100 lines in space, keep track of which fall inside a
+        # sub-region, then try to retrieve those with our tree,
+
+        bigbox = [[-15,-15,0,1],[15,15,0,1]]
+        deltabox = [[-10,-10,0,1],[10,10,0,1]]
+        subbox = [[10,-10,0,1],[20,0,0,1]]
+        glist=[]
+        sublist=[]
+        
+        dim = 200
+        plist1 = example10.randomPoints(bigbox,dim)
+        plist2 = example10.randomPoints(deltabox,dim)
+        
+        for i in range(dim):
+            l = line(plist1[i],add(plist1[i],plist2[i]))
+            lbx = bbox(l)
+            if boxoverlap2(lbx,subbox,dim3=False):
+                sublist.append(l)
+            else:
+                glist.append(l)
+            bar2.addElement(l)
+
+        dd2 = pygletDraw()
+        dd2.linecolor = [127,79,63]
+        dd2.draw(glist)
+        dd2.linecolor = 'white'
+        dd2.draw_bbox(subbox,dim3=False)
+        dd2.linecolor = 'aqua'
+        dd2.draw(sublist)
+        dd2.linecolor = 'red'
+        for l in sublist:
+            dd2.draw_bbox(l,dim3=False)
+        dd2.display()
+
+        bar2.updateTree()
+        # print("bar2: ",bar2)
+        # assert False
+
+        print ("bar2 depth: ",bar2.depth)
+        slist2 = bar2.getElements(subbox)
+        assert len(slist2) == len(sublist)
+        for l in slist2:
+            assert l in sublist
+ 
+    def test_octree(self):
 
         dd = pygletDraw()
         dd.linecolor = 'white'
+        dd.cameradist = 35
 
         # make an octree
         foo =NTree()
@@ -199,7 +308,7 @@ class TestOctree:
             assert c in cexpect
             
         
-        foo2 = NTree()
+        foo2 = NTree(mindim=4.0)
         # make 1000 lines in space, keep track of which fall inside a
         # sub-region, then try to retrieve those with our tree,
 
@@ -209,7 +318,7 @@ class TestOctree:
         glist=[]
         sublist=[]
         
-        dim = 200
+        dim = 500
         plist1 = example10.randomPoints(bigbox,dim)
         plist2 = example10.randomPoints(deltabox,dim)
         
@@ -235,6 +344,7 @@ class TestOctree:
         dd2.display()
 
         foo2.updateTree()
+            
         print ("foo2 depth: ",foo2.depth)
         slist2 = foo2.getElements(subbox)
         assert len(slist2) == len(sublist)
