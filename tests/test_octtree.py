@@ -1,15 +1,39 @@
 import pytest
+import random
 from yapcad.geom import *
 from yapcad.octtree import *
-import examples.example10 as example10
 from yapcad.pyglet_drawable import *
 
 def three2two(x):
+    """take a 3D bounding box with non-zero z coordinates, return
+    a 2D bounding box with zero z coordinates"""
     a = vect(x[0])
     b = vect(x[1])
     a[2] = 0
     b[2] = 0
     return [a,b]
+
+def randomPoints(bbox,numpoints):
+    """Given a 3D bounding box and a number of points to generate, 
+    return a list of uniformly generated random points within the 
+    bounding box"""
+    
+    points = []
+    minx = bbox[0][0]
+    maxx = bbox[1][0]
+    miny = bbox[0][1]
+    maxy = bbox[1][1]
+    minz = bbox[0][2]
+    maxz = bbox[1][2]
+    rangex = maxx-minx
+    rangey = maxy-miny
+    rangez = maxz-minz
+    for i in range(numpoints):
+        points.append(point(random.random()*rangex+minx,
+                            random.random()*rangey+miny,
+                            random.random()*rangez+minz))
+    return points
+
 
 class TestOctree:
     """ Test utility functions """
@@ -197,8 +221,8 @@ class TestOctree:
         sublist=[]
         
         dim = 200
-        plist1 = example10.randomPoints(bigbox,dim)
-        plist2 = example10.randomPoints(deltabox,dim)
+        plist1 = randomPoints(bigbox,dim)
+        plist2 = randomPoints(deltabox,dim)
         
         for i in range(dim):
             l = line(plist1[i],add(plist1[i],plist2[i]))
@@ -319,8 +343,8 @@ class TestOctree:
         sublist=[]
         
         dim = 500
-        plist1 = example10.randomPoints(bigbox,dim)
-        plist2 = example10.randomPoints(deltabox,dim)
+        plist1 = randomPoints(bigbox,dim)
+        plist2 = randomPoints(deltabox,dim)
         
         for i in range(dim):
             l = line(plist1[i],add(plist1[i],plist2[i]))
