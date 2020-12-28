@@ -29,73 +29,10 @@ crosses.
 """
 
 from yapcad.geom import *
+from yapcad.geom_util import *
 import yapcad.poly as poly
 import random
 
-def randomPoints(bbox,numpoints):
-    points = []
-    minx = bbox[0][0]
-    maxx = bbox[1][0]
-    miny = bbox[0][1]
-    maxy = bbox[1][1]
-    minz = bbox[0][2]
-    maxz = bbox[1][2]
-    rangex = maxx-minx
-    rangey = maxy-miny
-    rangez = maxz-minz
-    for i in range(numpoints):
-        points.append(point(random.random()*rangex+minx,
-                            random.random()*rangey+miny,
-                            random.random()*rangez+minz))
-    return points
-
-def pointInBox(bbox,r):
-    minx = bbox[0][0]+r
-    maxx = bbox[1][0]-r
-    miny = bbox[0][1]+r
-    maxy = bbox[1][1]-r
-    rangex = maxx-minx
-    rangey = maxy-miny
-    x = point(random.random()*rangex+minx,
-              random.random()*rangey+miny)
-    return x
-
-
-def randomArc(bbox,minr=0.0,maxr=10.0,circle=False):
-    radr = maxr-minr
-    r = random.random()*radr+minr
-    start = 0
-    end = 360
-    if not circle:
-        start = random.random()*360.0
-        end = start + random.random()*360.0
-
-    x = pointInBox(bbox,r)
-    return arc(x,r,start,end)
-
-def randomPoly(bbox,numpoints=10,minr = 1.0,maxr = 10.0):
-    angles = []
-    rads = []
-    ang = 0.0
-    rr = maxr-minr
-    for i in range(numpoints):
-        a = random.random()
-        angles.append(ang)
-        ang = ang + a
-        # print("a: ",a," ang: ",ang)
-        rads.append(random.random()*rr+minr)
-
-    sf = pi2/ang
-
-    points = []
-    x = pointInBox(bbox,maxr)
-    
-    for i in range(numpoints):
-        p = [cos(angles[i]*sf)*rads[i],
-             sin(angles[i]*sf)*rads[i],0,1]
-        points.append(add(p,x))
-
-    return points + [ points[0] ]
 
 def randomGeometry(bbox, numarcs, numcircles, numpolys):
     geom=[]
