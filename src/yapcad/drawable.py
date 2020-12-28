@@ -5,6 +5,7 @@
 ## See licensing terms here: https://github.com/rdevaul/yapCAD/blob/master/LICENSE
 
 from yapcad.geom import *
+from yapcad.geometry import *
 
 ## Generic drawing functions -- assumed to use current coordinate
 ## transform and drawing pen (color, line weight, etc.)
@@ -287,6 +288,10 @@ class Drawable:
             
         elif isgeomlist(x):
             for e in x:
+                self.draw(e)
+        elif isinstance(x,Geometry):
+            gl = x.geom()
+            for e in gl:
                 self.draw(e)
         else:
             raise ValueError('bad argument to Drawable.draw(): '.format(x))
