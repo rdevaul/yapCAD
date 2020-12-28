@@ -1,5 +1,7 @@
 import pytest
 from yapcad.geom import *
+from yapcad.geom_util import *
+from yapcad.pyglet_drawable import *
 ## unit tests for yapCAD geom.py
 
 class TestPoint:
@@ -24,6 +26,36 @@ class TestPoint:
         assert not ispoint(vect(1,2,3,-1))
         assert ispoint([0,2,2,1])
         assert not ispoint([1,2])
+
+    def test_planar(self):
+        
+    
+        print("---> do some planar point testing")
+        # points in the x-y plane
+        p1 = point(2.5,0)
+        p2 = point(5,5)
+        p3 = point(0,5)
+        p4 = point(2.5,10)
+
+        # points in the x,z plane
+        p5 = point(1,0,-5)
+        p6 = point(10,0,10)
+    
+        # points in the y-z plane
+        p7 = point(0,2,-1)
+        p8 = point(0,10,10)
+
+        assert isCardinalPlanar("xy",[p1,p2,p3,p4])
+        assert not isCardinalPlanar("xz",[p1,p2,p3,p4])
+        assert not isCardinalPlanar("yz",[p1,p2,p3,p4])
+        assert isCardinalPlanar("xz",[p1,p5,p6])
+
+        assert isCardinalPlanar("yz",[p3,p7,p8])
+
+        with pytest.raises(ValueError):
+            print('deliberate bad plane specification, should raise ValueError')
+            assert not isCardinalPlanar("FOO!",[p1,p2,p3,p4])
+
 
     def test_format(self):
         a = point(5,0)
@@ -410,12 +442,12 @@ class TestPoly:
         assert close(int0u[0][0],0.5)
         assert close(int0u[1][0],0.5)
 
-        int0 = intersectSimplePolyXY(line1,pol2,True)
-        int1 = intersectSimplePolyXY(line1,pol2,False)
-        int0u = intersectSimplePolyXY(line1,pol2,params=True)
-        print("intersectSimplePolyXY(line1,pol2,True): ",vstr(int0))
-        print("intersectSimplePolyXY(line1,pol2,False): ",vstr(int1))
-        print("intersectSimplePolyXY(line1,pol2,params=True): ",vstr(int0u))
+        int0 = intersectXY(line1,pol2,True)
+        int1 = intersectXY(line1,pol2,False)
+        int0u = intersectXY(line1,pol2,params=True)
+        print("intersectXY(line1,pol2,True): ",vstr(int0))
+        print("intersectXY(line1,pol2,False): ",vstr(int1))
+        print("intersectXY(line1,pol2,params=True): ",vstr(int0u))
         assert len(int0) == 1
         assert vclose(int0[0],point(2.5,2.5))
         assert len(int1) == 2
@@ -427,11 +459,88 @@ class TestPoly:
         assert close(int0u[1][0],0.375)
         assert close(int0u[1][1],0.875)
 
-        int0 = intersectSimplePolyXY(arc1,pol2,True)
-        int1 = intersectSimplePolyXY(arc1,pol2,False)
-        int0u = intersectSimplePolyXY(arc1,pol2,params=True)
-        print("intersectSimplePolyXY(arc1,pol2,True): ",vstr(int0))
-        print("intersectSimplePolyXY(arc1,pol2,False): ",vstr(int1))
-        print("intersectSimplePolyXY(arc1,pol2,params=True): ",vstr(int0u))
+        int0 = intersectXY(arc1,pol2,True)
+        int1 = intersectXY(arc1,pol2,False)
+        int0u = intersectXY(arc1,pol2,params=True)
+        print("intersectXY(arc1,pol2,True): ",vstr(int0))
+        print("intersectXY(arc1,pol2,False): ",vstr(int1))
+        print("intersectXY(arc1,pol2,params=True): ",vstr(int0u))
 
+    def test_visual_intersect(self):
+        dd = pygletDraw()
+        dd.linecolor='silver'
+        # make a polyline spiral
+        ply = makeLineSpiral(point(-5,0),2.0,10)
+        # make an arc-segment geometry list spiral
+        gl = makeArcSpiral(point(5,0),3.0,6.66)
+        # find intersection points
+        pts = intersectXY(gl,ply)
+        # find intersection parameters
+        uu = intersectXY(ply,gl,params=True)
 
+        dd.draw(ply)
+        dd.draw(gl)
+        dd.polystyle='points'
+        dd.pointstyle='x'
+        dd.linecolor='aqua'
+        dd.draw(pts)
+        dd.linecolor='white'
+        pts2 = []
+        for i in range(len(uu[0])):
+            p0 =sample(ply,uu[0][i])
+            p1 =sample(gl,uu[1][i])
+            assert vclose(p0,p1)
+            assert vclose(p0,pts[i])
+            pts2.append(p0)
+        dd.pointstyle='o'
+        dd.draw(pts2)
+        dd.display()
+        
+            
+
+    # print("---> convex polygon inside testing")
+    # tri1 = [p1,p2,p3]
+    # poly1 = [p1,p2,p4,p3]
+    # p = point(2.5,1.0)
+    # q = point(2.5,5.0)
+    # r = point(2.5,7.0)
+    # s= point(-10,-10)
+    # t= point(10,10)
+    # print ("p: {}, q: {}, r: {}, s: {}, t: {}".format(vstr(p), vstr(q),
+    #                                                   vstr(r), vstr(s),
+    #                                                   vstr(t)))
+    # print ("tri1: {}".format(vstr(tri1)))
+    # print ("ispoly(tri1): ",ispoly(tri1))
+    # print ("istriangle(tri1): ",istriangle(tri1))
+    # print("expect True: isInsideTriangleXY(p,tri1): {}"\
+    #       .format(isInsideTriangleXY(p,tri1)))
+    # print("expect True: isInsideTriangleXY(q,tri1): {}"\
+    #       .format(isInsideTriangleXY(q,tri1)))
+    # print("expect False: isInsideTriangleXY(r,tri1): {}"\
+    #       .format(isInsideTriangleXY(r,tri1)))
+    # print("expect False: isInsideTriangleXY(s,tri1): {}"\
+    #       .format(isInsideTriangleXY(s,tri1)))
+    # print("expect False: isInsideTriangleXY(t,tri1): {}"\
+    #       .format(isInsideTriangleXY(t,tri1)))
+    # print("inside poly testing")
+    # print ("tri1: {}".format(vstr(tri1)))
+    # print ("poly1: {}".format(vstr(poly1)))
+    # print("expect True: isInsideConvexPolyXY(p,tri1): {}"\
+    #       .format(isInsideConvexPolyXY(p,tri1)))
+    # print("expect True: isInsideConvexPolyXY(q,tri1): {}"\
+    #       .format(isInsideConvexPolyXY(q,tri1)))
+    # print("expect False: isInsideConvexPolyXY(r,tri1): {}"\
+    #       .format(isInsideConvexPolyXY(r,tri1)))
+    
+    # print("expect True: isInsideConvexPolyXY(p,poly1): {}"\
+    #       .format(isInsideConvexPolyXY(p,poly1)))
+    # print("expect True: isInsideConvexPolyXY(q,poly1): {}"\
+    #       .format(isInsideConvexPolyXY(q,poly1)))
+    # print("expect True: isInsideConvexPolyXY(r,poly1): {}"\
+    #       .format(isInsideConvexPolyXY(r,poly1)))
+    # print("expect False: isInsideConvexPolyXY(s,tri1): {}"\
+    #       .format(isInsideConvexPolyXY(s,tri1)))
+    # print("expect False: isInsideConvexPolyXY(t,tri1): {}"\
+    #       .format(isInsideConvexPolyXY(t,tri1)))
+    
+    # print("done!")
