@@ -5,7 +5,7 @@ from yapcad.poly import *
 
 combineDebugGL=[]
 
-class Boolean(IntersectGeometry):
+class Boolean(Geometry):
     """Boolean operations on Polygons"""
 
     types = ('union','intersection','difference')
