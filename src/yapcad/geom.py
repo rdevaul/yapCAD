@@ -79,15 +79,19 @@ There is a yapcad.geom convenience function, ``vect()``, that will make
 a vector out of just about any plausible set of arguments.  Unspecified
 w values are set to 1, and unspecified z values are set to 0.
 
+========================================
+yapcad.geom simple (non-compound) figures
+=========================================
+
 points
 ======
 
-Ordinary **yapCAD** geometry is assumed to lie in the w=1 hyperplane, and
-when a vector lies in that plane it is usually interpreted as
-transformable coordinate, or point. Because we
-expect w=1 unless certain types of affine transforms have been
-applied, most **yapCAD** geometry operations do not look at the w
-coordinate, and operate as though w=1.  
+Points are the simplest of the ``yapcad.geom`` figures. Ordinary
+**yapCAD** geometry is assumed to lie in the w=1 hyperplane, and when
+a vector lies in that plane it is usually interpreted as transformable
+coordinate, or point. Because we expect w=1 unless certain types of
+affine transforms have been applied, most **yapCAD** geometry
+operations do not look at the w coordinate, and operate as though w=1.
 
 Any vector that lies in the w>0 half-space is a valid coordinate, or
 point. And in **yapCAD**, ``[x,y,z,w]`` corresponds to the same 3D
@@ -127,11 +131,11 @@ operations. (see below)
 ----------------
 
 One special type of ``yapcad.geom`` line is a 3D bounding box.  A
-bounding box is a line that spans the "lower bottom left" to "upper
-top right" of a figure, *e.g.* ``bbx =
+bounding box is a line that spans the "left lower bottom" to "right
+upper top" of a figure, *e.g.* ``bbx =
 [[xmin,ymin,zmin,1],[xmax,ymax,zmax,1]]``. Bounding boxes are used
-internally to speed up inside testing and for a variety of other
-purposes.
+internally to speed up inside/outside testing and for a variety of
+other purposes.
 
 arcs
 ====
@@ -189,6 +193,10 @@ sampling order will have the beneficial property of having the same
 Arcs support all standard ``yapcad.geom`` computational geometry
 operations. (see below)
 
+========================================
+yapcad.geom compound figures
+=========================================
+
 polylines/polygons
 ==================
 
@@ -241,9 +249,9 @@ lists composed of closed elements.
 Geometry lists are paramaterized a bit like polylines, except that
 there is no guarantee of continuity.
 
-======================
-COMPUTATIONAL GEOMETRY
-======================
+=================================
+COMPUTATIONAL GEOMETRY OPERATIONS
+=================================
 
 The primary purpose of the ``yapcad.geom`` module is to support
 computational geometry operations on two-dimensional figures in
@@ -2127,9 +2135,24 @@ def intersectSimplePolyXY(g,a,inside=True,params=False):
         
     
 def polycenter(a):
-    return samplepoly(a,0.5)
+    """Compute center of poly ``a``.  If ``a`` is closed, return
+    barycentric center of figure.  If ``a`` is not closed, return
+    sampling midpoint.
+
+    """
+    if ispolygon(a):
+        avg = a[0]
+        l = len(a)-1
+        for i in range(1,l):
+            avg = add(a[i],avg)
+        return scale3(avg,1.0/l)
+    else:
+        return samplepoly(a,0.5)
 
 def polylength(a):
+    """
+    compute length of poly ``a``
+    """
     if len(a) < 2:
         return 0.0
     l = 0.0
@@ -2143,12 +2166,41 @@ def polylength(a):
 ## or other geometry lists.
 
 def isgeomlist(a):
+    """
+    determine if argument ``a`` is a valid geometry list
+    """
     if not isinstance(a,list):
         return False
     b = list(filter(lambda x: not (ispoint(x) or isline(x) \
                                    or isarc(x) or ispoly(x) \
                                    or isgeomlist(x)),a))
     return not len(b) > 0
+
+
+def iscontinuousgeomlist(a):
+    """
+    deterine if geometry list ``a`` posesses C0 continuity over sampling 
+    interval [0.0,1.0].
+    """
+    l = len(a)
+    if l < 2:
+        return True
+    for i in range(1,l):
+        if not vclose(sample(a[i-1],1.0),
+                      sample(a[i],0.0)):
+            return False
+    return True
+
+def isclosedgeomlist(a):
+    """Determine if geometry list ``a`` is closed, which is to say
+    determine if the geometry list is continuous and the distance
+    between ``sample(a,0.0)`` and ``sample(a,1.0)`` is less than
+    epsilon.  *NOTE:* This test will not detemrine if this geometry
+    list representes a simple closed figure as there could be any
+    number of self intersections.
+
+    """
+    return iscontinuousgeomlist(a) and vclose(sample(a,0.0),sample(a,1.0))
 
 
 def __geomlistlength(gl):
@@ -2184,6 +2236,46 @@ def samplegeomlist(gl,u):
     else:
         uu = (dst-leng+lengths[-1])/lengths[-1]
         return sample(gl[-1],uu)
+
+
+def unsamplegeomlist(gl,p):
+    """
+    anlogous to the unsampleline() and unsamplearc() functions, given a
+    point on a poly, return the corresponding sample parameter, or
+    False if the point is more than epsilon away from any poly line
+    segment
+    """
+    if not isgeomlist(g):
+        raise ValueError('non geometry list passed to unsamplegeomlist')
+
+    lengths,leng = __geomlistlength(gl)
+    if len(gl) == 1:
+        return unsample(gl[0],p)
+    else:
+        uu1 = unsample(gl[0],p)
+        if (not isinstance(uu1,bool)
+            and uu1 < 1.0 and uu1 >= 0.0):
+            return uu1*lengths[0]/leng
+        dst = lengths[0]
+        if len(gl) > 2:
+            for i in range(1,len(gl)-1):
+                if lengths[i] <= epsilon:
+                    continue
+                uu = unsample(gl[i],p)
+                if (not isinstance(uu,bool)
+                    and uu >= 0.0 and uu < 1.0):
+                    return (uu*lengths[i]+dst)/length
+                else:
+                    dst = dst+lengths[i]
+        uu2 = unsample(gl[-1],p)
+        
+        if (not isinstance(uu2,bool) and
+            uu2 >= 0.0 and uu2 <= 1.0):
+            return (uu2*lengths[-1]+dst)/length
+        else:
+            return False
+
+
 
 ## function to reverse a geometry list (presumably contiguous) for
 ## sampling purposes
@@ -2618,7 +2710,7 @@ def unsample(x,p):
     elif ispoly(x):
         return unsamplepoly(x,p)
     elif isgeomlist(x):
-        raise NotImplementedError('unsampling geometry lists currently not supported')
+        return unsamplegeomlist(x,p)
     else:
         raise ValueError("inappropriate type for unasample(): "+str(x))
 
@@ -2644,6 +2736,10 @@ def segment(x,u1,u2):
     
     
 def isinsideXY(x,p):
+    """determine if a point is inside a figure.  In the case of
+    non-closed figures, such as lines, determine if the point lies
+    within epsilon of one of the lines of the figure.
+    """
     if ispoint(x):
         return isinsidepointXY(x,p)
     elif isline(x):
@@ -2658,6 +2754,7 @@ def isinsideXY(x,p):
         raise ValueError("bad thing passed to inside: {}".format(x))
 
 def translate(x,delta):
+    """ return a translated version of the figure"""
     if ispoint(x):
         return add(x,delta)
     elif isline(x):
@@ -2680,6 +2777,7 @@ def translate(x,delta):
         raise ValueError("don't know how to translate {}".format(x))
 
 def scale(x,sx=1.0,sy=False,sz=False,cent=point(0,0),mat=False):
+    """ return a scaled version of the figure"""
     if sy == False and sz == False:
         sy = sz = sx
     if vclose(point(sx,sy,sz),point(1.0,1.0,1.0)):
@@ -2722,6 +2820,8 @@ def scale(x,sx=1.0,sy=False,sz=False,cent=point(0,0),mat=False):
 
     
 def transform(x,m):
+    """ return a transformed version of the figure, as specified by the
+    transformation matrix m"""
     if not isinstance(m,xform.Matrix):
         raise ValueError('bad transformation matrix passed to transform')
     if ispoint(x):
@@ -2753,6 +2853,7 @@ def transform(x,m):
 # recursive processing of geometry lists.
 
 def rotate(x,ang,cent=point(0,0),axis=point(0,0,1.0),mat=False):
+    """ return a rotated version of the figure"""
     if close(ang,0.0):
         return deepcopy(x)
     if not mat: # if matrix isn't pre-specified, calculate it
@@ -2794,6 +2895,12 @@ def rotate(x,ang,cent=point(0,0),axis=point(0,0,1.0),mat=False):
 ## generalized geometry mirror function
 
 def mirror(x,plane):
+    """
+    return a mirrored version of a figure.  Currently, the following
+    values of "plane" are allowed: 'xz', 'yz', xy'.  Generalized
+    arbitrary reflection plane specification will be added in the
+    future.
+    """
     flip=point(1,1,1)
     if plane == 'xz':
         flip[1]= -1
@@ -2845,6 +2952,7 @@ def mirror(x,plane):
 ## if no intersections
 
 def _intersectSimpleXY(g1,g2,inside=True,params=False):
+    """non-value-safe function that determines the intersection of two XY-coplanar non-compound geometric figures"""
     g1line = True
     g2line = True
     if isarc(g1):
@@ -2875,6 +2983,7 @@ def _intersectSimpleXY(g1,g2,inside=True,params=False):
 ## Value-safe simple wrapper for calculation of intersection of
 ## non-compound geometric elements
 def intersectSimpleXY(g1,g2,inside=True,params=False):
+    """value-safe function that determines the intersection of two XY-coplanar non-compound geometric figures"""
     if not (isline(g1) or isarc(g1)) \
        or not (isline(g2) or isarc(g2)):
         raise ValueError('bad geometry passed to intersectSimpleXY')
@@ -2886,6 +2995,7 @@ def intersectSimpleXY(g1,g2,inside=True,params=False):
 
 ## is the argument a "simple" (non-compound) geometry object
 def issimple(g):
+    """ determine if the argument is a simple (non-compound) figure"""
     if ispoint(g) or isline(g) or isarc(g):
         return True
     else:
@@ -2896,6 +3006,16 @@ def issimple(g):
 ## intersection.  Booo-ya. 
 
 def intersectXY(g1,g2,inside=True,params=False):
+    """
+    given two XY-coplanar figures, calculate the intersection of these
+    two figures, and return a list of intersection points, or False if
+    none.  If ``inside == True``, only return intersections that are
+    within the ``0 <= u <= 1.0`` interval for both figures.  If
+    ``params == True``, instead of returning a list of points, return
+    two lists corresponding to the sampling parameter value of the
+    intersections corresponding to each figure.
+
+    """
     if ispoint(g1) or ispoint(g2):
         return False
     elif issimple(g1):
@@ -2976,234 +3096,3 @@ def intersectXY(g1,g2,inside=True,params=False):
     else:
         raise ValueError('very bad thing, this should never happen')
     
-        
-            
-            
-        
-    
-
-## UNIT TESTS
-## ========================================
-## check to see if we have been invoked on the command line
-## if so, run some tests
-
-if __name__ == "__main__":
-    print("------------------------------------------")
-    print("yapCAD geometry tests")
-    print("------------------------------------------")
-    print("light-weight unit tests for geom.py module")
-    a = point(5,0)
-    b = point(0,5)
-    c = point(-3,-3)
-    d = point(1,1)
-    e = point(10,10)
-    # print("---> point creation and testing")
-    # print("some points: a:" + vstr(a) + ", b:"
-    #       + vstr(b) + ", c:" + vstr(c) + ", d:" + vstr(d) + ", e:" + vstr(e))
-    # print("ispoint(a): ",ispoint(a))
-    # print("ispoint(point(a)): ",ispoint(point(a)))
-    # print("ispoint([1,2]: ",ispoint([1,2]))
-    # print("ispoint(vect(1,2)): ",ispoint(vect(1,2)))
-    # print("ispoint(vect(1,2,3,4)): ",ispoint(vect(1,2,3,4)))
-    # print("ispoint(vect(1,2,3,-1)): ",ispoint(vect(1,2,3,-1)))
-    
-    print("---> basic vector operations tests")
-    # print("mag a: " + str(mag(a)))
-    # print("add(a,b): " + vstr(add(a,b)))
-    # print("sub(a,b): " + vstr(sub(a,b)))
-    # print("mag(sub(a,b)): " + str(mag(sub(a,b))))
-    # print("mag(sub(a,b)) == sqrt(50): " + str(mag(sub(a,b))==sqrt(50.0)))
-
-    print("---> line creation and testing")
-    l1 = [a,b]
-    # print("l1 = [a,b] -- l1:",vstr(l1))
-    # l11 = line(a,b)
-    # print("l11 = line(a,b) -- l1:",vstr(l11))
-    l2 = [c,d]
-    # l22 = line(l2)
-    # print("l2 = [c,d], l22 = line(l2) -- l22: ",vstr(l22))
-    l3 = line(c,e)
-    # print("l3 = line(c,e), isline(l3) : ",isline(l3))
-    # print("a {}, isline(a): {}".format(vstr(a),isline(a)))
-    
-    
-    print("---> vector and geometry copying tests")
-    foo = [a,b,l3,l2,d]
-    print("foo: ",vstr(foo))
-    print("deepcopy(foo)",vstr(deepcopy(foo)))
-    bar = [a,b,[1,2],l2,l3]
-    print("bar: ",vstr(bar))
-    print("expect False: deepcopy(bar)",vstr(deepcopy(bar)))
-        
-    print("---> line-line intersection tests")
-    # print("l1:" + vstr(l1) + ", l2:" + vstr(l2) +", l3:" + vstr(l3))
-
-    # int0 = lineLineIntersectXY(l1,l1)
-    # int1 = lineLineIntersectXY(l1,l2,False)
-    # int2 = lineLineIntersectXY(l1,l2,True)
-    # int3 = lineLineIntersectXY(l1,l3,True)
-
-    # print("expect False: lineLineIntersectXY(l1,l1): " + vstr(int0))
-    # print("expect [2.5, 2.5]: lineLineIntersectXY(l1,l2,False): " + vstr(int1))
-    # print("expect False: lineLineIntersectXY(l1,l2,True): " + vstr(int2))
-    # print("expect [2.5, 2.5]: lineLineIntersectXY(l1,l3,True): " + vstr(int3))
-    
-    # print("linePointXY(l1,vect(0,0)): "
-    #       + vstr(linePointXY(l1,vect(0,0))))
-    # print("linePointXYDist(l1,vect(0,0)) == sqrt(12.5): "
-    #       + vstr(abs(linePointXYDist(l1,vect(0,0))-sqrt(12.5))<epsilon))
-    # print("linePointXY(l1,vect(0,10),False): "
-    #       + vstr(linePointXY(l1,vect(vect(0,10)),False)))
-    # print("linePointXY(l1,vect(0,10),True): "
-    #       + vstr(linePointXY(l1,vect(0,10),True)))
-    # print("linePointXY(l1,vect(10,0),False): "
-    #       + vstr(linePointXY(l1,vect(10,0),False)))
-    # print("linePointXY(l1,vect(10,0),True): "
-    #       + vstr(linePointXY(l1,vect(10,0),True)))
-
-    print("---> arc creation and testing")
-    # arc1=[vect(2.5,2.5),vect(2.5,90.0,270.0,-1)]
-    # print("arc1=[vect(2.5,2.5),vect(2.5,90.0,270.0,-1)], arc1: ",vstr(arc1))
-    # arc11=arc(vect(2.5,2.5),2.5,90.0,270.0)
-    # print("arc11=arc(vect(2.5,2.5),2.5,90.0,270.0), arc11: ",vstr(arc11))
-    # print("isarc(arc1): {}  isarc(arc11): {}".format(isarc(arc1),isarc(arc11)))
-    # arc12=arc(arc11)
-    # print("arc12=arc(arc11), arc12: {}, isarc(arc12): {}".format(vstr(arc12),isarc(arc12)))
-    # try:
-    #     print("try creating an arc with a negative radius, should raise ValueError")
-    #     print("arc(vect(0,0),-2): ",arc(vect(0,0),-2))
-    # except ValueError as err:
-    #     print('got expected result:',err)
-    # print("--> line-arc disambiguation")
-    # print("l1: ",vstr(l1)," arc1: ",vstr(arc1))
-    # print("isline(l1): {} isline(arc1): {}".format(isline(l1),isline(arc1)))
-    # print("isarc(l1): {} isarc(arc1): {}".format(isarc(l1),isarc(arc1)))
-    # print("---> arc-line intersection tests")
-    arc1=[vect(2.5,2.5),vect(2.5,90.0,270.0)]
-    print("arc1: {}".format(vstr(arc1)))
-    print("l1: {}".format(vstr(l1)))
-    l2[1]=vect(0,0)
-    print("l2: {}".format(vstr(l2)))
-    int4 = lineArcIntersectXY(l1,arc1,False)
-    int5 = lineArcIntersectXY(l1,arc1,True)
-    int6 = lineArcIntersectXY([vect(0,5),vect(5,5)],arc1,True)
-    int7 = lineArcIntersectXY(l2,arc1,True)
-    int8 = lineArcIntersectXY(l2,arc1,False)
-    print("lineArcIntersectXY(l1,arc1,False): {}".format(vstr(int4)))
-    print("lineArcIntersectXY(l1,arc1,True): {}".format(vstr(int5)))
-    print("lineArcIntersectXY([vect(0,5),vect(5,5)],arc1,True): {}".format(vstr(int6)))
-    print("lineArcIntersectXY(l2,arc1,False): {}".format(vstr(int7)))
-    print("lineArcIntersectXY(l2,arc1,True): {}".format(vstr(int8)))
-
-    print("---> circle-circle tangent testing")
-    circ1 = arc(point(5,5),5)
-    circ2 = arc(point(-5,5),7.5)
-    circ3 = arc(point(0,0),1)
-
-    tl1 = circleCircleTangentsXY(circ1,circ2)
-    tl2 = circleCircleTangentsXY(circ2,circ1)
-    tl3 = circleCircleTangentsXY(circ3,circ2)
-
-    print("circ1: ",vstr(circ1))
-    print("circ2: ",vstr(circ2))
-    print("circ3: ",vstr(circ3))
-    
-    print("circleCircleTangentsXY(circ1,circ2) :", vstr(tl1))
-    print("circleCircleTangentsXY(circ2,circ1) :", vstr(tl2))
-    print("circleCircleTangentsXY(circ3,circ2) :", vstr(tl3))
-
-    print("---> arc-arc intersection tests")
-    arc2=[vect(4.0,2.5),vect(2.5,90.0,270.0)]
-    print("arc1: {}".format(vstr(arc1)))
-    print("arc2: {}".format(vstr(arc2)))
-
-    int9 = arcArcIntersectXY(arc1,arc2,False)
-    int10 = arcArcIntersectXY(arc1,arc2,True)
-    int11 = arcArcIntersectXY(arc2,arc1,True)
-    print("arcArcIntersectXY(arc1,arc2,False):",vstr(int9))
-    print("arcArcIntersectXY(arc1,arc2,True):",vstr(int10))
-    print("arcArcIntersectXY(arc2,arc1,True):",vstr(int11))
-
-    
-    print("---> do some planar point testing")
-    # points in the x-y plane
-    p1 = point(2.5,0)
-    p2 = point(5,5)
-    p3 = point(0,5)
-    p4 = point(2.5,10)
-
-    # points in the x,z plane
-    p5 = point(1,0,-5)
-    p6 = point(10,0,10)
-    
-    # points in the y-z plane
-    p7 = point(0,2,-1)
-    p8 = point(0,10,10)
-
-    print('expect True: isCardinalPlanar("xy",[p1,p2,p3,p4]) : {}'.format(
-        isCardinalPlanar("xy",[p1,p2,p3,p4])))
-    print('expect False: isCardinalPlanar("xz",[p1,p2,p3,p4]) : {}'.format(
-        isCardinalPlanar("xz",[p1,p2,p3,p4])))
-    print('expect False: isCardinalPlanar("yz",[p1,p2,p3,p4]) : {}'.format(
-        isCardinalPlanar("yz",[p1,p2,p3,p4])))
-
-    print('expect True: isCardinalPlanar("xz",[p1,p5,p6]) : {}'.format(
-        isCardinalPlanar("xz",[p1,p5,p6])))
-
-    print('expect True: isCardinalPlanar("yz",[p3,p7,p8]) : {}'.format(
-        isCardinalPlanar("yz",[p3,p7,p8])))
-
-    try:
-        print('deliberate bad plane specification, should raise ValueError')
-        print('isCardinalPlanar("FOO!",[p1,p2,p3,p4]) : {}'.format(
-            isCardinalPlanar("FOO!",[p1,p2,p3,p4])))
-    except ValueError as err:
-        print('got expected result:',err)
-
-
-    print("---> convex polygon inside testing")
-    tri1 = [p1,p2,p3]
-    poly1 = [p1,p2,p4,p3]
-    p = point(2.5,1.0)
-    q = point(2.5,5.0)
-    r = point(2.5,7.0)
-    s= point(-10,-10)
-    t= point(10,10)
-    print ("p: {}, q: {}, r: {}, s: {}, t: {}".format(vstr(p), vstr(q),
-                                                      vstr(r), vstr(s),
-                                                      vstr(t)))
-    print ("tri1: {}".format(vstr(tri1)))
-    print ("ispoly(tri1): ",ispoly(tri1))
-    print ("istriangle(tri1): ",istriangle(tri1))
-    print("expect True: isInsideTriangleXY(p,tri1): {}"\
-          .format(isInsideTriangleXY(p,tri1)))
-    print("expect True: isInsideTriangleXY(q,tri1): {}"\
-          .format(isInsideTriangleXY(q,tri1)))
-    print("expect False: isInsideTriangleXY(r,tri1): {}"\
-          .format(isInsideTriangleXY(r,tri1)))
-    print("expect False: isInsideTriangleXY(s,tri1): {}"\
-          .format(isInsideTriangleXY(s,tri1)))
-    print("expect False: isInsideTriangleXY(t,tri1): {}"\
-          .format(isInsideTriangleXY(t,tri1)))
-    print("inside poly testing")
-    print ("tri1: {}".format(vstr(tri1)))
-    print ("poly1: {}".format(vstr(poly1)))
-    print("expect True: isInsideConvexPolyXY(p,tri1): {}"\
-          .format(isInsideConvexPolyXY(p,tri1)))
-    print("expect True: isInsideConvexPolyXY(q,tri1): {}"\
-          .format(isInsideConvexPolyXY(q,tri1)))
-    print("expect False: isInsideConvexPolyXY(r,tri1): {}"\
-          .format(isInsideConvexPolyXY(r,tri1)))
-    
-    print("expect True: isInsideConvexPolyXY(p,poly1): {}"\
-          .format(isInsideConvexPolyXY(p,poly1)))
-    print("expect True: isInsideConvexPolyXY(q,poly1): {}"\
-          .format(isInsideConvexPolyXY(q,poly1)))
-    print("expect True: isInsideConvexPolyXY(r,poly1): {}"\
-          .format(isInsideConvexPolyXY(r,poly1)))
-    print("expect False: isInsideConvexPolyXY(s,tri1): {}"\
-          .format(isInsideConvexPolyXY(s,tri1)))
-    print("expect False: isInsideConvexPolyXY(t,tri1): {}"\
-          .format(isInsideConvexPolyXY(t,tri1)))
-    
-    print("done!")
