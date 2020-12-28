@@ -48,7 +48,7 @@ from yapcad.geometry import *
 ## and arc trimming are done automatically.
 
 
-class Polyline(IntersectGeometry):
+class Polyline(Geometry):
     """Generalized multi-element open figure class"""
 
     def __init__(self,a=False):
