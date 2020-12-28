@@ -1,25 +1,12 @@
 import pytest
 import random
+from yapcad.pyglet_drawable import *
 from yapcad.geom import *
+from yapcad.geom_util import *
 from yapcad.geometry import *
 from yapcad.pyglet_drawable import *
 
 """test functions for the yapcad.geometry module"""
-
-def makeSpiral(center, turnRad, # radius after one full turn
-               turns, # number of turns
-               dstep = 5.0): # sampling resolution in degrees
-    # make a spiral of points
-    spiral = []
-    rstep = turnRad*dstep/360.0
-
-    for i in range(round(360*turns/3)):
-        ang = i * dstep*pi2/360.0
-        r = i * rstep
-        p = add(center,
-                point(math.cos(ang)*r,math.sin(ang)*r))
-        spiral.append(p)
-    return spiral
 
 
 class TestGeometry:
@@ -37,6 +24,14 @@ class TestGeometry:
         b = point(5,3)
         l = line(a,b)
         L = Geometry(l)
+        assert L.issampleable()
+        assert L.isintersectable()
+        assert L.iscontinuous()
+        assert not L.isclosed()
+        assert close(L.length(),
+                     sqrt(10*10+4*4))
+        assert vclose(L.center(),
+                      center(l))
         
         print("line sample tests")
         p0 =L.sample(-0.5)
@@ -62,6 +57,39 @@ class TestGeometry:
         assert close(u4,1.5)
         p = point(100,100)
         assert not L.unsample(p)
-    
-    
-    
+        
+    def test_visual_intersect(self):
+        dd = pygletDraw()
+        dd.linecolor='silver'
+        # make a polyline spiral
+        ply = makeLineSpiral(point(-5,0),2.0,10)
+        # wrap it
+        Ply = Geometry(ply)
+        # make an arc-segment geometry list spiral
+        gl = makeArcSpiral(point(5,0),3.0,6.66)
+        # wrap it
+        Gl = Geometry(gl)
+        assert Gl.geom() == gl
+        assert Ply.geom() == ply
+        # find intersection points
+        pts = Gl.intersectXY(Ply)
+        # find intersection parameters
+        uu = Ply.intersectXY(Gl,params=True)
+
+        dd.draw(Ply)
+        dd.draw(Gl)
+        dd.polystyle='points'
+        dd.pointstyle='x'
+        dd.linecolor='aqua'
+        dd.draw(pts)
+        dd.linecolor='white'
+        pts2 = []
+        for i in range(len(uu[0])):
+            p0 =sample(ply,uu[0][i])
+            p1 =sample(gl,uu[1][i])
+            assert vclose(p0,p1)
+            assert vclose(p0,pts[i])
+            pts2.append(p0)
+        dd.pointstyle='o'
+        dd.draw(pts2)
+        dd.display()
