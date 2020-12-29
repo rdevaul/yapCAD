@@ -89,7 +89,6 @@ figure.
 import copy
 from yapcad.geom import *
 
-
 class Geometry:
     """generalized computational geometry base class, also acts as a
     wrapper around yapcad.geom elements.  
@@ -301,4 +300,24 @@ class Geometry:
         
         return intersectXY(self.geom(),g,inside,params)
 
-            
+## Utility functions
+
+def Point(x=False,y=False,z=False,w=False):
+    return Geometry(point(x,y,z,w))
+
+def Line(p1,p2=False):
+    return Geometry(line(p1,p2))
+
+def Arc(c,rp=False,sn=False,e=False,n=False,samplereverse=False):
+    return Geometry(arc(c,rp,sn,e,n,samplereverse))
+
+def Poly(*args):
+    ply = poly(*args)
+    # print(f'ply: {ply}')
+    return Geometry(ply)
+
+def Figure(*args):
+    return Geometry(list(*args))
+
+
+                    
