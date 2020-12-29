@@ -1815,9 +1815,9 @@ def poly(*args):
         if ispoly(args[0]):
             return deepcopy(args[0])
         else:
-            raise VauleError('non-poly list passed to poly()')
+            raise ValueError(f'non-poly list passed to poly(): {args}')
     # args is of length 3 or greater.  Check to see if args are points
-    a = list(args)
+    a = list(*args)
     b = list(filter(lambda x: not ispoint(x),a))
     if len(b) > 0:
         raise ValueError('non-point arguments to poly(): {} '.format(b))
@@ -2186,8 +2186,11 @@ def iscontinuousgeomlist(a):
     if l < 2:
         return True
     for i in range(1,l):
-        if not vclose(sample(a[i-1],1.0),
-                      sample(a[i],0.0)):
+        x1 = sample(a[i-1],1.0)
+        x2 = sample(a[i],0.0)
+        if not vclose(x1,x2):
+            #print(f"l: {l}, a: {vstr(a)}")
+            #print(f"i: {i} dist(x1,x2): {dist(x1,x2)}")
             return False
     return True
 
