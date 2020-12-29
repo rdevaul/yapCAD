@@ -22,17 +22,13 @@ class TestGeometry:
 
         a = point(-5,-1)
         b = point(5,3)
-        l = line(a,b)
-        L = Geometry(l)
+        L = Line(a,b)
         assert L.issampleable()
         assert L.isintersectable()
         assert L.iscontinuous()
         assert not L.isclosed()
         assert close(L.length(),
                      sqrt(10*10+4*4))
-        assert vclose(L.center(),
-                      center(l))
-        
         print("line sample tests")
         p0 =L.sample(-0.5)
         p1 =L.sample(0.0)
@@ -62,15 +58,9 @@ class TestGeometry:
         dd = pygletDraw()
         dd.linecolor='silver'
         # make a polyline spiral
-        ply = makeLineSpiral(point(-5,0),2.0,10)
-        # wrap it
-        Ply = Geometry(ply)
+        Ply = Poly(makeLineSpiral(point(-5,0),2.0,10))
         # make an arc-segment geometry list spiral
-        gl = makeArcSpiral(point(5,0),3.0,6.66)
-        # wrap it
-        Gl = Geometry(gl)
-        assert Gl.geom() == gl
-        assert Ply.geom() == ply
+        Gl = Figure(makeArcSpiral(point(5,0),3.0,6.66,dstep=90.0))
         # find intersection points
         pts = Gl.intersectXY(Ply)
         # find intersection parameters
@@ -85,11 +75,67 @@ class TestGeometry:
         dd.linecolor='white'
         pts2 = []
         for i in range(len(uu[0])):
-            p0 =sample(ply,uu[0][i])
-            p1 =sample(gl,uu[1][i])
-            assert vclose(p0,p1)
+            p0 =Gl.sample(uu[1][i])
             assert vclose(p0,pts[i])
             pts2.append(p0)
         dd.pointstyle='o'
         dd.draw(pts2)
         dd.display()
+
+    def test_properties(self):
+        # make some randm polys
+        box = line(point(-10,-10),
+                   point(10,10))
+        plys=[]
+        nply = 3
+        for i in range(nply):
+            ply = randomPoly(box,maxr=3.0)
+            Ply = Geometry(ply)
+            plys.append(Ply)
+            assert Ply.issampleable()
+            assert Ply.isintersectable()
+            assert Ply.iscontinuous()
+            assert Ply.isclosed()
+
+        npts = 3
+        for i in range(npts):
+            ply = randomPoints(box,i+2)
+            Ply = Geometry(ply)
+            plys.append(Ply)
+            assert Ply.issampleable()
+            assert Ply.isintersectable()
+            assert Ply.iscontinuous()
+            assert not Ply.isclosed()
+
+        sprls= 3
+        for i in range(sprls):
+            r = 3.0
+            x = randomCenterInBox(box,r)
+            sp = makeArcSpiral(x,r/(i+1.0),i+1.0)
+            if not i%2:
+                sp.append(line(sample(sp,1.0),
+                               sample(sp,0.0)))
+            Ply = Geometry(sp)
+            plys.append(Ply)
+            assert Ply.issampleable()
+            assert Ply.isintersectable()
+            assert iscontinuousgeomlist(sp)
+            assert Ply.iscontinuous()
+            if not i%2:
+                assert Ply.isclosed()
+            else:
+                assert not Ply.isclosed()
+
+        dd = pygletDraw()
+        dd.linecolor='silver'
+        dd.polystyle='both'
+        dd.draw(plys)
+        dd.display()
+
+    # def test_bool(self):
+        
+    #     dd = pygletDraw()
+    #     dd.linecolor='silver'
+    #     dd
+        
+                        
