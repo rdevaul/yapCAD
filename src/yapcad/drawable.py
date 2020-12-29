@@ -143,7 +143,7 @@ class Drawable:
         
     @polystyle.setter
     def polystyle(self,pst=False):
-        if pst in [False, 'points','lines','both']:
+        if pst in ['points','lines','both']:
             self._set_polystyle(pst)
         else:
             raise ValueError('bad polystyle')
@@ -286,15 +286,17 @@ class Drawable:
             else:
                 raise ValueError("bad value for polystyle: {}".format(self.polystyle))
             
-        elif isgeomlist(x):
-            for e in x:
-                self.draw(e)
         elif isinstance(x,Geometry):
             gl = x.geom()
-            for e in gl:
+            self.draw(gl)
+        elif isinstance(x,list): # could be a geometry list, or a list
+            # that mixes yapcad.geom elements and yapcad.geometry
+            # Geeometry instances.  If the list contains an
+            # inappropriate element it will be caught in the "else" case below.
+            for e in x:
                 self.draw(e)
         else:
-            raise ValueError('bad argument to Drawable.draw(): '.format(x))
+            raise ValueError(f'bad argument to Drawable.draw(): {x}')
         
     ## cause drawing page to be rendered -- pure virtual in base class
     def display(self):
