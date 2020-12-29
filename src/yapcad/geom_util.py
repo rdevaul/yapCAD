@@ -126,7 +126,7 @@ def randomPoly(bbox,numpoints=10,minr = 1.0,maxr = 10.0):
 
 def makeLineSpiral(center, turnRad, # radius after one full turn
                    turns, # number of turns
-                   dstep = 5.0): # sampling resolution in degrees
+                   dstep = 10.0): # sampling resolution in degrees
     """given a center point, the increase in radius per turn, the number
     of turns, and the angular resolution of the approximation,
     generate a yapcqad.geom poly approximation of the spiral
