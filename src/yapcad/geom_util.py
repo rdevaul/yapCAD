@@ -174,5 +174,86 @@ def makeArcSpiral(center, turnRad, # radius after one full turn
         a = segmentarc(circ,u1,u2)
         arcs.append(a)
     return arcs
-        
+
+def polarSampleArc(c,ang,inside=True):
+    """given an arc ``c`` , sample that arc at ``ang`` degrees from the
+    start of the arc, proceeding clockwise.  If ``samplereverse`` is
+    true, sample the arc at ``-ang`` degrees from the end, proceeding
+    counterclockwise.  If ``c`` is not a complete circle and the
+    specified ``ang`` falls outside the closed [start,end] interval
+    and ``inside == True``, return ``False``, otherwise return the
+    sampled value.
+
+    """
+    p = c[0]
+    r = c[1][0]
+    start=c[1][1]
+    end=c[1][2]
+    samplereverse = (c[1][3] == -2)
+    circle = (start == 0 and end == 360)
+
+    if not circle:
+        start = start % 360.0
+        end = end % 360.0
+        if end < start:
+            end += 360.0
+        if inside and ang > (end - start):
+            return False
     
+    if samplereverse:
+        start=end
+        ang *= -1
+
+    srad = (start+ang)*pi2/360.0
+    q = scale3(vect(cos(srad),sin(srad)),r)
+    return add(p,q)
+
+
+def geomlist2poly(gl,minang=5.0,minlen=0.01,checkcont=False):
+
+    """
+    convert a continuous geometry list that contains only lines and
+    arcs into a poly representation that contains only points. Arcs
+    are sampled at a minimum resolution of ``minang`` degrees, and
+    resulting points are guaranteed to be no closer than ``minlen``
+    apart.  Returns a valid poly.
+
+    """
+
+    if checkcont and not iscontinuousgeomlist(gl):
+        raise ValueError('non-continuous geometry list passed to geomlist2poly')
+    
+    ply = []
+    lastpoint = None
+    def addpoint(p,lastpoint):
+        if not lastpoint or dist(p,lastpoint) > minlen:
+            lastpoint = p
+            ply.append(p)
+        return lastpoint
+
+            
+    for e in gl:
+        if ispoint(e):
+            pass  # ignore points in source geometry list
+        elif isline(e):
+            p0 = e[0]
+            p1 = e[1]
+            lastpoint = addpoint(p0,lastpoint)
+            lastpoint = addpoint(p1,lastpoint)
+        elif isarc(e):
+            for ang in range(0,360,round(minang)):
+                p = polarSampleArc(e,float(ang),inside=True)
+                if not p:
+                    break
+                else:
+                    lastpoint = addpoint(p,lastpoint)
+        elif ispoly(e):
+            for p in e:
+                lastpoint = addpoint(p,lastpoint)
+        elif isgeomlist(e):
+            pts = geomlist2poly(e,minang,minlen,checkcont)
+            for p in pts:
+                lastpoint = addpoint(p,lastpoint)
+        else:
+            raise ValueError(f'bad object in list passed to geomlist2poly: {e}')
+    return ply
