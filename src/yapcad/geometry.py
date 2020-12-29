@@ -300,6 +300,26 @@ class Geometry:
         
         return intersectXY(self.geom(),g,inside,params)
 
+    def triangulate():
+        """
+        triangulate a closed polyline or geometry list, return a surface.
+        ``surface = ['surface',vertices,normals,indices]``, where:
+            ``vertices`` is a list of ``yapcad.geom`` points,
+            ``normals`` is a list of ``yapcad.geom`` points of the same length as ``vertices``,
+            and ``indices`` is the list of indices (three at a time) that represent the
+            indices of each of the tiangles that make up the surface
+        """
+        if self.__update:
+            self.__updateInternals()
+        if not self.closed():
+            raise ValueError("non-closed figure passed to ``triangulate()`` method")
+        geo = self.geom()
+        if len(geo) == 0:
+            return []
+        pts = fig2pts(geo)
+
+        return []
+
 ## Utility functions
 
 def Point(x=False,y=False,z=False,w=False):
