@@ -157,9 +157,10 @@ class pygletDraw(drawable.Drawable):
                                     li,ll,lc)
 
         for s in self.__surfaces:
-            vert = s[0]
-            norm = s[1]
-            ind = s[2]
+            assert s[0] == 'surface'
+            vert = s[1]
+            norm = s[2]
+            ind = s[3]
             pp = []
             ln = int(len(vert)/3)
             for i in range(ln):
@@ -490,7 +491,7 @@ class pygletDraw(drawable.Drawable):
             nrms+=n[0:3]
         for f in faces:
             inds+=f[0:3]
-        self.__surfaces.append([vrts,nrms,inds])    
+        self.__surfaces.append(['surface',vrts,nrms,inds])    
 
     ## overload base-class virtual display method
     def display(self):
