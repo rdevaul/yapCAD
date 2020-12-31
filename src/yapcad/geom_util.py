@@ -126,7 +126,8 @@ def randomPoly(bbox,numpoints=10,minr = 1.0,maxr = 10.0):
 
 def makeLineSpiral(center, turnRad, # radius after one full turn
                    turns, # number of turns
-                   dstep = 10.0): # sampling resolution in degrees
+                   dstep = 10.0, # sampling resolution in degrees
+                   minlen = 0.25): # minimum distance between points
     """given a center point, the increase in radius per turn, the number
     of turns, and the angular resolution of the approximation,
     generate a yapcqad.geom poly approximation of the spiral
@@ -137,12 +138,19 @@ def makeLineSpiral(center, turnRad, # radius after one full turn
     spiral = []
     rstep = turnRad*dstep/360.0
 
+    def addpoint(p,lastpoint):
+        if not lastpoint or dist(p,lastpoint) > minlen:
+            lastpoint = p
+            spiral.append(p)
+        return lastpoint
+
+    lastpoint = None
     for i in range(round(360*turns/dstep)):
         ang = i * dstep*pi2/360.0
         r = i * rstep
         p = add(center,
                 point(math.cos(ang)*r,math.sin(ang)*r))
-        spiral.append(p)
+        lastpoint = addpoint(p,lastpoint)
     return spiral
 
 def makeArcSpiral(center, turnRad, # radius after one full turn
@@ -209,7 +217,7 @@ def polarSampleArc(c,ang,inside=True):
     return add(p,q)
 
 
-def geomlist2poly(gl,minang=5.0,minlen=0.01,checkcont=False):
+def geomlist2poly(gl,minang=5.0,minlen=0.25,checkcont=False):
 
     """
     convert a continuous geometry list that contains only lines and
@@ -241,12 +249,17 @@ def geomlist2poly(gl,minang=5.0,minlen=0.01,checkcont=False):
             lastpoint = addpoint(p0,lastpoint)
             lastpoint = addpoint(p1,lastpoint)
         elif isarc(e):
+            firstpoint = None
             for ang in range(0,360,round(minang)):
                 p = polarSampleArc(e,float(ang),inside=True)
                 if not p:
                     break
                 else:
+                    if not firstpoint:
+                        firstpoint = p
                     lastpoint = addpoint(p,lastpoint)
+            if iscircle(e):
+                lastpoint = addpoint(firstpoint,lastpoint)
         elif ispoly(e):
             for p in e:
                 lastpoint = addpoint(p,lastpoint)
@@ -257,3 +270,220 @@ def geomlist2poly(gl,minang=5.0,minlen=0.01,checkcont=False):
         else:
             raise ValueError(f'bad object in list passed to geomlist2poly: {e}')
     return ply
+
+def issurface(s,fast=True):
+    """
+    Check to see if ``s`` is a valid surface.
+       ``surface = ['surface',vertices,normals,indices]``, where:
+            ``vertices`` is a list of ``yapcad.geom`` points,
+            ``normals`` is a list of ``yapcad.geom`` points of the same length as ``vertices``,
+            and ``faces`` is the list of faces, which is to say lists of three indices that 
+            refer to the vertices of the triangle that represents each face.
+    """
+    if not isinstance(s,list) or s[0] != 'surface' or len(s) != 4:
+        return False
+    if fast:
+        return True
+    else:
+        verts=s[1]
+        norms=s[2]
+        faces=s[3]
+        if (not ispoly(verts) or
+            not ispoly(norms) or
+            len(verts) != len(norms)):
+            return False
+        l = len(verts)
+        if (len(lit(filter(lambda x: not len(x) == 3, faces))) > 0):
+            return False
+        if (len(list(filter(lambda x: not (isinstance(x,int) or
+                                           x < 0 or x >= l),
+                            reduce((lambda x,y: x + y),faces)))) > 0):
+            return False
+        return True
+
+def normfunc(tri):
+    v1 = sub(tri[1],tri[0])
+    v2 = sub(tri[2],tri[1])
+    d = cross(v1,v2)
+    n = scale3(d,1.0/mag(d))
+    return n,n,n
+    
+def addTri2Surface(tri,s,check=False,nfunc=normfunc):
+    """
+    Add triangle ``tri`` (a list of three points) to a surface ``s``,
+    returning the updated surface.  *NOTE:* There is no enforcement of
+    contiguousness or coplainarity -- this function will add any triangle.
+    """
+
+    def addVert(p,n,vrts,nrms):
+        for i in range(len(vrts)):
+            if vclose(p,vrts[i]):
+                return i,vrts,nrms
+        vrts.append(p)
+        nrms.append(n)
+        return len(vrts)-1,vrts,nrms
+
+    if check and (not issurface(s) or not istriangle(tri)):
+        raise ValueError(f'bad arguments to addTri2Surface({tri},{s})')
+    
+    vrts = s[1]
+    nrms = s[2]
+    faces = s[3]
+
+    n1,n2,n3 = nfunc(tri)
+    i1,vrts,nrms = addVert(tri[0],n1,vrts,nrms)
+    i2,vrts,nrms = addVert(tri[1],n2,vrts,nrms)
+    i3,vrts,nrms = addVert(tri[2],n3,vrts,nrms)
+    faces.append([i1,i2,i3])
+
+    return ['surface',vrts,nrms,faces]
+
+def poly2surface(ply,minlen=0.5,minarea=0.0001,checkclosed=False,box=None):
+    """
+    given an XY-coplanar polygon, return the triangulated surface
+    representation of that polygon. If ``checkclosed`` is true, make
+    sure ``ply`` is a vaid, closed, XY-coplanar polygon.  if ``box``
+    exists, use it as the bounding box.
+        ``surface = ['surface',vertices,normals,indices]``, where:
+            ``vertices`` is a list of ``yapcad.geom`` points,
+            ``normals`` is a list of ``yapcad.geom`` points of the same length as ``vertices``,
+            and ``indices`` is the list of indices (three at a time) that represent the
+            indices of each of the tiangles that make up the surface
+    """
+    
+    if checkclosed and not ispolygonXY(ply):
+        raise ValueError('ply is not an XY coplanar closed polygon')
+
+    if not box:
+        box = bbox(ply)
+
+    def triarea(p1,p2,p3):
+        v1=sub(p2,p1)
+        v2=sub(p3,p2)
+        cp = cross(v1,v2)
+        return cp[2]/2
+    
+    def leftTurn(p1,p2,p3):
+        v1=sub(p2,p1)
+        v2=sub(p3,p2)
+        cp = cross(v1,v2)
+        return (cp[2] > epsilon)
+
+    outpoint = add(box[1],[1,1,0,1])
+    def insideTest(p,poly=ply):
+        l = line(p,outpoint)
+        pp = intersectSimplePolyXY(l,poly)
+        if pp == False:
+            return False
+        return len(pp) % 2 == 1
+    
+    ome = 1.0-epsilon
+    def selfIntersect(l,bndry):
+        for i in range(1,len(bndry)+1):
+            uu = lineLineIntersectXY(l,line(bndry[i-1],
+                                            bndry[i%len(bndry)]),params=True)
+            if (not isinstance(uu,bool) and
+                uu[0] > epsilon and uu[0] < ome and
+                uu[1] > epsilon and uu[1] < ome):
+                return True
+        return False
+
+
+    def trimsharp(bndry):
+        if len(bndry) < 3:
+            return bndry, False
+        print(f"len bndry: {len(bndry)}")
+        nodel = True
+        for i in range(1,len(bndry)+1):
+            delit  = True
+            while len(bndry) > 3 and delit:
+                p1 = bndry[(i-2)%len(bndry)]
+                p2 = bndry[(i-1)%len(bndry)]
+                p3 = bndry[i%len(bndry)]
+                v1=sub(p2,p1)
+                v2=sub(p3,p2)
+                cp = cross(v1,v2)
+                dp = dot(v1,v2)
+                if abs(cp[2]/2) < minarea and dp < 0:
+                    del bndry[(i-1)%len(bndry)]
+                    nodel = False
+                else:
+                    delit = False
+        print(f"len bndry: {len(bndry)}")
+        return bndry, not nodel
+    
+    def subdivide(i,bndry):
+        if len(bndry) < 2 or i < 1 or i > len(bndry):
+            raise ValueError('bad index or list for subdivision')
+        p0 = bndry[i-1]
+        p1 = bndry[i%len(bndry)]
+        if dist(p0,p1) < minlen:
+            return bndry,False
+        np = scale3(add(p0,p1),0.5)
+        bndry.insert(i,np)
+        return bndry,True
+        
+    vrts=[]
+    nrms=[]
+    faces=[]
+    surf=['surface',[],[],[]]
+
+    bndry=deepcopy(ply[0:-1]) # last point is redundant
+
+    cnt = 0
+    addcnt = 0
+    while (len(bndry) > 2):
+        cnt+= 1
+        if cnt > 1000:
+            assert False
+        l = len(bndry)
+        added = False
+        for i in range(l-2):
+            testl = line(bndry[i],
+                         bndry[i+2])
+            testp = scale3(add(bndry[i],
+                               bndry[i+2]),0.5)
+            area = triarea(bndry[i],
+                           bndry[i+1],
+                           bndry[i+2])
+            if (area > epsilon and
+                not selfIntersect(testl, bndry) and
+                insideTest(testp)):
+                if area > minarea:
+                    surf = addTri2Surface(bndry[i:i+3],surf,
+                                          nfunc=lambda x: ([0,0,1],
+                                                           [0,0,1],
+                                                           [0,0,1]))
+                addcnt+=1
+                
+                del bndry[i+1]
+                added = True
+                break
+
+        bndry, trimmed = trimsharp(bndry)
+
+        if not added and not trimmed and len(bndry) > 2:
+            div = False
+            skip = False
+            for i in range(1,len(bndry)+1):
+                if skip:
+                    print(f"i : {i} len(bndry): {len(bndry)}")
+                    skip=False
+                else:
+                    bndry,diddiv = subdivide(i,bndry)
+                    div = div or diddiv
+                    if diddiv:
+                        print(f"did div at {i}")
+                        skip = True
+
+                
+            if not div:
+                print("incomplete triangulation")
+                print(f"cnt: {cnt}, addcnt: {addcnt}")
+                print(f"bndry len: {len(bndry)}, surface triangles: {len(surf[3])}")
+                print(f"bndry: {vstr(bndry)}")
+                return surf,bndry
+                #raise ValueError('unable to finish triangulating surface')
+        
+
+    return surf,bndry

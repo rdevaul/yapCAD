@@ -481,7 +481,11 @@ class pygletDraw(drawable.Drawable):
                                    tuple(i2) ])
             
 
-    def draw_surface(self,points,normals,faces):
+    def draw_surface(self,points,normals=None,faces=None):
+        if not (normals or faces):
+            normals = points[2]
+            faces = points[3]
+            points = points[1]
         vrts = []
         nrms= []
         inds = []

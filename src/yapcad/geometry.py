@@ -104,12 +104,15 @@ class Geometry:
         return f"Geometry({self.__elem})"
 
     def __init__(self,a=False):
-        self.__update=True
-        self.__elem=[]
+        self.__update=True # do we need to update geom?
+        self.__elem=[] # internal geometry
         self.__sampleable = False
         self.__intersectable = False
         self.__continuous = False
         self.__closed = False
+        self.__surface = None # surface representation
+        self.__surface_ang = -1 # surface parameter
+        self.__surface_len = -1 # surface parameter
         if a:
             if ispoint(a):
                 self.__elem= deepcopy(a)
@@ -300,25 +303,41 @@ class Geometry:
         
         return intersectXY(self.geom(),g,inside,params)
 
-    def triangulate():
+    
+    def surface(minang = 5.0, minlen = 0.5):
         """
         triangulate a closed polyline or geometry list, return a surface.
+        the ``minang`` parameter specifies a minimum angular resolution
+        for sampling arcs, and ``minleng`` specifies a minimum distance
+        between sampled points. 
         ``surface = ['surface',vertices,normals,indices]``, where:
             ``vertices`` is a list of ``yapcad.geom`` points,
             ``normals`` is a list of ``yapcad.geom`` points of the same length as ``vertices``,
             and ``indices`` is the list of indices (three at a time) that represent the
             indices of each of the tiangles that make up the surface
         """
+        if not self.closed():
+            raise ValueError("non-closed figure has no surface representation")
         if self.__update:
             self.__updateInternals()
-        if not self.closed():
-            raise ValueError("non-closed figure passed to ``triangulate()`` method")
+        if (self.__surface and
+            close(self.__surface_ang,minang) and
+            close(self.__surface_len,minlen)):
+            return self.__surface
+        self.__surface_ang = minang
+        self.__surface_len = minlen
         geo = self.geom()
         if len(geo) == 0:
             return []
-        pts = fig2pts(geo)
+        ply = []
+        if ispolygon(geo):
+            ply=geo
+        else:
+            ply = geomlist2poly(geo,minang,minlen)
 
-        return []
+        self.__surface = poly2surface(ply)
+
+        return self.__surface
 
 ## Utility functions
 
