@@ -487,3 +487,40 @@ def poly2surface(ply,minlen=0.5,minarea=0.0001,checkclosed=False,box=None):
         
 
     return surf,bndry
+
+def surf2lines(surf):
+    """
+    convert a surface representation to a non-redundant set of lines
+    for line-based rendering purposes
+    """
+    
+    drawn = []
+
+    verts = surf[1]
+    norms = surf[2]
+    faces = surf[3]
+
+    lines = []
+
+    def inds2key(i1,i2):
+        if i1 <= i2:
+            return f"{i1}-{i2}"
+        else:
+            return f"{i2}-{i1}"
+
+    def addLine(i1,i2,lines):
+        key = inds2key(i1,i2)
+        if not key in drawn:
+            lines.append(line(verts[i1],
+                              verts[i2]))
+            drawn.append(key)
+        return lines
+    
+    for f in faces:
+        lines = addLine(f[0],f[1],lines)
+        lines = addLine(f[1],f[2],lines)
+        lines = addLine(f[2],f[0],lines)
+
+    return lines
+    
+
