@@ -132,6 +132,96 @@ class TestGeometry:
         dd.draw(plys)
         dd.display()
 
+    def test_surface(self):
+        
+        dd = pygletDraw()
+        dd.linecolor='silver'
+        # make an arc-segment geometry list spiral
+        gl = makeArcSpiral(point(-10,0),10.0,1.0)
+        # "close" the arc with a line segment
+        gl.append(line(sample(gl,1.0),
+                       sample(gl,0.0)))
+        Nautalus = Geometry(gl)
+        dd.draw(Nautalus)
+        # turn the geometry list into a poly
+        surf = Nautalus.surface()
+        dd.draw_surface(surf)
+        Nautalus.translate(point(0,0,0.5))
+        surf2 = Nautalus.surface()
+        dd.linecolor='red'
+        dd.draw(surf2lines(surf2))
+        
+
+        ply2 = [ point(20,20),
+                 point(10,20),
+                 point(10,-20),
+                 point(20,-20),
+                 point(20,-10),
+                 point(15,-10),
+                 point(15,10),
+                 point(20,10),
+                 point(20,20) ]
+
+        BigC=Geometry(ply2)
+        dd.linecolor='silver'
+        dd.draw(BigC)
+        surf = BigC.surface()
+        dd.draw_surface(surf)
+        BigC.translate(point(0,0,0.5))
+        surf2 = BigC.surface()
+        dd.linecolor='red'
+        dd.draw(surf2lines(surf2))
+        print(f"surface area: {surfArea(surf)}")
+        assert close(surfArea(surf),300.0)
+        
+        # ply2 = translate(ply2,point(0,0,0.5)) # pull it forward
+        # dd.linecolor='red'
+        # dd.polystyle='both'
+        # dd.draw(ply2)
+        # surf2,bnd = poly2surface(ply2)
+        # dd.draw_surface(surf2)
+
+        # rr1 = makeRoundRect(5,5,0.5,center=point(-15,20))
+        # rr2 = makeRoundRect(6,3,0.5,center=point(-12,20))
+        # gl3 = Boolean('difference',[rr1,rr2])
+        # ply3 = geomlist2poly(gl3.geom())
+        # dd.linecolor='aqua'
+        # dd.draw(gl3)
+        # ply3 = translate(ply3,point(0,0,0.5)) # pull it forward
+        # surf3,bnd = poly2surface(ply3)
+        # dd.linecolor='red'
+        # dd.polystyle='both'
+        # dd.draw(ply3)
+        # dd.draw_surface(surf3)
+
+        # gl4 = [arc(point(0,7),10.0,0.0,270.0),
+        #        arc(point(0,7),5.0,0.0,270.0,samplereverse=True)]
+        # gl4 = [arc(point(0,7),10.0,0.0,350.0),
+        #        arc(point(0,7),5.0,0.0,350.0,samplereverse=True)]
+        # dd.linecolor='aqua'
+        # dd.draw(gl4)
+        # ply4 =geomlist2poly(gl4,minang = 10 )
+        # ply4.append(ply4[0])
+
+        # ply4 = translate(ply4,point(0,0,0.5)) # pull it forward
+        # dd.linecolor='red'
+        # dd.polystyle='both'
+        # dd.draw(ply4)
+
+        # surf4,bnd = poly2surface(ply4,minlen=1.0)
+        # # assert False
+        # lines = surf2lines(surf4)
+        # lines = translate(lines,point(0,0,0.5))
+        # dd.draw_surface(surf4)
+        # dd.linecolor='yellow'
+        # dd.draw(lines)
+        # bnd.append(bnd[0])
+        # bnd = translate(bnd,point(0,0,1.0))
+        # dd.linecolor='white'
+        # dd.draw(bnd)
+        
+        dd.display()
+        
     # def test_bool(self):
         
     #     dd = pygletDraw()
