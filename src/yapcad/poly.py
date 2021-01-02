@@ -1,4 +1,4 @@
-# Polyline and Polygon geometry generating classes for yapCAD
+# Polyline and Polygon Geometry clases for yapCAD
 from yapcad.geom import *
 from yapcad.geometry import *
 
