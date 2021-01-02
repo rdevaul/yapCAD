@@ -88,6 +88,8 @@ figure.
 
 import copy
 from yapcad.geom import *
+from yapcad.geom_util import *
+from yapcad.geom3d import *
 
 class Geometry:
     """generalized computational geometry base class, also acts as a
@@ -193,22 +195,22 @@ class Geometry:
         return isinsideXY(self.geom(),p)
 
 
-    def translate(delta):
+    def translate(self,delta):
         """apply a translation to figure"""
         self.__elem = translate(self.__elem,delta)
         self.__update = True
 
-    def scale(sx=1.0,sy=False,sz=False,cent=point(0,0,0)):
+    def scale(self,sx=1.0,sy=False,sz=False,cent=point(0,0,0)):
         """apply a scaling to a figure"""
         self.__elem = scale(self.__elem,sx,sy,sz,cent)
         self.__update = True
 
-    def rotate(ang,cent=point(0,0,0),axis=point(0,0,1.0)):
+    def rotate(self,ang,cent=point(0,0,0),axis=point(0,0,1.0)):
         """apply a rotation to a figure"""
         self.__elem = rotate(self.__elem,ang,cent,axis)
         self.__update = True
 
-    def mirror(plane):
+    def mirror(self,plane):
         """apply a mirror operation to a figure.  Currently, the following
         values of "plane" are allowed: 'xz', 'yz', xy'.  Generalized
         arbitrary reflection plane specification will be added in the
@@ -217,7 +219,7 @@ class Geometry:
         self.__elem = mirror(self.__elem,plane)
         self.__update = True
 
-    def transform(m):
+    def transform(self,m):
         """apply an arbitrary transformation to a figure, as specified by a
         transformation matrix.
         """
@@ -304,19 +306,19 @@ class Geometry:
         return intersectXY(self.geom(),g,inside,params)
 
     
-    def surface(minang = 5.0, minlen = 0.5):
+    def surface(self,minang = 5.0, minlen = 0.5):
         """
         triangulate a closed polyline or geometry list, return a surface.
         the ``minang`` parameter specifies a minimum angular resolution
         for sampling arcs, and ``minleng`` specifies a minimum distance
         between sampled points. 
-        ``surface = ['surface',vertices,normals,indices]``, where:
+        ``surface = ['surface',vertices,normals,faces]``, where:
             ``vertices`` is a list of ``yapcad.geom`` points,
             ``normals`` is a list of ``yapcad.geom`` points of the same length as ``vertices``,
-            and ``indices`` is the list of indices (three at a time) that represent the
-            indices of each of the tiangles that make up the surface
+            and ``faces`` is the list of faces, which is to say lists of three indices that 
+            refer to the vertices of the triangle that represents each face.
         """
-        if not self.closed():
+        if not self.isclosed():
             raise ValueError("non-closed figure has no surface representation")
         if self.__update:
             self.__updateInternals()
@@ -335,7 +337,8 @@ class Geometry:
         else:
             ply = geomlist2poly(geo,minang,minlen)
 
-        self.__surface = poly2surface(ply)
+        self.__surface,bnd = poly2surface(ply,checkclosed=False,
+                                          box=self.bbox())
 
         return self.__surface
 
