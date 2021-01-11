@@ -63,7 +63,7 @@ STL.
 
 Structures for 2D/3D geometry:
 
-surface = ['surface',vertices,normals,faces,boundary,holes]``, where:
+``surface = ['surface',vertices,normals,faces,boundary,holes]``, where:
 
            ``vertices`` is a list of ``yapcad.geom`` points,
 
@@ -75,20 +75,132 @@ surface = ['surface',vertices,normals,faces,boundary,holes]``, where:
            that represents each face,
 
            ``boundary`` is a list of indices for the vertices that form
-           the outer perimeter of the surface, and
+           the outer perimeter of the surface.
 
            ``holes`` is a (potentially zero-length) list of lists of
            holes, each of which is a non-zero list of three or more
            indices of vertices that form the perimeter of any holes in
            the surface.
 
-"""
-## geom3d in list( <type>, <transform>, <primary representation>,
-##                  <sampled representation>, <rendering hints> )
-## where:
-## type in tuple ('surface' | 'solid' | 'transform', <subtype>)
+A surface has an inside and an outside.  To deterine which side of a
+surface a point lies on, find the closest face and determine if the
+point lies on the positive or negative side of the face.
 
+``solid = ['solid', bbox, surfaces ]``, where:
+
+    ``bbox`` is the bounding box for the solid
+
+    ``surfaces`` is a list of surfaces with contiguous boundaries that
+    completely encloses an interior space.
+
+"""
+
+def signedPlaneDistance(p,p0,n):
+    """Given a point on the plane ``p0``, and the unit-length plane
+    normal ``n``, determine the signed distance to the plane.
+    """
+    return dot(sub(p,p0),n)
+
+def tri2p0n(face):
+    """Given ``face``, a non-degenrate poly of length 3, return the center
+    point and normal of the face, otherwise known as the Hessian
+    Normal Form: https://mathworld.wolfram.com/HessianNormalForm.html
+
+    """
+    p1=face[0]
+    p2=face[1]
+    p3=face[2]
+    p0 = scale3(add(face[0],add(face[1],face[2])),1.0/3.0)
+    v1=sub(p2,p1)
+    v2=sub(p3,p2)
+    c= cross(v1,v2)
+    m = mag(c)
+    if m < epsilon:
+        raise ValueError('degenerate face in tri2p0n')
+    n= scale3(c,1.0/m)
+    return [p0,n]
+
+def signedFaceDistance(p,face):
+    """given a test point ``p`` and a three-point face ``face``, determine
+    the minimum signed distance of the test point from the face.  Any
+    point lying in the positive normal direction or on the surface of
+    the plane will result in a zero or positive distace.  Any point
+    lying in the negative normal direction from the surface of the
+    plane will result in a negative distance.
+
+    """
+    p0,n = tuple(tri2p0n(face))
+    d = sub(p,face[0])
+    m = -dot(d,n) # negative of distance of p from plane
+    a = add(p,scale3(n,m)) # projection of point p into plane
+
+    # create a coordinate system based on the first face edge and the
+    # plane normal
+    v1 = sub(face[1],face[0])
+    v2 = sub(face[2],face[0])
+    vx = scale3(v1,1.0/mag(v1))
+    vy = scale3(cross(vx,n),-1)
+    vz = n
+    p1=[0,0,0,1]
+    p2=[mag(v1),0,0,1]
+    p3=[dot(v2,vx),dot(v2,vy),0,1]
+    aa= sub(a,face[0])
+    aa=[dot(aa,vx),dot(aa,vy),0,1]
+
+    #barycentric coordinates for derermining if projected point falls
+    #inside face
+    lam1,lam2,lam3 = tuple(barycentricXY(aa,p1,p2,p3))
+    inside = ( (lam1 >= 0.0 and lam1 <= 1.0) and
+               (lam2 >= 0.0 and lam2 <= 1.0) and
+               (lam3 >= 0.0 and lam3 <= 1.0) )
+
+    ind = 0 # in-plane distance is zero if projected point inside
+            # triangle
+    if not inside:
+        d1 = linePointXY([p1,p2],aa,distance=True)
+        d2 = linePointXY([p2,p3],aa,distance=True)
+        d3 = linePointXY([p3,p1],aa,distance=True)
+        ind = min(d1,d2,d3) #in-plane distance is smallest distance from each edge
+            
+    if close(m,0): # point lies in plane
+        return ind
+    else:
+        dist = sqrt(m*m+ind*ind) # total distance is hypotenuse of
+                                 # right-triangle of in-plane and
+                                 # out-plane distance
+        return copysign(dist,-1*m)
+    
+
+def triTriIntersect(t1,t2,inside=True,inPlane=False,plane1=None):
+    """Function to compute the intersection of two triangles.  Returns
+    ``False`` if no intersection, a line (a list of two points) if the
+    planes do not overlap and there is a linear intersection, and a
+    polygon (list of three or more points) if the triangles are
+    co-planar and overlap.
+    
+    If ``inside == True`` (default) return line-segment or poly
+    intersection that falls inside both bounded triangles, otherwise
+    return linear intersection of two planes, or False if planes are
+    degenerate.
+
+    If ``inPlane==True``, return the intersection as a poly in the
+    planar coordinate system implied by ``t1``, or in the planar
+    coordinate system specified by ``plane1``
+
+    If ``plane1`` is not ``False``, it should be planar coordinate
+    system in the form of ``[p0,x,y,z]``, where ``p0`` specifies the
+    origin in world coordinates, and ``x``, ``y``, and ``z`` are
+    orthonormal basis vectors in which ``z`` is the plane normal.
+
+    NOTE: when ``plane1`` is True and ``inPlane`` is False, it is
+    assumed that ``plane1`` is a previously-computed planar basis that
+    is coplanar with ``t1`` and will be used to speed computation. 
+
+    """
+    return False
+    
 def issurface(s,fast=True):
+
     """
     Check to see if ``s`` is a valid surface.
     """

@@ -1,10 +1,33 @@
 import pytest
+import random
 from yapcad.geom import *
 from yapcad.geom_util import *
 from yapcad.geom3d import *
 from yapcad.pyglet_drawable import *
 from yapcad.poly import *
 from yapcad.combine import *
+
+def randomPoints(bbox,numpoints):
+    """Given a 3D bounding box and a number of points to generate, 
+    return a list of uniformly generated random points within the 
+    bounding box"""
+    
+    points = []
+    minx = bbox[0][0]
+    maxx = bbox[1][0]
+    miny = bbox[0][1]
+    maxy = bbox[1][1]
+    minz = bbox[0][2]
+    maxz = bbox[1][2]
+    rangex = maxx-minx
+    rangey = maxy-miny
+    rangez = maxz-minz
+    for i in range(numpoints):
+        points.append(point(random.random()*rangex+minx,
+                            random.random()*rangey+miny,
+                            random.random()*rangez+minz))
+    return points
+
 
 class TestSurface:
     """test surface representation"""
@@ -92,3 +115,76 @@ class TestSurface:
         assert issurface(surf4)
         assert issurface(surf4,fast=False)
         dd.display()
+
+    
+    def testFace(self):
+        """
+        method to test computational geometry operations on faces
+        """
+        tet1 = [ point(1, 1, 1),
+                 point(-1, -1, 1),
+                 point(-1, 1, -1),
+                 point(1, -1, -1) ]
+
+        tet2 = [ point(-1, 1, 1),
+                 point(1, -1, 1),
+                 point(1, 1, -1),
+                 point(-1, -1, -1) ]
+        
+        dd = pygletDraw()
+        dd.linecolor='silver'
+
+        face11 = [tet1[0],
+                  tet1[2],
+                  tet1[1]]
+        face12 = [tet1[0],
+                  tet1[1],
+                  tet1[3]]
+        face13 = [tet1[1],
+                  tet1[2],
+                  tet1[3]]
+        face14 = [tet1[2],
+                  tet1[0],
+                  tet1[3]]
+
+        faces = [ face11,face12,face13,face14]
+        colors = [ 'red','yellow','green','blue' ]
+        for i in range(len(faces)):
+            face =faces[i]
+            color = colors[i]
+            p0,n = tuple(tri2p0n(face))
+            face = scale(face,10.0)
+            face = translate(face,scale3(n,0.1))
+            face.append(face[0])
+            dd.linecolor = color
+            faces[i] = face
+            dd.draw(face)
+
+        dim = 400
+        box = line(point(-10,-10,-10),
+                   point(10,10,10))
+        plist1 = randomPoints(box,dim)
+
+        dd.linecolor = 'silver'
+        for p in plist1:
+            inside = True
+            dmin = 100
+            for f in faces:
+                d = signedFaceDistance(p,f)
+                dm = abs(d)
+                if d > 0:
+                    inside = False
+                if dm < dmin:
+                    dmin = dm
+            v = max(round(((7.0-dmin)*255/7.0)),0)
+            # print(f"v: {v}")
+            if inside:
+                dd.linecolor=[0,v,255]
+                dd.pointstyle='xo'
+            else:
+                dd.linecolor=[255,v,0]
+                dd.pointstyle='o'
+            dd.draw(p)
+
+        dd.display()
+                             
