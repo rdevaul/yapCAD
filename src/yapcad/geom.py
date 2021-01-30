@@ -1817,7 +1817,7 @@ def poly(*args):
         else:
             raise ValueError(f'non-poly list passed to poly(): {args}')
     # args is of length 3 or greater.  Check to see if args are points
-    a = list(*args)
+    a = list(args)
     b = list(filter(lambda x: not ispoint(x),a))
     if len(b) > 0:
         raise ValueError('non-point arguments to poly(): {} '.format(b))
