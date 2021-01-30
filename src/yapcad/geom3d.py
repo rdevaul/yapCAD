@@ -196,6 +196,8 @@ def triTriIntersect(t1,t2,inside=True,inPlane=False,plane1=None):
     assumed that ``plane1`` is a previously-computed planar basis that
     is coplanar with ``t1`` and will be used to speed computation. 
 
+    incomplete implementation
+
     """
     return False
     
