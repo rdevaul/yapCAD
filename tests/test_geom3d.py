@@ -149,6 +149,8 @@ class TestSurface:
 
         faces = [ face11,face12,face13,face14]
         colors = [ 'red','yellow','green','blue' ]
+        facetlist = [ [],[],[],[] ]
+        face2list= [ [],[],[],[] ]
         for i in range(len(faces)):
             face =faces[i]
             color = colors[i]
@@ -158,6 +160,23 @@ class TestSurface:
             face.append(face[0])
             dd.linecolor = color
             faces[i] = face
+
+            facetlist[i] = tri2p0n(face,basis=True)
+            p02,n2,tm,tmr = tuple(facetlist[i])
+            print(f"p02: {p02}, n2 {n2}")
+            print(f"tm: {tm}")
+            nz = tm.mul(p02)
+            assert vclose(nz,point(0,0,0))
+            nzz = tmr.mul(nz)
+            assert vclose(nzz,p02)
+            face2 = []
+            for p in face:
+                p2 = tm.mul(p)
+                face2.append(p2)
+                # each point should fall in transformed z=0 plane
+                print(f"p: {p}, p2: {p2}")
+                assert close(p2[2],0.0)
+            face2list[i] = face2
             dd.draw(face)
 
         dim = 400
@@ -169,10 +188,18 @@ class TestSurface:
         for p in plist1:
             inside = True
             dmin = 100
-            for f in faces:
+            for i in range(len(faces)):
+                f= faces[i]
+                f2 = face2list[i]
+                ft = facetlist[i]
+                p2 = ft[2].mul(p)
+                p2[2] = 0.0
                 d = signedFaceDistance(p,f)
                 dm = abs(d)
                 if d > 0:
+                    if isInsideTriangleXY(p2,f2):
+                        p3 = ft[3].mul(p2)
+                        dd.draw(line(p3,p))
                     inside = False
                 if dm < dmin:
                     dmin = dm
