@@ -4,6 +4,7 @@
 
 from yapcad.geom import *
 from yapcad.geom_util import *
+from yapcad.xform import *
 from functools import reduce
 
 """
@@ -101,16 +102,24 @@ def signedPlaneDistance(p,p0,n):
     """
     return dot(sub(p,p0),n)
 
-def tri2p0n(face):
+def tri2p0n(face,basis=False):
     """Given ``face``, a non-degenrate poly of length 3, return the center
     point and normal of the face, otherwise known as the Hessian
     Normal Form: https://mathworld.wolfram.com/HessianNormalForm.html
+
+    In addition, if ``basis==True``, calculate an orthnormal basis
+    vectors implied by the triangle, with the x' vector aligned with
+    the p1-p2 edge, the z' vector as the nornal vector, and the y'
+    vector as -1 * x' x z', and return the transformation matrix that
+    will transform a point in world coordinates to a point in the
+    orthonormal coordinate system with the origin at the center
+    point. Return that transformation matrix and its inverse.
 
     """
     p1=face[0]
     p2=face[1]
     p3=face[2]
-    p0 = scale3(add(face[0],add(face[1],face[2])),1.0/3.0)
+    p0 = scale3(add(p1,add(p2,p3)),1.0/3.0)
     v1=sub(p2,p1)
     v2=sub(p3,p2)
     c= cross(v1,v2)
@@ -118,7 +127,30 @@ def tri2p0n(face):
     if m < epsilon:
         raise ValueError('degenerate face in tri2p0n')
     n= scale3(c,1.0/m)
-    return [p0,n]
+    if not basis:
+        return [p0,n]
+    else:
+        # compute orthonormal basis vectors
+        x=scale3(v1,1.0/mag(v1))
+        z=n
+        y=scale3(cross(x,z),-1)
+        # direction vectors have 0 in the 4th component
+        x[3] = y[3] = z[3] = 0.0
+        # build the rotation matrix
+        T = [x,
+             y,
+             z,
+             [0,0,0,1]]
+        rm = Matrix(T)
+        # build translation matrix
+        tm = Translation(scale3(p0,-1))
+        # make composed matrix
+        forward = rm.mul(tm)
+        # make inverse matrix
+        rm.trans=True
+        inverse =  Translation(p0).mul(rm)
+        return [p0,n,forward,inverse]
+    
 
 def signedFaceDistance(p,face):
     """given a test point ``p`` and a three-point face ``face``, determine
