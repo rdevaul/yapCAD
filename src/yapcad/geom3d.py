@@ -201,9 +201,63 @@ def signedFaceDistance(p,face):
                                  # right-triangle of in-plane and
                                  # out-plane distance
         return copysign(dist,-1*m)
-    
 
-def triTriIntersect(t1,t2,inside=True,inPlane=False,plane1=None):
+def linePlaneIntersect(lne,plane="xy",inside=True):
+    """Function to calculate the intersection of a line and a plane.
+
+    ``line`` is specified in the usual way as two points.  ``plane``
+    is either specified symbolicly as one of ``["xy","yz","xz"]``, a
+    list of three points, or a planar coordinate system in the form of
+    ``[p0,n,forward,reverse]``, where ``p0`` specifies the origin in
+    world coordinates, ``n`` is the normal (equivalent to the ``z``
+    vector), and ``forward`` and ``reverse`` are transformation
+    matricies that map from world into local and local into world
+    coordinates respectively.
+
+    Returns ``False`` if the line and plane do not intersect, or if
+    ``inside==True`` and the point of intersection is outside the line
+    interval.  Returns the point of intersection otherwise.
+    """
+
+    def lineCardinalPlaneIntersect(lne,idx,inside=True):
+        if close(lne[0][idx]-lne[1][idx],0.0): #degenerate
+            return False
+        # (1-u)*l[0][idx] + u*l[1][idx] = 0.0
+        # u*(l[1][idx]-l[0][idx]) = l[0][idx]
+        # u = l[0][idx]/(l[1][idx]-l[0][idx])
+        u = lne[0][idx]/(lne[1][idx]-l[0][idx])
+        if inside and (u < 0.0 or u > 1.0):
+            return False
+        else:
+            return sampleline(lne,u)
+
+    # is the plane specified symbolicaly?
+    idx = -1
+    if plane=="xy":
+        idx=2
+    elif plane=="yz":
+        idx=0
+    elif plane=="xz":
+        idx=1
+
+    if idx > -1:
+        return lineCardinalPlaneIntersect(lne,idx,inside)
+    else:
+        if istriangle(plane):
+            plane = tri2p0n(plane,basis=True)
+        # otherwise assume that plane is a valid planar basis
+
+        # transform into basis with plane at z=0
+        l2 = [plane[2].mul(lne[0]),plane[2].mul(lne[1])]
+        p = lineCardinalplaneIntersect(l2,2,inside)
+        if not p:
+            return False
+        else:
+            return plane[3].mul(p)
+        
+
+def triTriIntersect(t1,t2,inside=True,inPlane=False,basis=None):
+
     """Function to compute the intersection of two triangles.  Returns
     ``False`` if no intersection, a line (a list of two points) if the
     planes do not overlap and there is a linear intersection, and a
@@ -212,26 +266,86 @@ def triTriIntersect(t1,t2,inside=True,inPlane=False,plane1=None):
     
     If ``inside == True`` (default) return line-segment or poly
     intersection that falls inside both bounded triangles, otherwise
-    return linear intersection of two planes, or False if planes are
-    degenerate.
+    return a line segment that lies on the infinite linear
+    intersection of two planes, or False if planes are degenerate.
 
     If ``inPlane==True``, return the intersection as a poly in the
     planar coordinate system implied by ``t1``, or in the planar
-    coordinate system specified by ``plane1``
+    coordinate system specified by ``basis``
 
-    If ``plane1`` is not ``False``, it should be planar coordinate
-    system in the form of ``[p0,x,y,z]``, where ``p0`` specifies the
-    origin in world coordinates, and ``x``, ``y``, and ``z`` are
-    orthonormal basis vectors in which ``z`` is the plane normal.
+    If ``basis`` is not ``False``, it should be planar coordinate
+    system in the form of ``[p0,n,forward,reverse]``, where ``p0``
+    specifies the origin in world coordinates, ``n`` is the normal
+    (equivalent to the ``z`` vector), and ``forward`` and ``reverse``
+    are transformation matricies that map from world into local and
+    local into world coordinates respectively.
 
-    NOTE: when ``plane1`` is True and ``inPlane`` is False, it is
-    assumed that ``plane1`` is a previously-computed planar basis that
-    is coplanar with ``t1`` and will be used to speed computation. 
-
-    incomplete implementation
+    NOTE: when ``basis`` is True and ``inPlane`` is False, it is
+    assumed that ``basis`` is a planar basis computed by tri2p0n
+    coplanar with ``t1``.
 
     """
-    return False
+    if not basis:
+        #create basis from t1
+        basis = tri2p0n(t1,basis=True)
+    p01,n1,tfor,tinv = tuple(basis)
+
+    p02,n2 = tuple(tri2p0n(t2,basis=False))
+
+    #transform both triangles into new coordinate system
+    t1p = list(map(lambda x: tfor.mul(x),t1))
+    t2p = list(map(lambda x: tfor.mul(x),t2))
+
+    # check for coplanar case
+    if (mag(t2p[0][2]) <= epsilon and mag(t2p[1][2]) <= epsilon
+        and mag(t2p[2][2]) <= epsilon):
+        if not inside:
+            if inPlane:
+                return t2p
+            else:
+                return t2
+        else: # return poly that is in-plane intersection
+            T1p = Geometry(t1p)
+            T2p = Geometry(t2p)
+            intr = Boolean('intersection',[T1p,T2p]).geom()
+            if len(intr) < 1: #no intersection
+                return False
+            else:
+                if inPlane:
+                    return intr
+                else:
+                    return list(map(lambda x: tinv.mul(x),intr))
+    # not coplanar, check to see if planes are parallel
+    if vclose(n1,n2):
+        return False #yep, degenerate
+
+    if inside:
+        # check to see if t2p lies entirely above or below the z=0 plane
+        if ((t2p[0][2] > epsilon and t2p[1][2] > epsilon and t2p[2][2] > epsilon)
+            or
+            (t2p[0][2] < -epsilon and t2p[1][2] < -epsilon and
+             t2p[2][2] < -epsilon)):
+            return False
+        # linear intersection.  Figure out which two of three lines
+        # cross the z=0 plane
+
+    else:
+        # this should work whether or not the intersection is
+        # inside t2.
+        ip1 = linePlaneIntersect([t2p[0],t2p[1]],"xy",False)
+        ip2 = linePlaneIntersect([t2p[1],t2p[2]],"xy",False)
+        ip3 = linePlaneIntersect([t2p[2],t2p[0]],"xy",False)
+
+        a=ip1
+        b=ip2
+        if not a:
+            a=ip3
+        if not b:
+            b=ip3
+        if inPlane:
+            return [a,b]
+        else:
+            return [tinv.mul(a),tinv.mul(b)]
     
 def issurface(s,fast=True):
 
@@ -316,7 +430,56 @@ def addTri2Surface(tri,s,check=False,nfunc=normfunc):
     return ['surface',vrts,nrms,faces,boundary,holes]
 
 def poly2surface(ply,holepolys=[],minlen=0.5,minarea=0.0001,
-                 checkclosed=False,box=None):
+                 checkclosed=False,basis=None):
+
+    """Given ``ply``, a coplanar polygon, return the triangulated surface
+    representation of that polygon and its boundary.  If ``holepolys``
+    is not the empty list, treat each polygon in that list as a hole
+    in ``ply``.  If ``checkclosed`` is true, make sure ``ply`` and all
+    members of ``holepolys`` are a vaid, closed, coplanar polygons.
+    if ``box`` exists, use it as the bounding box.
+
+    if ``basis`` exists, use it as the planar coordinate basis to
+    transform the poly into the z=0 plane.
+
+    Returns surface and boundary
+
+    """
+
+    if len(ply) < 3:
+        raise ValueError(f'poly must be at least length 3, got {len(ply)}')
+
+    if not basis:
+        v0 = sub(ply[1],ply[0])
+        v1 = None
+        for i in range(2,len(ply)):
+            v1 = sub(ply[i],ply[1])
+            if mag(cross(v0,v1)) > epsilon:
+                break
+        if not v1:
+            raise ValueError(f'degenerate poly passed to poly2surface')
+        basis = tri2p0n([ply[0],ply[1],ply[i]],basis=True)
+
+    ply2 = list(map(lambda x: basis[2].mul(x),ply))
+    holes2 = []
+    for holes in holepolys:
+        holes2.append(list(map(lambda x: basis[2].mul(x),hole)))
+
+    surf,bnd = poly2surfaceXY(ply2,holes2,minlen,minarea,checkclosed)
+
+    verts2 = list(map(lambda x: basis[3].mul(x),surf[1]))
+    norm2 = list(map(lambda x: basis[3].mul([x[0],x[1],x[2],0]),surf[2]))
+    bnd2 = list(map(lambda x: basis[3].mul(x),bnd))
+
+    surf[1]=verts2
+    surf[2]=norm2
+
+    return surf,bnd2
+                              
+        
+    
+def poly2surfaceXY(ply,holepolys=[],minlen=0.5,minarea=0.0001,
+                   checkclosed=False,box=None):
     """Given ``ply``, an XY-coplanar polygon, return the triangulated
     surface representation of that polygon. If ``holepolys`` is not
     the empty list, treat each polygon in that list as a hole in
@@ -324,6 +487,7 @@ def poly2surface(ply,holepolys=[],minlen=0.5,minarea=0.0001,
     members of ``holepolys`` are a vaid, closed, XY-coplanar polygons.
     if ``box`` exists, use it as the bounding box.
 
+    Returns surface and boundary
     """
     
     if checkclosed:
