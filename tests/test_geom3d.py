@@ -48,7 +48,7 @@ class TestSurface:
         dd.linecolor='red'
         dd.polystyle='both'
         dd.draw(ply)
-        surf,bnd = poly2surface(ply)
+        surf,bnd = poly2surfaceXY(ply)
         dd.draw_surface(surf)
 
         ply2 = [ point(20,20),
@@ -65,7 +65,7 @@ class TestSurface:
         dd.linecolor='red'
         dd.polystyle='both'
         dd.draw(ply2)
-        surf2,bnd = poly2surface(ply2)
+        surf2,bnd = poly2surfaceXY(ply2)
         dd.draw_surface(surf2)
 
         rr1 = makeRoundRect(5,5,0.5,center=point(-15,20))
@@ -75,7 +75,7 @@ class TestSurface:
         dd.linecolor='aqua'
         dd.draw(gl3)
         ply3 = translate(ply3,point(0,0,0.5)) # pull it forward
-        surf3,bnd = poly2surface(ply3)
+        surf3,bnd = poly2surfaceXY(ply3)
         dd.linecolor='red'
         dd.polystyle='both'
         dd.draw(ply3)
@@ -95,7 +95,7 @@ class TestSurface:
         dd.polystyle='both'
         dd.draw(ply4)
 
-        surf4,bnd = poly2surface(ply4,minlen=1.0)
+        surf4,bnd = poly2surfaceXY(ply4,minlen=1.0)
         # assert False
         lines = surf2lines(surf4)
         lines = translate(lines,point(0,0,0.5))
@@ -163,8 +163,8 @@ class TestSurface:
 
             facetlist[i] = tri2p0n(face,basis=True)
             p02,n2,tm,tmr = tuple(facetlist[i])
-            print(f"p02: {p02}, n2 {n2}")
-            print(f"tm: {tm}")
+            #print(f"p02: {p02}, n2 {n2}")
+            #print(f"tm: {tm}")
             nz = tm.mul(p02)
             assert vclose(nz,point(0,0,0))
             nzz = tmr.mul(nz)
@@ -179,6 +179,12 @@ class TestSurface:
             face2list[i] = face2
             dd.draw(face)
 
+        #make surfaces
+        for face in faces:
+            print(f"face: {face}")
+            surf,bnd = poly2surface(face)
+            dd.draw_surface(surf)
+        
         dim = 400
         box = line(point(-10,-10,-10),
                    point(10,10,10))
