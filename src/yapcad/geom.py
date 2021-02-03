@@ -73,7 +73,12 @@ coordinates, and was popular with computer graphicists in the
 In this interpretation, the w coordinate is a normalization
 coordinate, and is either 1.0 or all coordinates are assumed to be
 scaled by 1/w.  The inclusion of the w coordinate allows the general
-use of transformation matrices for affine transforms.  
+use of transformation matrices for affine transforms.
+
+The exception to the above statement is direction vectors, such as the
+vector ``[1,0,0,0]`` that represents the direction of the x axis.
+Direction vectors live in the ``w=0.0`` plane and are subject to
+rotation and scaling, but not translation.
 
 There is a yapcad.geom convenience function, ``vect()``, that will make
 a vector out of just about any plausible set of arguments.  Unspecified

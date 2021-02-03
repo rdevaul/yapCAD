@@ -68,8 +68,8 @@ Structures for 2D/3D geometry:
 
            ``vertices`` is a list of ``yapcad.geom`` points,
 
-           ``normals`` is a list of ``yapcad.geom`` points of the same
-           length as ``vertices``,
+           ``normals`` is a list of ``yapcad.geom`` direction vectors
+           of the same length as ``vertices``,
 
            ``faces`` is the list of faces, which is to say lists
            of three indices that refer to the vertices of the triangle
@@ -127,6 +127,7 @@ def tri2p0n(face,basis=False):
     if m < epsilon:
         raise ValueError('degenerate face in tri2p0n')
     n= scale3(c,1.0/m)
+    n[3] = 0.0 #direction vectors lie in the w=0 hyperplane
     if not basis:
         return [p0,n]
     else:
@@ -134,7 +135,7 @@ def tri2p0n(face,basis=False):
         x=scale3(v1,1.0/mag(v1))
         z=n
         y=scale3(cross(x,z),-1)
-        # direction vectors have 0 in the 4th component
+        # direction vectors lie in the w=0 hyperplane
         x[3] = y[3] = z[3] = 0.0
         # build the rotation matrix
         T = [x,
@@ -217,6 +218,11 @@ def linePlaneIntersect(lne,plane="xy",inside=True):
     Returns ``False`` if the line and plane do not intersect, or if
     ``inside==True`` and the point of intersection is outside the line
     interval.  Returns the point of intersection otherwise.
+
+    NOTE: if plane is specified as three points, then setting
+    ``inside=True`` will also force a check to see if the intersection
+    point falls within the specified triangle.
+
     """
 
     def lineCardinalPlaneIntersect(lne,idx,inside=True):
@@ -232,6 +238,7 @@ def linePlaneIntersect(lne,plane="xy",inside=True):
             return sampleline(lne,u)
 
     # is the plane specified symbolicaly?
+    trangle = False
     idx = -1
     if plane=="xy":
         idx=2
@@ -244,7 +251,12 @@ def linePlaneIntersect(lne,plane="xy",inside=True):
         return lineCardinalPlaneIntersect(lne,idx,inside)
     else:
         if istriangle(plane):
+            triangle = True
+            tri = plane
             plane = tri2p0n(plane,basis=True)
+            tri2 = [ plane[2].mul(tri[0]),
+                     plane[2].mul(tri[1]),
+                     plane[2].mul(tri[2]) ]
         # otherwise assume that plane is a valid planar basis
 
         # transform into basis with plane at z=0
@@ -253,6 +265,8 @@ def linePlaneIntersect(lne,plane="xy",inside=True):
         if not p:
             return False
         else:
+            if triangle and not isInsideTriangleXY(p,tri2):
+                return False
             return plane[3].mul(p)
         
 
@@ -395,6 +409,7 @@ def normfunc(tri):
     v2 = sub(tri[2],tri[1])
     d = cross(v1,v2)
     n = scale3(d,1.0/mag(d))
+    n[3] = 0.0 # direction vectors lie in the w=0 hyperplane
     return n,n,n
 
 def addTri2Surface(tri,s,check=False,nfunc=normfunc):
