@@ -60,17 +60,17 @@ class TestSurface:
 
     #faces of tetrahedron 2
     face21 = [tet2[0],
-              tet2[2],
-              tet2[1]]
-    face22 = [tet2[0],
               tet2[1],
-              tet2[3]]
+              tet2[2]]
+    face22 = [tet2[0],
+              tet2[3],
+              tet2[1]]
     face23 = [tet2[1],
-              tet2[2],
-              tet2[3]]
+              tet2[3],
+              tet2[2]]
     face24 = [tet2[2],
-              tet2[0],
-              tet2[3]]
+              tet2[3],
+              tet2[0]]
   
     def test_surface(self):
         """this test creates different types of closed two dimensional
@@ -369,3 +369,81 @@ class TestSurface:
 
         dd.display()
                              
+    def testFaceIntersect(self):
+        """Create two intersecting tetrahedra, draw them, then compute the
+        lines representing the planar intersections"""
+
+        dd = pygletDraw()
+
+        # specify the verticies and colors of the tetrahedron faces.
+        # Note, these faces are three coordinates, and thus not closed
+        # polys.
+        faces1 = [ self.face11,self.face12,
+                   self.face13,self.face14]
+        colors1 = [ 'red','yellow','green','blue' ]
+
+        faces2 = [ self.face21,self.face22,
+                   self.face23,self.face24]
+        colors2 = [ 'silver','gray','maroon','olive' ]
+
+        # lists for transformed face representations
+        facetlist1 = [] # trandformation plane representation
+        face2list1= [] # in-face-plane coordinates
+        facetlist2 = [] # trandformation plane representation
+        face2list2= [] # in-face-plane coordinates
+
+        def makeListsAndDraw(faces,colors):
+            facetlist = []
+            face2list = []
+            # step through faces for 1st tetrahedron
+            for i in range(len(faces)):
+                face =faces[i]
+                color = colors[i]
+                face = scale(face,10.0) # scale by 10
+
+                # compute the normal (and center, though we don't use it
+                # here)
+                p0,n = tri2p0n(face)
+                face = translate(face,scale3(n,0.1)) # separate slightly
+                                                 # from other faces
+                # close poly to make bounding polygon
+                face.append(face[0])
+                faces[i] = face
+
+                # convert face into planar basis
+                facetlist.append(tri2p0n(face,basis=True))
+                p02,n2,tm,tmr = tuple(facetlist[i])
+
+                # each vertex of the face, when transformed into the
+                # planar basis, should lie in the z=0 plane.  Also, we will
+                # memorize the transformed x-y coordinates of the vertices
+                # for later use.
+                face2 = list(map(lambda x: tmr.mul(x),face))
+                face2list.append(face2)
+
+                # draw the face
+                dd.linecolor = color
+                dd.draw(face)
+            return facetlist,face2list
+
+        
+        facetlist1,face2list1 = makeListsAndDraw(faces1,colors1)
+        facetlist2,face2list2 = makeListsAndDraw(faces2,colors2)
+
+        #make surfaces -- this tests the creation of surfaces not
+        #located in the XY plane
+        for face in faces1 + faces2:
+            surf,bnd = poly2surface(face)
+            dd.draw_surface(surf)
+
+        dd.linecolor='white'
+
+        for f1 in faces1:
+            for f2 in faces2:
+                print(f"f1: {f1}  f2: {f2}")
+                result = triTriIntersect(f1,f2,inside=True)
+                print(f"result: {result}")
+                if result != False:
+                    dd.draw(result)
+            
+        dd.display()

@@ -231,7 +231,7 @@ def linePlaneIntersect(lne,plane="xy",inside=True):
         # (1-u)*l[0][idx] + u*l[1][idx] = 0.0
         # u*(l[1][idx]-l[0][idx]) = l[0][idx]
         # u = l[0][idx]/(l[1][idx]-l[0][idx])
-        u = lne[0][idx]/(lne[1][idx]-l[0][idx])
+        u = lne[0][idx]/(lne[0][idx]-lne[1][idx])
         if inside and (u < 0.0 or u > 1.0):
             return False
         else:
@@ -311,8 +311,8 @@ def triTriIntersect(t1,t2,inside=True,inPlane=False,basis=None):
     t2p = list(map(lambda x: tfor.mul(x),t2))
 
     # check for coplanar case
-    if (mag(t2p[0][2]) <= epsilon and mag(t2p[1][2]) <= epsilon
-        and mag(t2p[2][2]) <= epsilon):
+    if (abs(t2p[0][2]) <= epsilon and abs(t2p[1][2]) <= epsilon
+        and abs(t2p[2][2]) <= epsilon):
         if not inside:
             if inPlane:
                 return t2p
@@ -343,23 +343,22 @@ def triTriIntersect(t1,t2,inside=True,inPlane=False,basis=None):
         # linear intersection.  Figure out which two of three lines
         # cross the z=0 plane
 
-    else:
-        # this should work whether or not the intersection is
-        # inside t2.
-        ip1 = linePlaneIntersect([t2p[0],t2p[1]],"xy",False)
-        ip2 = linePlaneIntersect([t2p[1],t2p[2]],"xy",False)
-        ip3 = linePlaneIntersect([t2p[2],t2p[0]],"xy",False)
+    # this should work whether or not the intersection is
+    # inside t2.
+    ip1 = linePlaneIntersect([t2p[0],t2p[1]],"xy",False)
+    ip2 = linePlaneIntersect([t2p[1],t2p[2]],"xy",False)
+    ip3 = linePlaneIntersect([t2p[2],t2p[0]],"xy",False)
 
-        a=ip1
-        b=ip2
-        if not a:
-            a=ip3
-        if not b:
-            b=ip3
-        if inPlane:
-            return [a,b]
-        else:
-            return [tinv.mul(a),tinv.mul(b)]
+    a=ip1
+    b=ip2
+    if not a:
+        a=ip3
+    if not b:
+        b=ip3
+    if inPlane:
+        return [a,b]
+    else:
+        return [tinv.mul(a),tinv.mul(b)]
     
 def issurface(s,fast=True):
 
