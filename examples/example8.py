@@ -51,20 +51,20 @@ def flower(center = point(0,0),
     if returnPoly:
         return p
     else:
-        return p.geom()
+        return p.geom
 
 def mirrorArray(pnt=point(-45,45)):
     flwr = flower(pnt,returnPoly=True)
-    glist = flwr.geom()
+    glist = flwr.geom
     bb = bbox(glist)
     flwr2 = deepcopy(flwr)
     flwr2.grow(1.0)
-    glist.append(flwr2.geom())
+    glist.append(flwr2.geom)
 
     ranp = example10.randomPoints(bb,500)
 
     for p in ranp:
-        if flwr.isinside(p):
+        if flwr.isinsideXY(p):
             glist.append(arc(p,0.4))
                          
     ply = [point(bb[0]), point(bb[1][0],bb[0][1]),

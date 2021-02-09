@@ -85,14 +85,14 @@ d.draw(l)
 pp = []
 uu1s = []
 for ply in polys1:
-    z = intersectXY(l,ply.geom(),inside=True)
-    u = intersectXY(l,ply.geom(),inside=False,params=True)
+    z = intersectXY(l,ply.geom,inside=True)
+    u = intersectXY(l,ply.geom,inside=False,params=True)
     if z:
         pp = pp + z
     if u:
         uu1s = uu1s + u[0]
     # also, draw that poly while we are at it
-    d.draw(ply.geom())
+    d.draw(ply.geom)
 
 
 ## for every intersection point on the line itself, draw it as an 'x'

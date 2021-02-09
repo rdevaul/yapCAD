@@ -8,20 +8,20 @@ import examples.example8 as example8
 docGeomList=[]
 
 def makeJigsawPiece(width=100,height=50,diam=30,frac=0.80,upper=False,poly=False):
-    rect = makeRoundRect(width,height,5.0)
-    rect = rect.translate(point(0,-height/2),poly=True)
-    circ1 = makeCircle(point(-width/4,(diam/2)*frac),diam/2)
-    #circ2 = makeCircle(point(width/4,-(diam/2)*frac),diam/2)
-    circ2 = makeRoundRect(diam,diam,20.0,center=point(width/4,-(diam/2)*frac))
+    rect = RoundRect(width,height,5.0)
+    rect.translate(point(0,-height/2))
+    circ1 = Circle(point(-width/4,(diam/2)*frac),diam/2)
+    #circ2 = Circle(point(width/4,-(diam/2)*frac),diam/2)
+    circ2 = RoundRect(diam,diam,20.0,center=point(width/4,-(diam/2)*frac))
 
-    docGeomList.append(circ1.geom())
-    docGeomList.append(circ2.geom())
+    docGeomList.append(circ1.geom)
+    docGeomList.append(circ2.geom)
     bln = Boolean('union',[circ1,rect])
     bln = Boolean('difference',[bln,circ2])
-    docGeomList.append(bln.geom())
+    docGeomList.append(bln.geom)
     if poly:
         return bln
-    return bln.geom()
+    return bln.geom
 
 def drawLegend(d):
     ## Put some documentary text on the drawing
@@ -42,14 +42,14 @@ def geometry():
 
     logopoly = example8.flower(returnPoly=True)
     jigsaw=makeJigsawPiece(poly=True)
-    bigc= makeCircle(point(0,0,0),20)
+    bigc= Circle(point(0,0,0),20)
     nb = Boolean('union',[logopoly,bigc])
-    nb = nb.translate(point(0,-50),poly=True)
-    docGeomList.append(nb.geom())
+    nb.translate(point(0,-50))
+    docGeomList.append(nb.geom)
 
     nb = Boolean('difference',[jigsaw,nb])
     
-    gl = nb.geom()
+    gl = nb.geom
     gl2 = []
 
     for i in range(100):

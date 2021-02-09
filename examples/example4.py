@@ -73,8 +73,8 @@ for p in points:
     poly2.addArc(a)
 
 # draw the generated geometry
-d.draw(poly0.geom())
-d.draw(poly1.geom())
+d.draw(poly0.geom)
+d.draw(poly1.geom)
 
 # sample 12 points from a polygon
 for i in range(12):

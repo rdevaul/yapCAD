@@ -73,11 +73,11 @@ def testPoints(points,geom,testElements=True):
                     continue
         else:
             if isinstance(geom,poly.Polygon):
-                if geom.isinside(p):
+                if geom.isinsideXY(p):
                     inpts.append(p)
                     ins = True
             else:
-                if isinside(geom,p):
+                if isinsideXY(geom,p):
                     inpts.append(p)
                     ins = True
         if not ins:

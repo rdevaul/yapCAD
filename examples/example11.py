@@ -25,9 +25,9 @@ def geometry():
     x = point(-2,2)
     p1.addArc(arc(x,3.0))
 
-    #p1 = makeRoundRect(4,4,0.2,point(-4.0,4.0))
+    #p1 = RoundRect(4,4,0.2,point(-4.0,4.0))
 
-    p2 = makeRoundRect(7,6,1,point(1,-1))
+    p2 = RoundRect(7,6,1,point(1,-1))
     b = Boolean('union',[p1,p2])
 
     p4,p5 = makeStars(point(12,-10))
@@ -41,8 +41,8 @@ def geometry():
 
     p10,p11 = makeStars(point(-12,10))
 
-    return [p1.geom(),p2.geom(),b.geom(),b2.geom(),b3.geom(),b4.geom(),p10.geom(),p11.geom()]
-    #return [p1.geom(),p2.geom(),b.geom()]
+    return [p1.geom,p2.geom,b.geom,b2.geom,b3.geom,b4.geom,p10.geom,p11.geom]
+    #return [p1.geom,p2.geom,b.geom]
 
 def testAndDraw(dd):
     dd.linecolor = 'red'
