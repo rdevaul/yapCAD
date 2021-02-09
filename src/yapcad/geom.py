@@ -2207,8 +2207,16 @@ def isclosedgeomlist(a):
     list representes a simple closed figure as there could be any
     number of self intersections.
 
+    *NOTE:* The special case of ``a==[]`` will cause
+    ``isclosedgeomlist(a)`` to return ``True``, so that set operations
+    such as intersection or difference operations which return an
+    empty result will still be considered valid closed geometry for
+    further operations.
+
     """
-    return iscontinuousgeomlist(a) and vclose(sample(a,0.0),sample(a,1.0))
+    return (a == [] or (
+        iscontinuousgeomlist(a) and
+        vclose(sample(a,0.0),sample(a,1.0))))
 
 
 def __geomlistlength(gl):
@@ -2868,9 +2876,9 @@ def rotate(x,ang,cent=point(0,0),axis=point(0,0,1.0),mat=False):
         if vclose(cent,point(0,0,0)):
             mat = xform.Rotation(axis,ang)
         else:
-            mat = xform.Translation(cent,inverse=True)
+            mat = xform.Translation(cent)
             mat = mat.mul(xform.Rotation(axis,ang))
-            mat = mat.mul(xform.Translation(cent))
+            mat = mat.mul(xform.Translation(cent,inverse=True))
 
     # arcs are wierd, since we will have to deal with a non-trivial
     # change of basis function to handle the interpretation of "start"
