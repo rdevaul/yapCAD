@@ -440,10 +440,34 @@ class TestSurface:
 
         for f1 in faces1:
             for f2 in faces2:
-                print(f"f1: {f1}  f2: {f2}")
                 result = triTriIntersect(f1,f2,inside=True)
                 print(f"result: {result}")
                 if result != False:
                     dd.draw(result)
-            
+
+        triHard = [ point(-5,-5,15),
+                    point(5,-5,15),
+                    point(0,7,15),
+                    point(-5,-5,15)]
+
+        triHarder = [ point(-3,-3,15),
+                    point(3,-3,15),
+                    point(0,5,15),
+                    point(-3,-3,15)]
+
+        t0=triHard
+        t1=rotate(triHard,180)
+        t2=translate(triHard,point(-2,0,0))
+        t3=translate(triHard,point(2,0,0))
+        t4=triHarder
+        
+        dd.linecolor='red'
+
+        dd.draw([t0,t1,t2,t3,t4])
+
+        dd.linecolor='white'
+        i1 = triTriIntersect(t0,t4)
+        assert i1
+        dd.draw(i1)
+        
         dd.display()
