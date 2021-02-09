@@ -280,3 +280,269 @@ def geomlist2poly(gl,minang=5.0,minlen=0.25,checkcont=False):
             raise ValueError(f'bad object in list passed to geomlist2poly: {e}')
     return ply
 
+
+
+def combineglist(g1,g2,operation):
+    """function to perform set operations on geometry lists.
+
+    ``g1`` and ``g2`` are closed figure geometry lists.
+    ``operation`` is one of ``["union","intersection","difference"]``
+    
+    result is a potentially zero-length geometry list representing the
+    result, which may or may not be simply connected, but should
+    always be a closed figure.
+
+    """
+
+    bbox1 = bbox(g1)
+    bbox2 = bbox(g2)
+    try :
+        inter = intersectXY(g1,g2,params=True)
+    except ValueError:
+        print("had a problem intersecting following geometries:")
+        print("g1: ",g1)
+        print("g2: ",g2)
+        raise
+
+    if inter != False and (inter[0] == False or inter[1] == False):
+        raise ValueError('bad intersection list: ',inter)
+    # Given parameter values that define two potential sub-arcs of
+    # a figure, determine which sub-arc is valid by looking for
+    # intersections between these parameter values. In the
+    # condition where u2 is smaller than u1, it's possible that
+    # this represents an arc in the counter-clockwise direction
+    # between u2 and u1.  It also could represent a clockwise arc
+    # that "wraps around" from u1 to (u2+1).  We will check for
+    # values x1, x2 in ilist that are u2 < x1 < u1 and u1 < x2 <
+    # (u2+1.0).  The existance of x1 or x2 rules out the
+    # corresponding arc.  If neither x1 nor x2 exists, we bias
+    # towards the counter-clockwise arc.
+
+    def between(u1,u2,ilist):
+        if len(ilist) < 2:
+            raise ValueError('bad ilist')
+            
+        if u1 > u2 :
+            if len(ilist) == 2:
+                return u1,u2+1.0,False
+            x1s = list(filter(lambda x: x > u2 and x < u1,ilist))
+            x2s = list(filter(lambda x: x > u1 or x < u2,ilist))
+            l1 = len(x1s)
+            l2 = len(x2s)
+            #print("u1: ",u1," u2: ",u2," ilist: ",ilist," x1s: ",x1s," x2s: ",x2s)
+            if l1 > 0 and l2 > 0:
+                print('WARNING: intersections on both sides')
+            elif l1 > l2:
+                print("AA")
+                if True or operation == 'union':
+                    return u1,u2+1.0,False
+                else:
+                    return u2,u1,True
+            else:
+                print("A-")
+                return u2,u1,True
+
+        else:
+            if len(ilist) == 2:
+                return u1,u2,False
+            x1s = list(filter(lambda x: x > u1 and x < u2,ilist))
+            x2s = list(filter(lambda x: x > u2 or x < u1,ilist))
+            l1 = len(x1s)
+            l2 = len(x2s)
+            #print("u1: ",u1," u2: ",u2," ilist: ",ilist," x1s: ",x1s," x2s: ",x2s)
+            if l1 > 0 and l2 > 0:
+                print('WARNING: intersections on both sides')
+            elif l1 > l2:
+                print("BB")
+
+                if True or operation == 'union':
+                    return u2,u1+1,False
+                else:
+                    return u1,u2,False
+            else:
+                print("B-")
+                return u1,u2,False
+            
+
+    ## utility to perform combination on one "segment"
+    def cmbin(g1,g2,itr):
+        g1s = itr[0][0]
+        g1e = itr[0][1]
+        g2s = itr[1][0]
+        g2e = itr[1][1]
+        
+        seg = []
+        ZLEN1=close(g1s,g1e)
+        ZLEN2=close(g2s,g2e)
+
+        g1reverse=False
+        g2reverse=False
+            
+        if True or operation == 'difference':
+            if g1e < g1s:
+                g1e+=1.0
+            #g1s,g1e,g1reverse = between(g1s,g1e,inter[0])
+            g2s,g2e,g2reverse = between(g2s,g2e,inter[1])
+            g2reverse = False
+        else:
+            if g1e < g1s:
+                g1e+=1.0
+            if g2e < g2s:
+                g2e += 1.0
+
+        p1=sample(g1,((g1s+g1e)/2)%1.0)
+
+        p1inside=0
+        for i in range(5):
+            u = (i+1)/6.0
+            p = sample(g1,(u*g1e+(1.0-u)*g1s)%1.0)
+            if isinsideXY(g2,p):
+                p1inside=p1inside+1
+
+        p2inside = 0
+        for i in range(5):
+            u = (i+1)/6.0
+            p = sample(g2,(u*g2e+(1.0-u)*g2s)%1.0)
+            if isinsideXY(g1,p):
+                p2inside=p2inside+1
+                
+        if p1inside > 0 and p2inside > 0:
+            print("warning: inside test succeeded for both p1s and p2s: ",
+                  p1inside," ",p2inside)
+
+        if p1inside == 0 and p2inside == 0:
+            print("warning: inside test failed for both p1s and p2s")
+                
+        p2=sample(g2,((g2s+g2e)/2)%1.0)
+
+        if ZLEN1 and ZLEN2:
+            print ('both segments zero length')
+            return []
+        elif ZLEN2 and not ZLEN1:
+            print ('zero length segment 2')
+            if operation=='union':
+                return segmentgeomlist(g1,g1s,g1e,closed=True)
+            elif operation=='difference':
+                return 
+            else: #intersection
+                return []
+        elif ZLEN1 and not ZLEN2:
+            print ('zero length segment 1')
+            if operation=='union':
+                if g2e < g2s:
+                    g2e += 1.0
+                return segmentgeomlist(g2,g2s,g2e,closed=True)
+            else: # difference or intersection
+                return []
+            
+        if operation == 'union':
+            #if isinsideXY(g2,p1):
+            if p1inside > p2inside:
+                # if g2e < g2s:
+                #     g2e += 1.0
+                seg += segmentgeomlist(g2,g2s,g2e,closed=True)
+            else:
+                seg += segmentgeomlist(g1,g1s,g1e,closed=True)
+        elif operation == 'intersection':
+            #if isinsideXY(g2,p1):
+            if p1inside > p2inside:
+                seg += segmentgeomlist(g1,g1s,g1e,closed=True)
+            else:
+                # if g2e < g2s:
+                #     g2e += 1.0
+                #seg += segmentgeomlist(g2,g2s,g2e,reverse=g2reverse)
+                seg += segmentgeomlist(g2,g2s,g2e,closed=True)
+        elif operation == 'difference':
+            s = []
+            #if isinsideXY(g2,p1):
+            if p1inside > p2inside:
+                pass
+            else:
+                # print("rsort: ",vstr(inter))
+                seg += segmentgeomlist(g1,g1s,g1e,closed=True)
+                # print("g2s: ",g2s," g2e: ",g2e," g2reverse: ",g2reverse)
+                s = segmentgeomlist(g2,g2s,g2e,closed=True,reverse=g2reverse)
+                s = reverseGeomList(s)
+                seg += s
+            if len(inter[0]) > 2:
+                combineDebugGL.append(s)
+                # print("seg: ",vstr(seg))
+
+        return seg
+
+    ## utility function to sort intersections into non-decreasing
+    ## order
+    def rsort(il):
+        nl = []
+        rl = []
+        rr = []
+        for i in range(len(il[0])):
+            nl.append([il[0][i],il[1][i]])
+        nl.sort(key=lambda x: x[0])
+        for i in range(len(nl)):
+            rl.append(nl[i][0])
+            rr.append(nl[i][1])
+        return [rl,rr]
+
+    if inter == False: # disjoint, but bounding boxes might be
+        # null or one could be inside the other
+        if not bbox1 and bbox2: # g1 is empty, but g2 contains geometry
+            if operation=='union':
+                return g2
+            else:
+                return []
+        if bbox1 and not bbox2: # g2 is empty, but g1 isn't
+            if operation=='union' or operation=='difference':
+                return g1
+        if not bbox1 and not bbox2: # no geometry at all
+            return []
+        ## OK, no intersection but it is possible that one profile
+        ## could be inside the other.  Do fast bounding box checks
+        ## before doing intersection-based checking.
+        if isinsidebbox(bbox1,bbox2[0]) and isinsidebbox(bbox1,bbox2[1]) \
+           and isinsideXY(g1,sample(g2,0.0)): # g2 is inside g1
+            ## g2 is inside g1
+            if operation == 'union':
+                return g1
+            elif operation == 'intersection':
+                return g2
+            else: #difference, g2 is a hole in g1
+                return [g1,g2]
+        elif isinsidebbox(bbox2,bbox1[0]) and isinsidebbox(bbox2,bbox1[1]) \
+             and isinsideXY(g2,sample(g1,0.0)): # g1 is inside g2
+            ## g1 is indside g2
+            if operation == 'union':
+                return g2
+            elif operation == 'intersection':
+                return g1
+            else: #difference, g2 has eaten g1
+                return []
+        else: # g1 and g2 are disjoint
+            if operation == 'union':
+                return [g1,g2]
+            elif operation == 'difference':
+                return g1
+            else: #intersection
+                return []
+    if len(inter[0]) == 1 and len(inter[1]) == 1:
+    ## single point of intersection:
+        if operation == 'union':
+            return [g1, g2]
+        elif operation == 'difference':
+            return g1
+        else: #intersection
+            return []
+    ## There are two or more points of intersection.
+    inter = rsort(inter)
+    #print("rsort: ",vstr(inter))
+
+    import pdb; pdb.set_trace()
+    if len(inter[0]) %2 != 0:
+        print("WARNING: odd number of intersections (",len(inter[0]),", unpredictable behavior may result")
+    r = []
+    for i in range(1,len(inter[0])+1):
+        r += cmbin(g1,g2,[[inter[0][i-1],
+                           inter[0][i%len(inter[0])]],
+                          [inter[1][i-1],
+                           inter[1][i%len(inter[1])]]])
+    return r
