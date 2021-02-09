@@ -1,6 +1,7 @@
 ## yapCAD boolen operation support
 
 from yapcad.geom import *
+from yapcad.geometry import *
 from yapcad.poly import *
 
 combineDebugGL=[]
@@ -9,11 +10,18 @@ class Boolean(Geometry):
     """Boolean operations on Polygons"""
 
     types = ('union','intersection','difference')
-    
+
+    def __repr__(self):
+        return f"Boolean({self._type},{self._elem})"
+
+
     def __init__(self,type='union',polys=[]):
+        super().__init__()
+        self._setClosed(True)
         for p in polys:
-            if not ( isinstance(p,Polygon) or isinstance(p,Boolean) ):
-                raise ValueError('non-poly or non-boolean passed to Boolean(): {}'.format(p))
+            import pdb ; pdb.set_trace()
+            if not ( isinstance(p,Geometry) and p.isclosed()):
+                raise ValueError('not closed Geometry instance: {}'.format(p))
             if not type in self.types:
                 raise ValueError('invalid type passed to Boolean(): {}'.format(tpe))
             self._elem=list(polys)
@@ -23,14 +31,14 @@ class Boolean(Geometry):
 
 
     def combine_geom(self,g1,g2):
-        bbox1 = g1.bbox()
-        bbox2 = g2.bbox()
+        bbox1 = g1.bbox
+        bbox2 = g2.bbox
         try :
-            inter = intersectXY(g1.geom(),g2.geom(),params=True)
+            inter = intersectXY(g1.geom,g2.geom,params=True)
         except ValueError:
             print("had a problem intersecting following geometries:")
-            print("g1.geom(): ",g1.geom())
-            print("g2.geom(): ",g2.geom())
+            print("g1.geom: ",g1.geom)
+            print("g2.geom: ",g2.geom)
             raise
 
         if inter != False and (inter[0] == False or inter[1] == False):
@@ -125,14 +133,14 @@ class Boolean(Geometry):
             for i in range(5):
                 u = (i+1)/6.0
                 p = g1.sample((u*g1e+(1.0-u)*g1s)%1.0)
-                if g2.isinside(p):
+                if g2.isinsideXY(p):
                     p1inside=p1inside+1
 
             p2inside = 0
             for i in range(5):
                 u = (i+1)/6.0
                 p = g2.sample((u*g2e+(1.0-u)*g2s)%1.0)
-                if g1.isinside(p):
+                if g1.isinsideXY(p):
                     p2inside=p2inside+1
                 
             if p1inside > 0 and p2inside > 0:
@@ -165,7 +173,7 @@ class Boolean(Geometry):
                     return []
             
             if self._type == 'union':
-                #if g2.isinside(p1):
+                #if g2.isinsideXY(p1):
                 if p1inside > p2inside:
                     # if g2e < g2s:
                     #     g2e += 1.0
@@ -173,7 +181,7 @@ class Boolean(Geometry):
                 else:
                     seg += g1.segment(g1s,g1e)                    
             elif self._type == 'intersection':
-                #if g2.isinside(p1):
+                #if g2.isinsideXY(p1):
                 if p1inside > p2inside:
                     seg += g1.segment(g1s,g1e)
                 else:
@@ -183,7 +191,7 @@ class Boolean(Geometry):
                     seg += g2.segment(g2s,g2e)
             elif self._type == 'difference':
                 s = []
-                #if g2.isinside(p1):
+                #if g2.isinsideXY(p1):
                 if p1inside > p2inside:
                     pass
                 else:
@@ -217,48 +225,48 @@ class Boolean(Geometry):
                            # null or one could be inside the other
             if not bbox1 and bbox2: # g1 is empty, but g2 contains geometry
                 if self._type=='union':
-                    return g2.geom()
+                    return g2.geom
                 else:
                     return []
             if bbox1 and not bbox2: # g2 is empty, but g1 isn't
                 if self._type=='union' or self._type=='difference':
-                    return g1.geom()
+                    return g1.geom
             if not bbox1 and not bbox2: # no geometry at all
                 return []
             ## OK, no intersection but it is possible that one profile
             ## could be inside the other.  Do fast bounding box checks
             ## before doing intersection-based checking.
             if isinsidebbox(bbox1,bbox2[0]) and isinsidebbox(bbox1,bbox2[1]) \
-               and g1.isinside(g2.sample(0.0)): # g2 is inside g1
+               and g1.isinsideXY(g2.sample(0.0)): # g2 is inside g1
                 ## g2 is inside g1
                 if self._type == 'union':
-                    return g1.geom()
+                    return g1.geom
                 elif self._type == 'intersection':
-                    return g2.geom()
+                    return g2.geom
                 else: #difference, g2 is a hole in g1
-                    return [g1.geom(),g2.geom()]
+                    return [g1.geom,g2.geom]
             elif isinsidebbox(bbox2,bbox1[0]) and isinsidebbox(bbox2,bbox1[1]) \
-                 and g2.isinside(g1.sample(0.0)): # g1 is inside g2
+                 and g2.isinsideXY(g1.sample(0.0)): # g1 is inside g2
                 ## g1 is indside g2
                 if self._type == 'union':
-                    return g2.geom()
+                    return g2.geom
                 elif self._type == 'intersection':
-                    return g1.geom()
+                    return g1.geom
                 else: #difference, g2 has eaten g1
                     return []
             else: # g1 and g2 are disjoint
                 if self._type == 'union':
-                    return [g1.geom(),g2.geom()]
+                    return [g1.geom,g2.geom]
                 elif self._type == 'difference':
-                    return g1.geom()
+                    return g1.geom
                 else: #intersection
                     return []
         if len(inter[0]) == 1 and len(inter[1]) == 1:
         ## single point of intersection:
             if self._type == 'union':
-                return [g1.geom(), g2.geom()]
+                return [g1.geom, g2.geom]
             elif self._type == 'difference':
-                return g1.geom()
+                return g1.geom
             else: #intersection
                 return []
         ## There are two or more points of intersection.
@@ -276,78 +284,54 @@ class Boolean(Geometry):
         return r
 
     def bbox(self):
-        return bbox(self.geom())
+        return bbox(self.geom)
 
     def getCenter(self):
-        gl = self.geom()
+        gl = self.geom
         if gl == []:
             raise ValueError('empty Boolean, no center')
         return center(gl)
 
     def getLength(self):
-        gl = self.geom()
+        gl = self.geom
         if gl == []:
             raise ValueError('empty Boolean, no length')
         return length(gl)
 
     def segment(self,u1,u2,reverse=False):
-        gl = self.geom()
+        gl = self.geom
         if gl == []:
             raise ValueError('empty Boolean, segment not defined')
         return segmentgeomlist(gl,u1,u2,closed=True,reverse=reverse)
 
-    def mirror(self,plane,poly=False):
-        b = deepcopy(self)
-        b._elem = []
-        b._update=True
+    def mirror(self,plane):
+        self._update=True
         for p in self._elem:
-            p2 = p.mirror(plane,poly=True)
-            b._elem.append(p2)
-        if poly:
-            return b
-        return b.geom()
+            p.mirror(plane)
+            
+    def rotate(self,angle,cent=point(0,0,0),axis=point(0,0,1)):
+        self._update=True
+        for p in self._elem:
+            p.rotate(angle,cent,axis)
 
-    def rotate(self,angle,cent=point(0,0,0),axis=point(0,0,1),poly=False):
-        b = deepcopy(self)
-        b._elem = []
-        b._update=True
+    def scale(self,sx,sy=False,sz=False,cent=point(0,0)):
+        self._update=True
         for p in self._elem:
-            p2 = p.rotate(angle,cent,axis,poly=True)
-            b._elem.append(p2)
-        if poly:
-            return b
-        return b.geom()
+            p.scale(sx,sy,sz,cent)
 
-    def scale(self,sx,sy=False,sz=False,cent=point(0,0),poly=False):
-        b = deepcopy(self)
-        b._elem = []
-        b._update=True
+    def translate(self,delta):
+        self._update=True
         for p in self._elem:
-            p2 = p.scale(sx,sy,sz,cent,poly=True)
-            b._elem.append(p2)
-        if poly:
-            return b
-        return b.geom()                        
-
-    def translate(self,delta,poly=False):
-        b = deepcopy(self)
-        b._elem = []
-        b._update=True
-        for p in self._elem:
-            p2 = p.translate(delta,poly=True)
-            b._elem.append(p2)
-        if poly:
-            return b
-        return b.geom()                        
+            p.translate(delta)
             
     def sample(self,u):
-        gl = self.geom()
+        gl = self.geom
         if gl == []:
             raise ValueError('empty Boolean, sample not defined')
         return sample(gl,u)
 
-    def isinside(self,p):
-        gm = self.geom()
+    def isinsideXY(self,p):
+        gm = self.geom
         if gm == []:
             raise ValueError('empty Boolean, inside not defined')
         bb = bbox(gm)
@@ -373,6 +357,7 @@ class Boolean(Geometry):
             raise NotImplementedError("Don't have grow support for {} yet".format(self._type))
         
 
+    @property
     def geom(self):
         if self._update:
             if len(self._elem)==2:
