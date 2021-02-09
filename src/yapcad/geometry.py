@@ -25,7 +25,7 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-"""object-oriented computational geometry for **yapCAD**
+"""object-oriented computational geometry figure classes for **yapCAD**
 
 ===============
 Overview
@@ -42,22 +42,24 @@ Why would I use ``yapcad.geometry`` vs. ``yapcad.geom``
 
 You might perfer the convenience and simplicity of the object-oriented
 interface as a way to access the underlying power of the
-``yapcad.geom`` module.  In addition, in many cases it is actually
-more efficient to use the ``Geometry`` class wrappers for figures
-rather than the ``yapcad.geom`` figures themselves because of the
-memoizing and caching feautres provided.
+``yapcad.geom`` and associated modules.  In addition, in many cases it
+is actually more efficient to use the ``Geometry`` class wrappers for
+figures rather than the ``yapcad.geom`` figures themselves because of
+the memoizing and caching feautres provided.
 
-For examle, for compound figures above a certain complexity threshold,
+For examle, Geometry class provides wrappers around the
+``yapcad.geom3d poly2surface()`` function for the triangulation of
+figures into triangle mesh surfaces, which is cached. This, in turn,
+provides the foundations for extrusions and the construction of 3D
+triangluated objects.
+
+Likewise, for compound figures above a certain complexity threshold,
 the Geometry class implements an internal quadtree decomposition of
 the figure to speed intersection testing.  This is done in a lazy way,
 which is to say that the quadtree is constructed the first time
 intersection calculation is requested, and persists for as long as the
-figure's geometry remains unchanged.
-
-The Geometry class also provides for the triangulation of figures into
-triangle mesh surfaces, which is also cached and done in a lazy
-evaluation way.  This, in turn, provides the foundations for
-extrusions and the construction of 3D triangluated objects. 
+figure's geometry remains unchanged.  *NOTE: Fixeme, quadtree-based
+intersection not yet implemented*
 
 object oriented vs. functional approch
 --------------------------------------
@@ -83,13 +85,11 @@ analogously to their uncapitalized counterparts in ``yapcad.geom``,
 creating ``Geometry`` class instances wrapping the corresponding
 figure.
 
-
 """
 
 import copy
 from yapcad.geom import *
 from yapcad.geom_util import *
-from yapcad.geom3d import *
 
 class Geometry:
     """generalized computational geometry base class, also acts as a
@@ -108,14 +108,19 @@ class Geometry:
     def __init__(self,a=False):
         self.__update=True # do we need to update geom?
         self.__elem=[] # internal geometry
+        self.__length=0.0
+        self.__update=True
         self.__sampleable = False
         self.__intersectable = False
         self.__continuous = False
         self.__closed = False
+        self.__center = None
+        self.__bbox = None
         self.__surface = None # surface representation
         self.__surface_ang = -1 # surface parameter
         self.__surface_len = -1 # surface parameter
-        if a:
+        self.__derived = False  # set to true for derived geometry subclasses
+        if a != False:
             if ispoint(a):
                 self.__elem= deepcopy(a)
                 self.__sampleable=True
@@ -146,69 +151,112 @@ class Geometry:
             else:
                 raise ValueError(f'bad argument to Geometry class constructor: {a}')
 
+
+    @property
+    def sampleable(self):
+        return self.__sampleable
+    
     def issampleable(self):
         """is the figure sampleable?"""
         return self.__sampleable
 
+    @property
+    def intersectable(self):
+        return self.__intersectable
+    
     def isintersectable(self):
         """is the figure intersectable?"""
         return self.__intersectable
+
+    @property
+    def continuous(self):
+        return self.__continuous
     
     def iscontinuous(self):
         """is the figure C0 continuous over the interval [0,1]"""
         return self.__continuous
 
+    @property
+    def closed(self):
+        return self.__closed
+
+    def _setClosed(self,bln):
+        self.__closed=bln
+    
     def isclosed(self):
         """is the figure C0 continuous over the [0,1] interval and 
         is ``self.sample(0.0)`` within epsilon of ``self.sample(1.0)``
         """
         return self.__closed
+
+    @property
+    def derived(self):
+        return self.__derived
+
+    def _setDerived(self,bln):
+        self.__derived = bln
     
+    def isderived(self):
+        """is this an instance of a derived geometry subclass that
+        computes self.geom from self.elem?  Set only in constructors
+        for derived geometry subclasses
+        """
+        return self.__derived
+
+    @property
     def length(self):
         """return length of figure"""
-        if self.__update:
-            self.__updateInternals()
-            self.__length = length(self.geom())
+        if self.update:
+            self._updateInternals()
         return self.__length
-    
+
+    def _setLength(self,l):
+        self.__length=l
+
+    @property
     def center(self):
         """return center of figure"""
-        if self.__update:
-            self.__updateInternals()
-            self.__center = center(self.geom())
+        if self.update:
+            self._updateInternals()
         return self.__center
-    
+
+    def _setCenter(self,c):
+        self.__center=c
+
+    @property
     def bbox(self):
         """return 3D bounding box of figure"""
-        if self.__update:
-            self.__updateInternals()
-            self.__bbox = bbox(self.geom())
+        if self.update:
+            self._updateInternals()
         return self.__bbox
+
+    def _setBbox(self,bbx):
+        self.__bbox=bbx
 
     def isinsideXY(self,p):
         """determine if a point is inside a figure.  In the case of non-closed
         figures, such as lines, determine if the point lies within
         epsilon of one of the lines of the figure.
         """
-        if self.__update:
-            self.__updateInternals()
-        return isinsideXY(self.geom(),p)
+        if self.update:
+            self._updateInternals()
+        return isinsideXY(self.geom,p)
 
 
     def translate(self,delta):
         """apply a translation to figure"""
-        self.__elem = translate(self.__elem,delta)
-        self.__update = True
+        self._setElem(translate(self.__elem,delta))
+        self._setUpdate(True)
 
     def scale(self,sx=1.0,sy=False,sz=False,cent=point(0,0,0)):
         """apply a scaling to a figure"""
-        self.__elem = scale(self.__elem,sx,sy,sz,cent)
-        self.__update = True
+        self._setElem(scale(self.__elem,sx,sy,sz,cent))
+        self._setUpdate(True)
 
     def rotate(self,ang,cent=point(0,0,0),axis=point(0,0,1.0)):
         """apply a rotation to a figure"""
-        self.__elem = rotate(self.__elem,ang,cent,axis)
-        self.__update = True
+        self._setElem(rotate(self.__elem,ang,cent,axis))
+        self._setUpdate(True)
 
     def mirror(self,plane):
         """apply a mirror operation to a figure.  Currently, the following
@@ -216,25 +264,64 @@ class Geometry:
         arbitrary reflection plane specification will be added in the
         future.
         """
-        self.__elem = mirror(self.__elem,plane)
-        self.__update = True
+        self._setElem(mirror(self.__elem,plane))
+        self._setUpdate(True)
 
     def transform(self,m):
         """apply an arbitrary transformation to a figure, as specified by a
         transformation matrix.
         """
-        self.__elem = transform(self.__elem,m)
-        self.__update = True
+        self._setElem(transform(self.elem,m))
+        self._setUpdate(True)
         
-        
-    def __updateInternals(self):
-        """update internals: for base class, this is a no-op"""
+
+    # one underscore to make this easily overridable in subclasses
+    def _updateInternals(self):
+        """update internals: set basic attributes based on geom"""
+        if self.update:
+            self._setUpdate(False)
+            if self.__elem == []:
+                self.__length = 0.0
+                self.__center = None
+                self.__bbox = None
+            else:
+                self.__length = length(self.geom)
+                self.__center = center(self.geom)
+                self.__bbox = bbox(self.geom)
+
         return
 
+    ## more properties
+    
+    @property
+    def update(self):
+        return self.__update
+
+    def _setUpdate(self,bln):
+        """method to set status of __update, accessible from derived classes"""
+        self.__update = bln
+
+    @update.setter
+    def update(self,bln):
+        """property to flag update.  Ignores right-hand side of expression, always sets update flag to True"""
+        self._setUpdate(True)
+
+    @property 
+    def elem(self):
+        return self.__elem
+
+    def _setElem(self,e):
+        self.__elem = e
+
+    @elem.setter
+    def elem(self,e):
+        _setElem(e)
+
+    @property
     def geom(self):
         """return yapcad.geom representation of figure"""
-        if self.__update:
-            self.__updateInternals()
+        if self.update:
+            self._updateInternals()
         return deepcopy(self.__elem)
 
     def sample(self,u):
@@ -245,10 +332,10 @@ class Geometry:
         """
         if not self.__sampleable:
             raise ValueError('figure is not sampleable')
-        if self.__update:
-            self.__updateInternals()
+        if self.update:
+            self._updateInternals()
             
-        gl = self.geom()
+        gl = self.geom
 
         if len(gl) == 1:
             return sample(gl[0],u)
@@ -264,15 +351,21 @@ class Geometry:
         """
         if not self.__sampleable:
              raise ValueError('figure is not sampleable, or unsampleable for that matter')
-        if self.__update:
-            self.__updateInternals()
+        if self.update:
+            self._updateInternals()
 
-        gl = self.geom()
+        gl = self.geom
 
         if len(gl) == 1:
             return unsample(gl[0],p)
         else:
             return unsample(gl,p)
+
+    def segment(self,u1,u2,reverse=False):
+        gl = self.geom
+        if gl == []:
+            raise ValueError('empty Boolean, segment not defined')
+        return segmentgeomlist(gl,u1,u2,closed=self.closed,reverse=reverse)
 
     def intersectXY(self,g,inside=True,params=False):
         """given two XY-coplanar figures, this figure and ``g``,
@@ -291,8 +384,8 @@ class Geometry:
         """
         if not self.isintersectable():
             raise ValueError(f'this instance {self} not intersectable')
-        if self.__update:
-            self.__updateInternals()
+        if self.update:
+            self._updateInternals()
         if isinstance(g,Geometry):
             if g.isintersectable():
                 g = g.geom()
@@ -303,7 +396,7 @@ class Geometry:
         else:
             raise ValueError(f'bad thing passed to intersectXY: {g}')
         
-        return intersectXY(self.geom(),g,inside,params)
+        return intersectXY(self.geom,g,inside,params)
 
     
     def surface(self,minang = 5.0, minlen = 0.5):
@@ -320,15 +413,15 @@ class Geometry:
         """
         if not self.isclosed():
             raise ValueError("non-closed figure has no surface representation")
-        if self.__update:
-            self.__updateInternals()
+        if self.update:
+            self._updateInternals()
         if (self.__surface and
             close(self.__surface_ang,minang) and
             close(self.__surface_len,minlen)):
             return self.__surface
         self.__surface_ang = minang
         self.__surface_len = minlen
-        geo = self.geom()
+        geo = self.geom
         if len(geo) == 0:
             return []
         ply = []
@@ -353,10 +446,10 @@ def Line(p1,p2=False):
 def Arc(c,rp=False,sn=False,e=False,n=False,samplereverse=False):
     return Geometry(arc(c,rp,sn,e,n,samplereverse))
 
-def Poly(*args):
-    ply = poly(*args)
-    # print(f'ply: {ply}')
-    return Geometry(ply)
+# def Poly(*args):
+#     ply = poly(*args)
+#     # print(f'ply: {ply}')
+#     return Geometry(ply)
 
 def Figure(*args):
     return Geometry(list(*args))
