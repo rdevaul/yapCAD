@@ -3,6 +3,8 @@
 ## Richard W. DeVaul
 
 from yapcad.geom import *
+from yapcad.geometry import Geometry
+from yapcad.combine import *
 from yapcad.geom_util import *
 from yapcad.xform import *
 from functools import reduce
@@ -319,9 +321,7 @@ def triTriIntersect(t1,t2,inside=True,inPlane=False,basis=None):
             else:
                 return t2
         else: # return poly that is in-plane intersection
-            T1p = Geometry(t1p)
-            T2p = Geometry(t2p)
-            intr = Boolean('intersection',[T1p,T2p]).geom()
+            intr = combineglist(t1p,t2p,'intersection')
             if len(intr) < 1: #no intersection
                 return False
             else:
