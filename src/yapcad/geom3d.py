@@ -327,7 +327,7 @@ def triTriIntersect(t1,t2,inside=True,inPlane=False,basis=None):
                 if inPlane:
                     return intr
                 else:
-                    return list(map(lambda x: tinv.mul(x),intr))
+                    return transform(intr,tinv)
     # not coplanar, check to see if planes are parallel
     if vclose(n1,n2):
         return False #yep, degenerate

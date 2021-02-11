@@ -2354,6 +2354,8 @@ def segmentgeomlist(gl,u1,u2,closed=False,reverse=False):
         
     for i in range(len(gl)):
         l=lengths[i]
+        if l < epsilon:
+            continue
         if dst1 <= d+l:
             if not STARTED:
                 uu = 1.0 - (d+l-dst1)/l
@@ -2439,7 +2441,7 @@ def isgeomlistXYPlanar(gl):
                 return False
     return isXYPlanar(pp)
 
-## compute the intersection between geometric element g, and geometry
+## compute the intersection between coplanar geometric element g, and geometry
 ## list gl.  NOTE: this function does not impose continuity
 ## requirements on the geometry list, and point elements are ignored
 ## for intersection testing.

@@ -461,13 +461,27 @@ class TestSurface:
         t3=translate(triHard,point(2,0,0))
         t4=triHarder
         
-        dd.linecolor='red'
+        dd.linecolor='blue'
 
-        dd.draw([t0,t1,t2,t3,t4])
+        dd.draw(translate([t0,t1,t2,t3,t4],point(0,0,-.1)))
 
         dd.linecolor='white'
         i1 = triTriIntersect(t0,t4)
         assert i1
         dd.draw(i1)
+
+        #import pdb ; pdb.set_trace()
+        gg = intersectXY(t0,t1)
+        i2 = triTriIntersect(t0,t1)
+        print(f"t0: {t0}\nt1: {t1}")
+        print(f"gg: {gg}")
+        assert i2
+        dd.linecolor='aqua'
+        dd.draw(i2)
+
+        i3 = triTriIntersect(t2,t3)
+        assert i3
+        dd.linecolor='white'
+        dd.draw(i3)
         
         dd.display()

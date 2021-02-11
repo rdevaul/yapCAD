@@ -294,6 +294,24 @@ def combineglist(g1,g2,operation):
 
     """
 
+    def poly2lines(pol):
+        l = []
+        for i in range(1,len(pol)):
+            l.append([pol[i-1],pol[i]])
+        return l
+
+    if ispoly(g1):
+        g1 = poly2lines(g1)
+
+    if ispoly(g2):
+        g2 = poly2lines(g2)
+        
+    if not (isclosedgeomlist(g1) and isclosedgeomlist(g2)):
+        raise ValueError("bad arguments passed to combineglist")
+
+    if not operation in ["union","intersection","difference"]:
+        raise ValueError("bad operation specified for combineglist")
+    
     bbox1 = bbox(g1)
     bbox2 = bbox(g2)
     try :
@@ -536,7 +554,6 @@ def combineglist(g1,g2,operation):
     inter = rsort(inter)
     #print("rsort: ",vstr(inter))
 
-    import pdb; pdb.set_trace()
     if len(inter[0]) %2 != 0:
         print("WARNING: odd number of intersections (",len(inter[0]),", unpredictable behavior may result")
     r = []
