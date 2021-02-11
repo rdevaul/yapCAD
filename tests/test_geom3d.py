@@ -141,10 +141,10 @@ class TestSurface:
         # The third test creates a similarly non-convex shape
         # as the previous test, but does so using rounded rect
         # Polygon instances and a boolean difference operation
-        rr1 = makeRoundRect(5,5,0.5,center=point(-15,20))
-        rr2 = makeRoundRect(6,3,0.5,center=point(-12,20))
+        rr1 = RoundRect(5,5,0.5,center=point(-15,20))
+        rr2 = RoundRect(6,3,0.5,center=point(-12,20))
         gl3 = Boolean('difference',[rr1,rr2])
-        ply3 = geomlist2poly(gl3.geom())
+        ply3 = geomlist2poly(gl3.geom)
         dd.linecolor='aqua'
         dd.draw(gl3)
         ply3 = translate(ply3,point(0,0,0.5)) # pull it forward

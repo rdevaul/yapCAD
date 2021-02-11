@@ -90,6 +90,7 @@ figure.
 import copy
 from yapcad.geom import *
 from yapcad.geom_util import *
+from yapcad.geom3d import *
 
 class Geometry:
     """generalized computational geometry base class, also acts as a
@@ -388,7 +389,7 @@ class Geometry:
             self._updateInternals()
         if isinstance(g,Geometry):
             if g.isintersectable():
-                g = g.geom()
+                g = g.geom
             else:
                 raise ValueError(f'Geometry object {g} not intersectable')
         elif isgeomlist([g]):
@@ -430,8 +431,7 @@ class Geometry:
         else:
             ply = geomlist2poly(geo,minang,minlen)
 
-        self.__surface,bnd = poly2surface(ply,checkclosed=False,
-                                          box=self.bbox())
+        self.__surface,bnd = poly2surface(ply,checkclosed=False)
 
         return self.__surface
 

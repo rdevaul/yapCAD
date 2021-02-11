@@ -277,6 +277,8 @@ class pygletDraw(drawable.Drawable):
 
             #gl.glMatrixMode(gl.GL_MODELVIEW)
             gl.glLoadIdentity()
+            if not self.__bbox:
+                self.__bbox =[point(-1,-1,-1),point(1,1,1)]
             cent = scale3(add(self.__bbox[0],self.__bbox[1]),0.5)
             rnge = sub(self.__bbox[1],self.__bbox[0])
             mdim = max(rnge)

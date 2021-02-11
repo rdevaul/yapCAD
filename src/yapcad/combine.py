@@ -19,7 +19,7 @@ class Boolean(Geometry):
         super().__init__()
         self._setClosed(True)
         for p in polys:
-            import pdb ; pdb.set_trace()
+            # import pdb ; pdb.set_trace()
             if not ( isinstance(p,Geometry) and p.isclosed()):
                 raise ValueError('not closed Geometry instance: {}'.format(p))
             if not type in self.types:

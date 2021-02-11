@@ -3,11 +3,10 @@
 ## Richard W. DeVaul
 
 from yapcad.geom import *
-from yapcad.geometry import Geometry
-from yapcad.combine import *
 from yapcad.geom_util import *
 from yapcad.xform import *
 from functools import reduce
+
 
 """
 ==========================================================
@@ -443,6 +442,56 @@ def addTri2Surface(tri,s,check=False,nfunc=normfunc):
 
     return ['surface',vrts,nrms,faces,boundary,holes]
 
+
+def surfArea(surf):
+    """
+    given a surface, return the surface area
+    """
+    area = 0.0
+    vertices = surf[1]
+    faces= surf[3]
+    for f in faces:
+        area += triarea(vertices[f[0]],
+                        vertices[f[1]],
+                        vertices[f[2]])
+
+    return area
+
+def surf2lines(surf):
+    """
+    convert a surface representation to a non-redundant set of lines
+    for line-based rendering purposes
+    """
+    
+    drawn = []
+
+    verts = surf[1]
+    norms = surf[2]
+    faces = surf[3]
+
+    lines = []
+
+    def inds2key(i1,i2):
+        if i1 <= i2:
+            return f"{i1}-{i2}"
+        else:
+            return f"{i2}-{i1}"
+
+    def addLine(i1,i2,lines):
+        key = inds2key(i1,i2)
+        if not key in drawn:
+            lines.append(line(verts[i1],
+                              verts[i2]))
+            drawn.append(key)
+        return lines
+    
+    for f in faces:
+        lines = addLine(f[0],f[1],lines)
+        lines = addLine(f[1],f[2],lines)
+        lines = addLine(f[2],f[0],lines)
+
+    return lines
+    
 def poly2surface(ply,holepolys=[],minlen=0.5,minarea=0.0001,
                  checkclosed=False,basis=None):
 
@@ -489,9 +538,7 @@ def poly2surface(ply,holepolys=[],minlen=0.5,minarea=0.0001,
     surf[2]=norm2
 
     return surf,bnd2
-                              
-        
-    
+
 def poly2surfaceXY(ply,holepolys=[],minlen=0.5,minarea=0.0001,
                    checkclosed=False,box=None):
     """Given ``ply``, an XY-coplanar polygon, return the triangulated
@@ -661,54 +708,4 @@ def poly2surfaceXY(ply,holepolys=[],minlen=0.5,minarea=0.0001,
         
 
     return surf,bndry
-
-def surfArea(surf):
-    """
-    given a surface, return the surface area
-    """
-    area = 0.0
-    vertices = surf[1]
-    faces= surf[3]
-    for f in faces:
-        area += triarea(vertices[f[0]],
-                        vertices[f[1]],
-                        vertices[f[2]])
-
-    return area
-
-def surf2lines(surf):
-    """
-    convert a surface representation to a non-redundant set of lines
-    for line-based rendering purposes
-    """
-    
-    drawn = []
-
-    verts = surf[1]
-    norms = surf[2]
-    faces = surf[3]
-
-    lines = []
-
-    def inds2key(i1,i2):
-        if i1 <= i2:
-            return f"{i1}-{i2}"
-        else:
-            return f"{i2}-{i1}"
-
-    def addLine(i1,i2,lines):
-        key = inds2key(i1,i2)
-        if not key in drawn:
-            lines.append(line(verts[i1],
-                              verts[i2]))
-            drawn.append(key)
-        return lines
-    
-    for f in faces:
-        lines = addLine(f[0],f[1],lines)
-        lines = addLine(f[1],f[2],lines)
-        lines = addLine(f[2],f[0],lines)
-
-    return lines
-    
 

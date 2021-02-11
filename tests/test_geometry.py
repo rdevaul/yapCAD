@@ -23,11 +23,11 @@ class TestGeometry:
         a = point(-5,-1)
         b = point(5,3)
         L = Line(a,b)
-        assert L.issampleable()
-        assert L.isintersectable()
-        assert L.iscontinuous()
-        assert not L.isclosed()
-        assert close(L.length(),
+        assert L.sampleable
+        assert L.intersectable
+        assert L.continuous
+        assert not L.closed
+        assert close(L.length,
                      sqrt(10*10+4*4))
         print("line sample tests")
         p0 =L.sample(-0.5)
@@ -58,7 +58,7 @@ class TestGeometry:
         dd = pygletDraw()
         dd.linecolor='silver'
         # make a polyline spiral
-        Ply = Poly(makeLineSpiral(point(-5,0),2.0,10))
+        Ply = Figure(makeLineSpiral(point(-5,0),2.0,10))
         # make an arc-segment geometry list spiral
         Gl = Figure(makeArcSpiral(point(5,0),3.0,6.66,dstep=90.0))
         # find intersection points
@@ -172,7 +172,7 @@ class TestGeometry:
         dd.linecolor='red'
         dd.draw(surf2lines(surf2))
         print(f"surface area: {surfArea(surf)}")
-        assert close(surfArea(surf),300.0)
+        assert abs(surfArea(surf)-300.0) < 0.1
         
         # ply2 = translate(ply2,point(0,0,0.5)) # pull it forward
         # dd.linecolor='red'
@@ -184,7 +184,7 @@ class TestGeometry:
         # rr1 = makeRoundRect(5,5,0.5,center=point(-15,20))
         # rr2 = makeRoundRect(6,3,0.5,center=point(-12,20))
         # gl3 = Boolean('difference',[rr1,rr2])
-        # ply3 = geomlist2poly(gl3.geom())
+        # ply3 = geomlist2poly(gl3.geom)
         # dd.linecolor='aqua'
         # dd.draw(gl3)
         # ply3 = translate(ply3,point(0,0,0.5)) # pull it forward

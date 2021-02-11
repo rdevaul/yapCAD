@@ -287,7 +287,7 @@ class Drawable:
                 raise ValueError("bad value for polystyle: {}".format(self.polystyle))
             
         elif isinstance(x,Geometry):
-            gl = x.geom()
+            gl = x.geom
             self.draw(gl)
         elif isinstance(x,list): # could be a geometry list, or a list
             # that mixes yapcad.geom elements and yapcad.geometry
