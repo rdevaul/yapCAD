@@ -470,7 +470,6 @@ class TestSurface:
         assert i1
         dd.draw(i1)
 
-        #import pdb ; pdb.set_trace()
         gg = intersectXY(t0,t1)
         i2 = triTriIntersect(t0,t1)
         print(f"t0: {t0}\nt1: {t1}")
