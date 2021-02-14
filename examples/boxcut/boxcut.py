@@ -91,12 +91,12 @@ renderDebug=False
 
 def topPoly(toplen=box_length,topwid=box_width):
     # start with a rounded rectangle the size of the face
-    face = makeRoundRect(toplen+kerf*2,topwid+kerf*2,2.0)
+    face = RoundRect(toplen+kerf*2,topwid+kerf*2,2.0)
 
-    debugGeomList.append(face.geom())
+    debugGeomList.append(face.geom)
     # make trimming polygons
-    trimtab = makeRect(tlen-kerf*2,(thick-kerf)*2)
-    trimtab2 = makeRect((thick-kerf)*2,tlen-kerf*2)
+    trimtab = Rect(tlen-kerf*2,(thick-kerf)*2)
+    trimtab2 = Rect((thick-kerf)*2,tlen-kerf*2)
 
     tl2 = toplen/2.0
     tw2 = topwid/2.0
@@ -104,19 +104,23 @@ def topPoly(toplen=box_length,topwid=box_width):
     t2off = tlen*4.5
 
     # duplicate and position to trim the upper, right corner
-    t1a = trimtab.translate(point(tl2-t1off,
-                                  tw2),poly=True)
-    t1b = trimtab.translate(point(tl2-t2off,
-                                  tw2),poly=True)
-    t2a = trimtab2.translate(point(tl2,
-                                   tw2-t1off),poly=True)
-    t2b = trimtab2.translate(point(tl2,
-                                   tw2-t2off),poly=True)
+    t1a = deepcopy(trimtab)
+    t1a.translate(point(tl2-t1off, tw2))
 
-    debugGeomList.append(t1a.geom())
-    debugGeomList.append(t1b.geom())
-    debugGeomList.append(t2a.geom())
-    debugGeomList.append(t2b.geom())
+    t1b = deepcopy(trimtab)
+    t1b.translate(point(tl2-t2off, tw2))
+
+    t2a = deepcopy(trimtab2)
+    t2a.translate(point(tl2, tw2-t1off))
+
+    t2b = deepcopy(trimtab2)
+    t2b.translate(point(tl2, tw2-t2off))
+
+    ## Add these features to debugging geometry list
+    debugGeomList.append(t1a.geom)
+    debugGeomList.append(t1b.geom)
+    debugGeomList.append(t2a.geom)
+    debugGeomList.append(t2b.geom)
     
     # perform boolean operations for each corner -- use mirror to
     # rotate the trimming bodies around the rectangular form.
@@ -125,16 +129,16 @@ def topPoly(toplen=box_length,topwid=box_width):
         if i == 0:
             pass # we are in correct position for first trim
         elif i == 1 or i == 3:
-            t1a = t1a.mirror("yz",poly=True)
-            t1b = t1b.mirror("yz",poly=True)
-            t2a = t2a.mirror("yz",poly=True)
-            t2b = t2b.mirror("yz",poly=True)
+            t1a.mirror("yz")
+            t1b.mirror("yz")
+            t2a.mirror("yz")
+            t2b.mirror("yz")
         else: # i == 2
-            t1a = t1a.mirror("xz",poly=True)
-            t1b = t1b.mirror("xz",poly=True)
-            t2a = t2a.mirror("xz",poly=True)
-            t2b = t2b.mirror("xz",poly=True)
-            
+            t1a.mirror("xz")
+            t1b.mirror("xz")
+            t2a.mirror("xz")
+            t2b.mirror("xz")
+
         face = Boolean('difference',[face,t1a])
         face = Boolean('difference',[face,t1b])
         face = Boolean('difference',[face,t2a])
@@ -163,12 +167,12 @@ def topPoly(toplen=box_length,topwid=box_width):
 def frontPoly(lrlen=box_length,lrht=box_height):
     # start with a rounded rectangle the size of the face, less the
     # projecting tabs
-    face = makeRoundRect(lrlen+kerf*2,lrht+(kerf-thick)*2,2.0)
+    face = RoundRect(lrlen+kerf*2,lrht+(kerf-thick)*2,2.0)
 
-    debugGeomList.append(face.geom())
+    #debugGeomList.append(face.geom)
     # make tab and trim polygons
-    tab = makeRect(tlen+kerf*2,(thick+kerf)*2)
-    trimtab = makeRect((thick+kerf)*2,tlen+kerf*2)
+    tab = Rect(tlen+kerf*2,(thick+kerf)*2)
+    trimtab = Rect((thick+kerf)*2,tlen+kerf*2)
 
     tl2 = lrlen/2.0
     tw2 = lrht/2.0
@@ -176,19 +180,22 @@ def frontPoly(lrlen=box_length,lrht=box_height):
     t2off = tlen*4.5
 
     # duplicate and position to trim the upper, right corner
-    t1a = tab.translate(point(tl2-t1off,
-                              tw2-thick),poly=True)
-    t1b = tab.translate(point(tl2-t2off,
-                              tw2-thick),poly=True)
-    t2a = trimtab.translate(point(tl2,
-                                  tw2-t1off),poly=True)
-    t2b = trimtab.translate(point(tl2,
-                                  tw2-t2off),poly=True)
+    t1a = deepcopy(tab)
+    t1a.translate(point(tl2-t1off, tw2-thick))
+    
+    t1b = deepcopy(tab)
+    t1b.translate(point(tl2-t2off, tw2-thick))
+    
+    t2a = deepcopy(trimtab)
+    t2a.translate(point(tl2, tw2-t1off))
+    
+    t2b = deepcopy(trimtab)
+    t2b.translate(point(tl2, tw2-t2off))
 
-    debugGeomList.append(t1a.geom())
-    debugGeomList.append(t1b.geom())
-    debugGeomList.append(t2a.geom())
-    debugGeomList.append(t2b.geom())
+    #debugGeomList.append(t1a.geom)
+    #debugGeomList.append(t1b.geom)
+    #debugGeomList.append(t2a.geom)
+    #debugGeomList.append(t2b.geom)
     
     # perform boolean operations for each corner -- use mirror to
     # rotate the trimming bodies around the rectangular form.
@@ -197,15 +204,15 @@ def frontPoly(lrlen=box_length,lrht=box_height):
         if i == 0:
             pass # we are in correct position for first trim
         elif i == 1 or i == 3:
-            t1a = t1a.mirror("yz",poly=True)
-            t1b = t1b.mirror("yz",poly=True)
-            t2a = t2a.mirror("yz",poly=True)
-            t2b = t2b.mirror("yz",poly=True)
+            t1a.mirror("yz")
+            t1b.mirror("yz")
+            t2a.mirror("yz")
+            t2b.mirror("yz")
         else: # i == 2
-            t1a = t1a.mirror("xz",poly=True)
-            t1b = t1b.mirror("xz",poly=True)
-            t2a = t2a.mirror("xz",poly=True)
-            t2b = t2b.mirror("xz",poly=True)
+            t1a.mirror("xz")
+            t1b.mirror("xz")
+            t2a.mirror("xz")
+            t2b.mirror("xz")
             
         face = Boolean('union',[face,t1a])
         face = Boolean('union',[face,t1b])
@@ -235,12 +242,12 @@ def frontPoly(lrlen=box_length,lrht=box_height):
 def leftPoly(lrwid=box_width,lrht=box_height):
     # start with a rounded rectangle the size of the face, less the
     # projecting tabs
-    face = makeRoundRect(lrwid+(kerf-thick)*2,lrht+(kerf-thick)*2,2.0)
+    face = RoundRect(lrwid+(kerf-thick)*2,lrht+(kerf-thick)*2,2.0)
 
-    debugGeomList.append(face.geom())
+    #debugGeomList.append(face.geom)
     # make tab and trim polygons
-    tab1 = makeRect(tlen+kerf*2,(thick+kerf)*2)
-    tab2 = makeRect((thick+kerf)*2,tlen+kerf*2)
+    tab1 = Rect(tlen+kerf*2,(thick+kerf)*2)
+    tab2 = Rect((thick+kerf)*2,tlen+kerf*2)
 
     tl2 = lrwid/2.0
     tw2 = lrht/2.0
@@ -248,21 +255,21 @@ def leftPoly(lrwid=box_width,lrht=box_height):
     t2off = tlen*4.5
 
     # duplicate and position to add tabs to the upper, right corner
-    t1a = tab1.translate(point(tl2-t1off,
-                              tw2-thick),poly=True)
-    t1b = tab1.translate(point(tl2-t2off,
-                              tw2-thick),poly=True)
-    t2a = tab2.translate(point(tl2-thick,
-                               tw2-t1off),poly=True)
-    t2b = tab2.translate(point(tl2-thick,
-                               tw2-t2off),poly=True)
+    t1a = deepcopy(tab1)
+    t1b = deepcopy(tab1)
+    t1a.translate(point(tl2-t1off, tw2-thick))
+    t1b.translate(point(tl2-t2off, tw2-thick))
+    t2a = deepcopy(tab2)
+    t2b = deepcopy(tab2)
+    t2a.translate(point(tl2-thick, tw2-t1off))
+    t2b.translate(point(tl2-thick, tw2-t2off))
 
     # add these to our debugging geometry list for later
     # visualization, if desired
-    debugGeomList.append(t1a.geom())
-    debugGeomList.append(t1b.geom())
-    debugGeomList.append(t2a.geom())
-    debugGeomList.append(t2b.geom())
+    #debugGeomList.append(t1a.geom)
+    #debugGeomList.append(t1b.geom)
+    #debugGeomList.append(t2a.geom)
+    #debugGeomList.append(t2b.geom)
     
     # perform boolean operations for each corner -- use mirror to
     # rotate the trimming bodies around the rectangular form.
@@ -271,22 +278,23 @@ def leftPoly(lrwid=box_width,lrht=box_height):
         if i == 0:
             pass # we are in correct position for first corner
         elif i == 1 or i == 3:
-            t1a = t1a.mirror("yz",poly=True)
-            t1b = t1b.mirror("yz",poly=True)
-            t2a = t2a.mirror("yz",poly=True)
-            t2b = t2b.mirror("yz",poly=True)
+            t1a.mirror("yz")
+            t1b.mirror("yz")
+            t2a.mirror("yz")
+            t2b.mirror("yz")
         else: # i == 2
-            t1a = t1a.mirror("xz",poly=True)
-            t1b = t1b.mirror("xz",poly=True)
-            t2a = t2a.mirror("xz",poly=True)
-            t2b = t2b.mirror("xz",poly=True)
+            t1a.mirror("xz")
+            t1b.mirror("xz")
+            t2a.mirror("xz")
+            t2b.mirror("xz")
             
         face = Boolean('union',[face,t1a])
         face = Boolean('union',[face,t1b])
         face = Boolean('union',[face,t2a])
         face = Boolean('union',[face,t2b])
 
-    return face.rotate(90,poly=True)
+    face.rotate(90)
+    return face
 
 def makePolys():
     polylist = []
@@ -320,15 +328,20 @@ def legend(d):
                 attr={'height': 15.0})
 
     y -= 20
-    d.draw_text("length: {}mm".format(box_length),
+    d.draw_text("length: {:.2f}mm".format(box_length),
                 point(x,y),
                 attr={'height': 6.0})
-    y -= 8
-    d.draw_text("width: {}mm".format(box_width),
+    y -= 10
+    d.draw_text("width: {:.2f}mm".format(box_width),
                 point(x,y),
                 attr={'height': 6.0})
-    y -= 8
-    d.draw_text("height: {}mm".format(box_height),
+    y -= 10
+    d.draw_text("height: {:.2f}mm".format(box_height),
+                point(x,y),
+                attr={'height': 6.0})
+
+    y -= 10
+    d.draw_text("kerf: {:.3f}mm".format(kerf),
                 point(x,y),
                 attr={'height': 6.0})
 
@@ -368,7 +381,7 @@ def twoDDraw(polys,dd,zoff=0.0):
         dd.layer = 'PATHS'
         dd.linecolor = 'white'
 
-        g = p.geom()
+        g = p.geom
         g1 = translate(g,d1)
         g2 = translate(g,d2)
         
@@ -386,6 +399,7 @@ def twoDDraw(polys,dd,zoff=0.0):
     
     
     if renderDebug:
+        dd.layer = 'DOCUMENTATION'
         dd.linecolor='aqua'
         dd.draw(debugGeomList)
 
@@ -434,7 +448,7 @@ def glistArc2poly(glist):
 # geometry list
 
 def extrudeZ(poly,thick):
-    geom = poly.geom()
+    geom = poly.geom
     geom = glistArc2poly(geom)
     # bottom = reverseGeomList(geom)
     bottom = geom
@@ -457,7 +471,7 @@ def extrudeZ(poly,thick):
                 p = samplearc(e,0.0)
                 strut = line(p,add(p,upr))
                 struts.append(strut)
-            elif ispoly(e) or isgeomlist(g):
+            elif ispoly(e) or isgeomlist(e):
                 struts = struts + glist2struts(e)
             else:
                 raise ValueError('bad thing passed to glist2struts')
@@ -470,8 +484,10 @@ def extrudeZ(poly,thick):
 def makeOglGeom():
     ## regenerate geometry with zero kerf correction
     global kerf
+    oldkerf = kerf
     kerf = 0.0
     polys = makePolys()
+    kerf = oldkerf
 
     parts = []
     for poly in polys:
