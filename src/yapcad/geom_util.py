@@ -306,8 +306,8 @@ def combineglist(g1,g2,operation):
     if ispoly(g2):
         g2 = poly2lines(g2)
         
-    if not (isclosedgeomlist(g1) and isclosedgeomlist(g2)):
-        raise ValueError("bad arguments passed to combineglist")
+    # if not (isclosedgeomlist(g1) and isclosedgeomlist(g2)):
+    #     raise ValueError("bad arguments passed to combineglist")
 
     if not operation in ["union","intersection","difference"]:
         raise ValueError("bad operation specified for combineglist")
@@ -350,7 +350,8 @@ def combineglist(g1,g2,operation):
             #print("u1: ",u1," u2: ",u2," ilist: ",ilist," x1s: ",x1s," x2s: ",x2s)
             if l1 > 0 and l2 > 0:
                 print('WARNING: intersections on both sides')
-            elif l1 > l2:
+
+            if l1 > l2:
                 print("AA")
                 if True or operation == 'union':
                     return u1,u2+1.0,False
@@ -370,7 +371,8 @@ def combineglist(g1,g2,operation):
             #print("u1: ",u1," u2: ",u2," ilist: ",ilist," x1s: ",x1s," x2s: ",x2s)
             if l1 > 0 and l2 > 0:
                 print('WARNING: intersections on both sides')
-            elif l1 > l2:
+                
+            if l1 > l2:
                 print("BB")
 
                 if True or operation == 'union':
@@ -400,6 +402,7 @@ def combineglist(g1,g2,operation):
             if g1e < g1s:
                 g1e+=1.0
             #g1s,g1e,g1reverse = between(g1s,g1e,inter[0])
+            #import pdb ; pdb.set_trace()
             g2s,g2e,g2reverse = between(g2s,g2e,inter[1])
             g2reverse = False
         else:
@@ -408,7 +411,7 @@ def combineglist(g1,g2,operation):
             if g2e < g2s:
                 g2e += 1.0
 
-        p1=sample(g1,((g1s+g1e)/2)%1.0)
+        #p1=sample(g1,((g1s+g1e)/2)%1.0)
 
         p1inside=0
         for i in range(5):
@@ -431,7 +434,7 @@ def combineglist(g1,g2,operation):
         if p1inside == 0 and p2inside == 0:
             print("warning: inside test failed for both p1s and p2s")
                 
-        p2=sample(g2,((g2s+g2e)/2)%1.0)
+        #p2=sample(g2,((g2s+g2e)/2)%1.0)
 
         if ZLEN1 and ZLEN2:
             print ('both segments zero length')
@@ -441,7 +444,7 @@ def combineglist(g1,g2,operation):
             if operation=='union':
                 return segmentgeomlist(g1,g1s,g1e,closed=True)
             elif operation=='difference':
-                return 
+                return []
             else: #intersection
                 return []
         elif ZLEN1 and not ZLEN2:
@@ -483,7 +486,8 @@ def combineglist(g1,g2,operation):
                 s = reverseGeomList(s)
                 seg += s
             if len(inter[0]) > 2:
-                combineDebugGL.append(s)
+                pass
+                #combineDebugGL.append(s)
                 # print("seg: ",vstr(seg))
 
         return seg

@@ -242,7 +242,7 @@ class pygletDraw(drawable.Drawable):
         self.__cameradist = self.camerastartdist = 100.0
         self.__maxcameradist = 900.0
         self.__mincameradist = 10.0
-        self.__light0 = False
+        self.__light0 = True
         self.__light1 = False
         self.__legend = True
         self.__drawground = True

@@ -2152,7 +2152,7 @@ def polycenter(a):
             avg = add(a[i],avg)
         return scale3(avg,1.0/l)
     else:
-        return samplepoly(a,0.5)
+        return sample(a,0.5)
 
 def polylength(a):
     """
@@ -2667,6 +2667,8 @@ def center(x):
         pl = []
         for g in x:
             pl.append(center(g))
+        if isclosedgeomlist(x):
+            pl.append(pl[0])
         return polycenter(pl)
     else:
         raise ValueError("inappropriate type for center(): ",format(x))
@@ -2918,6 +2920,9 @@ def mirror(x,plane):
     values of "plane" are allowed: 'xz', 'yz', xy'.  Generalized
     arbitrary reflection plane specification will be added in the
     future.
+
+    NOTE: this operation will reverse the sign of the area of ``x`` if
+    x is a closed polyline or geometry list
     """
     flip=point(1,1,1)
     if plane == 'xz':

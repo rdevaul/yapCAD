@@ -94,8 +94,7 @@ class Polygon(Geometry):
         if l == 0:
             return None
         elif l == 1:
-            self._center = center(self.elem[0]) # center is sole point
-            self._bbox = bbox(self.elem[0])
+            return center(self.elem[0]) # center is sole point
         else:
             
             if dist(center(self.elem[0]),
@@ -419,11 +418,14 @@ def cullZeroLength(geom):
 
 ## make a Polygon instance containing a circle as two half-arcs
 
+# def Circle(center=point(0,0,0),radius=1.0):
+#     poly = Polygon()
+#     poly.addArc(arc(center,radius,0.0,180.0))
+#     poly.addArc(arc(center,radius,180.0,360.0))
+#     return poly
+
 def Circle(center=point(0,0,0),radius=1.0):
-    poly = Polygon()
-    poly.addArc(arc(center,radius,0.0,180.0))
-    poly.addArc(arc(center,radius,180.0,359.99))
-    return poly
+    return Geometry(arc(center,radius,0,360))
 
 ## make a rectangle with the specified width and height
 

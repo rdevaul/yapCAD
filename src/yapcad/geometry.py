@@ -110,7 +110,6 @@ class Geometry:
         self.__update=True # do we need to update geom?
         self.__elem=[] # internal geometry
         self.__length=0.0
-        self.__update=True
         self.__sampleable = False
         self.__intersectable = False
         self.__continuous = False
@@ -123,13 +122,15 @@ class Geometry:
         self.__derived = False  # set to true for derived geometry subclasses
         if a != False:
             if ispoint(a):
-                self.__elem= deepcopy(a)
+                self.__elem=  deepcopy(a) 
                 self.__sampleable=True
             elif isline(a) or isarc(a):
-                self.__elem=deepcopy(a)
+                self.__elem= deepcopy(a)
                 self.__sampleable=True
                 self.__intersectable=True
                 self.__continuous=True
+                if iscircle(a):
+                    self.__closed = True
             elif ispoly(a):
                 self.__elem=deepcopy(a)
                 self.__sampleable=True
@@ -144,7 +145,7 @@ class Geometry:
                 self.__closed=isclosedgeomlist(a)
 
             elif isinstance(a,Geometry):
-                self.__elem = deepcopy(a._elem)
+                self.__elem = deepcopy(a.elem)
                 self.__sampleable = a.issampleable()
                 self.__intersectable= a.isintersectable()
                 self.__continuous= a.iscontinuous()
@@ -156,6 +157,9 @@ class Geometry:
     @property
     def sampleable(self):
         return self.__sampleable
+
+    def _setSampleable(self,bln):
+        self.__sampleable=bln
     
     def issampleable(self):
         """is the figure sampleable?"""
@@ -259,13 +263,24 @@ class Geometry:
         self._setElem(rotate(self.__elem,ang,cent,axis))
         self._setUpdate(True)
 
-    def mirror(self,plane):
+    def mirror(self,plane,keepSign=True):
         """apply a mirror operation to a figure.  Currently, the following
         values of "plane" are allowed: 'xz', 'yz', xy'.  Generalized
         arbitrary reflection plane specification will be added in the
         future.
+
+        If ``keepSign == True`` (default) the sign of the area will be
+        maintained, meaning that if ``mirror`` is applied to a
+        right-handed closed figure (a figure with positive area) the
+        resulting mirrored figure will also have positive area.  This
+        is probably what you want, unless you are specifically turning
+        a face into a hole, or vice-versa.
+
         """
-        self._setElem(mirror(self.__elem,plane))
+        nelm = mirror(self.__elem,plane)
+        if keepSign:
+            nelm = reverseGeomList(nelm)
+        self._setElem(nelm)
         self._setUpdate(True)
 
     def transform(self,m):
@@ -286,9 +301,9 @@ class Geometry:
                 self.__center = None
                 self.__bbox = None
             else:
-                self.__length = length(self.geom)
-                self.__center = center(self.geom)
-                self.__bbox = bbox(self.geom)
+                self.__length = length(self.__elem)
+                self.__center = center(self.__elem)
+                self.__bbox = bbox(self.__elem)
 
         return
 
@@ -316,7 +331,7 @@ class Geometry:
 
     @elem.setter
     def elem(self,e):
-        _setElem(e)
+        self._setElem(e)
 
     @property
     def geom(self):
