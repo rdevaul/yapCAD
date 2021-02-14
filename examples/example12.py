@@ -1,8 +1,11 @@
-## yapCAD boolean operations geometry example
+## yapCAD boolean operations and surface creation geometry example
 
 from yapcad.geom import *
 from yapcad.poly import *
 from yapcad.combine import *
+from yapcad.geom_util import *
+from yapcad.geom3d import *
+
 import examples.example8 as example8
 
 docGeomList=[]
@@ -12,7 +15,7 @@ def makeJigsawPiece(width=100,height=50,diam=30,frac=0.80,upper=False,poly=False
     rect.translate(point(0,-height/2))
     circ1 = Circle(point(-width/4,(diam/2)*frac),diam/2)
     #circ2 = Circle(point(width/4,-(diam/2)*frac),diam/2)
-    circ2 = RoundRect(diam,diam,20.0,center=point(width/4,-(diam/2)*frac))
+    circ2 = RoundRect(diam,diam,20.0,center=point(width/4,0))
 
     docGeomList.append(circ1.geom)
     docGeomList.append(circ2.geom)
@@ -40,7 +43,8 @@ def drawLegend(d):
 
 def geometry():
 
-    logopoly = example8.flower(returnPoly=True)
+    logopoly = example8.flower(maxRadius=30,
+                               returnPoly=True)
     jigsaw=makeJigsawPiece(poly=True)
     bigc= Circle(point(0,0,0),20)
     nb = Boolean('union',[logopoly,bigc])
@@ -79,13 +83,18 @@ def testAndDraw(dd):
         dd.layer = 'DOCUMENTATION'
         dd.linecolor = False
     else:
-        dd.linecolor = 'yellow'
+        dd.linecolor = 'red'
     dd.draw(docGeomList)
 
     if not renderOgl:
         dd.layer = 'PATHS'
         
     dd.linecolor = 'white'
+    ply = geomlist2poly(translate(geom,point(0,0,-0.1)))
+    surf,bnd = poly2surfaceXY(ply)
+    dd.draw_surface(surf)
+    
+    geom = translate(geom,point(0,0,0.1))
     dd.draw(geom)
 
     dd.display()
@@ -106,7 +115,8 @@ if __name__ == "__main__":
             renderOgl=False
         else:
             print("This is an example of a complex boolean operation on Polygon() and")
-            print("Boolean() instances. ")
+            print("Boolean() instances. We also create a two-dimensional surface from ")
+            print("the resulting figure.")
             print("syntax: $ python3 {} <rendertype> [filename]".format(sys.argv[0]))
             print("    where <rendertype> is one of {} for OpenGL".format(oglarg))
             print("    or one of {} for DXF".format(dxfarg))
