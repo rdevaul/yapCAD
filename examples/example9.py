@@ -113,9 +113,7 @@ def sphere(diameter,center=point(0,0,0),depth=2):
                       
     
     return [verts,normals,faces]
-    
 
-        
 if __name__ == "__main__":
     from yapcad.pyglet_drawable import *
     print("example9.py -- yapCAD 3D geometry demonstration")
@@ -131,6 +129,11 @@ tesellate it spherically""")
     dd.linecolor = 'white'
 
     verts,normals,faces = sphere(50.0,point(0,0,0),3)
+
+    materials['jade'] = deepcopy(materials['default'])
+    materials['jade'].ambient = [0.2, 0.7, 0.4, 0.8]
+    materials['jade'].diffuse = [0.3, 0.5, 0.3, 0.8]
+    materials['jade'].shininess= 128
     
     for f in faces:
         dd.draw(line(verts[f[0]],
@@ -140,7 +143,47 @@ tesellate it spherically""")
         dd.draw(line(verts[f[2]],
                      verts[f[0]]))
 
-    dd.draw_surface(verts,normals,faces)
+    time1 = 0
+    time2 = 0
+
+    circle1 = arc(point(-30,0,0),25)
+    circle2 = arc(point(30,0,0),50)
+    
+    def animateSphere1(dt):
+        global time1
+        time1 += dt
+        obj = dd.objectdict['sphere1']
+
+        pos = sample(circle1,(time1/10)%1.0)
+        obj.x = pos[0]
+        obj.y = pos[1]
+        obj.z = pos[2]
+        obj.rz = time1*10.0
+
+    def animateSphere2(dt):
+        global time2
+        time2 += dt
+        obj = dd.objectdict['sphere2']
+
+        pos = sample(circle2,(time2/10+0.5)%1.0)
+        obj.x = pos[0]
+        obj.y = pos[1]
+        obj.z = pos[2]
+        obj.rz = -time2*10.0
+
+    dd.make_object('sphere1',lighting=True,material='jade',
+                   linecolor='aqua',
+                   position=point(0,0,0), animate=animateSphere1)
+    
+    dd.make_object('sphere2',lighting=True,material='default',
+                   linecolor='yellow',
+                   position=point(0,0,0), animate=animateSphere2)
+    
+    dd.draw_surface(verts,normals,faces,name='sphere1')
+    dd.draw_surface(verts,normals,faces,name='sphere2')
+
+        
+
     dd.linecolor = 'aqua'
     dd.polystyle = 'points'
     dd.pointstyle = 'xo'
