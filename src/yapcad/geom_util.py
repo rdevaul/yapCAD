@@ -386,6 +386,12 @@ def combineglist(g1,g2,operation):
 
     ## utility to perform combination on one "segment"
     def cmbin(g1,g2,itr):
+        if not isgeomlist(g1):
+            g1 = [ g1 ]
+
+        if not isgeomlist(g2):
+            g2 = [ g2 ]
+        
         g1s = itr[0][0]
         g1e = itr[0][1]
         g2s = itr[1][0]
