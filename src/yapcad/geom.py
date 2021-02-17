@@ -474,6 +474,15 @@ def isvect(x):
     check to see if argument is a proper vector for our purposes
     """
     return isinstance(x,list) and len(x) == 4 and isgoodnum(x[0]) and isgoodnum(x[1]) and isgoodnum(x[2]) and isgoodnum(x[3])
+
+## check to see if an argument is a proper direction vector, with w=0
+def isdirect(x):
+     return isinstance(x,list) and len(x) == 4 and isgoodnum(x[0]) and isgoodnum(x[1]) and isgoodnum(x[2]) and close(x[3],0.0)
+
+## check to see if argument is a list of direction vectors
+def isdirectlist(xx):
+    return len(list(filter(lambda x: not isdirect(x),xx))) == 0
+ 
     
 ## R^3 -> R^3 functions: ignore w component
 ## ------------------------------------------------
@@ -2887,7 +2896,7 @@ def rotate(x,ang,cent=point(0,0),axis=point(0,0,1.0),mat=False):
     # arcs are wierd, since we will have to deal with a non-trivial
     # change of basis function to handle the interpretation of "start"
     # and "end" if the axis of rotation isn't the z axis.
-    if ispoint(x):
+    if ispoint(x) or isvect(x):
         return mat.mul(x)
     elif isline(x):
         return line(mat.mul(x[0]),
@@ -2902,7 +2911,7 @@ def rotate(x,ang,cent=point(0,0),axis=point(0,0,1.0),mat=False):
             c[1][2] += ang
         return c
 
-    elif isgeomlist(x):
+    elif isgeomlist(x) or isdirectlist(x):
         gl = []
         for g in x:
             gl.append(rotate(g,ang,cent,axis,mat))
