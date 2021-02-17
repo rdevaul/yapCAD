@@ -63,7 +63,11 @@ other user-specified conversion algoritm, for the purposes of
 interactive 3D rendering and conversion to 3D CAM formats, such as
 STL.
 
-Structures for 2D/3D geometry:
+Structures for 2D/3D geometry
+=============================
+
+surfaces
+--------
 
 ``surface = ['surface',vertices,normals,faces,boundary,holes]``, where:
 
@@ -77,7 +81,8 @@ Structures for 2D/3D geometry:
            that represents each face,
 
            ``boundary`` is a list of indices for the vertices that form
-           the outer perimeter of the surface.
+           the outer perimeter of the surface, or [] if the surface
+           has no boundary, such as that of a torus or sphere
 
            ``holes`` is a (potentially zero-length) list of lists of
            holes, each of which is a non-zero list of three or more
@@ -88,12 +93,63 @@ A surface has an inside and an outside.  To deterine which side of a
 surface a point lies on, find the closest face and determine if the
 point lies on the positive or negative side of the face.
 
-``solid = ['solid', bbox, surfaces ]``, where:
+Solids
+------
 
-    ``bbox`` is the bounding box for the solid
+To represent a completely bounded space (a space for which any point
+can be unambiguously determined to be inside or outside) there is the
+``solid`` representation.  A solid is composed of zero or more
+surfaces, and may be completely empty, as empty solids are legal
+products of constructive solid geometry operations like intersection
+and difference.
 
-    ``surfaces`` is a list of surfaces with contiguous boundaries that
-    completely encloses an interior space.
+The gurantee, which is not enforced by the representation, is that for
+any point inside the bounding box of the solid, and for any point
+chosen outside the bounding box of the solid, a line drawn between the
+two will have either even (or zero), or odd point intersections (as
+opposed to tangent intersections), regardless of the choice of the
+outside-the-bounding-box point.
+
+Solids have optional associated metadata about the material properties
+of the solid and about how it was constructed.  
+
+For example, material properties might include OpenGL-type rendering
+data, mechanical properties, or a reference to a material dictionary
+that includes both.
+
+Construction meta-data might include the model-file and material-file
+name from which the geometry was loaded, the polygon from which the
+solid was extruded (and associated extrusion parameters), or the
+function call with parameters for algorithmically-generated geometry. 
+
+``solid = ['solid', surfaces, material, construction ]``, where:
+
+           ``surfaces`` is a list of surfaces with contiguous boundaries 
+           that completely encloses an interior space,
+
+           ``material`` is a list of domain-specific representation of
+           the material properties of the solid, which may be empty.
+           This information may be used for rendering or simulating
+           the properties of the solid.
+
+           ``construction`` is a list that contains information about
+           how the solid was constructed, and may be empty
+
+
+Assembly
+--------
+
+Assemblies are lists of elements, which are solids or assemblies, in
+which each list has an associated geometric transformation.
+
+``assembly = ['assembly', transform, elementlist]``, where:
+
+            ``transform = [xformF, xformR]``, a pair of forward and inverse
+              transformation matricies such that ``xformF`` * ``xformR`` = 
+              the identity matrix.  
+
+            ``elementlist = [element0, elememnt1, ... ]``, in which each
+              list element is either a valid ``solid`` or ``assembly``.
 
 """
 
@@ -359,8 +415,45 @@ def triTriIntersect(t1,t2,inside=True,inPlane=False,basis=None):
     else:
         return [tinv.mul(a),tinv.mul(b)]
     
-def issurface(s,fast=True):
+def surface(*args):
+    """given a surface or a list of surface parameters as arguments,
+    return a conforming surface representation.  Checks arguments
+    for data-type correctness.
 
+    """
+    if args==[]:
+        # empty surface
+        return ['surface',[],[],[],[],[] ]
+    if len(args) == 1:
+        # one argument, produce a deep copy of surface (it that is
+        # what it is)
+        if issurface(args[0],fast=False):
+            return deepcopy(args[0])
+    if len(args) > 2 and len(args) < 6:
+        vrts = args[0]
+        nrms = args[1]
+        facs = args[2]
+        bndr = []
+        hle = []
+        if (isinstance(vrts,list) and isinstance(nrms,list)
+            and isinstance(facs,list) and
+            len(vrts) == len(nrms)):
+            if len(args) > 3 and isinstance(args[3],list):
+                bndr = args[3]
+            if len(args) == 5 and isinstance(args[4],list):
+                hle = args[4]
+            surf = ['surface',vrts,nrms,facs,bndr,hle]
+            if issurface(surf,fast=False):
+                return surf
+    raise ValueError('bad arguments to surface')
+
+def surfacebbox(s):
+    """return bounding box for surface"""
+    if not issurface(s):
+        raise ValueError('bad surface passed to surfacebbox')
+    return polybbox(s[1])
+            
+def issurface(s,fast=True):
     """
     Check to see if ``s`` is a valid surface.
     """
@@ -383,7 +476,7 @@ def issurface(s,fast=True):
         boundary= s[4]
         holes= s[5]
         if (not ispoly(verts) or
-            not ispoly(norms) or
+            not isdirectlist(norms) or
             len(verts) != len(norms)):
             return False
         l = len(verts)
@@ -397,6 +490,92 @@ def issurface(s,fast=True):
             for h in holes:
                 if not filterInds(h,verts):
                     return False
+        return True
+
+geom_rotate = rotate
+def rotatesurface(s,ang,cent=point(0,0,0),axis=point(0,0,1.0),mat=False):
+    """ return a rotated copy of the surface"""
+    if close(ang,0.0):
+        return deepcopy(s)
+    if not mat: # if matrix isn't pre-specified, calculate it
+        if vclose(cent,point(0,0,0)):
+            mat = xform.Rotation(axis,ang)
+        else:
+            mat = xform.Translation(cent)
+            mat = mat.mul(xform.Rotation(axis,ang))
+            mat = mat.mul(xform.Translation(cent,inverse=True))
+    s2 = deepcopy(s)
+    #import pdb ; pdb.set_trace()
+    s2[1] = geom_rotate(s2[1],ang,cent,axis,mat)
+    s2[2] = geom_rotate(s2[2],ang,cent,axis,mat)
+    return s2
+
+def solid(*args):
+    """given a solid or a list of solid parameters as arguments,
+    return a conforming solid representation.  Checks arguments
+    for data-type correctness.
+
+    """
+    if args==[] or (len(args) == 1 and args[0] == []):
+        # empty solid, which is legal because we must support
+        # empty results of CSG operations, etc.
+        return ['solid',[],[],[] ]
+
+    # check for "copy constructor" case
+    if len(args) == 1 and issolid(args[0],fast=False):
+        # one argument, it's a solid.  produce a deep copy of solid
+        return deepcopy(args[0])
+    
+    # OK, step through arguments
+    if len(args) > 0 and len(args) < 4:
+        surfaces = []
+        material = []
+        construction = []
+        
+        if isinstance(args[0],list): # is 1st argument a surface list?
+            for s in args[0]:
+                if not issurface(s):
+                    raise ValueError('bad arguments to solid')
+        else:
+            raise ValueError('bad arguments to solid')
+
+        surfaces = args[0]
+        if len(args) > 1:
+            if isinstance(args[1],list):
+                material = args[1]
+            else:
+                raise ValueError('bad material arguments to solid')
+        if len(args) == 3:
+            if isinstance(args[2],list):
+                construction = args[2]
+            else:
+                raise ValueError('bad construction arguments to solid')
+
+        return ['solid', surfaces, material, construction]
+        
+    raise ValueError('bad arguments to solid')
+            
+    
+    
+def issolid(s,fast=True):
+
+    """
+    Check to see if ``s`` is a solid.  NOTE: this function only determines
+    if th data structure is correct, it does not verify that the collection
+    of surfaces completely bounds a volume of space without holes
+    """
+
+    if not isinstance(s,list) or s[0] != 'solid' or len(s) != 4:
+        return False
+    if fast:
+        return True
+    else:
+                         
+        for surface in s[1]:
+            if not issurface(surface,fast=fast):
+                return False
+        if not (isinstance(s[2],list) and isinstance(s[3],list)):
+            return False
         return True
 
 def normfunc(tri):
