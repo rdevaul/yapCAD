@@ -90,9 +90,10 @@ def testAndDraw(dd):
         dd.layer = 'PATHS'
         
     dd.linecolor = 'white'
-    ply = geomlist2poly(translate(geom,point(0,0,-0.1)))
-    surf,bnd = poly2surfaceXY(ply)
-    dd.draw_surface(surf)
+    if renderOgl:
+        ply = geomlist2poly(translate(geom,point(0,0,-0.1)))
+        surf,bnd = poly2surfaceXY(ply)
+        dd.draw_surface(surf)
     
     geom = translate(geom,point(0,0,0.1))
     dd.draw(geom)
@@ -115,8 +116,8 @@ if __name__ == "__main__":
             renderOgl=False
         else:
             print("This is an example of a complex boolean operation on Polygon() and")
-            print("Boolean() instances. We also create a two-dimensional surface from ")
-            print("the resulting figure.")
+            print("Boolean() instances. When rendering with OpenGL, we also create a")
+            print("two-dimensional surface from the resulting figure.")
             print("syntax: $ python3 {} <rendertype> [filename]".format(sys.argv[0]))
             print("    where <rendertype> is one of {} for OpenGL".format(oglarg))
             print("    or one of {} for DXF".format(dxfarg))
