@@ -31,6 +31,7 @@ import pyglet.gl as gl
 import pyglet.graphics as graphics
 
 from yapcad.geom import *
+from yapcad.geom3d import *
 import yapcad.drawable as drawable
 
 ## openGL utility functions
@@ -179,10 +180,10 @@ materials['default'] = Material(ambient=[0.5, 0.3, 0.2, 1.0],
 
 
 materials['groundplane'] = Material(diffuse = [0.02, 0.02, 0.023, 1.0],
-                                    ambient = [0.01, 0.01, 0.01, 1.0],
-                                    specular = [0.05, 0.05, 0.07, 1.0],
+                                    ambient = [0.01, 0.01, 0.02, 1.0],
+                                    specular = [0.05, 0.06, 0.08, 1.0],
                                     emission = [0.0, 0.0, 0.0, 1.0],
-                                    shininess = 10,
+                                    shininess = 20,
                                     desc = "ground plane material")
 
 ## "throwaway" class for keeping track of object stuff
@@ -206,6 +207,7 @@ class pygletDraw(drawable.Drawable):
         except pyglet.window.NoSuchConfigException:
             # Fall back to no multisampling for old hardware
             window = pyglet.window.Window(resizable=True)
+        self.__fps_display = pyglet.window.FPSDisplay(window)
         return window
     
         
@@ -534,6 +536,7 @@ class pygletDraw(drawable.Drawable):
                                               width=400,
                                               multiline=True)
                 label.draw()
+                self.__fps_display.draw()
                 gl.glMatrixMode(gl.GL_PROJECTION)
                 gl.glPopMatrix()
                 gl.glMatrixMode(gl.GL_MODELVIEW)
@@ -580,6 +583,27 @@ class pygletDraw(drawable.Drawable):
         elif dist < self.__mincameradist:
             dist = self.__mincameradist
         self._set_cameradist(dist)
+
+
+    @property
+    def rx(self):
+        return self.__rx
+
+    @rx.setter
+    def rx(self,v):
+        if not isinstance(v,(int,float)):
+            raise ValueError('invalid camera rotation')
+        self.__rx = v%360.0
+
+    @property
+    def ry(self):
+        return self.__ry
+
+    @ry.setter
+    def ry(self,v):
+        if not isinstance(v,(int,float)):
+            raise ValueError('invalid camera rotation')
+        self.__ry = v%360.0
 
     @property
     def objectdict(self):
@@ -699,6 +723,11 @@ class pygletDraw(drawable.Drawable):
                                    tuple(i2) ])
 
     def make_object(self,name,**kwargs):
+        """
+        Create a new three-dmensional object with specified
+        material properties and 6DOF in world-space that can be
+        animated
+        """
         if name in self.__objectdict.keys():
             raise ValueError('duplicate object key')
         obj = GeomObject()
@@ -756,10 +785,14 @@ class pygletDraw(drawable.Drawable):
 
         self.__objectdict[name] = obj
         
-        
-
-    def draw_surface(self,points,normals=None,faces=None,name='default'):
+    def draw_surface(self,points,normals=None,faces=None,name=None):
+        """
+        render a surface, either as part of default scene geometry
+        (if ``name`` is not specified) or as a part of a named object.
+        """
         if not (normals or faces):
+            if not issurface(points):
+                raise ValueError('bad surface passed to draw_surface')
             normals = points[2]
             faces = points[3]
             points = points[1]
@@ -772,13 +805,31 @@ class pygletDraw(drawable.Drawable):
             nrms+=n[0:3]
         for f in faces:
             inds+=f[0:3]
-        if name == 'default':
+        if not name:
             self.__surfaces.append(['surface',vrts,nrms,inds])
         else:
             obj = self.__objectdict[name]
             obj.surfaces.append(['surface',vrts,nrms,inds])
 
-    ## overload base-class virtual display method
+    def draw_solid(self,solid,name=None):
+        """
+        Render a solid, either as part of the secene geometry
+        """
+        if not issolid(solid):
+            raise ValueError('bad solid passed to draw_solid')
+        for surface in solid[1]:
+            self.draw_surface(surface,name=name)
+
+    ## override base-class draw method
+    def draw(self,x,name=None):
+        if issolid(x):
+            self.draw_solid(x,name=name)
+        elif issurface(x):
+            self.draw_surface(x,name=name)
+        else:
+            super().draw(x)
+
+    ## override base-class virtual display method
     def display(self):
         self.makeBatches()
         pyglet.app.run()
