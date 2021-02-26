@@ -33,14 +33,6 @@ tesellate it spherically""")
 
     cone = conic(20,4,20)
 
-    # import pdb ; pdb.set_trace()
-    # make a jade-like material
-    materials['jade'] = deepcopy(materials['default'])
-    materials['jade'].ambient = [0.2, 0.7, 0.4, 0.8]
-    materials['jade'].diffuse = [0.3, 0.5, 0.3, 0.8]
-    materials['jade'].shininess= 128
-
-    
     # set up some parameters for animation
 
     # these timers could be consolidated
@@ -72,7 +64,7 @@ tesellate it spherically""")
         obj.x = pos[0]
         obj.y = pos[1]
         obj.z = pos[2]
-        obj.rz = -time2*10.0
+        obj.ry = -time2*10.0
 
     ## create some aminatable, renderable objects
 
@@ -83,7 +75,7 @@ tesellate it spherically""")
                    linecolor='green',
                    animate=animateSphere1)
     
-    dd.make_object('sphere2',lighting=True,material='default',
+    dd.make_object('sphere2',lighting=True,material='polished bronze',
                    linecolor='yellow',
                    animate=animateSphere2)
 
