@@ -173,6 +173,7 @@ def tri2p0n(face,basis=False):
     point. Return that transformation matrix and its inverse.
 
     """
+    # import pdb ; pdb.set_trace()
     p1=face[0]
     p2=face[1]
     p3=face[2]
@@ -492,7 +493,12 @@ def issurface(s,fast=True):
                     return False
         return True
 
+## save pointers to the yapcad.geom transformation functions
 geom_rotate = rotate
+geom_translate = translate
+geom_scale = scale
+geom_mirror = mirror
+
 def rotatesurface(s,ang,cent=point(0,0,0),axis=point(0,0,1.0),mat=False):
     """ return a rotated copy of the surface"""
     if close(ang,0.0):
@@ -508,6 +514,37 @@ def rotatesurface(s,ang,cent=point(0,0,0),axis=point(0,0,1.0),mat=False):
     #import pdb ; pdb.set_trace()
     s2[1] = geom_rotate(s2[1],ang,cent,axis,mat)
     s2[2] = geom_rotate(s2[2],ang,cent,axis,mat)
+    return s2
+
+def translatesurface(s,delta):
+    """ return a translated copy of the surface"""
+    if vclose(delta,point(0,0,0)):
+        return deepcopy(s)
+    s2 = deepcopy(s)
+    for i in range(len(s2[1])):
+        s2[1][i] = add(s2[1][i],delta)
+    return s2
+
+def mirrorsurface(s,plane):
+    """return a mirrored version of a surface.  Currently, the following
+    values of "plane" are allowed: 'xz', 'yz', xy'.  Generalized
+    arbitrary reflection plane specification will be added in the
+    future.
+
+    Note that this is a full surface geometry reflection, and not
+    simply a normal reverser.
+    """
+    s2 = deepcopy(s)
+    s2[1] = mirror(s[1],plane)
+    s2[2] = mirror(s[2],plane)
+    s2[3] = list(map(lambda x: [x[0],x[2],x[1]],s2[3]))
+    return s2
+    
+def reversesurface(s):
+    """ return a nomal-reversed copy of the surface """
+    s2 = deepcopy(s)
+    s2[2] = list(map(lambda x: scale4(x,-1.0),s2[2]))
+    s2[3] = list(map(lambda x: [x[0],x[2],x[1]],s2[3]))
     return s2
 
 def solid(*args):
@@ -578,6 +615,49 @@ def issolid(s,fast=True):
             return False
         return True
 
+def solidbbox(sld):
+    if not issolid(sld):
+        raise ValueError('bad argument to solidbbox')
+
+    box = []
+    for s in sld[1]:
+        box = surfacebbox(s + box)
+
+    return box
+
+def translatesolid(x,delta):
+    if not issolid(x):
+        raise ValueError('bad solid passed to translatesolid')
+    s2 = deepcopy(x)
+    surfs = []
+    for s in x[1]:
+        surfs.append(translatesurface(s,delta))
+    s2[1] = surfs    
+    return s2
+
+def rotatesolid(x,ang,cent=point(0,0,0),axis=point(0,0,1.0),mat=False):
+    if not issolid(x):
+        raise ValueError('bad solid passed to rotatesolid')
+    s2 = deepcopy(x)
+    surfs=[]
+    for s in x[1]:
+        surfs.append(rotatesurface(s,ang,cent=cent,axis=axis,mat=mat))
+    s2[1] = surfs
+    return s2
+
+def mirrorsolid(x,plane,preserveNormal=True):
+    if not issolid(x):
+        raise ValueError('bad solid passed to rotatesolid')
+    s2 = deepcopy(x)
+    surfs=[]
+    for s in x[1]:
+        surf = mirrorsurface(s,plane)
+        if preserveNormal and False:
+            surf = reversesurface(surf)
+        surfs.append(surf)
+    s2[1] = surfs
+    return s2
+
 def normfunc(tri):
     """
     utility funtion to compute normals for a flat facet triangle
@@ -622,7 +702,7 @@ def addTri2Surface(tri,s,check=False,nfunc=normfunc):
     return ['surface',vrts,nrms,faces,boundary,holes]
 
 
-def surfArea(surf):
+def surfacearea(surf):
     """
     given a surface, return the surface area
     """
@@ -809,7 +889,7 @@ def poly2surfaceXY(ply,holepolys=[],minlen=0.5,minarea=0.0001,
         i = len(vertices)
         for p in poly:
             vertices.append(point(p))
-            normals.append([0,0,1,1])
+            normals.append([0,0,1,0])
             bndry.append(i)
             i+=1
         return bndry,vertices,normals
@@ -851,9 +931,9 @@ def poly2surfaceXY(ply,holepolys=[],minlen=0.5,minarea=0.0001,
                 insideTest(testp)):
                 if area > minarea:
                     surf = addTri2Surface(bndry[i:i+3],surf,
-                                          nfunc=lambda x: ([0,0,1,1],
-                                                           [0,0,1,1],
-                                                           [0,0,1,1]))
+                                          nfunc=lambda x: ([0,0,1,0],
+                                                           [0,0,1,0],
+                                                           [0,0,1,0]))
                 addcnt+=1
                 
                 del bndry[i+1]
@@ -888,3 +968,75 @@ def poly2surfaceXY(ply,holepolys=[],minlen=0.5,minarea=0.0001,
 
     return surf,bndry
 
+### updated, surface- and solid-aware generalized geometry functions
+
+# length -- scalar length doesn't make sense for sufface or solid
+
+geom_center = center
+def center(x):
+    """Return the point corresponding to the center of surface, solid, or
+    figure x.
+
+    """
+    if issurface(x):
+        box = surfacebbox(x)
+        return scale3(add(box[0],box[1]),0.5)
+    elif issolid(x):
+        box = solidbbox(x)
+        return scale3(add(box[0],box[1]),0.5)
+    else:
+        return geom_center(x)
+
+geom_bbox = bbox
+def bbox(x):
+    """Given a figure, surface, or solid x, return the three-dimensional
+    bounding box of that entity."""
+    if issolid(x):
+        return solidbbox(x)
+    elif issurface(x):
+        return surfacebbox(x)
+    else:
+        return geom_bbox(x)
+
+# sample -- doesn't make sense for surface or solid
+# unsample -- doesn't make sense for surface or solid
+# segment -- doesn't make sense for surface or solid
+# isnsideXY -- doesn't make sense for a suface or solid
+
+def translate(x,delta):
+    """ return a translated version of the surface, solid, or figure"""
+    if issolid(x):
+        return translatesolid(x,delta)
+    elif issurface(x):
+        return translatesurface(x,delta)
+    else:
+        return geom_translate(x,delta)
+  
+def rotate(x,ang,cent=point(0,0),axis=point(0,0,1.0),mat=False):
+    """ return a rotated version of the surface, solid, or figure"""
+    if issolid(x):
+        return rotatesolid(x,ang,cent=cent,axis=axis,mat=mat)
+    elif issurface(x):
+        return rotatesurface(x,ang,cent=cent,axis=axis,mat=mat)
+    else:
+        return geom_rotate(x,ang,cent=cent,axis=axis,mat=mat)
+  
+
+def mirror(x,plane):
+    """
+    return a mirrored version of a figure.  Currently, the following
+    values of "plane" are allowed: 'xz', 'yz', xy'.  Generalized
+    arbitrary reflection plane specification will be added in the
+    future.
+
+    NOTE: this operation will reverse the sign of the area of ``x`` if
+    x is a closed polyline or geometry list
+    """
+    if issolid(x):
+        return mirrorsolid(x,plane)
+    elif issurface(x):
+        return mirrorsurface(x,plane)
+    else:
+        return geom_mirror(x,plane)
+  
+                     
