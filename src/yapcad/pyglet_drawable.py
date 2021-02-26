@@ -186,6 +186,180 @@ materials['groundplane'] = Material(diffuse = [0.02, 0.02, 0.023, 1.0],
                                     shininess = 20,
                                     desc = "ground plane material")
 
+## The following materials a from tables published at
+## http://devernay.free.fr/cours/opengl/materials.html and
+## http://www.it.hiof.no/~borres/j3d/explain/light/p-materials.html
+
+materials['emerald'] = Material(ambient=[0.0215, 0.1745, 0.0215, 1.0],
+                                diffuse=[0.07568, 0.61424, 0.07568, 1.0],
+                                specular=[0.633, 0.727811, 0.633, 1.0],
+                                emission = [0.0, 0.0, 0.0, 1.0],
+                                shininess = 0.6*128,
+                                desc= "emerald")
+
+materials['jade'] = Material(ambient=[0.135, 0.2225, 0.1575, 1.0],
+                             diffuse=[0.54, 0.89, 0.63, 1.0],
+                             specular=[0.316228, 0.316228, 0.316228, 1.0],
+                             emission = [0.0, 0.0, 0.0, 1.0],
+                             shininess = 0.1*128)
+
+materials['obsidian'] = Material(ambient=[0.05375, 0.05, 0.06625, 1.0],
+                                 diffuse=[0.18275, 0.17, 0.22525, 1.0],
+                                 specular=[0.332741, 0.328634, 0.346435, 1.0],
+                                 emission = [0.0, 0.0, 0.0, 1.0],
+                                 shininess = 0.3*128)
+
+materials['pearl'] = Material(ambient=[0.25, 0.20725, 0.20725, 1.0],
+                              diffuse=[0.9999, 0.829, 0.829, 1.0],
+                              specular=[0.296648, 0.296648, 0.296648, 1.0],
+                              emission = [0.0, 0.0, 0.0, 1.0],
+                              shininess = 0.088*128)
+
+materials['ruby'] = Material(ambient=[0.1745, 0.01175, 0.01175, 1.0],
+                             diffuse=[0.61424, 0.04136, 0.04136, 1.0],
+                             specular=[0.727811, 0.626959, 0.626959, 1.0],
+                             emission = [0.0, 0.0, 0.0, 1.0],
+                             shininess = 0.6*128)
+
+materials['turquoise'] = Material(ambient=[0.1, 0.18725, 0.1745, 1.0],
+                                  diffuse=[0.396, 0.74151, 0.69102, 1.0],
+                                  specular=[0.297254, 0.30829, 0.306678, 1.0],
+                                  emission = [0.0, 0.0, 0.0, 1.0],
+                                  shininess = 0.1*128)
+
+materials['brass'] = Material(ambient=[0.329412, 0.223529, 0.027451, 1.0],
+                              diffuse=[0.780392, 0.568627, 0.113725, 1.0],
+                              specular=[0.992157, 0.941176, 0.807843, 1.0],
+                              emission = [0.0, 0.0, 0.0, 1.0],
+                              shininess = 0.21794872*128)
+
+materials['bronze'] = Material(ambient=[0.2125, 0.1275, 0.054, 1.0],
+                               diffuse=[0.714, 0.4284, 0.18144, 1.0],
+                               specular=[0.393548, 0.271906, 0.166721, 1.0],
+                               emission = [0.0, 0.0, 0.0, 1.0],
+                               shininess = 0.2*128)
+
+materials['polished bronze'] = Material(
+    ambient =[0.25, 0.148, 0.06475, 1.0],
+    diffuse =[0.4, 0.2368, 0.1036, 1.0],
+    specular =[0.774597, 0.458561, 0.200621, 1.0],
+    shininess =76.8)
+
+materials['chrome'] = Material(ambient=[0.25, 0.25, 0.25, 1.0],
+                               diffuse=[0.4, 0.4, 0.4, 1.0],
+                               specular=[0.774597, 0.774597, 0.774597, 1.0],
+                               emission = [0.0, 0.0, 0.0, 1.0],
+                               shininess = 0.6*128)
+
+materials['copper'] = Material(ambient=[0.19125, 0.0735, 0.0225, 1.0],
+                               diffuse=[0.7038, 0.27048, 0.0828, 1.0],
+                               specular=[0.256777, 0.137622, 0.086014, 1.0],
+                               emission = [0.0, 0.0, 0.0, 1.0],
+                               shininess = 0.1*128)
+
+materials['polished copper'] = Material(
+    ambient =[ 0.2295, 0.08825, 0.0275, 1.0 ],
+    diffuse =[0.5508, 0.2118, 0.066, 1.0 ],
+    specular =[0.580594, 0.223257, 0.0695701, 1.0 ],
+    shininess =51.2)
+          
+materials['gold'] =  Material( ambient=[0.24725, 0.1995, 0.0745, 1.0],
+                               diffuse=[0.75164, 0.60648, 0.22648, 1.0],
+                               specular=[0.628281, 0.555802, 0.366065, 1.0],
+                               emission = [0.0, 0.0, 0.0, 1.0],
+                               shininess = 0.4*128)
+
+materials['polished gold'] = Material(
+    ambient =[ 0.24725, 0.2245, 0.0645, 1.0 ],
+    diffuse =[0.34615, 0.3143, 0.0903, 1.0 ],
+    specular =[ 0.797357, 0.723991, 0.208006, 1.0],
+    shininess =83.2)
+          
+materials['tin'] = Material(
+    ambient =[ 0.105882, 0.058824, 0.113725, 1.0 ],
+    diffuse =[0.427451, 0.470588, 0.541176, 1.0 ],
+    specular =[0.333333, 0.333333, 0.521569, 1.0 ],
+    shininess = 9.84615)
+
+materials['silver'] = Material(
+    ambient=[0.19225, 0.19225, 0.19225, 1.0],
+    diffuse=[0.50754, 0.50754, 0.50754, 1.0],
+    specular=[0.508273, 0.508273, 0.508273, 1.0],
+    emission = [0.0, 0.0, 0.0, 1.0],
+    shininess = 0.4*128)
+
+materials['polished silver'] = Material(
+    ambient =[ 0.23125, 0.23125, 0.23125, 1.0 ],
+    diffuse =[0.2775, 0.2775, 0.2775, 1.0 ],
+    specular =[0.773911, 0.773911, 0.773911, 1.0 ],
+    shininess =89.6)
+
+materials['black plastic'] = Material(ambient=[0.0, 0.0, 0.0, 1.0],
+                                      diffuse=[0.01, 0.01, 0.01, 1.0],
+                                      specular=[0.50, 0.50, 0.50, 1.0],
+                                      shininess=.25*128)
+
+materials['cyan plastic'] = Material(ambient=[0.0, 0.1, 0.06, 1.0],
+                                     diffuse=[0.0, 0.50980392, 0.50980392, 1.0],
+                                     specular=[0.50196078, 0.50196078,
+                                               0.50196078, 1.0],
+                                     shininess=.25*128)
+
+materials['green plastic'] = Material(ambient=[0.0, 0.0, 0.0, 1.0],
+                                      diffuse=[0.1, 0.35, 0.1, 1.0],
+                                      specular=[0.45, 0.55, 0.45, 1.0],
+                                      shininess=.25*128)
+
+materials['red plastic'] = Material(ambient=[0.0, 0.0, 0.0, 1.0],
+                                    diffuse=[0.5, 0.0, 0.0, 1.0],
+                                    specular=[0.7, 0.6, 0.6, 1.0],
+                                    emission=[0.0, 0.0, 0.0, 1.0],
+                                    shininess=.25*128)
+
+materials['white plastic'] = Material(ambient=[0.0, 0.0, 0.0, 1.0],
+                                      diffuse=[0.55, 0.55, 0.55, 1.0],
+                                      specular=[0.70, 0.70, 0.70, 1.0],
+                                      shininess=.25*128)
+
+materials['yellow plastic'] = Material(ambient=[0.0, 0.0, 0.0, 1.0],
+                                       diffuse=[0.5, 0.5, 0.0, 1.0],
+                                       specular=[0.60, 0.60, 0.50, 1.0],
+                                       shininess=.25*128)
+
+materials['black rubber'] = Material(ambient=[0.02, 0.02, 0.02, 1.0],
+                                     diffuse=[0.01, 0.01, 0.01, 1.0],
+                                     specular=[0.4, 0.4, 0.4, 1.0],
+                                     emission=[0.0, 0.0, 0.0, 1.0],
+                                     shininess=.078125*128)
+
+materials['cyan rubber'] = Material(ambient=[0.0, 0.05, 0.05, 1.0],
+                                    diffuse=[0.4, 0.5, 0.5, 1.0],
+                                    specular=[0.04, 0.7, 0.7, 1.0],
+                                    emission=[0.0, 0.0, 0.0, 1.0],
+                                    shininess=.078125*128)
+
+materials['green rubber'] = Material(ambient=[0.0, 0.05, 0.0, 1.0],
+                                     diffuse=[0.4, 0.5, 0.4, 1.0],
+                                     specular=[0.04, 0.7, 0.04, 1.0],
+                                     shininess=.078125*128)
+
+materials['red rubber'] = Material(ambient=[0.05, 0.0, 0.0, 1.0],
+                                   diffuse=[0.5, 0.4, 0.4, 1.0],
+                                   specular=[0.7, 0.04, 0.04, 1.0],
+                                   shininess=.078125*128)
+
+materials['white rubber'] = Material(ambient=[0.05, 0.05, 0.05, 1.0],
+                                     diffuse=[0.5, 0.5, 0.5, 1.0],
+                                     specular=[0.7, 0.7, 0.7, 1.0],
+                                     emission=[0.0, 0.0, 0.0, 1.0],
+                                     shininess=.078125*128)
+
+materials['yellow rubber'] = Material(ambient=[0.05, 0.05, 0.0, 1.0],
+                                      diffuse=[0.5, 0.5, 0.4, 1.0],
+                                      specular=[0.7, 0.7, 0.04, 1.0],
+                                      shininess=.078125*128)
+
+
 ## "throwaway" class for keeping track of object stuff
 class GeomObject:
     pass
@@ -234,7 +408,37 @@ class pygletDraw(drawable.Drawable):
         material2 = materials['groundplane'].material
         self.group2 = pyglet.model.MaterialGroup(material=material2)
 
+    ## utility funtion to update bounding box based on a list of points
+    def upbb(self,pp,box,offset=[0,0,0,1]):
+        epsP = point(epsilon,epsilon,epsilon)
+        epsM = point(-epsilon,-epsilon,-epsilon)
+        for p in pp:
+            p = add(p,offset)
+            if box:
+                box = [ [min(box[0][0],p[0]),min(box[0][1],p[1]),min(box[0][2],p[2])],
+                        [max(box[1][0],p[0]),max(box[1][1],p[1]),max(box[1][2],p[2])] ]
+            else:
+                box = [ add(p,epsM),add(p,epsP) ]
+        return box
+        
 
+    def addSurface(self,s,batch,group,offset,bbx):
+        assert s[0] == 'surface'
+        vert = s[1]
+        norm = s[2]
+        ind = s[3]
+        pp = []
+        ln = int(len(vert)/3)
+        for i in range(ln):
+            pp.append(vert[i*3:(i+1)*3])
+        bbx = self.upbb(pp,bbx,offset)
+        batch.add_indexed(int(len(vert)/3),
+                          gl.GL_TRIANGLES,
+                          group,
+                          ind,
+                          ('v3f/static', vert),
+                          ('n3f/static', norm))
+        return bbx
 
     def makeBatches(self):
         # convert geometry lists to overall bounding box and
@@ -242,30 +446,17 @@ class pygletDraw(drawable.Drawable):
         
         bbx = False
         # values for adding small offset to a point to make single-point bounding box
-        epsP = point(epsilon,epsilon,epsilon)
-        epsM = point(-epsilon,-epsilon,-epsilon)
-
-        ## utility funtion to update bounding box based on a list of points
-        def upbb(pp,box,offset=[0,0,0,1]):
-            for p in pp:
-                p = add(p,offset)
-                if box:
-                    box = [ [min(box[0][0],p[0]),min(box[0][1],p[1]),min(box[0][2],p[2])],
-                            [max(box[1][0],p[0]),max(box[1][1],p[1]),max(box[1][2],p[2])] ]
-                else:
-                    box = [ add(p,epsM),add(p,epsP) ]
-            return box
-            
-        if self.__points == [] and \
-           self.__lines == [] and \
-           self.__linestrips == [] and \
-           self.__surfaces == []:
+        if ( self.__points == [] and 
+             self.__lines == [] and 
+             self.__linestrips == [] and 
+             len(self.__objectdict) == 0 and 
+             self.__surfaces == [] ):
             raise ValueError('nothing to render')
 
         for p in self.__points:
             pp = p[0]
             pc = p[1]
-            bbx = upbb(pp[1],bbx)
+            bbx = self.upbb(pp[1],bbx)
             self.__batch1.add(int(len(pp[1])/3),gl.GL_POINTS,self.group,pp,pc)
 
         for l in self.__lines:
@@ -273,7 +464,7 @@ class pygletDraw(drawable.Drawable):
             lc = l[1]
             pp = [list(ll[1][0:3])]
             pp.append(list(ll[1][3:6]))
-            bbx = upbb(pp,bbx)
+            bbx = self.upbb(pp,bbx)
             self.__batch1.add(int(len(ll[1])/3),gl.GL_LINES,self.group,ll,lc)
             
         for l in self.__linestrips:
@@ -284,78 +475,66 @@ class pygletDraw(drawable.Drawable):
             ln = int(len(ll[1])/3)
             for i in range(ln):
                 pp.append(ll[1][i*3:(i+1)*3])
-            bbx =upbb(pp,bbx)
+            bbx =self.upbb(pp,bbx)
             self.__batch1.add_indexed(int(len(ll[1])/3),
                                     gl.GL_LINES,
                                     self.group,
                                     li,ll,lc)
 
             
-            def addSurface(s,batch,group,offset,bbx):
-                assert s[0] == 'surface'
-                vert = s[1]
-                norm = s[2]
-                ind = s[3]
-                pp = []
-                ln = int(len(vert)/3)
-                for i in range(ln):
-                    pp.append(vert[i*3:(i+1)*3])
-                bbx = upbb(pp,bbx,offset)
-                batch.add_indexed(int(len(vert)/3),
-                                  gl.GL_TRIANGLES,
-                                  group,
-                                  ind,
-                                  ('v3f/static', vert),
-                                  ('n3f/static', norm))
-                return bbx
 
-            def lineSurface(s,obj):
-                assert s[0] == 'surface'
-                vert = s[1]
-                ind = s[3]
-                drawn = []
-                for j in range(0,len(ind),3):
-                    i = ind[j:(j+3)]
-                    l1 = i[0],i[1]
-                    if l1[0] > l1[1]:
-                        l1 = i[1],i[0]
-                    l2 = i[1],i[2]
-                    if l2[0] > l2[1]:
-                        l2 = i[2],i[1]
-                    l3 = i[2],i[0]
-                    if l3[0] > l3[1]:
-                        l3 = i[0],i[2]
-                    if not l1 in drawn:
-                        self.draw_line(vert[l1[0]*3:l1[0]*3+3],
-                                       vert[l1[1]*3:l1[1]*3+3],
-                                       entity=obj)
-                        drawn.append(l1)
-                    if not l2 in drawn:
-                        self.draw_line(vert[l2[0]*3:l2[0]*3+3],
-                                       vert[l2[1]*3:l2[1]*3+3],
-                                       entity=obj)
-                        drawn.append(l2)
-                    if not l3 in drawn:
-                        self.draw_line(vert[l3[0]*3:l3[0]*3+3],
-                                       vert[l3[1]*3:l3[1]*3+3],
-                                       entity=obj)
-                        drawn.append(l3)
-                for l in obj.lines:
-                    ll = l[0]
-                    lc = l[1]
-                    obj.linebatch.add(2,gl.GL_LINES,self.group,ll,lc)
+        def lineSurface(s,obj):
+            assert s[0] == 'surface'
+            vert = s[1]
+            ind = s[3]
+            drawn = []
+            for j in range(0,len(ind),3):
+                i = ind[j:(j+3)]
+                l1 = i[0],i[1]
+                if l1[0] > l1[1]:
+                    l1 = i[1],i[0]
+                l2 = i[1],i[2]
+                if l2[0] > l2[1]:
+                    l2 = i[2],i[1]
+                l3 = i[2],i[0]
+                if l3[0] > l3[1]:
+                    l3 = i[0],i[2]
+                if not l1 in drawn:
+                    self.draw_line(vert[l1[0]*3:l1[0]*3+3],
+                                   vert[l1[1]*3:l1[1]*3+3],
+                                   entity=obj)
+                    drawn.append(l1)
+                if not l2 in drawn:
+                    self.draw_line(vert[l2[0]*3:l2[0]*3+3],
+                                   vert[l2[1]*3:l2[1]*3+3],
+                                   entity=obj)
+                    drawn.append(l2)
+                if not l3 in drawn:
+                    self.draw_line(vert[l3[0]*3:l3[0]*3+3],
+                                   vert[l3[1]*3:l3[1]*3+3],
+                                   entity=obj)
+                    drawn.append(l3)
+            for l in obj.lines:
+                ll = l[0]
+                lc = l[1]
+                obj.linebatch.add(2,gl.GL_LINES,self.group,ll,lc)
 
                     
         for o in self.__objectdict.values():
             for s in o.surfaces:
-                bbx = addSurface(s,o.batch,o.group,
-                                 point(o.x,o.y,o.z),bbx)
+                bbx = self.addSurface(s,o.batch,o.group,
+                                      point(o.x,o.y,o.z),bbx)
                 lineSurface(s,o)
+            for l in o.lines:
+                ll = l[0]
+                lc = l[1]
+                o.linebatch.add(2,gl.GL_LINES,self.group,ll,lc)
+
                 
 
         for s in self.__surfaces:
-            bbx = addSurface(s,self.__batch2,self.group,
-                             point(0,0,0),bbx)
+            bbx = self.addSurface(s,self.__batch2,self.group,
+                                  point(0,0,0),bbx)
 
         ## Create a ground plane
         self.__batch3.add_indexed(4,
@@ -618,16 +797,25 @@ class pygletDraw(drawable.Drawable):
         super().draw_point(p)
         self.__arcres=ar
 
-    def draw_line(self,p1,p2,entity=None):
+    def draw_line(self,p1,p2,entity=None,c1=None,c2=None):
         if not entity:
             entity=self
             elist = entity.__lines
         else:
             elist = entity.lines
-        color = self.thing2color(entity.linecolor,'f')
+        color1 = []
+        color2 = []
+        if not c1:
+            color1 = self.thing2color(entity.linecolor,'f')
+        else:
+            color1 = self.thing2color(c1,'f')
+        if not c2:
+            color2 = self.thing2color(entity.linecolor,'f')
+        else:
+            color2 = self.thing2color(c2,'f')
         elist.append([ ('v3f',(p1[0],p1[1],p1[2],
                                p2[0],p2[1],p2[2])),
-                       ('c3f',tuple(color + color)) ])
+                       ('c3f',tuple(color1 + color2)) ])
             
     def draw_arc(self,p,r,start,end):
         res = self.__arcres
