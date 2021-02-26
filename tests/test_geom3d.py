@@ -3,6 +3,7 @@ import random
 from yapcad.geom import *
 from yapcad.geom_util import *
 from yapcad.geom3d import *
+from yapcad.geom3d_util import *
 from yapcad.pyglet_drawable import *
 from yapcad.poly import *
 from yapcad.combine import *
@@ -118,6 +119,7 @@ class TestSurface:
         surf,bnd = poly2surfaceXY(ply) #make the surface
         dd.draw_surface(surf) # draw the surface
 
+
         # The second test is a big square non-convex "C" shape,
         # which should present a relatively simple test for the
         # surface algorithm
@@ -208,6 +210,7 @@ class TestSurface:
         # check that our issurface function will correctly recognize
         # this surface
         assert issurface(surf4)
+        #import pdb ; pdb.set_trace()
         assert issurface(surf4,fast=False)
         dd.display()
 
@@ -482,5 +485,167 @@ class TestSurface:
         assert i3
         dd.linecolor='white'
         dd.draw(i3)
+        
+        dd.display()
+
+
+    def testSolid(self):
+        """ Create solids procedurally and visualize them """
+
+        dd = pygletDraw()
+
+
+        # make an arc-segment geometry list spiral
+        gl = makeArcSpiral(point(-10,0),10.0,1.0)
+        # "close" the arc with a line segment
+        gl.append(line(sample(gl,1.0),
+                       sample(gl,0.0)))
+
+        dd.linecolor='silver'
+        dd.draw(gl) #draw the original representation
+        # turn the geometry list into a poly
+        ply = geomlist2poly(gl)
+        ply = translate(ply,point(0,0,0.5)) # pull it forward so that
+                                            # when we draw it, it will
+                                            # float slightly in front
+                                            # of the rendered surface
+        dd.linecolor='red'
+        dd.polystyle='both'
+        dd.draw(ply) #draw the poly
+        
+        surf,bnd = poly2surfaceXY(ply) #make the surface
+
+        sld = extrude(surf,2.0)
+        dd.make_object('obj1',lighting=True,linecolor='white',
+                       material='jade',
+                       position=point(0,0,0))
+    
+        dd.draw(sld,name='obj1')
+        
+        # The second test is a big square non-convex "C" shape,
+        # which should present a relatively simple test for the
+        # surface algorithm
+        ply2 = [ point(20,20),
+                 point(10,20),
+                 point(10,-20),
+                 point(20,-20),
+                 point(20,-10),
+                 point(15,-10),
+                 point(15,10),
+                 point(20,10),
+                 point(20,20) ]
+                 
+        ply2 = translate(ply2,point(0,0,0.5)) # pull it forward
+        dd.linecolor='red'
+        dd.polystyle='both'
+        dd.draw(ply2) # draw the poly
+        surf2,bnd = poly2surfaceXY(ply2)
+
+        sld2 = extrude(surf2,5.0)
+        dd.make_object('obj2',lighting=True,linecolor='white',
+                       material='pearl',
+                       position=point(0,0,0))
+    
+        dd.draw(sld2,name='obj2')
+
+        # The third test creates a similarly non-convex shape
+        # as the previous test, but does so using rounded rect
+        # Polygon instances and a boolean difference operation
+        rr1 = RoundRect(5,5,0.5,center=point(-15,20))
+        rr2 = RoundRect(6,3,0.5,center=point(-12,20))
+        gl3 = Boolean('difference',[rr1,rr2])
+        ply3 = geomlist2poly(gl3.geom)
+        dd.linecolor='aqua'
+        dd.draw(gl3)
+        ply3 = translate(ply3,point(0,0,0.5)) # pull it forward
+        surf3,bnd = poly2surfaceXY(ply3)
+        dd.linecolor='red'
+        dd.polystyle='both'
+        dd.draw(ply3)
+
+        sld3 = extrude(surf3,8.0)
+        dd.make_object('obj3',lighting=True,linecolor='white',
+                       material='obsidian',
+                       position=point(0,0,0))
+    
+        dd.draw(sld3,name='obj3')
+
+
+        # Finally, we make a big circular "C" that is nearly a
+        # complete disk.  The large interior hole presents special
+        # challenges for our surface tessellation algorithm
+
+        # make the arcs as a geometry list -- note that the inside arc
+        # is constructed in the samplereverse direction
+        gl4 = [arc(point(0,7),10.0,0.0,350.0),
+               arc(point(0,7),5.0,0.0,350.0,samplereverse=True)]
+        dd.linecolor='aqua'
+        dd.draw(gl4) #draw the arcs
+
+        # convert our geometry list into a smapled polyline
+        ply4 =geomlist2poly(gl4,minang = 10 )
+        # close it into a polygon by appending a copy of the first
+        # point to the end
+        ply4.append(ply4[0])
+
+        ply4 = translate(ply4,point(0,0,0.5)) # pull it forward
+        dd.linecolor='red'
+        dd.polystyle='both'
+        dd.draw(ply4)
+
+        #convert it into a surface
+        surf4,bnd = poly2surfaceXY(ply4,minlen=1.0)
+
+        sld4 = extrude(surf4,5.0)
+        dd.make_object('obj4',lighting=True,linecolor='white',
+                       material='gold',
+                       position=point(0,0,0))
+    
+        dd.draw(sld4,name='obj4')
+
+
+        sld5 = sphere(10,center=point(10,0,20))
+        dd.make_object('obj5',lighting=True,material='emerald',
+                       position=point(0,0,0))
+        dd.draw(sld5,name='obj5')
+
+        sld6 = conic(5,5,7,center=point(-10,0,20))
+        dd.make_object('obj6',lighting=True,material='ruby')
+        dd.draw(sld6,name='obj6')
+
+        ## do a quick revolution surface test
+
+        def fcontour(x,ir=10,len=20,fr=5):
+            if x < 0:
+                return 0
+            elif x <= ir:
+                xx = ir-x
+                return sqrt(ir*ir-xx*xx)
+            elif x <= len+ir:
+                d = len+ir-x
+                u = d/len
+                return u*ir+(1-u)*fr
+            elif x <= len+ir+fr:
+                xx = x-(ir+len)
+                return sqrt(fr*fr-xx*xx)
+            else:
+                return 0
+            
+        revs = makeRevolutionSurface(fcontour,0,35,50)
+        revs2 = deepcopy(revs)
+        revs = translatesurface(revs,point(0,0,30))
+        revs = rotatesurface(revs,90,cent=point(0,0,40),axis=point(0,1,0))
+        airship = solid([revs],[],['procedure',
+                                   f"makeRevolutionSurface(fcontour,0,35,50)"])
+        dd.make_object('airship',lighting=True,material='black rubber')
+        dd.draw(airship,name='airship')
+
+        airship2 = solid([revs2],
+                         [],['procedure',
+                             f"makeRevolutionSurface(fcontour,0,35,50)"])
+        airship2 = rotate(airship2,90,cent=point(0,0,17.5),axis=vect(0,1,0,0))
+        airship2 = mirror(airship2,"yz")
+        airship2 = translate(airship2,point(0,0,50))
+        dd.draw(airship2,name='airship')
         
         dd.display()
