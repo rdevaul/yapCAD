@@ -91,7 +91,7 @@ def addVertex(nv,nn,verts,normals):
 
     returns the index, and the (potentiall updated) lists
     """
-    for i in range(len(verts)):
+    for i in reversed(range(len(verts))):
         if vclose(nv,verts[i]):
             return i,verts,normals
     verts.append(nv)
@@ -148,9 +148,11 @@ def subdivide(f,verts,normals,rad):
 # make the sphere, return a surface representation
 def sphereSurface(diameter,center=point(0,0,0),depth=2):
     rad = diameter/2
-    verts,normals = makeIcoPoints(center,rad)
+    ## subdivision works only when center is origin, so we add
+    ## any center offset after we subdivide
+    verts,normals = makeIcoPoints(point(0,0,0),rad)
     faces = icaIndices
-    
+
     for i in range(depth):
         ff = []
         for f in faces:
@@ -158,12 +160,13 @@ def sphereSurface(diameter,center=point(0,0,0),depth=2):
             ff+=newfaces
         faces = ff
                       
-    
+    if not vclose(center,point(0,0,0)):
+        verts = list(map(lambda x: add(x,center),verts))
     return ['surface',verts,normals,faces,[],[]]
 
 # make sphere, return solid representation
 def sphere(diameter,center=point(0,0,0),depth=2):
-    call = f"yapcad.geom3d_util.sphere({diameter},{center},{depth})"
+    call = f"yapcad.geom3d_util.sphere({diameter},center={center},depth={depth})"
     return solid( [ sphereSurface(diameter,center,depth)],
                   [],['procedure',call] )
                     
@@ -205,7 +208,11 @@ def prism(length,width,height,center=point(0,0,0)):
     rightS = rotatesurface(rightS,90,axis=point(0,1,0))
     leftS = rotatesurface(rightS,180)
 
-    sol = solid([topS,bottomS,frontS,backS,rightS,leftS],
+    surfaces = [topS,bottomS,frontS,backS,rightS,leftS]
+    if not vclose(center,[0,0,0,1]):
+        surfaces = list(map(lambda x: translatesurface(x,center),surfaces))
+    
+    sol = solid(surfaces,
                 [],
                 ['procedure',call])
     return sol
@@ -344,3 +351,102 @@ def conic(baser,topr,height, center=point(0,0,0),angr=10):
 
         return solid([baseS,conS],[],
                      ['procedure',call])
+
+def makeRevolutionSurface(contour,zStart,zEnd,steps,arcSamples=36):
+    """
+    Take a countour (any function z->y mapped over the interval
+
+     ``zStart`` and ``zEnd`` and produce the surface of revolution
+     around the z axis.  Sample ``steps`` contours of the function,
+    which in turn are turned into circles sampled `arcSamples`` times.
+    """
+
+    sV=[]
+    sN=[]
+    sF=[]
+    zRange = zEnd-zStart
+    zD = zRange/steps
+
+    degStep = 360.0/arcSamples
+    radStep = pi2/arcSamples
+    for i in range(steps):
+        z = i*zD+zStart
+        r0 = contour(z)
+        r1 = contour(z+zD)
+        if r0 < epsilon*10:
+            r0 = epsilon*10
+        if r1 < epsilon*10:
+            r1 = epsilon*10
+        for j in range(arcSamples):
+            a0 = (j-1)*radStep
+            a1 = j*radStep
+            a2 = (j+1)*radStep
+
+            p0 = [math.cos(a0)*r0,math.sin(a0)*r0,z,1.0]
+            p1 = [math.cos(a1)*r0,math.sin(a1)*r0,z,1.0]
+            p2 = [math.cos(a2)*r0,math.sin(a2)*r0,z,1.0]
+
+            pp1 = [math.cos(a1)*r1,math.sin(a1)*r1,z+zD,1.0]
+            pp2 = [math.cos(a2)*r1,math.sin(a2)*r1,z+zD,1.0]
+
+            p,n = tri2p0n([p0,p2,pp1])
+            
+            k1,sV,sN = addVertex(p1,n,sV,sN)
+            k2,sV,sN = addVertex(p2,n,sV,sN)
+            k3,sV,sN = addVertex(pp2,n,sV,sN)
+            k4,sV,sN = addVertex(pp1,n,sV,sN)
+            sF.append([k1,k2,k3])
+            sF.append([k1,k3,k4])
+        
+    return surface(sV,sN,sF)
+
+def extrude(surf,distance,direction=vect(0,0,1,0)):
+
+    """ Take a surface and extrude it in the specified direction to
+    create a solid.  Return the solid. """
+    call = f"yapcad.geom3d_util.extrude({surf},{distance},{direction})"
+
+    if not issurface(surf):
+        raise ValueError('invalid surface passed to extrude')
+
+    if distance <= epsilon:
+        raise ValueError('bad distance passed to extrude')
+
+    s1 = translatesurface(surf,scale4(direction,distance))
+    s2 = reversesurface(surf)
+
+    bndry1 = s2[4] #boundrary indices
+    stripV = s2[1] + s1[1] # verticies for the edge strip
+    stripN = [ vect(0,0,1,0)] * len(stripV) #normals, initialize to
+                                            #bogus value to start with
+    stripF = [] #strip faces
+    for i in range(len(bndry1)):
+        j0 = bndry1[(i-1)%len(bndry1)]
+        j1 = bndry1[i]
+        j2 = bndry1[(i+1)%len(bndry1)]
+        j3 = j2+len(s2[1])
+        j4 = j1+len(s2[1])
+        p0 = stripV[j0]
+        p1 = stripV[j2]
+        p2 = stripV[j3]
+        try:
+            pp,n0 = tri2p0n([p0,p1,p2])
+        except ValueError:
+            # bad face, skip
+            continue
+        stripN[j1]=n0
+        stripN[j4]=n0
+        stripF.append([j1,j2,j3])
+        stripF.append([j1,j3,j4])
+
+    #import pdb ; pdb.set_trace()
+    strip = surface(stripV,stripN,stripF)
+
+    return solid([s2,strip,s1],
+                 [],
+                 ['procedure',call])
+    
+        
+        
+
+    
