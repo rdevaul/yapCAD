@@ -171,8 +171,8 @@ class TestGeometry:
         surf2 = BigC.surface()
         dd.linecolor='red'
         dd.draw(surf2lines(surf2))
-        print(f"surface area: {surfArea(surf)}")
-        assert abs(surfArea(surf)-300.0) < 0.1
+        print(f"surface area: {surfacearea(surf)}")
+        assert abs(surfacearea(surf)-300.0) < 0.1
         
         # ply2 = translate(ply2,point(0,0,0.5)) # pull it forward
         # dd.linecolor='red'
