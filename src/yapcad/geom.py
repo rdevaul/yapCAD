@@ -537,6 +537,12 @@ def scale4(a,c):
     """ 4 vector ``a`` times scalar ``c``"""
     return [a[0]*c,a[1]*c,a[2]*c,a[3]*c]
 
+## component-wise 4vect multiplication
+def mul4(a,b):
+    """ component-wise 3 vector multiplication"""
+    return [a[0]*b[0],a[1]*b[1],a[2]*b[2],a[3]*b[3]]
+
+
 ## Homogenize, or project back to the w=1 plane by scaling all values
 ## by w
 def homo(a):
@@ -2761,13 +2767,12 @@ def segment(x,u1,u2):
     else:
         raise ValueError("inappropriate figure type for segment(): "+str(x))
     
-
-    
-    
 def isinsideXY(x,p):
-    """determine if a point is inside a figure.  In the case of
-    non-closed figures, such as lines, determine if the point lies
-    within epsilon of one of the lines of the figure.
+    """for an XY-coplanar point and figure, determine if the point lies
+    inside the figure.  In the case of non-closed figures, such as
+    lines, determine if the point lies within epsilon of one of the
+    lines of the figure.
+
     """
     if ispoint(x):
         return isinsidepointXY(x,p)
@@ -2933,7 +2938,7 @@ def mirror(x,plane):
     NOTE: this operation will reverse the sign of the area of ``x`` if
     x is a closed polyline or geometry list
     """
-    flip=point(1,1,1)
+    flip=[1,1,1,1]
     if plane == 'xz':
         flip[1]= -1
     elif plane == 'yz':
@@ -2943,8 +2948,8 @@ def mirror(x,plane):
     else:
         raise ValueError('bad reflection plane passed to mirror')
 
-    if ispoint(x):
-        return point(mul(x,flip))
+    if isvect(x):
+        return mul4(x,flip)
     elif isarc(x):
         a2=arc(x)
         a2[0] = mul(x[0],flip)
@@ -2961,10 +2966,10 @@ def mirror(x,plane):
             a2[1][1]=start
             a2[1][2]=end
         return a2
-    elif ispoly(x):
+    elif ispoly(x) or isdirectlist(x):
         ply = []
         for p in x:
-            ply.append(mul(p,flip))
+            ply.append(mul4(p,flip))
         return ply
     elif isgeomlist(x):
         r = []
