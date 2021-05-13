@@ -33,6 +33,8 @@ side.
 
 import math
 from yapcad.geom import *
+from yapcad.geom3d import *
+from yapcad.geom3d_util import *
 from yapcad.poly import *
 from yapcad.combine import *
 from yapcad.ezdxf_drawable import *
@@ -490,30 +492,43 @@ def makeOglGeom():
     kerf = oldkerf
 
     parts = []
+    wrfrm = []
     for poly in polys:
-        part = extrudeZ(poly,thick)
+        # import pdb ; pdb.set_trace()
+        ply = geomlist2poly(poly.geom)
+        ply = translate(ply,point(0,0,-thick/2))
+        surf,bnd = poly2surfaceXY(ply)
+        part = extrude(surf,thick)
+        part2 = extrudeZ(poly,thick)
         parts.append(part)
+        wrfrm.append(part2)
 
     model = []
 
-    for i in range(len(parts)):
-        part = parts[i]
-        comp1 = []
-        comp2 = []
-        if i == 0: # top and bottom
-            comp1 = translate(part,point(0,0,-(box_height-thick/2)/2))
-            comp2 = translate(part,point(0,0,(box_height-thick/2)/2))
-        elif i == 1: # front and back
-            part = rotate(part,90.0,axis=point(1,0,0))
-            comp1 = translate(part,point(0,-(box_width-thick/2)/2,0))
-            comp2 = translate(part,point(0,(box_width-thick/2)/2,0))
-        else: # i = 2, left and right
-            part = rotate(part,90.0,axis=point(0,1,0))
-            comp1 = translate(part,point(-(box_length-thick/2)/2,0,0))
-            comp2 = translate(part,point((box_length-thick/2)/2,0,0))
-        model.append(comp1)
-        model.append(comp2)
+    def mkmdl(prts):
+        modl=[]
+        for i in range(len(prts)):
+            part = prts[i]
+            comp1 = []
+            comp2 = []
+            if i == 0: # top and bottom
+                comp1 = translate(part,point(0,0,-(box_height-thick/2)/2))
+                comp2 = translate(part,point(0,0,(box_height-thick/2)/2))
+            elif i == 1: # front and back
+                part = rotate(part,90.0,axis=point(1,0,0))
+                comp1 = translate(part,point(0,-(box_width-thick/2)/2,0))
+                comp2 = translate(part,point(0,(box_width-thick/2)/2,0))
+            else: # i = 2, left and right
+                part = rotate(part,90.0,axis=point(0,1,0))
+                comp1 = translate(part,point(-(box_length-thick/2)/2,0,0))
+                comp2 = translate(part,point((box_length-thick/2)/2,0,0))
+            modl.append(comp1)
+            modl.append(comp2)
+        return modl
 
+    model = mkmdl(parts)
+    model.append(mkmdl(wrfrm))
+    
     return model
         
 if __name__ == "__main__":
