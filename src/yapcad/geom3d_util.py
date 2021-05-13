@@ -80,7 +80,7 @@ icaIndices = [ [1,11,3],[3,11,5],[5,11,7],[7,11,9],[9,11,1],
                [2,1,3],[2,3,4],[4,3,5],[4,5,6],[6,5,7],[6,7,8],[8,7,9],[8,9,10],[10,9,1],[10,1,2],
                [0,2,4],[0,4,6],[0,6,8],[0,8,10],[0,10,2] ]
 
-
+vertexHash = {}
 def addVertex(nv,nn,verts,normals):
     """
     Utility function that takes a vertex and associated normal and a
@@ -91,12 +91,27 @@ def addVertex(nv,nn,verts,normals):
 
     returns the index, and the (potentiall updated) lists
     """
-    for i in reversed(range(len(verts))):
-        if vclose(nv,verts[i]):
-            return i,verts,normals
+    global vertexHash
+    if len(verts) == 0:
+        vertexHash = {}
+
+    found = False
+    vkey = f"{nv[0]:.2f}{nv[1]:.2f}{nv[2]:.2f}"
+    if vkey in vertexHash:
+        found = True
+        inds = vertexHash[vkey]
+        for i in inds:
+            if vclose(nv,verts[i]):
+                return i,verts,normals
+            
     verts.append(nv)
     normals.append(nn)
-    return len(verts)-1,verts,normals
+    i = len(verts)-1
+    if found:
+        vertexHash[vkey] += [ i ]
+    else:
+        vertexHash[vkey] = [ i ]
+    return i,verts,normals
 
 def subdivide(f,verts,normals,rad):
     """
@@ -399,6 +414,73 @@ def makeRevolutionSurface(contour,zStart,zEnd,steps,arcSamples=36):
             sF.append([k1,k3,k4])
         
     return surface(sV,sN,sF)
+
+def contour(poly,distance,direction, samples,scalefunc= lambda x: (1,1,1)):
+    """take a closed polygon and apply a scaling function defined on the
+    interval 0,1 that returns a tuple of x,y,z scaling values. For
+    each of ``samples`` number of samples, translate in ``direction``
+    direction and scale the contour according to ``scalefunc()``,
+    producing a surface."""
+    if not ispolygon(poly):
+        raise ValueError('invalid polygon passed to contour')
+    if samples < 2:
+        raise ValueError('number of samples must be 2 or greater')
+    if not close(mag(direction),1.0):
+        raise ValueError('bad direction vector')
+    if distance <= epsilon:
+        raise ValueError('bad distance passed to contour')
+
+    raise NotImplemented("this function is a work in progress")
+
+    p0 = poly
+    p1 = []
+
+    u = 0.0
+    scle = scalefunc(u)
+    sctx = Scale(scle[0],scle[1],scle[2])
+    ply = list(map(lambda p: sctx.mul(p),poly))
+    surf = poly2surface(ply)
+    s1 = reversesurface(surf)
+
+    u = 1.0
+    scle = scalefunc(u)
+    sctx = Scale(scle[0],scle[1],scle[2])
+    ply2 = list(map(lambda p:  sctx.mul(p),poly))
+    surf2 = poly2surface(ply2)
+    s2 = translatesurface(surf2,scale4(direction,distance))
+    
+    vrts = surf[1]
+    nrms = surf[2]
+    facs = surf[3]
+    bndr = surf[4]
+
+    vrts1 = list(map(lambda i: vrts[i],bndr))
+    for ii in range(1,samples):
+        u = ii/samples
+        
+        stripF = []
+        #vrts2 = list(map(lambda i:
+        for i in range(len(bndr)):
+            j0 = bndry1[(i-1)%len(bndry1)]
+            j1 = bndry1[i]
+            j2 = bndry1[(i+1)%len(bndry1)]
+            j3 = j2+len(s2[1])
+            j4 = j1+len(s2[1])
+            p0 = stripV[j0]
+            p1 = stripV[j2]
+            p2 = stripV[j3]
+            try:
+                pp,n0 = tri2p0n([p0,p1,p2])
+            except ValueError:
+                # bad face, skip
+                continue
+            stripN[j1]=n0
+            stripN[j4]=n0
+            stripF.append([j1,j2,j3])
+            stripF.append([j1,j3,j4])
+            
+            
+
 
 def extrude(surf,distance,direction=vect(0,0,1,0)):
 
