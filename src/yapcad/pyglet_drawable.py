@@ -440,6 +440,12 @@ class pygletDraw(drawable.Drawable):
                           ('n3f/static', norm))
         return bbx
 
+    __immediate = {}
+        
+    def register_immediate(self,func):
+        """ register a function for immediate-mode drawing"""
+        self.__immediate[func.__name__] = func
+
     def makeBatches(self):
         # convert geometry lists to overall bounding box and
         # OpenGL-specific representations
@@ -675,6 +681,10 @@ class pygletDraw(drawable.Drawable):
                 gl.glEnable(gl.GL_LIGHTING)
                 self.__batch2.draw()
 
+            # execute any immediate-mode registered rendering functions
+            for f in self.__immediate.values():
+                f()
+                
             for obj in self.__objectdict.values():
                 gl.glMatrixMode(gl.GL_MODELVIEW)
                 gl.glPushMatrix()
@@ -699,7 +709,7 @@ class pygletDraw(drawable.Drawable):
                 gl.glTranslatef(0,0,label[1])
                 label[0].draw()
                 gl.glPopMatrix()
-                
+
             if self.__legend:
                 gl.glMatrixMode(gl.GL_MODELVIEW)
                 gl.glPushMatrix()
@@ -798,6 +808,7 @@ class pygletDraw(drawable.Drawable):
         self.__arcres=ar
 
     def draw_line(self,p1,p2,entity=None,c1=None,c2=None):
+
         if not entity:
             entity=self
             elist = entity.__lines
