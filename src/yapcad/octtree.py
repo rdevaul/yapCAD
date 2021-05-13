@@ -107,6 +107,23 @@ def boxoverlap2(bbx1,bbx2,dim3=True):
             j = 2
         else:
             raise ValueError('bad plane in int2D')
+
+        def intHV(hln,vln):
+            """ do a horizontal and vertial line intersect? """
+            minx=hln[0][0]
+            maxx=hln[1][0]
+            if minx>maxx:
+                swap = minx ; minx = maxx; maxx = swap
+
+            if vln[0][0] < minx or vln[0][0] > maxx:
+                return False
+            miny=vln[0][1]
+            maxy=vln[1][1]
+            if miny > maxy:
+                swap = miny ; miny = maxy ; maxy = swap
+            if miny > hln[0][1] or maxy < hln[0][1]:
+                return False
+            return True
         
         # check for projected box-in-box
         if ((bb1[0][i] >= bb2[0][i] and bb1[1][i] <= bb2[1][i] and
@@ -133,15 +150,55 @@ def boxoverlap2(bbx1,bbx2,dim3=True):
         p6 = add(p5,point(0,wid2))
         p7 = add(p4,point(0,wid2))
 
-        ply1 = poly([p0,p1,p2,p3,p0])
-        ply2 = poly([p4,p5,p6,p7,p4])
-
-        inter = intersectXY(ply1,ply2)
-
-        if inter and len(inter) > 0:
+        box1 = [[p0,p1],
+                [p1,p2],
+                [p2,p3],
+                [p3,p0]]
+        box2 = [[p4,p5],
+                [p5,p6],
+                [p6,p7],
+                [p7,p4]]
+        if intHV(box1[0],box2[1]):
             return True
-        return False
+        if intHV(box1[0],box2[3]):
+            return True
+        if intHV(box1[2],box2[1]):
+            return True
+        if intHV(box1[2],box2[3]):
+            return True
 
+        if intHV(box2[0],box1[1]):
+            return True
+        if intHV(box2[0],box1[3]):
+            return True
+        if intHV(box2[2],box1[1]):
+            return True
+        if intHV(box2[2],box1[3]):
+            return True
+        # if lineLineIntersectXY(box1[0],box2[1]):
+        #     return True
+        # if lineLineIntersectXY(box1[0],box2[3]):
+        #     return True
+        # if lineLineIntersectXY(box1[2],box2[1]):
+        #     return True
+        # if lineLineIntersectXY(box1[2],box2[3]):
+        #     return True
+
+        # if lineLineIntersectXY(box2[0],box1[1]):
+        #     return True
+        # if lineLineIntersectXY(box2[0],box1[3]):
+        #     return True
+        # if lineLineIntersectXY(box2[2],box1[1]):
+        #     return True
+        # if lineLineIntersectXY(box2[2],box1[3]):
+        #     return True
+        
+        # for l1 in box1:
+        #     for l2 in box2:
+        #         if lineLineIntersectXY(l1,l2):
+        #             return True
+        return False
+        
     # do projeted box line intersection tests
     return (int2D(bbx1,bbx2,'XY') and
             (not dim3 or int2D(bbx1,bbx2,'YZ')) and
@@ -327,6 +384,17 @@ def bboxdim(box):
     height = box[1][2] - box[0][2]
     return [length, width, height]
 
+def untag(tglist):
+    """remove the (optional) tags that can be associated with elements in
+    a geometry list."""
+    glist = []
+    for e in tglist:
+        if isinstance(e,tuple):
+            glist += [ e[0] ]
+        else:
+            glist += [ e ]
+    return glist
+
 class NTree():
 
     """Generalized n-tree representation for yapCAD geometry"""
@@ -359,8 +427,9 @@ class NTree():
 
         self.__geom=[]
         if geom:
-            if isgeomlist(geom):
-                self.__bbox= bbox(geom)
+            ugeom = untag(geom)
+            if isgeomlist(ugeom):
+                self.__bbox= bbox(ugeom)
                 self.__geom= geom
             else:
                 raise ValueError('geom must be valid geometry list, or None')
@@ -380,12 +449,15 @@ class NTree():
     def __repr__(self):
         return 'NTree(n={},depth={},mindim={},\n  geom={},\n  tree={})'.format(self.__n,self.__depth,self.__mindim,vstr(self.__geom),vstr(self.__tree))
 
-    def addElement(self,element):
+    def addElement(self,element,tag=None):
         """ add a geometry element to the collection, don't update
         the tree -- yet """
-        gl = [ element ]
-        if not isgeomlist(gl):
+        if not isgeomlist(element):
             raise ValueError('bad element passed to addElement')
+        if not tag:
+            gl = [ element ]
+        else:
+            gl = [ (element,tag) ]
         self.__geom += gl
         
         self.__update=True
@@ -417,12 +489,15 @@ class NTree():
         if not self.__update or self.__geom == []:
             # nothing to do
             return
+        self.__update = False
 
-        self.__bbox = bbox(self.__geom)
+        # striptags for bbox
+        ugeom = untag(self.__geom)
+        self.__bbox = bbox(ugeom)
         if not self.__center:
             self.updateCenter()
 
-        bxlist = list(map(lambda x: bbox(x), self.__geom))
+        bxlist = list(map(lambda x: bbox(x), ugeom))
         bxidxlist = []
         for i in range(len(bxlist)):
             bxidxlist.append([i,bxlist[i]])
@@ -477,7 +552,6 @@ class NTree():
                               bxidxlist)
         # print("bxidxlist: ",vstr(bxidxlist))
         # print("self.__tree",self.__tree)
-        self.__update = False
 
         return
 
