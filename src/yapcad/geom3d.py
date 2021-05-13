@@ -315,11 +315,13 @@ def linePlaneIntersect(lne,plane="xy",inside=True):
             tri2 = [ plane[2].mul(tri[0]),
                      plane[2].mul(tri[1]),
                      plane[2].mul(tri[2]) ]
+        else:
+            raise ValueError('non-plane passed to linePlaneIntersect')
         # otherwise assume that plane is a valid planar basis
 
         # transform into basis with plane at z=0
         l2 = [plane[2].mul(lne[0]),plane[2].mul(lne[1])]
-        p = lineCardinalplaneIntersect(l2,2,inside)
+        p = lineCardinalPlaneIntersect(l2,2,inside)
         if not p:
             return False
         else:
@@ -647,7 +649,7 @@ def rotatesolid(x,ang,cent=point(0,0,0),axis=point(0,0,1.0),mat=False):
 
 def mirrorsolid(x,plane,preserveNormal=True):
     if not issolid(x):
-        raise ValueError('bad solid passed to rotatesolid')
+        raise ValueError('bad solid passed to mirrorsolid')
     s2 = deepcopy(x)
     surfs=[]
     for s in x[1]:
