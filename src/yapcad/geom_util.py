@@ -222,9 +222,9 @@ def triarea(p1,p2,p3):
     utility function to return the area of a triangle
     """
     v1=sub(p2,p1)
-    v2=sub(p3,p2)
+    v2=sub(p3,p1)
     cp = cross(v1,v2)
-    return cp[2]/2
+    return mag(cp)/2
 
 def geomlist2poly(gl,minang=5.0,minlen=0.25,checkcont=False):
 
