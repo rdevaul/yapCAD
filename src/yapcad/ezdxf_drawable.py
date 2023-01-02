@@ -123,7 +123,7 @@ class ezdxfDraw(drawable.Drawable):
                                       'linetype': linetype})
 
     def draw_text(self,text,location,
-                  align=TextEntityAlignment.LEFT,
+                  align='LEFT',
                   attr={'style': 'LiberationMono',
                         'height': .75}):
         layer=self.layer
@@ -138,6 +138,17 @@ class ezdxfDraw(drawable.Drawable):
         else:
             color = 256 # by layer
 
+        alignment = [];
+        if align == 'LEFT':
+            alignment = TextEntityAlignment.LEFT
+        elif align == 'CENTER':
+            alignment = TextEntityAlignment.CENTER
+        elif align == 'RIGHT':
+            alignment = TextEntityAlignment.RIGHT
+        else:
+            ## default alignment is left
+            alignment = TextEntityAlignment.LEFT
+        
         dxfattr = dict()
         if 'style' in attr:
             dxfattr['style'] = attr['style']
@@ -149,7 +160,7 @@ class ezdxfDraw(drawable.Drawable):
             text,
             dxfattribs=dxfattr).set_placement(
                 (location[0],location[1]),
-                align=align
+                align=alignment
             )
 
     def display(self):
