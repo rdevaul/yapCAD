@@ -12,7 +12,22 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
+dependencies = [
+	      "ezdxf",
+	      "pyglet < 2",
+	      "mpmath"
+	      ]
 
+[project.optional-dependencies]
+tests = [
+  "pytest",
+  "pytest-cov"
+]
 [project.urls]
 "Homepage" = "https://github.com/rdevaul/yapCAD/"
 "Documentation" = "https://yapcad.readthedocs.io/en/latest/"
+
+
+[build_sphinx]
+source_dir = "docs"
+build_dir = "build/sphinx"
