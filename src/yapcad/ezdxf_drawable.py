@@ -27,6 +27,7 @@
 from yapcad.geom import *
 import yapcad.drawable as drawable
 import ezdxf
+from ezdxf.enums import TextEntityAlignment
 
 ## class to provide dxf drawing functionality
 class ezdxfDraw(drawable.Drawable):
@@ -122,7 +123,7 @@ class ezdxfDraw(drawable.Drawable):
                                       'linetype': linetype})
 
     def draw_text(self,text,location,
-                  align='LEFT',
+                  align=TextEntityAlignment.LEFT,
                   attr={'style': 'LiberationMono',
                         'height': .75}):
         layer=self.layer
@@ -144,8 +145,12 @@ class ezdxfDraw(drawable.Drawable):
             dxfattr['height'] = attr['height']
         dxfattr.update({ 'layer': layer,
                          'color': color})
-        self.__msp.add_text(text,dxfattr).set_pos((location[0],location[1]),
-                                             align=align)
+        self.__msp.add_text(
+            text,
+            dxfattribs=dxfattr).set_placement(
+                (location[0],location[1]),
+                align=align
+            )
 
     def display(self):
         self.__doc.saveas("{}.dxf".format(self.filename))
