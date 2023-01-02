@@ -1,0 +1,18 @@
+[project]
+name = "yapCAD"
+version = "0.2.5"
+authors = [
+  { name="Richard DeVaul", email="richard.devaul@gmail.com" },
+]
+description = "yet another procedural CAD and computational geometry system"
+readme = "README.rst"
+requires-python = ">=3.7"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/rdevaul/yapCAD/"
+"Documentation" = "https://yapcad.readthedocs.io/en/latest/"
