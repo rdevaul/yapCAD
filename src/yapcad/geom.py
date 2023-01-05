@@ -1870,7 +1870,6 @@ def isinsidepolyXY(a,p):
 
     """
     closed=False
-
     if len(a) > 2 and dist(a[0],a[-1]) < epsilon:
         closed = True
 
@@ -1887,12 +1886,11 @@ def isinsidepolyXY(a,p):
     if not isinsidebbox(bb,p):
         return False
     ## inside the bounding box, do intersection testing
-    p2 = add([1,1,0,1],bb[1])
+    p2 = add([0.01,0.01,0,1],bb[1])
     if vclose(p2,p): ## did we randomly pick an outside point near the
-                     ## test point?
-        p2 = sub(bb[0],[1,1,0,1])
+                     ## test point? If so, test point is outside bb
+        return False
     l = line(p,p2)
-
     pp = intersectSimplePolyXY(l,a)
     if pp == False:
         return False
@@ -2543,7 +2541,7 @@ def center(x):
         pl = []
         for g in x:
             pl.append(center(g))
-        return polycenter(pl)
+        return center(pl)
     else:
         raise ValueError("inappropriate type for center(): ",format(x))
     
