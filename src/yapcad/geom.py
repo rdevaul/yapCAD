@@ -2283,10 +2283,10 @@ def isinsidegeomlistXY(a,p):
     bb = geomlistbbox(a)
     if not isinsidebbox(bb,p):
         return False
-    p2 = add([1,1,0,1],bb[1])
+    p2 = add([0.1,0.1,0,1],bb[1])
     if vclose(p2,p): ## did we randomly pick an outside point near the
-                     ## test point?
-        p2 = sub(bb[0],[1,1,0,1])
+                     ## test point? If so, test point is outside bb
+        return False
     l = line(p,p2)
 
     pp = intersectGeomListXY(l,a)
@@ -2363,7 +2363,7 @@ def intersectGeomListXY(g,gl,inside=True,params=False):
             raise ValueError('bad gtype in intersectGeomListXY, this should never happen')
         
     dst = 0.0
-    if len(gl) > 2:
+    if len(gl) > 1:
         for i in range(len(gl)):
             g2 = gl[i]
             uu = []
@@ -2387,12 +2387,12 @@ def intersectGeomListXY(g,gl,inside=True,params=False):
             elif gtype == 'poly' and gtype2 == 'poly':
                 zz1 = []
                 zz2 = []
-                for i in range(1,len(g)):
-                    zz = intersectSimplePolyXY(line(g[i-1],g[i]),
+                for j in range(1,len(g)):
+                    zz = intersectSimplePolyXY(line(g[j-1],g[j]),
                                                g2, params=True)
                     if not isinstance(zz,bool):
-                        zz1.append(zz[0])
-                        zz2.append(zz[1])
+                        zz1 = zz1 + zz[0]
+                        zz2 = zz2 + zz[1]
                 if len(zz1) > 0:
                     uu = [ zz1,zz2 ]
             elif gtype == 'simple' and gtype2 == 'glist':
