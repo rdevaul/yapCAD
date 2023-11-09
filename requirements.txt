@@ -16,5 +16,5 @@
 # scipy==1.0
 #
 ezdxf
-pyglet
+pyglet<2
 mpmath
