@@ -232,7 +232,7 @@ def Rotation(axis,angle,inverse=False):
 
 def Translation(delta,inverse=False):
     if inverse:
-        delta = mul(delta,-1.0)
+        delta = geom.scale3(delta, -1.0)
     dx = delta[0]
     dy = delta[1]
     dz = delta[2]
