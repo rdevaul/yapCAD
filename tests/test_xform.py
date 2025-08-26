@@ -26,6 +26,16 @@ class TestXform:
         ## homogeneous coordinates test
         assert(geom.homo(foo.mul(baz)) ==
                [18.0/102.0, 46.0/102.0, 74.0/102.0, 1.0])
+
+    def test_translation(self):
+        p = geom.vect(1,2,3)
+        dx = 4
+        dy = -2
+        dz = 1
+        T = Translation([dx,dy,dz])
+        assert(T.mul(p) == geom.vect(1+dx,2+dy,3+dz))
+        Tinv = Translation([dx,dy,dz],inverse=True)
+        assert(Tinv.mul(p) == geom.vect(1-dx,2-dy,3-dz))
     
     
 
