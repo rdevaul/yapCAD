@@ -88,6 +88,22 @@ supported by Sphinx. See the `Sphinx
 documentation <https://www.sphinx-doc.org/en/master/>`__ for more
 information.
 
+running tests
+~~~~~~~~~~~~~
+
+The repository includes a small pytest suite that exercises the core
+geometry primitives. Install the testing dependencies and run pytest
+from the project root with the source tree on ``PYTHONPATH``::
+
+   python3 -m pip install pytest pytest-cov
+   PYTHONPATH=./src python3 -m pytest
+
+The default configuration enables coverage reporting via
+``pytest-cov``. If you prefer to skip coverage, you can override the
+options::
+
+   PYTHONPATH=./src python3 -m pytest --override-ini addopts=
+
 **yapCAD** goals
 ----------------
 
