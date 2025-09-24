@@ -561,8 +561,17 @@ if __name__ == "__main__":
     dd.display()
 
     if ogl:
-        from yapcad.pyglet_drawable import *
-        dd2 = pygletDraw()
+        try:
+            from yapcad.pyglet_drawable import *
+            dd2 = pygletDraw()
+        except RuntimeError as err:
+            print("\nSkipping 3D visualization: {}".format(err))
+            ogl = False
+        except Exception as err:
+            print("\nSkipping 3D visualization due to unexpected error: {}".format(err))
+            ogl = False
+
+    if ogl:
         # magnification factor for text
         dd2.magnify=1.5
         # compute the camera distance assuming a 60 degree (pi/6) FOV
@@ -571,13 +580,9 @@ if __name__ == "__main__":
         dist = ((maxd/2) / math.sin(pi/6))*math.cos(pi/6)
         dd2.cameradist = dist-box_height*2
 
-        
         twoDDraw(polys,dd2,-box_height*2)
 
         oglGeom = makeOglGeom()
-        #print("oglGeom: ",oglGeom)
-
-        #oglGeom = translate(oglGeom,point(0,0,box_height))
 
         dd2.layer='PATHS'
         for i in range(len(oglGeom)):
@@ -587,8 +592,6 @@ if __name__ == "__main__":
                 dd2.linecolor = 'aqua'
             else:
                 dd2.linecolor = 'fuchsia'
-                
             dd2.draw(oglGeom[i])
         dd2.display()
     print("done")
-

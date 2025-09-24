@@ -10,16 +10,22 @@ class Boolean(IntersectGeometry):
 
     types = ('union','intersection','difference')
     
-    def __init__(self,type='union',polys=[]):
+    def __init__(self, type='union', polys=None):
+        super().__init__()
+        if type not in self.types:
+            raise ValueError('invalid type passed to Boolean(): {}'.format(type))
+
+        if polys is None:
+            polys = []
+
         for p in polys:
-            if not ( isinstance(p,Polygon) or isinstance(p,Boolean) ):
+            if not (isinstance(p, Polygon) or isinstance(p, Boolean)):
                 raise ValueError('non-poly or non-boolean passed to Boolean(): {}'.format(p))
-            if not type in self.types:
-                raise ValueError('invalid type passed to Boolean(): {}'.format(tpe))
-            self._elem=list(polys)
-            self._type=type
-            self._update=True
-            self._outline=[]
+
+        self._elem = list(polys)
+        self._type = type
+        self._update = True
+        self._outline = []
 
 
     def combine_geom(self,g1,g2):

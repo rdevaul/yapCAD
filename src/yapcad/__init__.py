@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
-from pkg_resources import get_distribution, DistributionNotFound
+try:  # Python >= 3.8
+    from importlib.metadata import PackageNotFoundError, version
+except ModuleNotFoundError:  # pragma: no cover - for Python < 3.8
+    from importlib_metadata import PackageNotFoundError, version
+
 
 try:
-    # Change here if project is renamed and does not equal the package name
-    dist_name = 'yapCAD'
-    __version__ = get_distribution(dist_name).version
-except DistributionNotFound:
-    __version__ = 'unknown'
-finally:
-    del get_distribution, DistributionNotFound
+    __version__ = version("yapCAD")
+except PackageNotFoundError:  # pragma: no cover - handled when package not installed
+    __version__ = "unknown"

@@ -48,6 +48,11 @@ MANIFEST
 
 # Per-project virtualenvs
 .venv*/
+venv/
+v_*/
+
+#cached python version for pyenv
+.python-version
 
 # generated DXF files in examples
 examples/*.dxf
