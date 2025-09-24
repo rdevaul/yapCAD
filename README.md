@@ -52,16 +52,14 @@ https://yapcad.readthedocs.io/en/latest/ &mdash; for some reason
 `readthedocs.io` isn't generating the full module documentation, so
 you might want to build a local copy, as described below.
 
-To build the HTML **yapCAD** documentation locally, first make sure
-you have the sphinx package installed:
+To build the HTML **yapCAD** documentation locally, install the
+documentation dependencies and run Sphinx from the project root:
 
-	pip install sphinx --user
+```bash
+python3 -m pip install -r docs/requirements.txt
+make -C docs html
+```
 
-Then clone the github repository as shown above,
-`cd` to the `yapCAD` directory, and type
-
-	make -C docs html
-	
 This will build the HTML documents in the `build/sphinx/html`
 directory.  You can also build documentation in the other formats
 supported by Sphinx.  See the [Sphinx

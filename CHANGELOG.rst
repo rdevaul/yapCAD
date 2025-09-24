@@ -2,6 +2,24 @@
 Changelog
 =========
 
+Version 0.3.1
+=============
+
+what's new:
+-----------
+
+- Added Read the Docs configuration and ``docs/requirements.txt`` so hosted
+  builds use a consistent environment.
+- Updated README instructions for building documentation and running tests.
+- Follow-up to 0.3.0 (no functional code changes).
+
+Known problems
+--------------
+
+- Incomplete documentation, especially outside the ``yapcad.geom`` module.
+- Occasional problems with complex boolean operations.
+- Incomplete functionality around 3D modeling.
+
 Version 0.3.0
 =============
 
