@@ -2,6 +2,27 @@
 Changelog
 =========
 
+Version 0.3.0
+=============
+
+what's new:
+-----------
+
+- Require Python 3.10+ and align dependency metadata with current
+  interpreter and library versions.
+- Pin pyglet to 1.x rendering backend and add fallback
+  guards to every OpenGL-enabled example so they degrade gracefully on
+  systems without a working pyglet/Cocoa stack.
+- Sphinx documentation now builds even when optional themes are
+  missing, and `sphinx-apidoc` no longer depends on ``pkg_resources``.
+
+Known problems
+--------------
+
+- Incomplete documentation, especially outside the ``yapcad.geom`` module.
+- Occasional problems with complex boolean operations.
+- Incomplete functionality around 3D modeling.
+
 Version 0.1.5
 =============
 
