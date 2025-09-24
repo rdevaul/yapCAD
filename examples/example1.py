@@ -7,7 +7,11 @@ from yapcad.geom import *
 
 #set up openGL rendering
 def setupGL():
-    dGl =pygletDraw()
+    try:
+        dGl = pygletDraw()
+    except RuntimeError as err:
+        print("\nSkipping OpenGL rendering: {}".format(err))
+        return None
     dGl.magnify = 1.0
     dGl.linecolor = 'white'
     dGl.cameradist = 25
@@ -107,15 +111,18 @@ if __name__ == "__main__":
     ## add a drawing legend in the OpenGL rendering, setting the
     ## color eplicitly to yellow
     
-    dGl.linecolor = 'yellow'
-    legend(dGl)
+    if dGl:
+        dGl.linecolor = 'yellow'
+        legend(dGl)
     
     ## draw the geometry in OpenGL
-    drawGlist(geomlist,dGl)
+    if dGl:
+        drawGlist(geomlist,dGl)
 
     ## write out the DXF file as example1-out.dxf
     d.display()
 
     ## create the interactive OpenGL rendering -- do this last
-    dGl.display()
+    if dGl:
+        dGl.display()
     

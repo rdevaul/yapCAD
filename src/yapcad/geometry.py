@@ -18,7 +18,7 @@
 ## classically-definalble gap (or the possibility thereof) then
 ## implement Geometry instead
 
-import copy
+from copy import deepcopy
 from yapcad.geom import *
 
 
@@ -43,7 +43,7 @@ class Geometry:
         return
 
     def geom(self):
-        if self.update:
+        if self._update:
             self._updateInternals()
         return deepcopy(self._elem)
 

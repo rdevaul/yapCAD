@@ -6,17 +6,20 @@ authors = [
 ]
 description = "yet another procedural CAD and computational geometry system"
 readme = "README.rst"
-requires-python = ">=3.7"
+requires-python = ">=3.10"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
 dependencies = [
-	      "ezdxf",
-	      "pyglet < 2",
-	      "mpmath"
-	      ]
+      "ezdxf>=1.1",
+      "pyglet>=1.5,<2",
+      "mpmath>=1.2",
+      "pyobjc-core; platform_system == 'Darwin'",
+      "pyobjc-framework-Cocoa; platform_system == 'Darwin'",
+      "pyobjc-framework-Quartz; platform_system == 'Darwin'"
+      ]
 
 [project.optional-dependencies]
 tests = [

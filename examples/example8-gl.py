@@ -1,5 +1,6 @@
 ## yapCAD poly() intersecton and drawing examples
 
+import sys
 from yapcad.geom import *
 from yapcad.poly import *
 import random
@@ -14,8 +15,15 @@ if __name__ == "__main__":
  making and then mirroring random "flowers."  Renders output interactively with OpenGL.
     """)
 
-    from yapcad.pyglet_drawable import *
-    dd=pygletDraw()
+    try:
+        from yapcad.pyglet_drawable import *
+        dd=pygletDraw()
+    except RuntimeError as err:
+        print("\nSkipping OpenGL rendering: {}".format(err))
+        sys.exit(0)
+    except Exception as err:
+        print("\nSkipping OpenGL rendering due to unexpected error: {}".format(err))
+        sys.exit(1)
     dd.cameradist=150.0
     glist = mirrorArray()
 

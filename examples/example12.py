@@ -44,6 +44,7 @@ def geometry():
     jigsaw=makeJigsawPiece(poly=True)
     bigc= makeCircle(point(0,0,0),20)
     nb = Boolean('union',[logopoly,bigc])
+    nb = nb.scale(0.8,poly=True)
     nb = nb.translate(point(0,-50),poly=True)
     docGeomList.append(nb.geom())
 
@@ -74,6 +75,8 @@ def testAndDraw(dd):
     else:
         dd.linecolor = 'aqua'
     dd.draw(geom2)
+    dd.linecolor = 'red'
+    dd.draw(translate(geom,point(0,0,5)))
 
     if not renderOgl:
         dd.layer = 'DOCUMENTATION'
@@ -114,20 +117,32 @@ if __name__ == "__main__":
             quit()
     if len(sys.argv) > 2 and renderOgl==False:
         filename = sys.argv[2]+".dxf"
-    dd = []
+    requestedOgl = renderOgl
+    dd = None
     if renderOgl:
         print("OpenGL rendering selected")
-        from yapcad.pyglet_drawable import *
-        dd=pygletDraw()
-        dd.cameradist=170.0
-        
-    else:
-        print("DXF rendering selected")
+        try:
+            from yapcad.pyglet_drawable import *
+            dd=pygletDraw()
+            dd.cameradist=170.0
+        except RuntimeError as err:
+            print("\nSkipping OpenGL rendering: {}".format(err))
+            renderOgl = False
+        except Exception as err:
+            print("\nSkipping OpenGL rendering due to unexpected error: {}".format(err))
+            renderOgl = False
+
+    if not renderOgl or dd is None:
+        if requestedOgl and dd is None:
+            print("Falling back to DXF rendering")
+        else:
+            print("DXF rendering selected")
         from yapcad.ezdxf_drawable import *
         #set up DXF rendering
         dd=ezdxfDraw()
         dd.filename = filename
         drawLegend(dd)
+        renderOgl = False
     print("rendering...")
     
     testAndDraw(dd)
