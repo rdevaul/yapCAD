@@ -87,7 +87,7 @@ figure.
 
 """
 
-import copy
+from copy import deepcopy
 from yapcad.geom import *
 from yapcad.geom_util import *
 from yapcad.geom3d import *
@@ -160,7 +160,7 @@ class Geometry:
 
     def _setSampleable(self,bln):
         self.__sampleable=bln
-    
+
     def issampleable(self):
         """is the figure sampleable?"""
         return self.__sampleable
@@ -168,7 +168,7 @@ class Geometry:
     @property
     def intersectable(self):
         return self.__intersectable
-    
+
     def isintersectable(self):
         """is the figure intersectable?"""
         return self.__intersectable
@@ -176,7 +176,7 @@ class Geometry:
     @property
     def continuous(self):
         return self.__continuous
-    
+
     def iscontinuous(self):
         """is the figure C0 continuous over the interval [0,1]"""
         return self.__continuous
@@ -187,9 +187,9 @@ class Geometry:
 
     def _setClosed(self,bln):
         self.__closed=bln
-    
+
     def isclosed(self):
-        """is the figure C0 continuous over the [0,1] interval and 
+        """is the figure C0 continuous over the [0,1] interval and
         is ``self.sample(0.0)`` within epsilon of ``self.sample(1.0)``
         """
         return self.__closed
@@ -200,7 +200,7 @@ class Geometry:
 
     def _setDerived(self,bln):
         self.__derived = bln
-    
+
     def isderived(self):
         """is this an instance of a derived geometry subclass that
         computes self.geom from self.elem?  Set only in constructors

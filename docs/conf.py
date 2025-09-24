@@ -13,7 +13,12 @@ import sys
 import inspect
 import shutil
 
-import sphinx_rtd_theme
+try:
+    import sphinx_rtd_theme  # optional theme used on RTD
+    _has_rtd_theme = True
+except ImportError:
+    sphinx_rtd_theme = None
+    _has_rtd_theme = False
 
 __location__ = os.path.join(os.getcwd(), os.path.dirname(
     inspect.getfile(inspect.currentframe())))
@@ -45,13 +50,17 @@ except FileNotFoundError:
 
 try:
     import sphinx
-    from pkg_resources import parse_version
 
     cmd_line_template = "sphinx-apidoc -f -o {outputdir} {moduledir}"
     cmd_line = cmd_line_template.format(outputdir=output_dir, moduledir=module_dir)
 
     args = cmd_line.split(" ")
-    if parse_version(sphinx.__version__) >= parse_version('1.7'):
+    # sphinx-apidoc switched to a subcommand style interface in 1.7
+    try:
+        major, minor, *_ = (int(x) for x in sphinx.__version__.split('.')[:2])
+    except ValueError:
+        major, minor = 1, 7
+    if (major, minor) >= (1, 7):
         args = args[1:]
 
     apidoc.main(args)
@@ -68,7 +77,10 @@ except Exception as e:
 extensions = ['sphinx.ext.autodoc', 'sphinx.ext.intersphinx', 'sphinx.ext.todo',
               'sphinx.ext.autosummary', 'sphinx.ext.viewcode', 'sphinx.ext.coverage',
               'sphinx.ext.doctest', 'sphinx.ext.ifconfig', 'sphinx.ext.mathjax',
-              'sphinx.ext.napoleon', 'sphinx_rtd_theme']
+              'sphinx.ext.napoleon']
+
+if _has_rtd_theme:
+    extensions.append('sphinx_rtd_theme')
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
@@ -138,7 +150,7 @@ pygments_style = 'sphinx'
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
 #html_theme = 'alabaster'
-html_theme = 'sphinx_rtd_theme'
+html_theme = 'sphinx_rtd_theme' if _has_rtd_theme else 'alabaster'
 
 # Theme options are theme-specific and customize the look and feel of a theme
 # further.  For a list of options available for each theme, see the

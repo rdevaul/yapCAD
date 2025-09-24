@@ -11,7 +11,7 @@ pretty early state, though we hope you will find it useful.
     **yapCAD** was created to solve some fairly specific problems in
     procedural CAD and `parametric design`_ , and at present is most
     developed for generating 2D drawings in the `AutoCad DXF`_ format.
-    If you don't know what procedural CAD or paramaterized design
+    If you don't know what procedural CAD or parameterized design
     might be useful for, this may not be the tool for you.
 
     On the other hand, if you are tired of manually editing your CAD

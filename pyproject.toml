@@ -1,0 +1,36 @@
+[project]
+name = "yapCAD"
+version = "0.3.1"
+authors = [
+  { name="Richard DeVaul", email="richard.devaul@gmail.com" },
+]
+description = "yet another procedural CAD and computational geometry system"
+readme = "README.rst"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+      "ezdxf>=1.1",
+      "pyglet>=1.5,<2",
+      "mpmath>=1.2",
+      "pyobjc-core; platform_system == 'Darwin'",
+      "pyobjc-framework-Cocoa; platform_system == 'Darwin'",
+      "pyobjc-framework-Quartz; platform_system == 'Darwin'"
+      ]
+
+[project.optional-dependencies]
+tests = [
+  "pytest",
+  "pytest-cov"
+]
+[project.urls]
+"Homepage" = "https://github.com/rdevaul/yapCAD/"
+"Documentation" = "https://yapcad.readthedocs.io/en/latest/"
+
+
+[build_sphinx]
+source_dir = "docs"
+build_dir = "build/sphinx"

@@ -8,7 +8,16 @@ import math
 
 
 if __name__ == "__main__":
-    from yapcad.pyglet_drawable import *
+    import sys
+    try:
+        from yapcad.pyglet_drawable import *
+        dd=pygletDraw()
+    except RuntimeError as err:
+        print("\nSkipping OpenGL rendering: {}".format(err))
+        sys.exit(0)
+    except Exception as err:
+        print("\nSkipping OpenGL rendering due to unexpected error: {}".format(err))
+        sys.exit(1)
     print("example9.py -- yapCAD 3D geometry demonstration")
     print("""
 This is a demonstration of the creation and rendering of
@@ -18,7 +27,7 @@ engine.
 In this example we create an icosohedron centered at the orign and
 tesellate it spherically""")
 
-    dd=pygletDraw()
+    dd.linecolor = 'white'
 
     # rotate the camera down
     dd.ry = -80.0

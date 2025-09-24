@@ -16,11 +16,11 @@ class Boolean(Geometry):
         super().__init__()
         self._setClosed(True)
         self._setSampleable(True)
+        if not type in self.types:
+            raise ValueError('invalid type passed to Boolean(): {}'.format(type))
         for p in polys:
             if not ( isinstance(p,Geometry) and p.isclosed()):
                 raise ValueError('not closed Geometry instance: {}'.format(p))
-            if not type in self.types:
-                raise ValueError('invalid type passed to Boolean(): {}'.format(tpe))
             self.elem.append(deepcopy(p))
 
         self.__type=type

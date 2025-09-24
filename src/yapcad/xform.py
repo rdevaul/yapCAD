@@ -164,11 +164,17 @@ class Matrix:
             self.m[j] = x
         
 
-    # matrix multiply.  If x is a matrix, compute MX.  If X is a
+    # matrix multiply.  If x is a matrix, compute MX.  If x is a
     # vector, compute Mx. If x is a scalar, compute xM. If x isn't any
-    # of these, return False.  Respects transpose flag.
-    
+    # of these, a ValueError is raised.  Respects transpose flag.
+
     def mul(self,x):
+        """Return the product of this matrix and ``x``.
+
+        ``x`` may be another :class:`Matrix`, a 4D vector, or a scalar. In
+        each case the appropriate matrix multiplication is performed. If
+        ``x`` is none of these types, a :class:`ValueError` is raised.
+        """
         if isinstance(x,Matrix):
             result = Matrix()
             for i in range(4):
@@ -231,7 +237,7 @@ def Rotation(axis,angle,inverse=False):
 
 def Translation(delta,inverse=False):
     if inverse:
-        delta = geom.scale3(delta,-1.0)
+        delta = geom.scale3(delta, -1.0)
     dx = delta[0]
     dy = delta[1]
     dz = delta[2]

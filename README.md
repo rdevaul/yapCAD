@@ -52,21 +52,38 @@ https://yapcad.readthedocs.io/en/latest/ &mdash; for some reason
 `readthedocs.io` isn't generating the full module documentation, so
 you might want to build a local copy, as described below.
 
-To build the HTML **yapCAD** documentation locally, first make sure
-you have the sphinx package installed:
+To build the HTML **yapCAD** documentation locally, install the
+documentation dependencies and run Sphinx from the project root:
 
-	pip install sphinx --user
+```bash
+python3 -m pip install -r docs/requirements.txt
+make -C docs html
+```
 
-Then clone the github repository as shown above,
-`cd` to the `yapCAD` directory, and type
-
-	make -C docs html
-	
 This will build the HTML documents in the `build/sphinx/html`
 directory.  You can also build documentation in the other formats
 supported by Sphinx.  See the [Sphinx
 documentation](https://www.sphinx-doc.org/en/master/) for more
 information.
+
+### running tests
+
+The repository includes a small pytest suite that exercises the core
+geometry primitives. Install the testing dependencies and run pytest
+from the project root with the source tree on `PYTHONPATH`:
+
+```bash
+python3 -m pip install pytest pytest-cov
+PYTHONPATH=./src python3 -m pytest
+```
+
+The default configuration enables coverage reporting via
+`pytest-cov`. If you prefer to skip coverage, you can override the
+options:
+
+```bash
+PYTHONPATH=./src python3 -m pytest --override-ini addopts=
+```
 
 ## **yapCAD** goals
 

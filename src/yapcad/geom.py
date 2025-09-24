@@ -1912,7 +1912,6 @@ def isinsidepolyXY(a,p):
 
     """
     closed=False
-
     if len(a) > 2 and dist(a[0],a[-1]) < epsilon:
         closed = True
 
@@ -1934,7 +1933,6 @@ def isinsidepolyXY(a,p):
                      ## test point? If so, test point is outside bb
         return False
     l = line(p,p2)
-
     pp = intersectSimplePolyXY(l,a)
     if pp == False:
         return False
