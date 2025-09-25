@@ -83,18 +83,55 @@ information.
 running tests
 ~~~~~~~~~~~~~
 
-The repository includes a small pytest suite that exercises the core
-geometry primitives. Install the testing dependencies and run pytest
-from the project root with the source tree on ``PYTHONPATH``::
+The repository includes a comprehensive pytest suite that exercises both core
+geometry primitives and visual rendering capabilities. First, set up the
+testing environment::
 
-   python3 -m pip install pytest pytest-cov
-   PYTHONPATH=./src python3 -m pytest
+   # Create and activate virtual environment
+   pyenv local 3.12  # or use python3.12 directly
+   python3 -m venv v_312
+   source v_312/bin/activate
 
-The default configuration enables coverage reporting via
-``pytest-cov``. If you prefer to skip coverage, you can override the
-options::
+   # Install dependencies
+   pip install -r requirements.txt
+   pip install pytest pytest-cov
 
-   PYTHONPATH=./src python3 -m pytest --override-ini addopts=
+Non-Visual Tests (Automated/CI-friendly)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Run the core computational geometry tests without interactive displays::
+
+   # Run all non-visual tests
+   PYTHONPATH=./src pytest tests/ -m "not visual"
+
+   # With coverage reporting (default)
+   PYTHONPATH=./src pytest tests/ -m "not visual" --cov=src
+
+   # Skip coverage for faster execution
+   PYTHONPATH=./src pytest tests/ -m "not visual" --override-ini addopts=
+
+Visual Tests (Interactive)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+yapCAD includes visual tests that create interactive 3D renderings to verify
+geometry generation and display functionality. These require a display and
+user interaction::
+
+   # Run all visual tests (opens interactive windows)
+   ./run_visual_tests_venv.sh
+
+   # Run specific visual tests by pattern
+   ./run_visual_tests_venv.sh test_geom      # Only test_geom* visual tests
+   ./run_visual_tests_venv.sh surface        # Tests matching "surface"
+   ./run_visual_tests_venv.sh Face           # Face-related tests
+
+   # Alternative: Manual pytest execution
+   VISUALTEST=true PYTHONPATH=./src pytest tests/ -m visual
+
+   # Or run individual visual tests
+   VISUALTEST=true PYTHONPATH=./src pytest tests/test_geom3d.py::TestSurface::test_surface -s
+
+**Note:** Visual tests require closing each interactive window to proceed to the next test. Use the dedicated ``run_visual_tests_venv.sh`` script for the best experience, as it runs each test in an isolated subprocess to prevent early termination.
 
 **yapCAD** goals
 ----------------

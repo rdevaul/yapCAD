@@ -2,6 +2,33 @@
 Changelog
 =========
 
+Version 0.4.0 (Development)
+============================
+
+what's new:
+-----------
+
+- **Testing Infrastructure Overhaul**: Completely redesigned test execution system
+  to properly support both automated and interactive visual tests.
+
+  - Added comprehensive pytest markers: ``@pytest.mark.visual`` for interactive tests
+  - Created ``run_visual_tests.py`` and ``run_visual_tests_venv.sh`` for isolated
+    visual test execution using subprocess isolation
+  - Enhanced test discovery using AST parsing to automatically find decorated visual tests
+  - Fixed visual test termination issues that were causing pytest to exit prematurely
+  - Updated all test documentation with clear separation between non-visual and visual testing
+
+- **3D Geometry Enhancements**: Merged advanced 3D surface representation and
+  geometry system improvements from development branch, including enhanced
+  ``Geometry`` class architecture and improved computational geometry operations.
+
+Known problems
+--------------
+
+- Incomplete documentation, especially outside the ``yapcad.geom`` module.
+- Occasional problems with complex boolean operations.
+- Incomplete functionality around 3D modeling.
+
 Version 0.3.1
 =============
 
