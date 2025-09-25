@@ -1,4 +1,5 @@
 import pytest
+import os
 from yapcad.geom import *
 from yapcad.geom_util import *
 from yapcad.pyglet_drawable import *
@@ -7,10 +8,17 @@ from yapcad.combine import *
 
 ## unit tests for yapCAD geom.py
 
+# Control flag for visual tests - set via environment variable or directly
+VISUALTEST = os.environ.get('VISUALTEST', 'false').lower() in ('true', '1', 'yes')
+
 class TestSample:
     """test sampling-related operations"""
 
+    @pytest.mark.visual
     def test_sample(self):
+        if not VISUALTEST:
+            pytest.skip("Visual tests disabled (set VISUALTEST=true to enable)")
+
         dd = pygletDraw()
         dd.linecolor='silver'
         # make an arc-segment geometry list spiral

@@ -1,8 +1,12 @@
 import pytest
+import os
 import random
 from yapcad.geom import *
 from yapcad.octtree import *
 from yapcad.pyglet_drawable import *
+
+# Control flag for visual tests - set via environment variable or directly
+VISUALTEST = os.environ.get('VISUALTEST', 'false').lower() in ('true', '1', 'yes')
 
 def three2two(x):
     """take a 3D bounding box with non-zero z coordinates, return
@@ -81,8 +85,12 @@ class TestOctree:
     gl2D_cross = [b10, b20, b21]
     gl2D_cross = list(map(three2two,gl2D_cross))
 
+    @pytest.mark.visual
     def test_boxoverlap2(self):
         """ do bounding box overlap check testing """
+        if not VISUALTEST:
+            pytest.skip("Visual tests disabled (set VISUALTEST=true to enable)")
+
         dd = pygletDraw()
         dd.linecolor = 'white'
         dd.cameradist = 35
@@ -163,7 +171,11 @@ class TestOctree:
 
         print("inds: ",inds)
 
+    @pytest.mark.visual
     def test_quadtree(self):
+        if not VISUALTEST:
+            pytest.skip("Visual tests disabled (set VISUALTEST=true to enable)")
+
         dd = pygletDraw()
         dd.cameradist = 35
 
@@ -255,7 +267,10 @@ class TestOctree:
         for l in slist2:
             assert l in sublist
  
+    @pytest.mark.visual
     def test_octree(self):
+        if not VISUALTEST:
+            pytest.skip("Visual tests disabled (set VISUALTEST=true to enable)")
 
         dd = pygletDraw()
         dd.linecolor = 'white'

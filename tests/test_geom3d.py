@@ -1,4 +1,5 @@
 import pytest
+import os
 import random
 from yapcad.geom import *
 from yapcad.geom_util import *
@@ -7,6 +8,9 @@ from yapcad.geom3d_util import *
 from yapcad.pyglet_drawable import *
 from yapcad.poly import *
 from yapcad.combine import *
+
+# Control flag for visual tests - set via environment variable or directly
+VISUALTEST = os.environ.get('VISUALTEST', 'false').lower() in ('true', '1', 'yes')
 
 def randomPoints(bbox,numpoints):
     """Given a 3D bounding box and a number of points to generate, 
@@ -73,6 +77,7 @@ class TestSurface:
               tet2[3],
               tet2[0]]
   
+    @pytest.mark.visual
     def test_surface(self):
         """this test creates different types of closed two dimensional
         figures in the XY plane and turns them into surfaces by means
@@ -90,7 +95,10 @@ class TestSurface:
 
         Holes in surfaces are currently not supported.
         """
-        
+
+        if not VISUALTEST:
+            pytest.skip("Visual tests disabled (set VISUALTEST=true to enable)")
+
         dd = pygletDraw()
         
         # The first test creates a sort of nautalus-shell-type shape
@@ -215,7 +223,12 @@ class TestSurface:
         dd.display()
 
     
-    def testFace(self):
+    @pytest.mark.visual
+    def test_face(self):
+        """method to test some computational geometry operations on faces.
+        """
+        if not VISUALTEST:
+            pytest.skip("Visual tests disabled (set VISUALTEST=true to enable)")
 
         """method to test some computational geometry operations on faces.
 
@@ -372,9 +385,12 @@ class TestSurface:
 
         dd.display()
                              
-    def testFaceIntersect(self):
+    @pytest.mark.visual
+    def test_face_intersect(self):
         """Create two intersecting tetrahedra, draw them, then compute the
         lines representing the planar intersections"""
+        if not VISUALTEST:
+            pytest.skip("Visual tests disabled (set VISUALTEST=true to enable)")
 
         dd = pygletDraw()
 
@@ -489,8 +505,11 @@ class TestSurface:
         dd.display()
 
 
-    def testSolid(self):
+    @pytest.mark.visual
+    def test_solid(self):
         """ Create solids procedurally and visualize them """
+        if not VISUALTEST:
+            pytest.skip("Visual tests disabled (set VISUALTEST=true to enable)")
 
         dd = pygletDraw()
 

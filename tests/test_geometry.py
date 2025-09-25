@@ -1,4 +1,5 @@
 import pytest
+import os
 import random
 from yapcad.pyglet_drawable import *
 from yapcad.geom import *
@@ -7,6 +8,9 @@ from yapcad.geometry import *
 from yapcad.pyglet_drawable import *
 
 """test functions for the yapcad.geometry module"""
+
+# Control flag for visual tests - set via environment variable or directly
+VISUALTEST = os.environ.get('VISUALTEST', 'false').lower() in ('true', '1', 'yes')
 
 
 class TestGeometry:
@@ -54,7 +58,11 @@ class TestGeometry:
         p = point(100,100)
         assert not L.unsample(p)
         
+    @pytest.mark.visual
     def test_visual_intersect(self):
+        if not VISUALTEST:
+            pytest.skip("Visual tests disabled (set VISUALTEST=true to enable)")
+
         dd = pygletDraw()
         dd.linecolor='silver'
         # make a polyline spiral
@@ -82,7 +90,11 @@ class TestGeometry:
         dd.draw(pts2)
         dd.display()
 
+    @pytest.mark.visual
     def test_properties(self):
+        if not VISUALTEST:
+            pytest.skip("Visual tests disabled (set VISUALTEST=true to enable)")
+
         # make some randm polys
         box = line(point(-10,-10),
                    point(10,10))
@@ -132,8 +144,11 @@ class TestGeometry:
         dd.draw(plys)
         dd.display()
 
+    @pytest.mark.visual
     def test_surface(self):
-        
+        if not VISUALTEST:
+            pytest.skip("Visual tests disabled (set VISUALTEST=true to enable)")
+
         dd = pygletDraw()
         dd.linecolor='silver'
         # make an arc-segment geometry list spiral
