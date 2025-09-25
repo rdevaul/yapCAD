@@ -825,7 +825,29 @@ def poly2surfaceXY(ply,holepolys=[],minlen=0.5,minarea=0.0001,
     
     if not box:
         box = bbox(ply)
-    
+
+    def _signed_area(poly):
+        total = 0.0
+        for i in range(1, len(poly)):
+            x1, y1 = poly[i-1][0], poly[i-1][1]
+            x2, y2 = poly[i][0], poly[i][1]
+            total += (x1 * y2) - (x2 * y1)
+        return 0.5 * total
+
+    def _signed_triangle(p1, p2, p3):
+        return ((p2[0] - p1[0]) * (p3[1] - p1[1]) -
+                (p3[0] - p1[0]) * (p2[1] - p1[1])) / 2.0
+
+    def _orient_triangle(tri_points, orientation):
+        if orientation == 0:
+            return tri_points
+        area = _signed_triangle(*tri_points)
+        if area == 0:
+            return tri_points
+        if orientation * area < 0:
+            tri_points = [tri_points[0], tri_points[2], tri_points[1]]
+        return tri_points
+
     def leftTurn(p1,p2,p3):
         v1=sub(p2,p1)
         v2=sub(p3,p2)
@@ -903,6 +925,9 @@ def poly2surfaceXY(ply,holepolys=[],minlen=0.5,minarea=0.0001,
     holes=[]
 
     bndry=deepcopy(ply[0:-1]) # last point is redundant
+    orientation = 0
+    if len(bndry) >= 3:
+        orientation = 1 if _signed_area(bndry) >= 0 else -1
     # make the perimeter
     
     boundary,vrts,nrms = makeboundary(bndry,vrts,nrms)
@@ -928,11 +953,22 @@ def poly2surfaceXY(ply,holepolys=[],minlen=0.5,minarea=0.0001,
             area = triarea(bndry[i],
                            bndry[i+1],
                            bndry[i+2])
+            prev = bndry[i]
+            curr = bndry[i+1]
+            nxt = bndry[i+2]
+            v_prev = sub(curr, prev)
+            v_next = sub(nxt, curr)
+            cross_z = cross(v_prev, v_next)[2]
+            if orientation * cross_z <= epsilon:
+                continue
             if (area > epsilon and
                 not selfIntersect(testl, bndry) and
                 insideTest(testp)):
-                if area > minarea:
-                    surf = addTri2Surface(bndry[i:i+3],surf,
+                tri_points = [bndry[i], bndry[i+1], bndry[i+2]]
+                tri_points = _orient_triangle(tri_points, orientation)
+                tri_area = abs(_signed_triangle(*tri_points))
+                if tri_area > minarea:
+                    surf = addTri2Surface(tri_points,surf,
                                           nfunc=lambda x: ([0,0,1,0],
                                                            [0,0,1,0],
                                                            [0,0,1,0]))
@@ -960,6 +996,17 @@ def poly2surfaceXY(ply,holepolys=[],minlen=0.5,minarea=0.0001,
 
                 
             if not div:
+                if len(bndry) == 3:
+                    tri_points = [bndry[0], bndry[1], bndry[2]]
+                    tri_points = _orient_triangle(tri_points, orientation)
+                    tri_area = abs(_signed_triangle(*tri_points))
+                    if tri_area > minarea:
+                        surf = addTri2Surface(tri_points,surf,
+                                              nfunc=lambda x: ([0,0,1,0],
+                                                               [0,0,1,0],
+                                                               [0,0,1,0]))
+                    bndry.clear()
+                    break
                 print("incomplete triangulation")
                 print(f"cnt: {cnt}, addcnt: {addcnt}")
                 print(f"bndry len: {len(bndry)}, surface triangles: {len(surf[3])}")

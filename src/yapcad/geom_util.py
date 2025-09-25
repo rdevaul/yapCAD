@@ -32,6 +32,95 @@ operations on yapcad.geom figures.
 
 """
 
+
+def _reverse_element(element):
+    """Return a geometry element with its orientation reversed."""
+
+    return reverseGeomList([element])[0]
+
+
+def _poly_signed_area(points):
+    """Compute signed area of a closed polygon represented by ``points``."""
+
+    if not points:
+        return 0.0
+    total = 0.0
+    for i in range(1, len(points)):
+        x1, y1 = points[i-1][0], points[i-1][1]
+        x2, y2 = points[i][0], points[i][1]
+        total += (x1 * y2) - (x2 * y1)
+    return 0.5 * total
+
+
+def _stitch_geomlist(gl, tol):
+    """Group line/arc primitives from ``gl`` into contiguous loops."""
+
+    segments = [g for g in gl if isline(g) or isarc(g)]
+    others = [g for g in gl if not (isline(g) or isarc(g))]
+
+    if not segments:
+        return [], others
+
+    nodes = []
+
+    def node_id(p):
+        for idx, existing in enumerate(nodes):
+            if dist(existing, p) <= tol:
+                return idx
+        nodes.append(point(p))
+        return len(nodes) - 1
+
+    edges = []
+    adjacency = {}
+
+    for idx, seg in enumerate(segments):
+        start = sample(seg, 0.0)
+        end = sample(seg, 1.0)
+        s_id = node_id(start)
+        e_id = node_id(end)
+        edges.append({'geom': seg, 'start': s_id, 'end': e_id, 'used': False})
+        adjacency.setdefault(s_id, []).append(idx)
+        adjacency.setdefault(e_id, []).append(idx)
+
+    loops = []
+
+    for idx in range(len(edges)):
+        edge = edges[idx]
+        if edge['used']:
+            continue
+        loop = []
+        current_idx = idx
+        start_node = edge['start']
+        prev_node = start_node
+        while True:
+            edge = edges[current_idx]
+            if edge['used']:
+                break
+            if edge['start'] != prev_node:
+                if dist(nodes[edge['end']], nodes[prev_node]) <= tol:
+                    edge['geom'] = _reverse_element(edge['geom'])
+                    edge['start'], edge['end'] = edge['end'], edge['start']
+                elif dist(nodes[edge['start']], nodes[prev_node]) > tol:
+                    break
+            loop.append(edge['geom'])
+            edge['used'] = True
+            prev_node = edge['end']
+            if len(loop) > 1 and dist(nodes[prev_node], nodes[start_node]) <= tol:
+                break
+            next_idx = None
+            for cand_idx in adjacency.get(prev_node, []):
+                if edges[cand_idx]['used']:
+                    continue
+                next_idx = cand_idx
+                break
+            if next_idx is None:
+                break
+            current_idx = next_idx
+        if loop:
+            loops.append(loop)
+
+    return loops, others
+
 def randomPoints(bbox,numpoints):
     """Given a 3D bounding box and a number of points to generate, 
     return a list of uniformly generated random points within the 
@@ -240,12 +329,41 @@ def geomlist2poly(gl,minang=5.0,minlen=0.25,checkcont=False):
     if checkcont and not iscontinuousgeomlist(gl):
         raise ValueError('non-continuous geometry list passed to geomlist2poly')
     
+    snap_tol = max(epsilon * 10, minlen * 0.1)
+
+    if not checkcont:
+        reorderable = all(ispoint(e) or isline(e) or isarc(e) for e in gl)
+        if reorderable and not iscontinuousgeomlist(gl):
+            loops, extras = _stitch_geomlist(gl, snap_tol)
+            if loops:
+                best_loop = None
+                best_area = -1.0
+                for loop in loops:
+                    try:
+                        loop_poly = geomlist2poly(loop, minang, minlen, checkcont=True)
+                    except ValueError:
+                        continue
+                    area = abs(_poly_signed_area(loop_poly))
+                    if area > best_area:
+                        best_area = area
+                        best_loop = loop
+                if best_loop is not None:
+                    gl = best_loop + extras
+
     ply = []
     lastpoint = None
-    def addpoint(p,lastpoint):
-        if not lastpoint or dist(p,lastpoint) > minlen:
-            lastpoint = p
-            ply.append(p)
+
+    def _snap(p, lastpoint):
+        pp = point(p)
+        if lastpoint is not None and dist(pp, lastpoint) <= snap_tol:
+            return point(lastpoint)
+        return pp
+
+    def addpoint(p,lastpoint,force=False):
+        candidate = _snap(p, lastpoint)
+        if force or lastpoint is None or dist(candidate,lastpoint) > minlen:
+            lastpoint = point(candidate)
+            ply.append(lastpoint)
         return lastpoint
 
             
@@ -255,8 +373,8 @@ def geomlist2poly(gl,minang=5.0,minlen=0.25,checkcont=False):
         elif isline(e):
             p0 = e[0]
             p1 = e[1]
-            lastpoint = addpoint(p0,lastpoint)
-            lastpoint = addpoint(p1,lastpoint)
+            lastpoint = addpoint(p0,lastpoint,force=True)
+            lastpoint = addpoint(p1,lastpoint,force=True)
         elif isarc(e):
             firstpoint = None
             for ang in range(0,360,round(minang)):
@@ -269,16 +387,33 @@ def geomlist2poly(gl,minang=5.0,minlen=0.25,checkcont=False):
                     lastpoint = addpoint(p,lastpoint)
             if iscircle(e):
                 lastpoint = addpoint(firstpoint,lastpoint)
+            else:
+                endp = sample(e,1.0)
+                if endp:
+                    lastpoint = addpoint(endp,lastpoint,force=True)
         elif ispoly(e):
             for p in e:
-                lastpoint = addpoint(p,lastpoint)
+                lastpoint = addpoint(p,lastpoint,force=True)
         elif isgeomlist(e):
             pts = geomlist2poly(e,minang,minlen,checkcont)
             for p in pts:
-                lastpoint = addpoint(p,lastpoint)
+                lastpoint = addpoint(p,lastpoint,force=True)
         else:
             raise ValueError(f'bad object in list passed to geomlist2poly: {e}')
-    return ply
+    if not ply:
+        return ply
+
+    cleaned = [ply[0]]
+    for p in ply[1:]:
+        if dist(p, cleaned[-1]) > epsilon:
+            cleaned.append(point(p))
+
+    if dist(cleaned[0], cleaned[-1]) > epsilon:
+        cleaned.append(point(cleaned[0]))
+    else:
+        cleaned[-1] = point(cleaned[0])
+
+    return cleaned
 
 
 
