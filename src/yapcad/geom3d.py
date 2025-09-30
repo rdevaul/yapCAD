@@ -433,22 +433,41 @@ def surface(*args):
         # what it is)
         if issurface(args[0],fast=False):
             return deepcopy(args[0])
-    if len(args) > 2 and len(args) < 6:
+    if len(args) >= 3 and len(args) <= 6:
         vrts = args[0]
         nrms = args[1]
         facs = args[2]
         bndr = []
         hle = []
-        if (isinstance(vrts,list) and isinstance(nrms,list)
-            and isinstance(facs,list) and
-            len(vrts) == len(nrms)):
-            if len(args) > 3 and isinstance(args[3],list):
-                bndr = args[3]
-            if len(args) == 5 and isinstance(args[4],list):
-                hle = args[4]
-            surf = ['surface',vrts,nrms,facs,bndr,hle]
-            if issurface(surf,fast=False):
-                return surf
+        metadata = None
+
+        if not (isinstance(vrts,list) and isinstance(nrms,list)
+                and isinstance(facs,list) and len(vrts) == len(nrms)):
+            raise ValueError('bad arguments to surface')
+
+        extras = list(args[3:])
+        for item in extras:
+            if isinstance(item, dict):
+                if metadata is not None:
+                    raise ValueError('multiple metadata dictionaries passed to surface')
+                metadata = item
+            elif isinstance(item, list):
+                if not bndr:
+                    bndr = item
+                elif not hle:
+                    hle = item
+                else:
+                    raise ValueError('too many list arguments passed to surface')
+            else:
+                raise ValueError('bad arguments to surface')
+
+        surf = ['surface',vrts,nrms,facs,bndr,hle]
+        if metadata is not None:
+            if not isinstance(metadata, dict):
+                raise ValueError('surface metadata must be a dict')
+            surf.append(metadata)
+        if issurface(surf,fast=False):
+            return surf
     raise ValueError('bad arguments to surface')
 
 def surfacebbox(s):
@@ -469,7 +488,7 @@ def issurface(s,fast=True):
                                                x < 0 or x >= l),
                                 inds))) == 0)
     
-    if not isinstance(s,list) or s[0] != 'surface' or len(s) != 6:
+    if not isinstance(s,list) or s[0] != 'surface' or len(s) not in (6,7):
         return False
     if fast:
         return True
@@ -479,6 +498,7 @@ def issurface(s,fast=True):
         faces=s[3]
         boundary= s[4]
         holes= s[5]
+        metadata = s[6] if len(s) == 7 else None
         if (not ispoly(verts) or
             not isdirectlist(norms) or
             len(verts) != len(norms)):
@@ -494,6 +514,8 @@ def issurface(s,fast=True):
             for h in holes:
                 if not filterInds(h,verts):
                     return False
+        if metadata is not None and not isinstance(metadata, dict):
+            return False
         return True
 
 ## save pointers to the yapcad.geom transformation functions
@@ -567,32 +589,38 @@ def solid(*args):
         return deepcopy(args[0])
     
     # OK, step through arguments
-    if len(args) > 0 and len(args) < 4:
-        surfaces = []
-        material = []
-        construction = []
-        
-        if isinstance(args[0],list): # is 1st argument a surface list?
-            for s in args[0]:
-                if not issurface(s):
-                    raise ValueError('bad arguments to solid')
-        else:
+    if len(args) >= 1 and len(args) <= 4:
+        if not isinstance(args[0],list):
             raise ValueError('bad arguments to solid')
+        for srf in args[0]:
+            if not issurface(srf):
+                raise ValueError('bad arguments to solid')
 
         surfaces = args[0]
-        if len(args) > 1:
-            if isinstance(args[1],list):
-                material = args[1]
-            else:
-                raise ValueError('bad material arguments to solid')
-        if len(args) == 3:
-            if isinstance(args[2],list):
-                construction = args[2]
-            else:
-                raise ValueError('bad construction arguments to solid')
+        material = []
+        construction = []
+        metadata = None
 
-        return ['solid', surfaces, material, construction]
-        
+        for item in args[1:]:
+            if isinstance(item, dict):
+                if metadata is not None:
+                    raise ValueError('multiple metadata dictionaries passed to solid')
+                metadata = item
+            elif isinstance(item, list):
+                if material == []:
+                    material = item
+                elif construction == []:
+                    construction = item
+                else:
+                    raise ValueError('too many list arguments passed to solid')
+            else:
+                raise ValueError('bad arguments to solid')
+
+        sld = ['solid', surfaces, material, construction]
+        if metadata is not None:
+            sld.append(metadata)
+        return sld
+
     raise ValueError('bad arguments to solid')
             
     
@@ -605,7 +633,7 @@ def issolid(s,fast=True):
     of surfaces completely bounds a volume of space without holes
     """
 
-    if not isinstance(s,list) or s[0] != 'solid' or len(s) != 4:
+    if not isinstance(s,list) or s[0] != 'solid' or len(s) not in (4,5):
         return False
     if fast:
         return True
@@ -615,6 +643,8 @@ def issolid(s,fast=True):
             if not issurface(surface,fast=fast):
                 return False
         if not (isinstance(s[2],list) and isinstance(s[3],list)):
+            return False
+        if len(s) == 5 and not isinstance(s[4], dict):
             return False
         return True
 
