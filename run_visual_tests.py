@@ -22,44 +22,39 @@ def find_visual_tests():
     for test_file in test_files:
         module_name = os.path.basename(test_file)[:-3]  # Remove .py
 
-        # Read the file
         with open(test_file, 'r') as f:
             content = f.read()
 
-        # Parse the file to find classes and methods with decorators
         try:
             tree = ast.parse(content)
         except SyntaxError:
             print(f"Warning: Could not parse {test_file}")
             continue
 
-        # Walk through the AST to find test classes and methods
-        for node in ast.walk(tree):
+        for node in tree.body:
             if isinstance(node, ast.ClassDef):
                 class_name = node.name
-
-                # Look for test methods in this class
                 for item in node.body:
-                    if isinstance(item, ast.FunctionDef):
-                        method_name = item.name
-                        if not method_name.startswith('test'):
-                            continue
-
-                        # Check for @pytest.mark.visual decorator
-                        has_visual_decorator = False
-                        for decorator in item.decorator_list:
-                            # Handle @pytest.mark.visual
-                            if isinstance(decorator, ast.Attribute):
-                                if (hasattr(decorator.value, 'attr') and
-                                    decorator.value.attr == 'mark' and
-                                    decorator.attr == 'visual'):
-                                    has_visual_decorator = True
-                                    break
-
-                        if has_visual_decorator:
-                            visual_tests.append((module_name, class_name, method_name))
+                    if _is_visual_test(item):
+                        visual_tests.append((module_name, class_name, item.name))
+            elif _is_visual_test(node):
+                visual_tests.append((module_name, None, node.name))
 
     return visual_tests
+
+
+def _is_visual_test(func_def):
+    if not isinstance(func_def, ast.FunctionDef):
+        return False
+    if not func_def.name.startswith('test'):
+        return False
+    for decorator in func_def.decorator_list:
+        if isinstance(decorator, ast.Attribute):
+            if (hasattr(decorator.value, 'attr') and
+                    decorator.value.attr == 'mark' and
+                    decorator.attr == 'visual'):
+                return True
+    return False
 
 def find_visual_tests_regex():
     """Alternative method using regex - fallback if AST parsing fails"""
@@ -73,15 +68,10 @@ def find_visual_tests_regex():
             content = f.read()
 
         # Find all occurrences of @pytest.mark.visual followed by def test_
-        pattern = r'@pytest\.mark\.visual\s*\n\s*def\s+(test\w+)'
-        matches = re.findall(pattern, content)
-
-        for method_name in matches:
-            # Find the class this method belongs to
-            class_pattern = rf'class\s+(\w+):[^}}]*?@pytest\.mark\.visual\s*\n\s*def\s+{method_name}'
-            class_match = re.search(class_pattern, content, re.DOTALL)
-            if class_match:
-                visual_tests.append((module_name, class_match.group(1), method_name))
+        pattern = r'@pytest\.mark\.visual\s*\n\s*(?:class\s+(\w+)\s*:\s*)?def\s+(test\w+)'
+        for class_name, method_name in re.findall(pattern, content):
+            cls = class_name if class_name else None
+            visual_tests.append((module_name, cls, method_name))
 
     return visual_tests
 
@@ -89,6 +79,13 @@ def run_test_subprocess(module_name, test_class, test_method):
     """Run a single test in a subprocess"""
 
     # Create a Python script to run in the subprocess
+    if test_class:
+        test_ref = f"{test_class}.{test_method}"
+        resolve_code = f"""\ntest_cls = getattr(module, \"{test_class}\")\ntest_instance = test_cls()\ntest_func = getattr(test_instance, \"{test_method}\")\n"""
+    else:
+        test_ref = test_method
+        resolve_code = f"""\ntest_func = getattr(module, \"{test_method}\")\n"""
+
     test_script = f"""
 import sys
 import os
@@ -105,14 +102,10 @@ spec = importlib.util.spec_from_file_location("{module_name}", "tests/{module_na
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
-# Get the test class and create instance
-test_cls = getattr(module, "{test_class}")
-test_instance = test_cls()
+# Resolve test function
+{resolve_code}
 
-# Run the test method
-test_func = getattr(test_instance, "{test_method}")
-
-print("Running {test_class}.{test_method}")
+print("Running {module_name}.{test_ref}")
 print("Close the window to continue...")
 
 try:
@@ -144,7 +137,10 @@ def run_test_with_pytest(module_name, test_class, test_method):
     env['PYTHONPATH'] = './src'
 
     # Build pytest command - try to use activated venv if available
-    test_path = f"tests/{module_name}.py::{test_class}::{test_method}"
+    if test_class:
+        test_path = f"tests/{module_name}.py::{test_class}::{test_method}"
+    else:
+        test_path = f"tests/{module_name}.py::{test_method}"
 
     # Check if we're in a virtual environment and use it
     python_cmd = sys.executable
@@ -209,10 +205,12 @@ def main():
     # Filter if pattern provided
     if pattern:
         filtered = []
+        pattern_lower = pattern.lower()
         for module, cls, method in visual_tests:
-            if (pattern.lower() in module.lower() or
-                pattern.lower() in cls.lower() or
-                pattern.lower() in method.lower()):
+            cls_name = cls or ''
+            if (pattern_lower in module.lower() or
+                    pattern_lower in cls_name.lower() or
+                    pattern_lower in method.lower()):
                 filtered.append((module, cls, method))
         visual_tests = filtered
 
@@ -237,13 +235,17 @@ def main():
 
     print("\nTests to run:")
     for i, (module, cls, method) in enumerate(visual_tests, 1):
-        print(f"  {i}. {module}::{cls}::{method}")
+        cls_display = cls if cls is not None else '<module>'
+        print(f"  {i}. {module}::{cls_display}::{method}")
 
     print("\nEach test will open in a separate window.")
     print("Close each window to continue to the next test.")
     print("Press Ctrl+C to abort.\n")
 
-    input("Press Enter to start...")
+    if sys.stdin.isatty():
+        input("Press Enter to start...")
+    else:
+        print("Non-interactive environment detected; starting immediately.\n")
 
     passed = 0
     failed = 0
@@ -251,7 +253,8 @@ def main():
 
     for i, (module, cls, method) in enumerate(visual_tests, 1):
         print(f"\n{'='*60}")
-        print(f"Test {i}/{len(visual_tests)}: {module}::{cls}::{method}")
+        cls_display = cls if cls is not None else '<module>'
+        print(f"Test {i}/{len(visual_tests)}: {module}::{cls_display}::{method}")
         print("="*60)
 
         try:
