@@ -590,17 +590,17 @@ def combineglist(g1,g2,operation):
             l1 = len(x1s)
             l2 = len(x2s)
             #print("u1: ",u1," u2: ",u2," ilist: ",ilist," x1s: ",x1s," x2s: ",x2s)
-            if l1 > 0 and l2 > 0:
-                print('WARNING: intersections on both sides')
+            #if l1 > 0 and l2 > 0:
+            #    print('WARNING: intersections on both sides')
 
             if l1 > l2:
-                print("AA")
+                # print("AA")
                 if True or operation == 'union':
                     return u1,u2+1.0,False
                 else:
                     return u2,u1,True
             else:
-                print("A-")
+                # print("A-")
                 return u2,u1,True
 
         else:
@@ -611,18 +611,18 @@ def combineglist(g1,g2,operation):
             l1 = len(x1s)
             l2 = len(x2s)
             #print("u1: ",u1," u2: ",u2," ilist: ",ilist," x1s: ",x1s," x2s: ",x2s)
-            if l1 > 0 and l2 > 0:
-                print('WARNING: intersections on both sides')
+            #if l1 > 0 and l2 > 0:
+            #    print('WARNING: intersections on both sides')
                 
             if l1 > l2:
-                print("BB")
+                # print("BB")
 
                 if True or operation == 'union':
                     return u2,u1+1,False
                 else:
                     return u1,u2,False
             else:
-                print("B-")
+                # print("B-")
                 return u1,u2,False
             
 
@@ -675,12 +675,12 @@ def combineglist(g1,g2,operation):
             if isinsideXY(g1,p):
                 p2inside=p2inside+1
                 
-        if p1inside > 0 and p2inside > 0:
-            print("warning: inside test succeeded for both p1s and p2s: ",
-                  p1inside," ",p2inside)
+        #if p1inside > 0 and p2inside > 0:
+        #    print("warning: inside test succeeded for both p1s and p2s: ",
+        #          p1inside," ",p2inside)
 
-        if p1inside == 0 and p2inside == 0:
-            print("warning: inside test failed for both p1s and p2s")
+        #if p1inside == 0 and p2inside == 0:
+        #    print("warning: inside test failed for both p1s and p2s")
                 
         #p2=sample(g2,((g2s+g2e)/2)%1.0)
 
