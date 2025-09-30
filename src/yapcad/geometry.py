@@ -440,13 +440,13 @@ class Geometry:
         geo = self.geom
         if len(geo) == 0:
             return []
-        ply = []
         if ispolygon(geo):
-            ply=geo
+            ply = geo
+            holes = []
         else:
-            ply = geomlist2poly(geo,minang,minlen)
+            ply, holes = geomlist2poly_with_holes(geo, minang, minlen)
 
-        self.__surface,bnd = poly2surface(ply,checkclosed=False)
+        self.__surface,bnd = poly2surface(ply, holepolys=holes, checkclosed=False)
 
         return self.__surface
 

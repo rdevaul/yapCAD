@@ -164,22 +164,24 @@ class TestSurface:
         dd.draw(ply3)
         dd.draw_surface(surf3)
 
-        # Finally, we make a big circular "C" that is nearly a
-        # complete disk.  The large interior hole presents special
-        # challenges for our surface tessellation algorithm
+        # Finally, we make a disk. Surfaces with holes present a special
+        # challenge to surface tessellation.
 
         # make the arcs as a geometry list -- note that the inside arc
         # is constructed in the samplereverse direction
-        gl4 = [arc(point(0,7),10.0,0.0,350.0),
-               arc(point(0,7),5.0,0.0,350.0,samplereverse=True)]
+        gl4 = [arc(point(0,7),8.0)]
+        gl5 = [arc(point(0,7),5.0,samplereverse=True)]
+
         dd.linecolor='aqua'
         dd.draw(gl4) #draw the arcs
+        dd.draw(gl5)
 
         # convert our geometry list into a smapled polyline
         ply4 =geomlist2poly(gl4,minang = 10 )
+        ply5 =geomlist2poly(gl5,minang=10)
         # close it into a polygon by appending a copy of the first
         # point to the end
-        ply4.append(ply4[0])
+        #ply4.append(ply4[0])
 
         ply4 = translate(ply4,point(0,0,0.5)) # pull it forward
         dd.linecolor='red'
@@ -187,7 +189,7 @@ class TestSurface:
         dd.draw(ply4)
 
         #convert it into a surface
-        surf4,bnd = poly2surfaceXY(ply4,minlen=1.0)
+        surf4,bnd = poly2surfaceXY(ply4,holepolys=[ply5],minlen=1.0)
         dd.draw_surface(surf4)
 
         # turn our surface into a lines representation so we can
@@ -203,10 +205,11 @@ class TestSurface:
         # of points), or it could be a significant portion of geometry
         # that isn't converted due to some kind of bug.  Visualize
         # that.
-        bnd.append(bnd[0])
-        bnd = translate(bnd,point(0,0,2.0))
-        dd.linecolor='white'
-        dd.draw(bnd)
+        if bnd:
+            bnd.append(bnd[0])
+            bnd = translate(bnd,point(0,0,2.0))
+            dd.linecolor='white'
+            dd.draw(bnd)
         
         print(f'len(surf4): {len(surf4)}')
         print(f'len vertices: {len(surf4[1])}')
@@ -221,6 +224,41 @@ class TestSurface:
         #import pdb ; pdb.set_trace()
         assert issurface(surf4,fast=False)
         dd.display()
+
+    def test_extrude_surface_with_hole(self):
+        outer = [
+            point(0, 0),
+            point(6, 0),
+            point(6, 6),
+            point(0, 6),
+            point(0, 0),
+        ]
+
+        hole = [
+            point(2, 2),
+            point(4, 2),
+            point(4, 4),
+            point(2, 4),
+            point(2, 2),
+        ]
+
+        surf, _ = poly2surfaceXY(outer, holepolys=[hole])
+        solid = extrude(surf, 2.0)
+
+        assert issolid(solid)
+
+        bottom = solid[1][0]
+        side = solid[1][1]
+
+        total_edges = len(bottom[4]) + sum(len(loop) for loop in bottom[5])
+        assert len(side[3]) == total_edges * 2
+
+        offset = len(bottom[1])
+        used_indices = {idx for face in side[3] for idx in face}
+        for hole_loop in bottom[5]:
+            for idx in hole_loop:
+                assert idx in used_indices
+                assert idx + offset in used_indices
 
     
     @pytest.mark.visual
@@ -590,22 +628,24 @@ class TestSurface:
         dd.draw(sld3,name='obj3')
 
 
-        # Finally, we make a big circular "C" that is nearly a
-        # complete disk.  The large interior hole presents special
-        # challenges for our surface tessellation algorithm
+        # Finally, we make a disk. Surfaces with holes present a special
+        # challenge to surface tessellation.
 
         # make the arcs as a geometry list -- note that the inside arc
         # is constructed in the samplereverse direction
-        gl4 = [arc(point(0,7),10.0,0.0,350.0),
-               arc(point(0,7),5.0,0.0,350.0,samplereverse=True)]
+        gl4 = [arc(point(0,7),8.0)]
+        gl5 = [arc(point(0,7),5.0,samplereverse=True)]
+
         dd.linecolor='aqua'
         dd.draw(gl4) #draw the arcs
+        dd.draw(gl5)
 
         # convert our geometry list into a smapled polyline
         ply4 =geomlist2poly(gl4,minang = 10 )
+        ply5 =geomlist2poly(gl5,minang=10)
         # close it into a polygon by appending a copy of the first
         # point to the end
-        ply4.append(ply4[0])
+        #ply4.append(ply4[0])
 
         ply4 = translate(ply4,point(0,0,0.5)) # pull it forward
         dd.linecolor='red'
@@ -613,8 +653,9 @@ class TestSurface:
         dd.draw(ply4)
 
         #convert it into a surface
-        surf4,bnd = poly2surfaceXY(ply4,minlen=1.0)
+        surf4,bnd = poly2surfaceXY(ply4,holepolys=[ply5],minlen=1.0)
 
+        #extrude it
         sld4 = extrude(surf4,5.0)
         dd.make_object('obj4',lighting=True,linecolor='white',
                        material='gold',

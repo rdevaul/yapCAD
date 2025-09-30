@@ -121,6 +121,209 @@ def _stitch_geomlist(gl, tol):
 
     return loops, others
 
+
+def _finalize_poly_points(points, snap_tol):
+    if not points:
+        return []
+
+    ply = [point(points[0])]
+    for p in points[1:]:
+        if dist(p, ply[-1]) > epsilon:
+            ply.append(point(p))
+
+    if dist(ply[0], ply[-1]) > epsilon:
+        if dist(ply[0], ply[-1]) <= snap_tol:
+            ply[-1] = point(ply[0])
+        else:
+            ply.append(point(ply[0]))
+    else:
+        ply[-1] = point(ply[0])
+
+    return ply
+
+
+def _convert_geom_sequence(seq, minang, minlen, snap_tol):
+    ply = []
+    lastpoint = None
+    nested_holes = []
+
+    def _snap(p, last):
+        pp = point(p)
+        if last is not None and dist(pp, last) <= snap_tol:
+            return point(last)
+        return pp
+
+    def addpoint(p, last, force=False):
+        candidate = _snap(p, last)
+        if force or last is None or dist(candidate, last) > minlen:
+            last = point(candidate)
+            ply.append(last)
+        return last
+
+    for element in seq:
+        if ispoint(element):
+            continue
+        elif isline(element):
+            lastpoint = addpoint(element[0], lastpoint, force=True)
+            lastpoint = addpoint(element[1], lastpoint, force=True)
+        elif isarc(element):
+            firstpoint = None
+            for ang in range(0, 360, max(1, round(minang))):
+                p = polarSampleArc(element, float(ang), inside=True)
+                if not p:
+                    break
+                if firstpoint is None:
+                    firstpoint = p
+                lastpoint = addpoint(p, lastpoint)
+            if iscircle(element):
+                lastpoint = addpoint(firstpoint, lastpoint)
+            else:
+                endp = sample(element, 1.0)
+                if endp:
+                    lastpoint = addpoint(endp, lastpoint, force=True)
+        elif ispoly(element):
+            for p in element:
+                lastpoint = addpoint(p, lastpoint, force=True)
+        elif isgeomlist(element):
+            sub_outer, sub_holes = geomlist2poly_with_holes(element, minang, minlen, checkcont=False)
+            if sub_outer:
+                for p in sub_outer:
+                    lastpoint = addpoint(p, lastpoint, force=True)
+            nested_holes.extend(sub_holes)
+        else:
+            raise ValueError(f'bad object in list passed to geomlist2poly: {element}')
+
+    if not ply:
+        return [], nested_holes
+
+    cleaned = [ply[0]]
+    for p in ply[1:]:
+        if dist(p, cleaned[-1]) > epsilon:
+            cleaned.append(point(p))
+
+    if dist(cleaned[0], cleaned[-1]) > epsilon:
+        if dist(cleaned[0], cleaned[-1]) <= snap_tol:
+            cleaned[-1] = point(cleaned[0])
+        else:
+            cleaned.append(point(cleaned[0]))
+    else:
+        cleaned[-1] = point(cleaned[0])
+
+    return cleaned, nested_holes
+
+
+def geomlist2poly_with_holes(gl, minang=5.0, minlen=0.25, checkcont=False):
+
+    if checkcont and not iscontinuousgeomlist(gl):
+        raise ValueError('non-continuous geometry list passed to geomlist2poly')
+
+    snap_tol = max(epsilon * 10, minlen * 0.1)
+
+    positive_candidates = []
+    negative_candidates = []
+
+    segments = []
+
+    for element in gl:
+        if ispoint(element):
+            continue
+        elif isline(element) or isarc(element):
+            segments.append(element)
+        elif ispoly(element):
+            poly = _finalize_poly_points(element, snap_tol)
+            area = _poly_signed_area(poly)
+            if area >= 0:
+                positive_candidates.append(poly)
+            else:
+                negative_candidates.append(poly)
+        elif isgeomlist(element):
+            outer, holes = geomlist2poly_with_holes(element, minang, minlen, checkcont)
+            if outer:
+                area = _poly_signed_area(outer)
+                if area >= 0:
+                    positive_candidates.append(outer)
+                else:
+                    negative_candidates.append(outer)
+            for h in holes:
+                area = _poly_signed_area(h)
+                if area >= 0:
+                    positive_candidates.append(h)
+                else:
+                    negative_candidates.append(h)
+        else:
+            raise ValueError(f'bad object in list passed to geomlist2poly: {element}')
+
+    if segments:
+        loops, _ = _stitch_geomlist(segments, snap_tol)
+        for loop in loops:
+            poly, holes = _convert_geom_sequence(loop, minang, minlen, snap_tol)
+            if poly:
+                area = _poly_signed_area(poly)
+                if area >= 0:
+                    positive_candidates.append(poly)
+                else:
+                    negative_candidates.append(poly)
+            for h in holes:
+                area = _poly_signed_area(h)
+                if area >= 0:
+                    positive_candidates.append(h)
+                else:
+                    negative_candidates.append(h)
+
+    if not positive_candidates and not negative_candidates:
+        return [], []
+
+    all_candidates = positive_candidates + negative_candidates
+    outer = max(all_candidates, key=lambda pts: abs(_poly_signed_area(pts)))
+    outer_area = _poly_signed_area(outer)
+    orientation = 1 if outer_area >= 0 else -1
+
+    holes = []
+
+    for pts in all_candidates:
+        if pts is outer:
+            continue
+        area = _poly_signed_area(pts)
+        if orientation * area < 0:
+            holes.append(pts)
+            continue
+        centroid = _polygon_centroid_xy(pts)
+        if _point_in_polygon_xy(outer, centroid):
+            holes.append(pts)
+
+    return outer, holes
+
+
+def _polygon_centroid_xy(pts):
+    if not pts:
+        return (0.0, 0.0)
+    sx = sy = 0.0
+    count = 0
+    for p in pts:
+        sx += p[0]
+        sy += p[1]
+        count += 1
+    if count == 0:
+        return (0.0, 0.0)
+    return (sx / count, sy / count)
+
+
+def _point_in_polygon_xy(poly, pt):
+    x, y = pt
+    inside = False
+    if not poly:
+        return False
+    j = len(poly) - 1
+    for i in range(len(poly)):
+        xi, yi = poly[i][0], poly[i][1]
+        xj, yj = poly[j][0], poly[j][1]
+        intersects = ((yi > y) != (yj > y)) and (
+            x < (xj - xi) * (y - yi) / (yj - yi + 1e-16) + xi)
+        if intersects:
+            inside = not inside
+        j = i
+    return inside
+
 def randomPoints(bbox,numpoints):
     """Given a 3D bounding box and a number of points to generate, 
     return a list of uniformly generated random points within the 
@@ -316,104 +519,8 @@ def triarea(p1,p2,p3):
     return mag(cp)/2
 
 def geomlist2poly(gl,minang=5.0,minlen=0.25,checkcont=False):
-
-    """
-    convert a continuous geometry list that contains only lines and
-    arcs into a poly representation that contains only points. Arcs
-    are sampled at a minimum resolution of ``minang`` degrees, and
-    resulting points are guaranteed to be no closer than ``minlen``
-    apart.  Returns a valid poly.
-
-    """
-
-    if checkcont and not iscontinuousgeomlist(gl):
-        raise ValueError('non-continuous geometry list passed to geomlist2poly')
-    
-    snap_tol = max(epsilon * 10, minlen * 0.1)
-
-    if not checkcont:
-        reorderable = all(ispoint(e) or isline(e) or isarc(e) for e in gl)
-        if reorderable and not iscontinuousgeomlist(gl):
-            loops, extras = _stitch_geomlist(gl, snap_tol)
-            if loops:
-                best_loop = None
-                best_area = -1.0
-                for loop in loops:
-                    try:
-                        loop_poly = geomlist2poly(loop, minang, minlen, checkcont=True)
-                    except ValueError:
-                        continue
-                    area = abs(_poly_signed_area(loop_poly))
-                    if area > best_area:
-                        best_area = area
-                        best_loop = loop
-                if best_loop is not None:
-                    gl = best_loop + extras
-
-    ply = []
-    lastpoint = None
-
-    def _snap(p, lastpoint):
-        pp = point(p)
-        if lastpoint is not None and dist(pp, lastpoint) <= snap_tol:
-            return point(lastpoint)
-        return pp
-
-    def addpoint(p,lastpoint,force=False):
-        candidate = _snap(p, lastpoint)
-        if force or lastpoint is None or dist(candidate,lastpoint) > minlen:
-            lastpoint = point(candidate)
-            ply.append(lastpoint)
-        return lastpoint
-
-            
-    for e in gl:
-        if ispoint(e):
-            pass  # ignore points in source geometry list
-        elif isline(e):
-            p0 = e[0]
-            p1 = e[1]
-            lastpoint = addpoint(p0,lastpoint,force=True)
-            lastpoint = addpoint(p1,lastpoint,force=True)
-        elif isarc(e):
-            firstpoint = None
-            for ang in range(0,360,round(minang)):
-                p = polarSampleArc(e,float(ang),inside=True)
-                if not p:
-                    break
-                else:
-                    if not firstpoint:
-                        firstpoint = p
-                    lastpoint = addpoint(p,lastpoint)
-            if iscircle(e):
-                lastpoint = addpoint(firstpoint,lastpoint)
-            else:
-                endp = sample(e,1.0)
-                if endp:
-                    lastpoint = addpoint(endp,lastpoint,force=True)
-        elif ispoly(e):
-            for p in e:
-                lastpoint = addpoint(p,lastpoint,force=True)
-        elif isgeomlist(e):
-            pts = geomlist2poly(e,minang,minlen,checkcont)
-            for p in pts:
-                lastpoint = addpoint(p,lastpoint,force=True)
-        else:
-            raise ValueError(f'bad object in list passed to geomlist2poly: {e}')
-    if not ply:
-        return ply
-
-    cleaned = [ply[0]]
-    for p in ply[1:]:
-        if dist(p, cleaned[-1]) > epsilon:
-            cleaned.append(point(p))
-
-    if dist(cleaned[0], cleaned[-1]) > epsilon:
-        cleaned.append(point(cleaned[0]))
-    else:
-        cleaned[-1] = point(cleaned[0])
-
-    return cleaned
+    outer, _ = geomlist2poly_with_holes(gl, minang, minlen, checkcont)
+    return outer
 
 
 

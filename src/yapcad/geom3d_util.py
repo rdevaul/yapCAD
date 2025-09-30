@@ -497,29 +497,36 @@ def extrude(surf,distance,direction=vect(0,0,1,0)):
     s1 = translatesurface(surf,scale4(direction,distance))
     s2 = reversesurface(surf)
 
-    bndry1 = s2[4] #boundrary indices
-    stripV = s2[1] + s1[1] # verticies for the edge strip
-    stripN = [ vect(0,0,1,0)] * len(stripV) #normals, initialize to
-                                            #bogus value to start with
-    stripF = [] #strip faces
-    for i in range(len(bndry1)):
-        j0 = bndry1[(i-1)%len(bndry1)]
-        j1 = bndry1[i]
-        j2 = bndry1[(i+1)%len(bndry1)]
-        j3 = j2+len(s2[1])
-        j4 = j1+len(s2[1])
-        p0 = stripV[j0]
-        p1 = stripV[j2]
-        p2 = stripV[j3]
-        try:
-            pp,n0 = tri2p0n([p0,p1,p2])
-        except ValueError:
-            # bad face, skip
+    loops = []
+    if s2[4]:
+        loops.append(s2[4])
+    loops.extend([loop for loop in s2[5] if loop])
+
+    stripV = s2[1] + s1[1]  # vertices for the edge strips
+    stripN = [vect(0, 0, 1, 0)] * len(stripV)  # placeholder normals
+    stripF: list[list[int]] = []
+    offset = len(s2[1])
+
+    for bndry in loops:
+        if len(bndry) < 2:
             continue
-        stripN[j1]=n0
-        stripN[j4]=n0
-        stripF.append([j1,j2,j3])
-        stripF.append([j1,j3,j4])
+        for i in range(len(bndry)):
+            j0 = bndry[(i - 1) % len(bndry)]
+            j1 = bndry[i]
+            j2 = bndry[(i + 1) % len(bndry)]
+            j3 = j2 + offset
+            j4 = j1 + offset
+            p0 = stripV[j0]
+            p1 = stripV[j2]
+            p2 = stripV[j3]
+            try:
+                pp, n0 = tri2p0n([p0, p1, p2])
+            except ValueError:
+                continue
+            stripN[j1] = n0
+            stripN[j4] = n0
+            stripF.append([j1, j2, j3])
+            stripF.append([j1, j3, j4])
 
     #import pdb ; pdb.set_trace()
     strip = surface(stripV,stripN,stripF)

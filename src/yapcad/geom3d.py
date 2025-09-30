@@ -6,6 +6,7 @@ from yapcad.geom import *
 from yapcad.geom_util import *
 from yapcad.xform import *
 from functools import reduce
+from yapcad.triangulator import triangulate_polygon
 
 
 """
@@ -786,8 +787,8 @@ def poly2surface(ply,holepolys=[],minlen=0.5,minarea=0.0001,
 
     ply2 = list(map(lambda x: basis[2].mul(x),ply))
     holes2 = []
-    for holes in holepolys:
-        holes2.append(list(map(lambda x: basis[2].mul(x),hole)))
+    for hole in holepolys:
+        holes2.append(list(map(lambda x: basis[2].mul(x), hole)))
 
     surf,bnd = poly2surfaceXY(ply2,holes2,minlen,minarea,checkclosed)
 
@@ -802,16 +803,8 @@ def poly2surface(ply,holepolys=[],minlen=0.5,minarea=0.0001,
 
 def poly2surfaceXY(ply,holepolys=[],minlen=0.5,minarea=0.0001,
                    checkclosed=False,box=None):
-    """Given ``ply``, an XY-coplanar polygon, return the triangulated
-    surface representation of that polygon. If ``holepolys`` is not
-    the empty list, treat each polygon in that list as a hole in
-    ``ply``.  If ``checkclosed`` is true, make sure ``ply`` and all
-    members of ``holepolys`` are a vaid, closed, XY-coplanar polygons.
-    if ``box`` exists, use it as the bounding box.
+    """Given ``ply``, return a triangulated XY surface (holes supported)."""
 
-    Returns surface and boundary
-    """
-    
     if checkclosed:
         polys = holepolys + [ply]
         if not isgeomlistXYPlanar(polys):
@@ -820,93 +813,24 @@ def poly2surfaceXY(ply,holepolys=[],minlen=0.5,minarea=0.0001,
             if not ispolygonXY(p):
                 raise ValueError(f'{p} is not a closed polygon')
 
-    if len(holepolys) != 0:
-        raise NotImplementedError('not supporting surfaces with holes, yet')
-    
     if not box:
         box = bbox(ply)
 
-    def _signed_area(poly):
-        total = 0.0
-        for i in range(1, len(poly)):
-            x1, y1 = poly[i-1][0], poly[i-1][1]
-            x2, y2 = poly[i][0], poly[i][1]
-            total += (x1 * y2) - (x2 * y1)
-        return 0.5 * total
+    def _normalize_loop(poly):
+        pts = [point(p) for p in poly]
+        if pts and dist(pts[0], pts[-1]) <= epsilon:
+            pts = pts[:-1]
+        return pts
 
-    def _signed_triangle(p1, p2, p3):
-        return ((p2[0] - p1[0]) * (p3[1] - p1[1]) -
-                (p3[0] - p1[0]) * (p2[1] - p1[1])) / 2.0
+    outer_loop = _normalize_loop(ply)
+    if len(outer_loop) < 3:
+        raise ValueError('degenerate polygon passed to poly2surfaceXY')
 
-    def _orient_triangle(tri_points, orientation):
-        if orientation == 0:
-            return tri_points
-        area = _signed_triangle(*tri_points)
-        if area == 0:
-            return tri_points
-        if orientation * area < 0:
-            tri_points = [tri_points[0], tri_points[2], tri_points[1]]
-        return tri_points
+    hole_loops = [_normalize_loop(loop) for loop in holepolys]
 
-    def leftTurn(p1,p2,p3):
-        v1=sub(p2,p1)
-        v2=sub(p3,p2)
-        cp = cross(v1,v2)
-        return (cp[2] > epsilon)
-
-    outpoint = add(box[1],[1,1,0,1])
-    def insideTest(p,poly=ply):
-        l = line(p,outpoint)
-        pp = intersectSimplePolyXY(l,poly)
-        if pp == False:
-            return False
-        return len(pp) % 2 == 1
-    
-    ome = 1.0-epsilon
-    def selfIntersect(l,bndry):
-        for i in range(1,len(bndry)+1):
-            uu = lineLineIntersectXY(l,line(bndry[i-1],
-                                            bndry[i%len(bndry)]),params=True)
-            if (not isinstance(uu,bool) and
-                uu[0] > epsilon and uu[0] < ome and
-                uu[1] > epsilon and uu[1] < ome):
-                return True
-        return False
-
-
-    def trimsharp(bndry):
-        if len(bndry) < 3:
-            return bndry, False
-        #print(f"len bndry: {len(bndry)}")
-        nodel = True
-        for i in range(1,len(bndry)+1):
-            delit  = True
-            while len(bndry) > 3 and delit:
-                p1 = bndry[(i-2)%len(bndry)]
-                p2 = bndry[(i-1)%len(bndry)]
-                p3 = bndry[i%len(bndry)]
-                v1=sub(p2,p1)
-                v2=sub(p3,p2)
-                cp = cross(v1,v2)
-                dp = dot(v1,v2)
-                if abs(cp[2]/2) < minarea and dp < 0:
-                    del bndry[(i-1)%len(bndry)]
-                    nodel = False
-                else:
-                    delit = False
-        #print(f"len bndry: {len(bndry)}")
-        return bndry, not nodel
-    
-    def subdivide(i,bndry):
-        if len(bndry) < 2 or i < 1 or i > len(bndry):
-            raise ValueError('bad index or list for subdivision')
-        p0 = bndry[i-1]
-        p1 = bndry[i%len(bndry)]
-        if dist(p0,p1) < minlen:
-            return bndry,False
-        np = scale3(add(p0,p1),0.5)
-        bndry.insert(i,np)
-        return bndry,True
+    triangles = triangulate_polygon([(p[0], p[1]) for p in outer_loop],
+                                    [[(q[0], q[1]) for q in loop]
+                                     for loop in hole_loops])
 
     def makeboundary(poly,vertices,normals):
         bndry = []
@@ -917,105 +841,42 @@ def poly2surfaceXY(ply,holepolys=[],minlen=0.5,minarea=0.0001,
             bndry.append(i)
             i+=1
         return bndry,vertices,normals
-    
+
     vrts=[]
     nrms=[]
     faces=[]
     boundary=[]
     holes=[]
 
-    bndry=deepcopy(ply[0:-1]) # last point is redundant
-    orientation = 0
-    if len(bndry) >= 3:
-        orientation = 1 if _signed_area(bndry) >= 0 else -1
-    # make the perimeter
-    
-    boundary,vrts,nrms = makeboundary(bndry,vrts,nrms)
-    for h in holepolys:
-        hole,vrts,nrms = makeboundary(h[0:-1],vrts,nrms)
+    boundary,vrts,nrms = makeboundary(outer_loop,vrts,nrms)
+    for loop in hole_loops:
+        hole,vrts,nrms = makeboundary(loop,vrts,nrms)
         holes.append(hole)
 
     surf=['surface',vrts,nrms,faces,boundary,holes]
-    cnt = 0
-    addcnt = 0
-    while (len(bndry) > 2):
-        cnt+= 1
-        if cnt > 1000:
-            assert False
-            return surf, bndry
-        l = len(bndry)
-        added = False
-        for i in range(l-2):
-            testl = line(bndry[i],
-                         bndry[i+2])
-            testp = scale3(add(bndry[i],
-                               bndry[i+2]),0.5)
-            area = triarea(bndry[i],
-                           bndry[i+1],
-                           bndry[i+2])
-            prev = bndry[i]
-            curr = bndry[i+1]
-            nxt = bndry[i+2]
-            v_prev = sub(curr, prev)
-            v_next = sub(nxt, curr)
-            cross_z = cross(v_prev, v_next)[2]
-            if orientation * cross_z <= epsilon:
-                continue
-            if (area > epsilon and
-                not selfIntersect(testl, bndry) and
-                insideTest(testp)):
-                tri_points = [bndry[i], bndry[i+1], bndry[i+2]]
-                tri_points = _orient_triangle(tri_points, orientation)
-                tri_area = abs(_signed_triangle(*tri_points))
-                if tri_area > minarea:
-                    surf = addTri2Surface(tri_points,surf,
-                                          nfunc=lambda x: ([0,0,1,0],
-                                                           [0,0,1,0],
-                                                           [0,0,1,0]))
-                addcnt+=1
-                
-                del bndry[i+1]
-                added = True
-                break
 
-        bndry, trimmed = trimsharp(bndry)
+    def _signed_triangle(tri):
+        (x1,y1),(x2,y2),(x3,y3) = tri
+        return ((x2 - x1)*(y3 - y1) - (x3 - x1)*(y2 - y1)) / 2.0
 
-        if not added and not trimmed and len(bndry) > 2:
-            div = False
-            skip = False
-            for i in range(1,len(bndry)+1):
-                if skip:
-                    #print(f"i : {i} len(bndry): {len(bndry)}")
-                    skip=False
-                else:
-                    bndry,diddiv = subdivide(i,bndry)
-                    div = div or diddiv
-                    if diddiv:
-                        #print(f"did div at {i}")
-                        skip = True
+    outer_area = sum(outer_loop[i][0]*outer_loop[(i+1)%len(outer_loop)][1]
+                     - outer_loop[(i+1)%len(outer_loop)][0]*outer_loop[i][1]
+                     for i in range(len(outer_loop)))
+    orientation = 1 if outer_area >= 0 else -1
 
-                
-            if not div:
-                if len(bndry) == 3:
-                    tri_points = [bndry[0], bndry[1], bndry[2]]
-                    tri_points = _orient_triangle(tri_points, orientation)
-                    tri_area = abs(_signed_triangle(*tri_points))
-                    if tri_area > minarea:
-                        surf = addTri2Surface(tri_points,surf,
-                                              nfunc=lambda x: ([0,0,1,0],
-                                                               [0,0,1,0],
-                                                               [0,0,1,0]))
-                    bndry.clear()
-                    break
-                print("incomplete triangulation")
-                print(f"cnt: {cnt}, addcnt: {addcnt}")
-                print(f"bndry len: {len(bndry)}, surface triangles: {len(surf[3])}")
-                print(f"bndry: {vstr(bndry)}")
-                return surf,bndry
-                #raise ValueError('unable to finish triangulating surface')
-        
+    for tri in triangles:
+        tri_points = [point(x, y, 0, 1) for (x, y) in tri]
+        area = _signed_triangle(tri)
+        if area * orientation < 0:
+            tri_points[1], tri_points[2] = tri_points[2], tri_points[1]
+            area = -area
+        if abs(area) > minarea:
+            surf = addTri2Surface(tri_points,surf,
+                                  nfunc=lambda x: ([0,0,1,0],
+                                                   [0,0,1,0],
+                                                   [0,0,1,0]))
 
-    return surf,bndry
+    return surf,[]
 
 ### updated, surface- and solid-aware generalized geometry functions
 
