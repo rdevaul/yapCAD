@@ -52,7 +52,7 @@ original 2D/DXF tooling.
     documentation linked below.  New helper modules worth exploring
     include ``yapcad.geometry_utils`` (triangle helpers),
     ``yapcad.geometry_checks`` (mesh validation), ``yapcad.metadata``
-    (surface/solid provenance), and ``yapcad.io.stl`` (STL export).
+    (surface/solid provenance), and ``yapcad.io`` for STL/STEP export.
 
 Contents
 ========
