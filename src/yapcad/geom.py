@@ -84,7 +84,7 @@ There is a yapcad.geom convenience function, ``vect()``, that will make
 a vector out of just about any plausible set of arguments.  Unspecified
 w values are set to 1, and unspecified z values are set to 0.
 
-========================================
+=========================================
 yapcad.geom simple (non-compound) figures
 =========================================
 
@@ -198,7 +198,7 @@ sampling order will have the beneficial property of having the same
 Arcs support all standard ``yapcad.geom`` computational geometry
 operations. (see below)
 
-========================================
+=========================================
 yapcad.geom compound figures
 =========================================
 

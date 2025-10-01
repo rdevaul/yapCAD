@@ -2,6 +2,22 @@
 Changelog
 =========
 
+Version 0.5.0 (2024-09-30)
+==========================
+
+what's new:
+-----------
+
+  - Adds shared geometry utilities and metadata helpers.
+  - Introduces STL export (`yapcad.io.stl`) plus tests.
+  - Provides `examples/rocket_demo.py` showing a full 3D workflow.
+  - Updates documentation with 3D-focused imagery and instructions.
+
+Known problems
+--------------
+
+- Incomplete documentation, though this is improving.
+
 Version 0.4.0 (Development)
 ============================
 

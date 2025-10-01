@@ -2,12 +2,12 @@
 ==========
 
 yet another procedural CAD and computational geometry system written in
-python 3
+python 3, now with a growing focus on 3D generative design and STL export
 
-.. figure:: images/yapCadSplash.png
-   :alt: **yapCAD** image
+.. figure:: images/RocketDemoScreenshot.png
+   :alt: **yapCAD** rocket example
 
-   **yapCAD** image
+   **yapCAD** rocket example
 
 what’s **yapCAD** for?
 ----------------------
@@ -16,8 +16,10 @@ First and foremost, **yapCAD** is a framework for creating
 `parametric <https://en.wikipedia.org/wiki/Parametric_design>`__,
 procedural, and
 `generative <https://en.wikipedia.org/wiki/Parametric_design>`__ design
-systems. You can also use **yapCAD** for other CAD, CAM, and
-computational geometry purposes.
+systems. Starting with the 0.5 release, the emphasis has shifted toward
+3D solid workflows, including STL export for downstream slicing and
+simulation, while retaining support for DXF generation and computational
+geometry experiments.
 
 software status
 ---------------
@@ -58,15 +60,18 @@ clone the github repository as shown above, and make sure that your
 PYTHONPATH includes the cloned top-level ``yapCAD`` directory. You will
 find the examples in the ``yapCAD/examples`` directory.
 
-For a fully worked parametric design system, see the ``boxcut`` example.
+For a fully worked 2D parametric design system, see the ``boxcut`` example.
+For a 3D generative example that builds a multi-stage rocket, visualises
+it, and exports STL, see ``examples/rocket_demo.py``.
 
 documentation
 ~~~~~~~~~~~~~
 
 Online **yapCAD** documentation can be found here:
-https://yapcad.readthedocs.io/en/latest/ — for some reason
-``readthedocs.io`` isn’t generating the full module documentation, so
-you might want to build a local copy, as described below.
+https://yapcad.readthedocs.io/en/latest/ — some module references lag
+behind the latest 3D-focused APIs, so you may want to build a local copy
+as described below to explore ``geometry_utils``, ``geometry_checks``,
+``metadata``, and ``io.stl``.
 
 To build the HTML **yapCAD** documentation locally, install the
 documentation dependencies and run Sphinx from the project root::
@@ -99,7 +104,8 @@ testing environment::
 Non-Visual Tests (Automated/CI-friendly)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Run the core computational geometry tests without interactive displays::
+Run the core computational geometry tests (including triangle, metadata,
+validation, and STL exporter checks) without interactive displays::
 
    # Run all non-visual tests
    PYTHONPATH=./src pytest tests/ -m "not visual"
@@ -114,8 +120,9 @@ Visual Tests (Interactive)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 yapCAD includes visual tests that create interactive 3D renderings to verify
-geometry generation and display functionality. These require a display and
-user interaction::
+geometry generation and display functionality (for example,
+``tests/test_mesh_view.py::test_mesh_view_visual_normals``). These require a
+display and user interaction::
 
    # Run all visual tests (opens interactive windows)
    ./run_visual_tests_venv.sh
@@ -138,11 +145,20 @@ user interaction::
 
 The purpose of **yapCAD** is to support 2D and 3D computational geometry
 and parametric, procedural, and generative design projects in python3.
-**yapCAD** is designed to support multiple rendering back-ends, such
-that a relatively small amount of code is necessary to add support for a
-2D or 3D cad or drawing file format. At present, **yapCAD** supports the
-AutoCad DXF file format for creating two-dimensional drawings and OpenGL
-for creating interactive 2D and 3D renderings.
+**yapCAD** is designed to support multiple rendering back-ends, such that
+only a small amount of code is necessary to add support for a CAD or
+drawing file format. At present, **yapCAD** supports:
+
+* AutoCAD DXF output for two-dimensional drawings (via
+  `ezdxf <https://github.com/mozman/ezdxf>`__).
+* STL export for 3D solids (via the new ``yapcad.io.stl`` module).
+* OpenGL visualisation for 2D/3D geometries using
+  `pyglet <https://github.com/pyglet/pyglet>`__.
+
+The 0.5.0 release lays the shared foundations (triangle utilities,
+metadata, validation checks, and STL export) that pave the way toward STEP
+support and a packaged, provenance-aware project model targeted for the
+forthcoming 1.0 release.
 
 The foundations of **yapCAD** are grounded in decades of the author’s
 experience with graphics system programming, 3D CAD and simulation.
@@ -161,8 +177,8 @@ package, and interactive OpenGL visualization using the amazing
 
 (for a more complete list, see the `examples folder <./examples/>`__)
 
-It’s pretty easy to make a DXF drawing with **yapCAD**. Here is an
-example:
+It’s pretty easy to make a DXF drawing or a 3D model with **yapCAD**. Here
+is a DXF example:
 
 ::
 
@@ -196,6 +212,15 @@ example:
 
    # write out the geometry as example1-out.dxf
    dd.display()
+
+For a 3D example that generates a complete rocket assembly and exports
+STL::
+
+   from pathlib import Path
+   from examples.rocket_demo import build_rocket, export_stl
+
+   components, assembly = build_rocket()
+   export_stl(assembly, Path("rocket_demo.stl"))
 
 The **yapCAD** system isn’t just about rendering, of course, it’s about
 computational geometry. For example, if you want to calculate the

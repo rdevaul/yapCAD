@@ -2,29 +2,57 @@
 yapCAD
 ======
 
+.. figure:: images/RocketDemoScreenshot.png
+   :width: 400px
+   :alt: parametric rocket example
+
+   Multi-stage rocket generated with **yapCAD** and exported to STL.
+
 Welcome to **yapCAD**, yet another procedural CAD and computational
-geometry system, written in Python_.  This project is still in a
-pretty early state, though we hope you will find it useful.
+geometry system, written in Python_.  The project is still evolving,
+but recent releases focus on making 3D generative workflows (solid
+modeling, STL export, interactive rendering) as straightforward as the
+original 2D/DXF tooling.
 
 .. note::
     
     **yapCAD** was created to solve some fairly specific problems in
-    procedural CAD and `parametric design`_ , and at present is most
-    developed for generating 2D drawings in the `AutoCad DXF`_ format.
-    If you don't know what procedural CAD or parameterized design
-    might be useful for, this may not be the tool for you.
+    procedural CAD and `parametric design`_.  Earlier releases were
+    primarily geared toward generating 2D drawings in the `AutoCad
+    DXF`_ format; the current 0.5 series lays the groundwork for 3D
+    workflows, including STL export, metadata tracking, and geometry
+    validation utilities.
 
-    On the other hand, if you are tired of manually editing your CAD
-    files whenever you change the thickness of a material, the size of
-    a pipe fitting, or the diameter and spacing of bolts, *etc.*, this
-    might just be the tool you are looking for.
+    Why use yapCAD? yapCAD allows you to transform the 2D and 3D mechanical
+    design process from the manual creation of drawings, parts, and assemblies
+    into a highly automatable process focused creation of
+    modular, parametric, and even LLM-generated code.
+
+    Because yapCAD's foundations are in software, you can use powerful agentic
+    or "vibe coding" tools to translate your design intent into functional and
+    parameterized design, without ever writing a line of code yourself. For
+    example, the rocket example rendred above was generated in one-shot by
+    `gpt-5-codex` from the prompt: "Using what you know about yapCAD, I'd like
+    you to create a demo that builds a simple 3D model of a rocket, visualizes
+    it using pyglet, and then writes out the STL file. I'd like the rocket to
+    have a cluster of five engines, guidance fins, a cylindrical body with at
+    least one diameter transition before the payload fairing, and an aerodynamic
+    fairing. Can you do this for me?"
+
+    And becuse yapCAD designs are software, they can be parametric and modular.
+    So if you are tired of manually editing your CAD files whenever you change the
+    thickness of a material, the size of a pipe fitting, or the diameter and
+    spacing of bolts, *etc.*, this might just be the tool you are looking for.
 
     For an example and discussion of what parametric design is and why
     it might be useful see `What is Parametric Design?`_ below.
 
     Much of the documentation for **yapCAD** can be found in the
     **README** files, as well as in the ``yapcad.geom`` module
-    documentation linked below.
+    documentation linked below.  New helper modules worth exploring
+    include ``yapcad.geometry_utils`` (triangle helpers),
+    ``yapcad.geometry_checks`` (mesh validation), ``yapcad.metadata``
+    (surface/solid provenance), and ``yapcad.io.stl`` (STL export).
 
 Contents
 ========
@@ -100,7 +128,9 @@ automatically, and without having to revise any code or drawing.
 .. note::
 
    For a **yapCAD** solution to this particular problem, see the
-   ``boxcut`` example in the ``examples`` directory
+    ``boxcut`` example in the ``examples`` directory for a 2D parametric
+    workflow, and ``rocket_demo.py`` for a 3D generative workflow that
+    visualises and exports STL.
 
 This ability to solve for an entire family of related design problems
 with a single parametric design system is what gives this approach
