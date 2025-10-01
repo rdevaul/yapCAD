@@ -1,6 +1,6 @@
 [project]
 name = "yapCAD"
-version = "0.3.1"
+version = "0.5.0"
 authors = [
   { name="Richard DeVaul", email="richard.devaul@gmail.com" },
 ]
@@ -16,6 +16,8 @@ dependencies = [
       "ezdxf>=1.1",
       "pyglet>=1.5,<2",
       "mpmath>=1.2",
+      "numpy>=1.22",
+      "mapbox-earcut>=1.0.3",
       "pyobjc-core; platform_system == 'Darwin'",
       "pyobjc-framework-Cocoa; platform_system == 'Darwin'",
       "pyobjc-framework-Quartz; platform_system == 'Darwin'"

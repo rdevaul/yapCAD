@@ -212,86 +212,141 @@ def _convert_geom_sequence(seq, minang, minlen, snap_tol):
     return cleaned, nested_holes
 
 
-def geomlist2poly_with_holes(gl, minang=5.0, minlen=0.25, checkcont=False):
+def _collect_candidate_polygons(gl, minang, minlen, snap_tol):
+    """Return raw polygon loops discovered within ``gl``."""
 
-    if checkcont and not iscontinuousgeomlist(gl):
-        raise ValueError('non-continuous geometry list passed to geomlist2poly')
-
-    snap_tol = max(epsilon * 10, minlen * 0.1)
-
-    positive_candidates = []
-    negative_candidates = []
-
+    loops = []
     segments = []
 
     for element in gl:
         if ispoint(element):
             continue
-        elif isline(element) or isarc(element):
+        if isline(element) or isarc(element):
             segments.append(element)
-        elif ispoly(element):
-            poly = _finalize_poly_points(element, snap_tol)
-            area = _poly_signed_area(poly)
-            if area >= 0:
-                positive_candidates.append(poly)
-            else:
-                negative_candidates.append(poly)
-        elif isgeomlist(element):
-            outer, holes = geomlist2poly_with_holes(element, minang, minlen, checkcont)
-            if outer:
-                area = _poly_signed_area(outer)
-                if area >= 0:
-                    positive_candidates.append(outer)
-                else:
-                    negative_candidates.append(outer)
-            for h in holes:
-                area = _poly_signed_area(h)
-                if area >= 0:
-                    positive_candidates.append(h)
-                else:
-                    negative_candidates.append(h)
-        else:
-            raise ValueError(f'bad object in list passed to geomlist2poly: {element}')
+            continue
+        if ispoly(element):
+            loops.append(_finalize_poly_points(element, snap_tol))
+            continue
+        if isgeomlist(element):
+            loops.extend(_collect_candidate_polygons(element, minang, minlen, snap_tol))
+            continue
+        raise ValueError(f'bad object in list passed to geomlist2poly: {element}')
 
     if segments:
-        loops, _ = _stitch_geomlist(segments, snap_tol)
-        for loop in loops:
+        loops_seq, leftovers = _stitch_geomlist(segments, snap_tol)
+        for loop in loops_seq:
             poly, holes = _convert_geom_sequence(loop, minang, minlen, snap_tol)
             if poly:
-                area = _poly_signed_area(poly)
-                if area >= 0:
-                    positive_candidates.append(poly)
-                else:
-                    negative_candidates.append(poly)
-            for h in holes:
-                area = _poly_signed_area(h)
-                if area >= 0:
-                    positive_candidates.append(h)
-                else:
-                    negative_candidates.append(h)
+                loops.append(poly)
+            loops.extend(holes)
+        for leftover in leftovers:
+            if ispoly(leftover):
+                loops.append(_finalize_poly_points(leftover, snap_tol))
+            elif isgeomlist(leftover):
+                loops.extend(_collect_candidate_polygons(leftover, minang, minlen, snap_tol))
+            elif ispoint(leftover):
+                continue
+            elif isline(leftover) or isarc(leftover):
+                poly, holes = _convert_geom_sequence([leftover], minang, minlen, snap_tol)
+                if poly:
+                    loops.append(poly)
+                loops.extend(holes)
+            else:
+                raise ValueError(f'bad object in list passed to geomlist2poly: {leftover}')
 
-    if not positive_candidates and not negative_candidates:
-        return [], []
+    return loops
 
-    all_candidates = positive_candidates + negative_candidates
-    outer = max(all_candidates, key=lambda pts: abs(_poly_signed_area(pts)))
-    outer_area = _poly_signed_area(outer)
-    orientation = 1 if outer_area >= 0 else -1
 
-    holes = []
+def _orient_loop(points, want_positive=True):
+    if not points:
+        return []
+    core = points[:-1] if len(points) > 1 else points
+    if len(core) < 3:
+        return [point(p) for p in points]
+    pts = [point(p) for p in core]
+    area = _poly_signed_area(points)
+    should_reverse = (want_positive and area < 0) or (not want_positive and area > 0)
+    if should_reverse:
+        pts.reverse()
+    pts.append(point(pts[0]))
+    return pts
 
-    for pts in all_candidates:
-        if pts is outer:
+
+def _assemble_components(loop_points):
+    if not loop_points:
+        return []
+
+    nodes = []
+    for pts in loop_points:
+        if len(pts) < 3:
             continue
         area = _poly_signed_area(pts)
-        if orientation * area < 0:
-            holes.append(pts)
+        if abs(area) <= epsilon:
             continue
-        centroid = _polygon_centroid_xy(pts)
-        if _point_in_polygon_xy(outer, centroid):
-            holes.append(pts)
+        nodes.append({
+            'points': pts,
+            'area': area,
+            'abs_area': abs(area),
+            'centroid': _polygon_centroid_xy(pts),
+            'parent': None,
+            'children': [],
+        })
 
-    return outer, holes
+    if not nodes:
+        return []
+
+    for idx, node in enumerate(nodes):
+        parent_idx = None
+        for jdx, candidate in enumerate(nodes):
+            if idx == jdx:
+                continue
+            if candidate['abs_area'] <= node['abs_area'] + epsilon:
+                continue
+            if _point_in_polygon_xy(candidate['points'], node['centroid']):
+                if parent_idx is None or candidate['abs_area'] < nodes[parent_idx]['abs_area']:
+                    parent_idx = jdx
+        node['parent'] = parent_idx
+        if parent_idx is not None:
+            nodes[parent_idx]['children'].append(idx)
+
+    components = []
+
+    def visit(node_idx):
+        node = nodes[node_idx]
+        outer = _orient_loop(node['points'], want_positive=True)
+        holes = []
+        extras = []
+        for child_idx in node['children']:
+            child = nodes[child_idx]
+            holes.append(_orient_loop(child['points'], want_positive=False))
+            for grand_idx in child['children']:
+                extras.extend(visit(grand_idx))
+        extras.insert(0, (outer, holes))
+        return extras
+
+    for idx, node in enumerate(nodes):
+        if node['parent'] is None:
+            components.extend(visit(idx))
+
+    return components
+
+
+def geomlist2poly_components(gl, minang=5.0, minlen=0.25, checkcont=False):
+    """Return a list of ``(outer, holes)`` tuples extracted from ``gl``."""
+
+    if checkcont and not iscontinuousgeomlist(gl):
+        raise ValueError('non-continuous geometry list passed to geomlist2poly')
+
+    snap_tol = max(epsilon * 10, minlen * 0.1)
+    loops = _collect_candidate_polygons(gl, minang, minlen, snap_tol)
+    return _assemble_components(loops)
+
+
+def geomlist2poly_with_holes(gl, minang=5.0, minlen=0.25, checkcont=False):
+    components = geomlist2poly_components(gl, minang, minlen, checkcont)
+    if not components:
+        return [], []
+    return components[0]
 
 
 def _polygon_centroid_xy(pts):

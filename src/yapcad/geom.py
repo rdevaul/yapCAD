@@ -2495,6 +2495,8 @@ def intersectGeomListXY(g,gl,inside=True,params=False):
         if gtype == 'glist':
             r = intersectGeomListXY(gl[0],g,inside,params)
             if params:
+                if isinstance(r,bool):
+                    return r
                 return [ r[1], r[0] ]
             else:
                 return r

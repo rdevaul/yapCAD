@@ -1,11 +1,14 @@
 import os
 import pytest
 
-from yapcad.geom import line, point
-from yapcad.geom3d import poly2surfaceXY, solid
+from yapcad.combine import Boolean
+from yapcad.geom import arc, line, point, translate
+from yapcad.geom3d import poly2surfaceXY, solid, translatesurface, surf2lines
 from yapcad.geom3d_util import conic, sphere
+from yapcad.geom_util import geomlist2poly, geomlist2poly_components
 from yapcad.mesh import mesh_view
 from yapcad.pyglet_drawable import pygletDraw
+from yapcad.poly import Polygon, Rect
 
 
 VISUALTEST = os.environ.get('VISUALTEST', 'false').lower() in ('true', '1', 'yes')
@@ -118,5 +121,82 @@ def test_mesh_view_visual_normals():
     dd.linecolor = 'green'
     dd.draw(cone)
     draw_normals(cone, 'blue')
+
+    dd.display()
+
+
+@pytest.mark.visual
+def test_mesh_view_visual_multi_component_tessellation():
+    if not VISUALTEST:
+        pytest.skip("Visual tests disabled (set VISUALTEST=true to enable)")
+
+    dd = pygletDraw()
+    dd.polystyle = 'both'
+
+    multi_outer = [
+        point(-4, -2),
+        point(0, -2),
+        point(2, 0),
+        point(0, 2),
+        point(-4, 2),
+        point(-4, -2),
+    ]
+
+    hole_one = [
+        point(-3.0, -1.0),
+        point(-2.0, -1.0),
+        point(-2.0, 0.0),
+        point(-3.0, 0.0),
+        point(-3.0, -1.0),
+    ]
+
+    hole_two = [
+        point(-1.5, 0.5),
+        point(-0.5, 0.5),
+        point(-0.5, 1.5),
+        point(-1.5, 1.5),
+        point(-1.5, 0.5),
+    ]
+
+    multi_surface, _ = poly2surfaceXY(multi_outer, holepolys=[hole_one, hole_two])
+    dd.linecolor = 'orange'
+    dd.draw_surface(multi_surface)
+
+    outer_a = Rect(4, 4)
+    outer_b = Rect(2, 2, center=point(5.5, 0))
+    union_shape = Boolean('union', [outer_a, outer_b])
+    components = geomlist2poly_components(union_shape.geom)
+
+    palette = ['cyan', 'magenta', 'yellow', 'lime']
+
+    for idx, (outer_poly, holes) in enumerate(components):
+        surf, _ = poly2surfaceXY(outer_poly, holepolys=holes)
+        shifted = translatesurface(surf, point(6, idx * 3.5, 0))
+        dd.linecolor = palette[idx % len(palette)]
+        dd.draw_surface(shifted)
+
+    def _circle_polygon(cx, cy, radius, segments=48):
+        arc_geom = [arc(point(cx, cy), radius)]
+        sampled = geomlist2poly(arc_geom, minang=360.0 / segments)
+        return Polygon(sampled)
+
+    base_square = Rect(6, 6)
+    circle_a = _circle_polygon(-1.6, -0.8, 1.2)
+    circle_b = _circle_polygon(1.6, 0.8, 1.0)
+    carved_first = Boolean('difference', [base_square, circle_a])
+    carved = Boolean('difference', [carved_first, circle_b])
+    carved_components = geomlist2poly_components(carved.geom)
+
+    if carved_components:
+        carved_outer, carved_holes = carved_components[0]
+        carved_surface, _ = poly2surfaceXY(carved_outer, holepolys=carved_holes)
+        carved_surface = translatesurface(carved_surface, point(-6, -4, 0))
+        dd.linecolor = 'lightsteelblue'
+        dd.draw_surface(carved_surface)
+
+        edge_lines = surf2lines(carved_surface)
+        edge_lines = translate(edge_lines, point(0, 0, 0.15))
+        dd.linecolor = 'yellow'
+        dd.draw(edge_lines)
 
     dd.display()

@@ -214,13 +214,17 @@ is a DXF example:
    dd.display()
 
 For a 3D example that generates a complete rocket assembly and exports
-STL::
+STL and STEP::
 
    from pathlib import Path
    from examples.rocket_demo import build_rocket, export_stl
+   from yapcad.io.step import write_step
 
    components, assembly = build_rocket()
    export_stl(assembly, Path("rocket_demo.stl"))
+   write_step(assembly, Path("rocket_demo.step"))
+
+There is also an advanced ``rocket_grid_demo.py`` example featuring grid fins, a linear exploded view, and simultaneous STL/STEP export.
 
 The **yapCAD** system isn’t just about rendering, of course, it’s about
 computational geometry. For example, if you want to calculate the

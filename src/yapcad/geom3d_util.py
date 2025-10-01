@@ -499,13 +499,50 @@ def extrude(surf,distance,direction=vect(0,0,1,0)):
 
     loops = []
     if s2[4]:
-        loops.append(s2[4])
-    loops.extend([loop for loop in s2[5] if loop])
+        loops.append(list(s2[4]))
+    loops.extend([list(loop) for loop in s2[5] if loop])
 
     stripV = s2[1] + s1[1]  # vertices for the edge strips
     stripN = [vect(0, 0, 1, 0)] * len(stripV)  # placeholder normals
     stripF: list[list[int]] = []
     offset = len(s2[1])
+
+    def _project(idx):
+        point3 = stripV[idx]
+        return point3[0], point3[1]
+
+    if surf[3]:
+        try:
+            tri = surf[3][0]
+            basis = tri2p0n([surf[1][tri[0]], surf[1][tri[1]], surf[1][tri[2]]], basis=True)
+            if basis:
+                forward = basis[2]
+
+                def _project(idx):  # type: ignore[redefinition]
+                    vec = forward.mul(stripV[idx])
+                    return vec[0], vec[1]
+        except Exception:  # pragma: no cover
+            pass
+
+    def loop_area(loop):
+        if len(loop) < 3:
+            return 0.0
+        area = 0.0
+        for i in range(len(loop)):
+            x0, y0 = _project(loop[i])
+            x1, y1 = _project(loop[(i + 1) % len(loop)])
+            area += x0 * y1 - x1 * y0
+        return area / 2.0
+
+    if loops:
+        outer_area = loop_area(loops[0])
+        if outer_area < 0:
+            loops[0].reverse()
+            outer_area = -outer_area
+        outer_sign = 1 if outer_area >= 0 else -1
+        for loop in loops[1:]:
+            if loop_area(loop) * outer_sign > 0:
+                loop.reverse()
 
     for bndry in loops:
         if len(bndry) < 2:
