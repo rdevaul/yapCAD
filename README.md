@@ -3,6 +3,8 @@ yet another procedural CAD and computational geometry system written in python 3
 
 ![**yapCAD** 3D rocket example](images/RocketDemoScreenshot.png)
 
+![**yapCAD** rocket cutaway STEP export](images/RocketCutawaySTEP.png)
+
 ## what's **yapCAD** for?
 
 First and foremost, **yapCAD** is a framework for creating
@@ -49,7 +51,10 @@ You will find the examples in the `yapCAD/examples` directory.
 
 For a fully worked 2D parametric design system, see the `boxcut`
 example.  For a 3D generative example that builds a multi-stage rocket,
-visualises it, and exports STL, see `examples/rocket_demo.py`.
+visualises it, and exports STL, see `examples/rocket_demo.py`.  To see
+how the newer helper utilities can be combined to lay out internal
+subsystems and export STEP, try `examples/rocket_cutaway_internal.py`
+— the screenshot above shows its STEP output rendered in FreeCAD.
 
 ### documentation
 
@@ -57,7 +62,18 @@ Online **yapCAD** documentation can be found here:
 https://yapcad.readthedocs.io/en/latest/ &mdash; some module references
 lag behind the current 3D-focused APIs, so you may want to build a
 local copy (see below) to explore the latest `geometry_utils`,
-`metadata`, `geometry_checks`, and `io.stl` modules.
+`geometry_checks`, `metadata`, and `io` modules. Recent additions worth
+calling out include:
+
+- `yapcad.geometry_utils` & `yapcad.triangulator` – robust triangle
+  utilities used by the ear-cut tessellator and STEP exporter.
+- `yapcad.geom3d_util.stack_solids` – a convenience routine that packs
+  solids along an axis using bounding boxes and optional spacing
+  directives (used by the rocket cutaway demo).
+- `yapcad.geom3d_util.cutaway_solid_x` – simple clipping helper for
+  creating sectional views of assemblies.
+- `yapcad.io.step`/`yapcad.io.stl` – faceted exporters suitable for
+  interchange with FreeCAD, slicers, and other simulation tools.
 
 To build the HTML **yapCAD** documentation locally, install the
 documentation dependencies and run Sphinx from the project root:
