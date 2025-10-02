@@ -9,6 +9,12 @@ python 3, now with a growing focus on 3D generative design and STL export
 
    **yapCAD** rocket example
 
+.. figure:: images/RocketCutawaySTEP.png
+   :alt: **yapCAD** rocket cutaway STEP export
+
+   Internal layout generated with ``examples/rocket_cutaway_internal.py`` and
+   rendered from the exported STEP file in FreeCAD.
+
 what’s **yapCAD** for?
 ----------------------
 
@@ -62,7 +68,9 @@ find the examples in the ``yapCAD/examples`` directory.
 
 For a fully worked 2D parametric design system, see the ``boxcut`` example.
 For a 3D generative example that builds a multi-stage rocket, visualises
-it, and exports STL, see ``examples/rocket_demo.py``.
+it, and exports STL, see ``examples/rocket_demo.py``. To explore the new
+stacking and cutaway helpers while exporting STEP, run
+``examples/rocket_cutaway_internal.py`` whose output is shown above.
 
 documentation
 ~~~~~~~~~~~~~
@@ -71,7 +79,17 @@ Online **yapCAD** documentation can be found here:
 https://yapcad.readthedocs.io/en/latest/ — some module references lag
 behind the latest 3D-focused APIs, so you may want to build a local copy
 as described below to explore ``geometry_utils``, ``geometry_checks``,
-``metadata``, and ``io.stl``.
+``metadata``, and the ``yapcad.io`` exporters. Highlights from the most
+recent updates include:
+
+* ``yapcad.geometry_utils`` and ``yapcad.triangulator`` – triangle helpers
+  backing the ear-cut tessellator and faceted exporters.
+* ``yapcad.geom3d_util.stack_solids`` – quickly pack solids along an axis
+  using bounding boxes and optional ``space:<distance>`` directives.
+* ``yapcad.geom3d_util.cutaway_solid_x`` – trim solids against a plane to
+  create sectional visualisations.
+* ``yapcad.io.step``/``yapcad.io.stl`` – streamlined mesh exporters for
+  interchange with FreeCAD, slicers, and analysis tools.
 
 To build the HTML **yapCAD** documentation locally, install the
 documentation dependencies and run Sphinx from the project root::

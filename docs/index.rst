@@ -8,6 +8,13 @@ yapCAD
 
    Multi-stage rocket generated with **yapCAD** and exported to STL.
 
+.. figure:: images/RocketCutawaySTEP.png
+   :width: 400px
+   :alt: rocket internal cutaway
+
+   Internal layout from ``examples/rocket_cutaway_internal.py`` rendered from
+   the exported STEP file in FreeCAD.
+
 Welcome to **yapCAD**, yet another procedural CAD and computational
 geometry system, written in Python_.  The project is still evolving,
 but recent releases focus on making 3D generative workflows (solid
@@ -50,9 +57,11 @@ original 2D/DXF tooling.
     Much of the documentation for **yapCAD** can be found in the
     **README** files, as well as in the ``yapcad.geom`` module
     documentation linked below.  New helper modules worth exploring
-    include ``yapcad.geometry_utils`` (triangle helpers),
-    ``yapcad.geometry_checks`` (mesh validation), ``yapcad.metadata``
-    (surface/solid provenance), and ``yapcad.io`` for STL/STEP export.
+    include ``yapcad.geometry_utils``/``yapcad.triangulator`` (triangle
+    helpers and ear-cut tessellation), ``yapcad.geometry_checks`` (mesh
+    validation), ``yapcad.metadata`` (surface/solid provenance),
+    ``yapcad.geom3d_util.stack_solids`` and ``cutaway_solid_x`` (layout and
+    section tools), and ``yapcad.io`` for STL/STEP export.
 
 Contents
 ========

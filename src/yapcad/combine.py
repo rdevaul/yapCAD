@@ -12,7 +12,7 @@ class Boolean(Geometry):
     def __repr__(self):
         return f"Boolean({self.type},{self.elem})"
 
-    def __init__(self,type='union',polys=[]):
+    def __init__(self,type='union',polys=[], *, minang=5.0, minlen=0.25):
         super().__init__()
         self._setClosed(True)
         self._setSampleable(True)
@@ -26,14 +26,45 @@ class Boolean(Geometry):
         self.__type=type
         self._setUpdate(True)
         self.__outline=[]
+        self.__minang = float(minang)
+        self.__minlen = float(minlen)
 
     @property
     def type(self):
         return self.__type
 
+    def _poly_to_segments(self, poly):
+        segments = []
+        if not poly:
+            return segments
+        for i in range(1, len(poly)):
+            segments.append([poly[i - 1], poly[i]])
+        return segments
+
+    def _prepare_geom(self, geom_obj):
+        if isinstance(geom_obj, Geometry):
+            gl = geom_obj.geom
+        else:
+            gl = geom_obj
+
+        try:
+            outer, holes = geomlist2poly_with_holes(gl, self.__minang, self.__minlen, checkcont=False)
+        except Exception:
+            if isgeomlist(gl):
+                return gl
+            return []
+
+        if not outer:
+            return []
+
+        segments = self._poly_to_segments(outer)
+        for hole in holes:
+            segments.extend(self._poly_to_segments(hole))
+        return segments
+
     def _combine_geom(self,g1,g2):
-        gl1 = g1.geom
-        gl2 = g2.geom
+        gl1 = self._prepare_geom(g1)
+        gl2 = self._prepare_geom(g2)
 
         return combineglist(gl1,gl2,self.type)
 
@@ -83,16 +114,18 @@ class Boolean(Geometry):
     @property
     def geom(self):
         if self.update:
-            if len(self.elem)==2:
-                self.__outline = self._combine_geom(self.elem[0],self.elem[1])
-                self.__outline = cullZeroLength(self.__outline)
-                self._setUpdate(False)
-                self._setBbox(bbox(self.__outline))
-                self._setLength(length(self.__outline))
-                self._setCenter(self._calcCenter())
-            else:
-                raise NotImplementedError(
-                    f"don't know how to do {self.type} yet for {len(self.elem)} polygons")
+            if len(self.elem) < 2:
+                raise ValueError('Boolean requires at least two operands')
+
+            result = self.elem[0]
+            for operand in self.elem[1:]:
+                result = self._combine_geom(result, operand)
+
+            self.__outline = cullZeroLength(result)
+            self._setUpdate(False)
+            self._setBbox(bbox(self.__outline))
+            self._setLength(length(self.__outline))
+            self._setCenter(self._calcCenter())
         return deepcopy(self.__outline)
         
         

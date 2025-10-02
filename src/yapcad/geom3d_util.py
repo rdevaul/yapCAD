@@ -571,8 +571,310 @@ def extrude(surf,distance,direction=vect(0,0,1,0)):
     return solid([s2,strip,s1],
                  [],
                  ['procedure',call])
-    
-        
+
+
+
+def _loft_surface(lower_loop, upper_loop, invert=False):
+    """Create a surface connecting two XY loops."""
+
+    if not lower_loop or not upper_loop:
+        raise ValueError('invalid loops passed to loft surface')
+    lower = [point(p) for p in lower_loop[:-1]]
+    upper = [point(p) for p in upper_loop[:-1]]
+    if len(lower) != len(upper):
+        raise ValueError('loop length mismatch in loft surface')
+
+    vertices = lower + upper
+    normals = [[0, 0, 1, 0] for _ in vertices]
+    faces = []
+    count = len(lower)
+
+    for idx in range(count):
+        j0 = idx
+        j1 = (idx + 1) % count
+        j2 = j1 + count
+        j3 = idx + count
+
+        tri1 = [j0, j1, j2]
+        tri2 = [j0, j2, j3]
+        if invert:
+            tri1 = list(reversed(tri1))
+            tri2 = list(reversed(tri2))
+
+        try:
+            _, normal = tri2p0n([vertices[tri1[0]],
+                                 vertices[tri1[1]],
+                                 vertices[tri1[2]]])
+        except ValueError:
+            continue
+
+        for vid in {tri1[0], tri1[1], tri1[2], tri2[0], tri2[1], tri2[2]}:
+            normals[vid] = normal
+
+        faces.append(tri1)
+        faces.append(tri2)
+
+    return surface(vertices, normals, faces)
+
+
         
 
     
+
+def _circle_loop(center_xy, radius, minang):
+    arc_geom = [arc(point(center_xy[0], center_xy[1]), radius)]
+    loop = geomlist2poly(arc_geom, minang=minang, minlen=0.0)
+    if not loop:
+        raise ValueError('failed to generate circle loop')
+    return loop
+
+
+def tube(outer_diameter, wall_thickness, length,
+         center=None, *, base_point=None, minang=5.0, include_caps=True):
+    """Create a cylindrical tube solid.
+
+    ``base_point`` (or legacy ``center`` argument) identifies the base of the
+    cylindrical wall, i.e. the plane where ``z == base_point[2]``.
+    """
+
+    if base_point is not None and center is not None:
+        raise ValueError('specify only base_point (preferred) or center, not both')
+    if base_point is None:
+        base_point = center if center is not None else point(0, 0, 0)
+    if len(base_point) < 3:
+        raise ValueError('base_point must contain x, y, z components')
+    base_point = point(base_point)
+
+    if wall_thickness <= epsilon:
+        raise ValueError('wall thickness must be positive')
+
+    outer_radius = outer_diameter / 2.0
+    inner_radius = outer_radius - wall_thickness
+    if inner_radius <= epsilon:
+        raise ValueError('wall thickness too large for tube')
+
+    base_z = base_point[2]
+    center_xy = (base_point[0], base_point[1])
+
+    base_loop_xy = _circle_loop(center_xy, outer_radius, minang)
+    inner_loop_xy = list(reversed(_circle_loop(center_xy, inner_radius, minang)))
+
+    base_surface, _ = poly2surfaceXY(base_loop_xy, holepolys=[inner_loop_xy])
+    base_surface = reversesurface(base_surface)
+    base_surface = translatesurface(base_surface, point(0, 0, base_z))
+
+    top_surface, _ = poly2surfaceXY(base_loop_xy, holepolys=[inner_loop_xy])
+    top_surface = translatesurface(top_surface, point(0, 0, base_z + length))
+
+    outer_base = [point(p[0], p[1], base_z, 1.0) for p in base_loop_xy[:-1]]
+    inner_base = [point(p[0], p[1], base_z, 1.0) for p in inner_loop_xy[:-1]]
+    outer_top = [point(p[0], p[1], base_z + length, 1.0) for p in base_loop_xy[:-1]]
+    inner_top = [point(p[0], p[1], base_z + length, 1.0) for p in inner_loop_xy[:-1]]
+
+    outer_side = _loft_surface(outer_base, outer_top)
+    inner_side = _loft_surface(inner_top, inner_base, invert=True)
+
+    call = f"yapcad.geom3d_util.tube({outer_diameter}, {wall_thickness}, {length}, base_point={base_point})"
+    surfaces = [base_surface, outer_side, top_surface, inner_side]
+    if not include_caps:
+        surfaces = [outer_side, inner_side]
+    return solid(surfaces,
+                 [],
+                 ['procedure', call])
+
+
+def conic_tube(bottom_outer_diameter, top_outer_diameter, wall_thickness,
+               length, center=None, *, base_point=None, minang=5.0, include_caps=True):
+    """Create a conic tube with varying outer diameter.
+
+    ``base_point`` (or ``center`` legacy argument) marks the axial base of the
+    frustum (the larger-diameter end when stacked)."""
+
+    if base_point is not None and center is not None:
+        raise ValueError('specify only base_point (preferred) or center, not both')
+    if base_point is None:
+        base_point = center if center is not None else point(0, 0, 0)
+    base_point = point(base_point)
+
+    if wall_thickness <= epsilon:
+        raise ValueError('wall thickness must be positive')
+
+    r0_outer = bottom_outer_diameter / 2.0
+    r1_outer = top_outer_diameter / 2.0
+    r0_inner = r0_outer - wall_thickness
+    r1_inner = r1_outer - wall_thickness
+    if r0_inner <= epsilon or r1_inner <= epsilon:
+        raise ValueError('wall thickness too large for conic tube')
+
+    base_z = base_point[2]
+    center_xy = (base_point[0], base_point[1])
+
+    base_outer_loop = _circle_loop(center_xy, r0_outer, minang)
+    base_inner_loop = list(reversed(_circle_loop(center_xy, r0_inner, minang)))
+
+    top_outer_loop = _circle_loop(center_xy, r1_outer, minang)
+    top_inner_loop = list(reversed(_circle_loop(center_xy, r1_inner, minang)))
+
+    base_surface, _ = poly2surfaceXY(base_outer_loop, holepolys=[base_inner_loop])
+    base_surface = reversesurface(base_surface)
+    base_surface = translatesurface(base_surface, point(0, 0, base_z))
+
+    top_surface, _ = poly2surfaceXY(top_outer_loop, holepolys=[top_inner_loop])
+    top_surface = translatesurface(top_surface, point(0, 0, base_z + length))
+
+    outer_base = [point(p[0], p[1], base_z, 1.0) for p in base_outer_loop[:-1]]
+    outer_top = [point(p[0], p[1], base_z + length, 1.0) for p in top_outer_loop[:-1]]
+    inner_base = [point(p[0], p[1], base_z, 1.0) for p in base_inner_loop[:-1]]
+    inner_top = [point(p[0], p[1], base_z + length, 1.0) for p in top_inner_loop[:-1]]
+
+    outer_side = _loft_surface(outer_base, outer_top)
+    inner_side = _loft_surface(inner_top, inner_base, invert=True)
+
+    call = ("yapcad.geom3d_util.conic_tube("
+            f"{bottom_outer_diameter}, {top_outer_diameter}, {wall_thickness}, {length}, base_point={base_point})")
+    surfaces = [base_surface, outer_side, top_surface, inner_side]
+    if not include_caps:
+        surfaces = [outer_side, inner_side]
+    return solid(surfaces,
+                 [],
+                 ['procedure', call])
+
+
+def spherical_shell(outer_diameter, wall_thickness,
+                    solid_angle=4 * math.pi, center=point(0, 0, 0),
+                    *, minang=5.0, steps=24):
+    """Create a spherical shell or cap defined by a solid angle."""
+
+    if wall_thickness <= epsilon:
+        raise ValueError('wall thickness must be positive')
+
+    outer_radius = outer_diameter / 2.0
+    inner_radius = outer_radius - wall_thickness
+    if inner_radius <= epsilon:
+        raise ValueError('wall thickness too large for spherical shell')
+
+    solid_angle = max(min(solid_angle, 4 * math.pi), epsilon)
+    cos_theta = 1.0 - solid_angle / (2.0 * math.pi)
+    cos_theta = max(-1.0, min(1.0, cos_theta))
+    theta = math.acos(cos_theta)
+
+    arc_samples = max(12, int(round(360.0 / minang)))
+    lat_steps = max(4, int(math.ceil(theta / math.radians(minang))))
+
+    cz = center[2]
+
+    def _sphere_contour(radius):
+        def contour(z):
+            dz = z - cz
+            dz = max(min(dz, radius), -radius)
+            return math.sqrt(max(radius * radius - dz * dz, 0.0))
+        return contour
+
+    z_start_outer = cz + outer_radius * math.cos(theta)
+    z_start_inner = cz + inner_radius * math.cos(theta)
+    z_end_outer = cz + outer_radius
+    z_end_inner = cz + inner_radius
+
+    outer_surface = makeRevolutionSurface(_sphere_contour(outer_radius),
+                                          z_start_outer, z_end_outer,
+                                          max(steps, lat_steps),
+                                          arcSamples=arc_samples)
+    outer_surface = translatesurface(outer_surface, point(center[0], center[1], 0))
+
+    inner_surface = makeRevolutionSurface(_sphere_contour(inner_radius),
+                                          z_start_inner, z_end_inner,
+                                          max(steps, lat_steps),
+                                          arcSamples=arc_samples)
+    inner_surface = translatesurface(inner_surface, point(center[0], center[1], 0))
+    inner_surface = reversesurface(inner_surface)
+
+    surfaces = [outer_surface, inner_surface]
+
+    if theta < math.pi - epsilon:
+        r_outer_ring = outer_radius * math.sin(theta)
+        r_inner_ring = inner_radius * math.sin(theta)
+
+        base_outer = [point(center[0] + p[0], center[1] + p[1], cz + outer_radius * math.cos(theta), 1.0)
+                      for p in _circle_loop((0, 0), r_outer_ring, minang)[:-1]]
+        base_inner = [point(center[0] + p[0], center[1] + p[1], cz + inner_radius * math.cos(theta), 1.0)
+#                      for p in list(reversed(_circle_loop((0, 0), r_inner_ring, minang)))[:-1]]
+                      for p in _circle_loop((0, 0), r_inner_ring, minang)[:-1]]
+
+        conic_surface = _loft_surface(base_outer, base_inner, invert=False)
+        surfaces.append(conic_surface)
+
+    call = ("yapcad.geom3d_util.spherical_shell("
+            f"{outer_diameter}, {wall_thickness}, {solid_angle}, center={center})")
+    return solid(surfaces,
+                 [],
+                 ['procedure', call])
+
+
+def stack_solids(solids, *, axis='z', start=0.0, gap=0.0, align='center'):
+    """Return translated copies of ``solids`` stacked along an axis."""
+
+    if not solids:
+        return []
+
+    axis = axis.lower()
+    if axis not in ('x', 'y', 'z'):
+        raise ValueError('axis must be one of x, y, or z')
+
+    axis_idx = {'x': 0, 'y': 1, 'z': 2}[axis]
+    other_idx = [i for i in range(3) if i != axis_idx]
+
+    placed = []
+    cursor = start
+    reference = None
+    pending_gap = 0.0
+
+    for entry in solids:
+        if isinstance(entry, str):
+            directive = entry.strip().lower()
+            if directive.startswith('space:'):
+                try:
+                    value = float(directive.split(':', 1)[1])
+                except ValueError as exc:
+                    raise ValueError(f'bad spacing directive {entry}') from exc
+                pending_gap += value
+                continue
+            raise ValueError(f'unsupported directive {entry!r} in stack_solids')
+
+        solid_obj = entry
+        bbox = solidbbox(solid_obj)
+        length = bbox[1][axis_idx] - bbox[0][axis_idx]
+        if length < epsilon:
+            raise ValueError('solid has zero length along stacking axis')
+
+        cursor += pending_gap
+        pending_gap = 0.0
+
+        translation = [0.0, 0.0, 0.0]
+        translation[axis_idx] = cursor - bbox[0][axis_idx]
+
+        if reference is None:
+            if align == 'center':
+                reference = [
+                    (bbox[0][idx] + bbox[1][idx]) / 2.0 for idx in other_idx
+                ]
+            elif align == 'min':
+                reference = [bbox[0][idx] for idx in other_idx]
+            elif align == 'max':
+                reference = [bbox[1][idx] for idx in other_idx]
+            else:
+                raise ValueError('align must be center, min, or max')
+
+        if align == 'center':
+            for ref_val, idx in zip(reference, other_idx):
+                translation[idx] = ref_val - (bbox[0][idx] + bbox[1][idx]) / 2.0
+        elif align == 'min':
+            for ref_val, idx in zip(reference, other_idx):
+                translation[idx] = ref_val - bbox[0][idx]
+        elif align == 'max':
+            for ref_val, idx in zip(reference, other_idx):
+                translation[idx] = ref_val - bbox[1][idx]
+
+        placed.append(translatesolid(solid_obj, vect(translation[0], translation[1], translation[2], 0)))
+        cursor += length + gap
+
+    return placed
