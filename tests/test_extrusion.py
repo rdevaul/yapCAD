@@ -24,8 +24,6 @@ def test_extrude_pentagon_plate(tmp_path, corner_radius):
                        outer_radius * math.sin(ang))
         outer.addArc(arc(corner, corner_radius))
 
-    outer_sampled = Polygon(geomlist2poly(outer.geom, minang=5.0))
-
     hole_centers = []
     inner_ring_radius = 4.5
     hole_radius = 1.2
@@ -37,11 +35,11 @@ def test_extrude_pentagon_plate(tmp_path, corner_radius):
 
     holes = []
     for center in hole_centers:
-        circle_geom = Polygon()
-        circle_geom.addArc(arc(center, hole_radius))
-        holes.append(Polygon(geomlist2poly(circle_geom.geom, minang=5.0)))
+        hole = Polygon()
+        hole.addArc(arc(center, hole_radius))
+        holes.append(hole)
 
-    shape = outer_sampled
+    shape = outer
     for hole in holes:
         shape = Boolean('difference', [shape, hole])
 

@@ -653,8 +653,17 @@ def solidbbox(sld):
         raise ValueError('bad argument to solidbbox')
 
     box = []
-    for s in sld[1]:
-        box = surfacebbox(s + box)
+    for surf in sld[1]:
+        sb = surfacebbox(surf)
+        if not box:
+            box = sb
+        else:
+            box = [point(min(box[0][0], sb[0][0]),
+                         min(box[0][1], sb[0][1]),
+                         min(box[0][2], sb[0][2])),
+                   point(max(box[1][0], sb[1][0]),
+                         max(box[1][1], sb[1][1]),
+                         max(box[1][2], sb[1][2]))]
 
     return box
 
