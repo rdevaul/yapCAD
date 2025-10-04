@@ -409,6 +409,91 @@ and polygon-specific computational geometry operations, notably:
 
 """
 
+## spline curves
+## =============
+##
+## Modern procedural CAD workflows frequently mix straight segments with
+## smooth interpolants.  **yapCAD** represents spline curves as tagged lists so
+## they can travel through geometry lists and be sampled on demand.
+
+
+def catmullrom(points, closed=False, alpha=0.5):
+    """Return a Catmull-Rom spline definition."""
+
+    pts = [point(p) for p in points]
+    if len(pts) < 2:
+        raise ValueError('catmullrom requires at least two control points')
+    return ['catmullrom', pts, {'closed': bool(closed), 'alpha': float(alpha)}]
+
+
+def iscatmullrom(obj):
+    """Return ``True`` if *obj* is a Catmull-Rom spline."""
+
+    return (
+        isinstance(obj, list)
+        and len(obj) == 3
+        and obj[0] == 'catmullrom'
+        and isinstance(obj[1], list)
+        and isinstance(obj[2], dict)
+    )
+
+
+def nurbs(control_points, *, degree=3, weights=None, knots=None):
+    """Return a NURBS curve definition."""
+
+    pts = [point(p) for p in control_points]
+    n = len(pts)
+    if n == 0:
+        raise ValueError('nurbs requires at least one control point')
+    if degree < 1:
+        raise ValueError('nurbs degree must be >= 1')
+    if n < degree + 1:
+        raise ValueError('nurbs requires len(control_points) >= degree + 1')
+
+    if weights is None:
+        wts = [1.0] * n
+    else:
+        if len(weights) != n:
+            raise ValueError('weights must match number of control points')
+        wts = [float(w) for w in weights]
+
+    if knots is None:
+        knots = _open_uniform_knot_vector(n, degree)
+    else:
+        if len(knots) != n + degree + 1:
+            raise ValueError('knot vector must have length n + degree + 1')
+        knots = [float(k) for k in knots]
+
+    return ['nurbs', pts, {'degree': int(degree), 'weights': wts, 'knots': knots}]
+
+
+def isnurbs(obj):
+    """Return ``True`` if *obj* is a NURBS curve."""
+
+    return (
+        isinstance(obj, list)
+        and len(obj) == 3
+        and obj[0] == 'nurbs'
+        and isinstance(obj[1], list)
+        and isinstance(obj[2], dict)
+    )
+
+
+def _open_uniform_knot_vector(count, degree):
+    """Generate an open-uniform knot vector of length ``count + degree + 1``."""
+
+    interior = count - degree
+    length = count + degree + 1
+    knots = [0.0] * (degree + 1)
+    if interior > 1:
+        for j in range(1, interior):
+            knots.append(j / (interior - 1))
+    elif interior == 1:
+        knots.append(0.5)
+    knots.extend([1.0] * (degree + 1))
+    return knots[:length]
+
+
 from math import *
 import mpmath as mpm
 import copy
@@ -2721,6 +2806,12 @@ def sample(x,u):
         return samplearc(x,u)
     elif ispoly(x):
         return samplepoly(x,u)
+    elif iscatmullrom(x):
+        from yapcad.spline import evaluate_catmullrom
+        return evaluate_catmullrom(x, u)
+    elif isnurbs(x):
+        from yapcad.spline import evaluate_nurbs
+        return evaluate_nurbs(x, u)
     elif isgeomlist(x):
         return samplegeomlist(x,u)
     else:
@@ -2744,10 +2835,32 @@ def unsample(x,p):
         return unsamplearc(x,p)
     elif ispoly(x):
         return unsamplepoly(x,p)
+    elif iscatmullrom(x):
+        from yapcad.spline import evaluate_catmullrom
+        return _unsample_curve(x, p, evaluate_catmullrom)
+    elif isnurbs(x):
+        from yapcad.spline import evaluate_nurbs
+        return _unsample_curve(x, p, evaluate_nurbs)
     elif isgeomlist(x):
         return unsamplegeomlist(x,p)
     else:
         raise ValueError("inappropriate type for unasample(): "+str(x))
+
+
+def _unsample_curve(curve, target, evaluator, *, steps=200):
+    """Return approximate parameter for ``target`` on ``curve`` or ``False``."""
+
+    target = point(target)
+    best_u = 0.0
+    best_d = float('inf')
+    for i in range(steps + 1):
+        u = i / steps
+        sample_pt = evaluator(curve, u)
+        d = dist(sample_pt, target)
+        if d < best_d:
+            best_d = d
+            best_u = u
+    return best_u if best_d <= epsilon * 10 else False
 
 def segment(x,u1,u2):
     """ given a figure x, create a new figure spanning the specified interval in the original figure

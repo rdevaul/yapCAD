@@ -286,6 +286,23 @@ class Drawable:
             else:
                 raise ValueError("bad value for polystyle: {}".format(self.polystyle))
             
+        elif iscatmullrom(x):
+            from yapcad.spline import sample_catmullrom
+            pts = sample_catmullrom(x)
+            closed = bool(x[2].get('closed', False))
+            for i in range(1, len(pts)):
+                self.draw_line(pts[i-1], pts[i])
+            if closed and pts:
+                self.draw_line(pts[-1], pts[0])
+        elif isnurbs(x):
+            from yapcad.spline import sample_nurbs
+            meta = x[2]
+            default = max(32, len(x[1]) * 8)
+            count = int(meta.get('samples', default))
+            pts = sample_nurbs(x, samples=max(4, count))
+            for i in range(1, len(pts)):
+                self.draw_line(pts[i-1], pts[i])
+            
         elif isinstance(x,Geometry):
             gl = x.geom
             self.draw(gl)
