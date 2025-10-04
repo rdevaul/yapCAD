@@ -3,8 +3,6 @@ yet another procedural CAD and computational geometry system written in python 3
 
 ![**yapCAD** 3D rocket example](images/RocketDemoScreenshot.png)
 
-![**yapCAD** rocket cutaway STEP export](images/RocketCutawaySTEP.png)
-
 ## what's **yapCAD** for?
 
 First and foremost, **yapCAD** is a framework for creating
@@ -49,12 +47,19 @@ examples, clone the github repository as shown above, and make sure
 that your PYTHONPATH includes the cloned top-level `yapCAD` directory.
 You will find the examples in the `yapCAD/examples` directory.
 
-For a fully worked 2D parametric design system, see the `boxcut`
-example.  For a 3D generative example that builds a multi-stage rocket,
-visualises it, and exports STL, see `examples/rocket_demo.py`.  To see
-how the newer helper utilities can be combined to lay out internal
-subsystems and export STEP, try `examples/rocket_cutaway_internal.py`
-— the screenshot above shows its STEP output rendered in FreeCAD.
+For a fully worked 2D parametric design system, see the `boxcut` example. For a
+3D generative example that builds a multi-stage rocket, visualises it, and
+exports STL, see `examples/rocket_demo.py`. **NOTE** The 3D rocket example code
+was generated in one shot by `gpt-5-codex` from the following prompt:
+
+    Using what you know about yapCAD, I'd like you to create a demo that builds a simple 3D model of a rocket, visualizes it using pyglet, and then writes out the STL file. I'd like the rocket to have a cluster of five engines, guidance fins, a cylindrical body with at least one diameter transition before the payload fairing, and an aerodynamic fairing. Can you do this for me?
+
+![**yapCAD** rocket cutaway STEP export](images/RocketCutawaySTEP.png)
+
+To see how the newer helper utilities can be combined to lay out internal
+subsystems and export STEP, try `examples/rocket_cutaway_internal.py` — the
+screenshot above shows its STEP output rendered in FreeCAD.
+
 
 ### documentation
 

@@ -9,6 +9,18 @@ python 3, now with a growing focus on 3D generative design and STL export
 
    **yapCAD** rocket example
 
+.. note::
+
+   The 3D rocket demo above was produced in a single shot by
+   ``gpt-5-codex`` from the prompt::
+
+      Using what you know about yapCAD, I'd like you to create a demo that
+      builds a simple 3D model of a rocket, visualizes it using pyglet, and
+      then writes out the STL file. I'd like the rocket to have a cluster of
+      five engines, guidance fins, a cylindrical body with at least one
+      diameter transition before the payload fairing, and an aerodynamic
+      fairing. Can you do this for me?
+
 .. figure:: images/RocketCutawaySTEP.png
    :alt: **yapCAD** rocket cutaway STEP export
 
@@ -67,9 +79,9 @@ PYTHONPATH includes the cloned top-level ``yapCAD`` directory. You will
 find the examples in the ``yapCAD/examples`` directory.
 
 For a fully worked 2D parametric design system, see the ``boxcut`` example.
-For a 3D generative example that builds a multi-stage rocket, visualises
-it, and exports STL, see ``examples/rocket_demo.py``. To explore the new
-stacking and cutaway helpers while exporting STEP, run
+For a 3D generative example that builds a multi-stage rocket, visualises it,
+and exports STL, see ``examples/rocket_demo.py``. To explore the new stacking
+and cutaway helpers while exporting STEP, run
 ``examples/rocket_cutaway_internal.py`` whose output is shown above.
 
 documentation

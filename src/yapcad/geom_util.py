@@ -23,6 +23,7 @@
 # SOFTWARE.
 
 from yapcad.geom import *
+from yapcad.spline import sample_catmullrom, sample_nurbs
 import math
 import random
 
@@ -212,6 +213,39 @@ def _convert_geom_sequence(seq, minang, minlen, snap_tol):
     return cleaned, nested_holes
 
 
+def _points_to_segments(points, *, closed=False):
+    segments = []
+    if not points:
+        return segments
+    prev = point(points[0])
+    for pt in points[1:]:
+        curr = point(pt)
+        if dist(prev, curr) > epsilon:
+            segments.append(line(prev, curr))
+        prev = curr
+    if closed:
+        start = point(points[0])
+        if dist(prev, start) > epsilon:
+            segments.append(line(prev, start))
+    return segments
+
+
+def _spline_segments_from_curve(curve, minlen):
+    if iscatmullrom(curve):
+        meta = curve[2]
+        default_segments = max(8, int(round(1.0 / max(minlen, epsilon))))
+        segs = int(meta.get('segments_per_span', default_segments))
+        samples = sample_catmullrom(curve, segments_per_span=max(1, segs))
+        closed = bool(meta.get('closed', False))
+        return _points_to_segments(samples, closed=closed)
+    if isnurbs(curve):
+        meta = curve[2]
+        default = max(32, len(curve[1]) * 8)
+        count = int(meta.get('samples', default))
+        samples = sample_nurbs(curve, samples=max(4, count))
+        return _points_to_segments(samples, closed=False)
+    return []
+
 def _collect_candidate_polygons(gl, minang, minlen, snap_tol):
     """Return raw polygon loops discovered within ``gl``."""
 
@@ -223,6 +257,9 @@ def _collect_candidate_polygons(gl, minang, minlen, snap_tol):
             continue
         if isline(element) or isarc(element):
             segments.append(element)
+            continue
+        if iscatmullrom(element) or isnurbs(element):
+            segments.extend(_spline_segments_from_curve(element, minlen))
             continue
         if ispoly(element):
             loops.append(_finalize_poly_points(element, snap_tol))
@@ -251,6 +288,13 @@ def _collect_candidate_polygons(gl, minang, minlen, snap_tol):
                 if poly:
                     loops.append(poly)
                 loops.extend(holes)
+            elif iscatmullrom(leftover) or isnurbs(leftover):
+                segments = _spline_segments_from_curve(leftover, minlen)
+                if segments:
+                    poly, holes = _convert_geom_sequence(segments, minang, minlen, snap_tol)
+                    if poly:
+                        loops.append(poly)
+                    loops.extend(holes)
             else:
                 raise ValueError(f'bad object in list passed to geomlist2poly: {leftover}')
 
