@@ -24,6 +24,8 @@ jobs:
       uses: actions/setup-python@v3
       with:
         python-version: ${{ matrix.python-version }}
+    - name: Install OpenGL (GLU)
+      run: sudo apt-get update && sudo apt-get install -y libglu1-mesa libglu1-mesa-dev
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
