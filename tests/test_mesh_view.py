@@ -11,7 +11,7 @@ from yapcad.poly import Polygon, Rect
 
 VISUALTEST = os.environ.get('VISUALTEST', 'false').lower() in ('true', '1', 'yes')
 if VISUALTEST:
-    from yapcad.pyglet_drawable import *
+    from yapcad.pyglet_drawable import pygletDraw
 
 def _strip_w(pt):
     return tuple(round(coord, 6) for coord in pt[:3])
