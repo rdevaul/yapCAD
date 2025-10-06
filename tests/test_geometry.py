@@ -11,7 +11,7 @@ from yapcad.geometry import *
 # Control flag for visual tests - set via environment variable or directly
 VISUALTEST = os.environ.get('VISUALTEST', 'false').lower() in ('true', '1', 'yes')
 if VISUALTEST:
-    from yapcad.pyglet_drawable import *
+    from yapcad.pyglet_drawable import pygletDraw
 
 class TestGeometry:
     """Tests for the Geometry class"""
