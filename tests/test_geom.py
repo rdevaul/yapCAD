@@ -2,7 +2,6 @@ import pytest
 import os
 from yapcad.geom import *
 from yapcad.geom_util import *
-from yapcad.pyglet_drawable import *
 
 ## unit tests for yapCAD geom.py
 
@@ -476,6 +475,7 @@ class TestPoly:
         """Visual test of intersection calculation - requires display"""
         if not VISUALTEST:
             pytest.skip("Visual tests disabled (set VISUALTEST=true to enable)")
+        from yapcad.pyglet_drawable import *
         dd = pygletDraw()
         dd.linecolor='silver'
         # make a polyline spiral
