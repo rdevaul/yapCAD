@@ -7,6 +7,8 @@ from yapcad.geom_util import *
 
 # Control flag for visual tests - set via environment variable or directly
 VISUALTEST = os.environ.get('VISUALTEST', 'false').lower() in ('true', '1', 'yes')
+if VISUALTEST:
+    from yapcad.pyglet_drawable import pygletDraw
 
 class TestPoint:
     """unit tests for yapCAD point functions"""
@@ -475,7 +477,6 @@ class TestPoly:
         """Visual test of intersection calculation - requires display"""
         if not VISUALTEST:
             pytest.skip("Visual tests disabled (set VISUALTEST=true to enable)")
-        from yapcad.pyglet_drawable import *
         dd = pygletDraw()
         dd.linecolor='silver'
         # make a polyline spiral
