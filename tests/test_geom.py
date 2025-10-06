@@ -2,12 +2,13 @@ import pytest
 import os
 from yapcad.geom import *
 from yapcad.geom_util import *
-from yapcad.pyglet_drawable import *
 
 ## unit tests for yapCAD geom.py
 
 # Control flag for visual tests - set via environment variable or directly
 VISUALTEST = os.environ.get('VISUALTEST', 'false').lower() in ('true', '1', 'yes')
+if VISUALTEST:
+    from yapcad.pyglet_drawable import pygletDraw
 
 class TestPoint:
     """unit tests for yapCAD point functions"""

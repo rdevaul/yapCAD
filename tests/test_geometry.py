@@ -1,17 +1,16 @@
 import pytest
 import os
 import random
-from yapcad.pyglet_drawable import *
 from yapcad.geom import *
 from yapcad.geom_util import *
 from yapcad.geometry import *
-from yapcad.pyglet_drawable import *
 
 """test functions for the yapcad.geometry module"""
 
 # Control flag for visual tests - set via environment variable or directly
 VISUALTEST = os.environ.get('VISUALTEST', 'false').lower() in ('true', '1', 'yes')
-
+if VISUALTEST:
+    from yapcad.pyglet_drawable import pygletDraw
 
 class TestGeometry:
     """Tests for the Geometry class"""

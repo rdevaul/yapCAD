@@ -7,12 +7,11 @@ from yapcad.geom3d import poly2surfaceXY, solid, translatesurface, surf2lines
 from yapcad.geom3d_util import conic, sphere
 from yapcad.geom_util import geomlist2poly, geomlist2poly_components
 from yapcad.mesh import mesh_view
-from yapcad.pyglet_drawable import pygletDraw
 from yapcad.poly import Polygon, Rect
 
-
 VISUALTEST = os.environ.get('VISUALTEST', 'false').lower() in ('true', '1', 'yes')
-
+if VISUALTEST:
+    from yapcad.pyglet_drawable import pygletDraw
 
 def _strip_w(pt):
     return tuple(round(coord, 6) for coord in pt[:3])

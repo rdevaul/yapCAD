@@ -3,10 +3,11 @@ import os
 import random
 from yapcad.geom import *
 from yapcad.octtree import *
-from yapcad.pyglet_drawable import *
 
 # Control flag for visual tests - set via environment variable or directly
 VISUALTEST = os.environ.get('VISUALTEST', 'false').lower() in ('true', '1', 'yes')
+if VISUALTEST:
+    from yapcad.pyglet_drawable import pygletDraw
 
 def three2two(x):
     """take a 3D bounding box with non-zero z coordinates, return
