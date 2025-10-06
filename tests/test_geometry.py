@@ -1,7 +1,6 @@
 import pytest
 import os
 import random
-from yapcad.pyglet_drawable import *
 from yapcad.geom import *
 from yapcad.geom_util import *
 from yapcad.geometry import *
