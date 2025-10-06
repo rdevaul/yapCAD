@@ -11,7 +11,7 @@ from yapcad.combine import *
 # Control flag for visual tests - set via environment variable or directly
 VISUALTEST = os.environ.get('VISUALTEST', 'false').lower() in ('true', '1', 'yes')
 if VISUALTEST:
-    from yapcad.pyglet_drawable import *
+    from yapcad.pyglet_drawable import pygletDraw
 
 def randomPoints(bbox,numpoints):
     """Given a 3D bounding box and a number of points to generate, 
