@@ -708,5 +708,298 @@ class TestSurface:
         airship2 = mirror(airship2,"yz")
         airship2 = translate(airship2,point(0,0,50))
         dd.draw(airship2,name='airship')
-        
+
         dd.display()
+
+
+class TestSolidTopology:
+    """Test solid topology analysis functions: issolidclosed and volumeof"""
+
+    def test_issolidclosed_empty_solid(self):
+        """Empty solid should be considered closed"""
+        empty = solid([])
+        assert issolidclosed(empty)
+
+    def test_issolidclosed_single_surface(self):
+        """Single open surface is not a closed solid"""
+        # Create a simple triangular surface (not closed)
+        p1 = point(0, 0, 0)
+        p2 = point(1, 0, 0)
+        p3 = point(0.5, 1, 0)
+        surf = surface([p1, p2, p3],
+                      [[0, 0, 1, 0]] * 3,
+                      [[0, 1, 2]])
+
+        s = solid([surf])
+        # Single surface can't be closed - edges not shared by 2 faces
+        assert not issolidclosed(s)
+
+    def test_issolidclosed_tetrahedron(self):
+        """Tetrahedron is a closed solid"""
+        # Create tetrahedron vertices
+        tet_verts = [
+            point(1, 1, 1),
+            point(-1, -1, 1),
+            point(-1, 1, -1),
+            point(1, -1, -1)
+        ]
+
+        # Create four triangular faces with correct winding
+        faces = [
+            [0, 2, 1],  # face pointing outward
+            [0, 1, 3],
+            [1, 2, 3],
+            [2, 0, 3]
+        ]
+
+        # Compute normals for each vertex of each face
+        normals = []
+        for f in faces:
+            tri = [tet_verts[f[0]], tet_verts[f[1]], tet_verts[f[2]]]
+            p0, n = tri2p0n(tri)
+            normals.extend([n, n, n])
+
+        # Create vertices list - each vertex appears in multiple faces
+        all_verts = []
+        all_norms = []
+        for f_idx, f in enumerate(faces):
+            for v_idx in f:
+                all_verts.append(tet_verts[v_idx])
+                all_norms.append(normals[f_idx * 3])
+
+        # Remap face indices to the expanded vertex list
+        new_faces = []
+        for i in range(len(faces)):
+            new_faces.append([i * 3, i * 3 + 1, i * 3 + 2])
+
+        surf = surface(all_verts, all_norms, new_faces)
+        tet = solid([surf])
+
+        assert issolidclosed(tet)
+
+    def test_issolidclosed_cube(self):
+        """Cube created by prism should be closed"""
+        from yapcad.geom3d_util import prism
+        cube = prism(2, 2, 2)
+        assert issolidclosed(cube)
+
+    def test_issolidclosed_sphere(self):
+        """Sphere should be closed"""
+        from yapcad.geom3d_util import sphere
+        sph = sphere(2.0, depth=2)
+        assert issolidclosed(sph)
+
+    def test_issolidclosed_extruded_square(self):
+        """Extruded square should be closed"""
+        from yapcad.geom3d_util import extrude
+        # Create square polygon
+        square = [point(0, 0), point(2, 0), point(2, 2), point(0, 2), point(0, 0)]
+        surf, _ = poly2surfaceXY(square)
+        extruded = extrude(surf, 3.0)
+        assert issolidclosed(extruded)
+
+    def test_issolidclosed_extruded_with_hole(self):
+        """Extruded surface with hole should be closed"""
+        from yapcad.geom3d_util import extrude
+        # Outer square
+        outer = [point(0, 0), point(4, 0), point(4, 4), point(0, 4), point(0, 0)]
+        # Inner square (hole)
+        hole = [point(1, 1), point(3, 1), point(3, 3), point(1, 3), point(1, 1)]
+
+        surf, _ = poly2surfaceXY(outer, holepolys=[hole])
+        extruded = extrude(surf, 2.0)
+        assert issolidclosed(extruded)
+
+    def test_issolidclosed_open_box(self):
+        """Box missing a face should not be closed"""
+        from yapcad.geom3d_util import rectangularPlane, extrude
+
+        # Create bottom surface
+        bottom = rectangularPlane(2, 2, point(0, 0, 0))
+
+        # Create four side surfaces manually (missing top)
+        side1 = rectangularPlane(2, 1, point(0, 0, 0.5))
+        side1 = rotatesurface(side1, 90, axis=point(1, 0, 0))
+        side1 = translatesurface(side1, point(0, -1, 0))
+
+        side2 = rectangularPlane(2, 1, point(0, 0, 0.5))
+        side2 = rotatesurface(side2, 90, axis=point(1, 0, 0))
+        side2 = translatesurface(side2, point(0, 1, 0))
+
+        side3 = rectangularPlane(2, 1, point(0, 0, 0.5))
+        side3 = rotatesurface(side3, 90, axis=point(0, 1, 0))
+        side3 = translatesurface(side3, point(-1, 0, 0))
+
+        side4 = rectangularPlane(2, 1, point(0, 0, 0.5))
+        side4 = rotatesurface(side4, 90, axis=point(0, 1, 0))
+        side4 = translatesurface(side4, point(1, 0, 0))
+
+        # Create open box (no top)
+        open_box = solid([bottom, side1, side2, side3, side4])
+
+        # Should not be closed
+        assert not issolidclosed(open_box)
+
+    def test_volumeof_unit_cube(self):
+        """Volume of unit cube should be 1"""
+        from yapcad.geom3d_util import prism
+        cube = prism(1, 1, 1)
+        vol = volumeof(cube)
+        assert abs(vol - 1.0) < 0.001
+
+    def test_volumeof_cube_2x2x2(self):
+        """Volume of 2x2x2 cube should be 8"""
+        from yapcad.geom3d_util import prism
+        cube = prism(2, 2, 2)
+        vol = volumeof(cube)
+        assert abs(vol - 8.0) < 0.001
+
+    def test_volumeof_rectangular_prism(self):
+        """Volume of 3x4x5 prism should be 60"""
+        from yapcad.geom3d_util import prism
+        box = prism(3, 4, 5)
+        vol = volumeof(box)
+        assert abs(vol - 60.0) < 0.01
+
+    def test_volumeof_sphere(self):
+        """Volume of sphere should match 4πr³/3"""
+        from yapcad.geom3d_util import sphere
+        import math
+
+        radius = 2.0
+        expected = (4.0 / 3.0) * math.pi * (radius ** 3)
+
+        sph = sphere(2 * radius, depth=3)  # depth=3 for better approximation
+        vol = volumeof(sph)
+
+        # Allow 1% error due to triangulation approximation
+        assert abs(vol - expected) / expected < 0.01
+
+    def test_volumeof_extruded_square(self):
+        """Volume of extruded 2x2 square by height 3 should be 12"""
+        from yapcad.geom3d_util import extrude
+
+        square = [point(0, 0), point(2, 0), point(2, 2), point(0, 2), point(0, 0)]
+        surf, _ = poly2surfaceXY(square)
+        extruded = extrude(surf, 3.0)
+
+        vol = volumeof(extruded)
+        assert abs(vol - 12.0) < 0.01
+
+    def test_volumeof_extruded_with_hole(self):
+        """Volume of extruded surface with hole"""
+        from yapcad.geom3d_util import extrude
+
+        # 4x4 outer square with 2x2 inner hole
+        # Expected volume: (4*4 - 2*2) * height = 12 * 2 = 24
+        outer = [point(0, 0), point(4, 0), point(4, 4), point(0, 4), point(0, 0)]
+        hole = [point(1, 1), point(3, 1), point(3, 3), point(1, 3), point(1, 1)]
+
+        surf, _ = poly2surfaceXY(outer, holepolys=[hole])
+        extruded = extrude(surf, 2.0)
+
+        vol = volumeof(extruded)
+        expected = (4 * 4 - 2 * 2) * 2
+        assert abs(vol - expected) < 0.1
+
+    def test_volumeof_truncated_cone(self):
+        """Volume of truncated cone (frustum) should match formula"""
+        from yapcad.geom3d_util import conic
+        import math
+
+        base_radius = 3.0
+        top_radius = 1.0
+        height = 4.0
+        # Volume of frustum: (π*h/3)(r1² + r1*r2 + r2²)
+        expected = (math.pi * height / 3.0) * (
+            base_radius**2 + base_radius*top_radius + top_radius**2
+        )
+
+        frustum = conic(base_radius, top_radius, height, angr=10)
+        vol = volumeof(frustum)
+
+        # Allow 2% error due to triangulation
+        assert abs(vol - expected) / expected < 0.02
+
+    def test_volumeof_cylinder(self):
+        """Volume of cylinder should match πr²h"""
+        from yapcad.geom3d_util import conic
+        import math
+
+        radius = 2.0
+        height = 5.0
+        expected = math.pi * (radius ** 2) * height
+
+        cylinder = conic(radius, radius, height, angr=5)
+        vol = volumeof(cylinder)
+
+        # Allow 1% error
+        assert abs(vol - expected) / expected < 0.01
+
+    def test_volumeof_requires_closed_solid(self):
+        """volumeof should raise error for non-closed solid"""
+        # Create a single triangular surface (not closed)
+        p1 = point(0, 0, 0)
+        p2 = point(1, 0, 0)
+        p3 = point(0.5, 1, 0)
+        surf = surface([p1, p2, p3],
+                      [[0, 0, 1, 0]] * 3,
+                      [[0, 1, 2]])
+
+        s = solid([surf])
+
+        with pytest.raises(ValueError, match="must be topologically closed"):
+            volumeof(s)
+
+    def test_volumeof_tetrahedron(self):
+        """Volume of tetrahedron should match a³/(6√2)"""
+        import math
+
+        # Create a tetrahedron with vertices at specific positions
+        # This forms a tetrahedron with all edges of equal length
+        tet_verts = [
+            point(1, 1, 1),
+            point(-1, -1, 1),
+            point(-1, 1, -1),
+            point(1, -1, -1)
+        ]
+
+        # Create faces
+        faces = [
+            [0, 2, 1],
+            [0, 1, 3],
+            [1, 2, 3],
+            [2, 0, 3]
+        ]
+
+        # Create surface
+        all_verts = []
+        all_norms = []
+        for f_idx, f in enumerate(faces):
+            tri = [tet_verts[f[0]], tet_verts[f[1]], tet_verts[f[2]]]
+            p0, n = tri2p0n(tri)
+            for v_idx in f:
+                all_verts.append(tet_verts[v_idx])
+                all_norms.append(n)
+
+        new_faces = []
+        for i in range(len(faces)):
+            new_faces.append([i * 3, i * 3 + 1, i * 3 + 2])
+
+        surf = surface(all_verts, all_norms, new_faces)
+        tet = solid([surf])
+
+        # Verify it's closed
+        assert issolidclosed(tet)
+
+        # Calculate actual edge length using the length() function
+        edge = line(tet_verts[0], tet_verts[1])
+        a = length(edge)
+
+        # Volume of regular tetrahedron: V = a³/(6√2)
+        expected = (a ** 3) / (6 * math.sqrt(2))
+
+        vol = volumeof(tet)
+
+        # Check volume matches expected within small tolerance
+        assert abs(vol - expected) < 0.001

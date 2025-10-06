@@ -125,7 +125,7 @@ function call with parameters for algorithmically-generated geometry.
 
 ``solid = ['solid', surfaces, material, construction ]``, where:
 
-           ``surfaces`` is a list of surfaces with contiguous boundaries 
+           ``surfaces`` is a list of surfaces with contiguous boundaries
            that completely encloses an interior space,
 
            ``material`` is a list of domain-specific representation of
@@ -135,6 +135,30 @@ function call with parameters for algorithmically-generated geometry.
 
            ``construction`` is a list that contains information about
            how the solid was constructed, and may be empty
+
+Topology Analysis
+-----------------
+
+Two key functions are provided for analyzing solid topology:
+
+``issolidclosed(solid)`` -- Verifies that a solid is topologically closed
+by ensuring every edge is shared by exactly two faces across all surfaces.
+This is essential for determining if a solid properly encloses a volume
+without gaps or holes. Returns True if closed, False otherwise.
+
+``volumeof(solid)`` -- Calculates the volume enclosed by a closed solid
+using the divergence theorem. Requires that the solid be topologically
+closed (verified by calling ``issolidclosed()``). Returns the volume
+as a non-negative floating point number.
+
+Example usage::
+
+    from yapcad.geom3d_util import prism
+    from yapcad.geom3d import issolidclosed, volumeof
+
+    cube = prism(2, 2, 2)
+    if issolidclosed(cube):
+        vol = volumeof(cube)  # Returns 8.0
 
 
 Assembly
@@ -699,6 +723,171 @@ def mirrorsolid(x,plane,preserveNormal=True):
         surfs.append(surf)
     s2[1] = surfs
     return s2
+
+def _point_to_key(p):
+    """
+    Convert a point to a hashable key for edge/vertex identification.
+    Uses rounded coordinates to handle floating point precision issues.
+    """
+    # Round to a reasonable precision to handle floating point comparison
+    return (round(p[0] / epsilon) * epsilon,
+            round(p[1] / epsilon) * epsilon,
+            round(p[2] / epsilon) * epsilon)
+
+def _canonical_edge_key(p1, p2):
+    """
+    Create a canonical edge key from two points.
+    Returns tuple of keys in sorted order so (p1,p2) and (p2,p1) map to same edge.
+    """
+    k1 = _point_to_key(p1)
+    k2 = _point_to_key(p2)
+    return (min(k1, k2), max(k1, k2))
+
+def issolidclosed(x):
+    """
+    Check if solid x is topologically closed.
+
+    A solid is closed if and only if every edge is shared by exactly two
+    faces across all surfaces. This ensures no holes or gaps exist in the
+    solid's boundary.
+
+    The function analyzes face adjacency by:
+    1. Building a global edge map using vertex positions (not indices)
+    2. Counting how many faces share each edge
+    3. Verifying that every edge is shared by exactly 2 faces
+
+    Args:
+        x: A solid data structure
+
+    Returns:
+        True if the solid is topologically closed, False otherwise
+
+    Raises:
+        ValueError: if x is not a valid solid
+
+    Example:
+        >>> from yapcad.geom3d_util import prism, sphere
+        >>> cube = prism(2, 2, 2)
+        >>> issolidclosed(cube)
+        True
+    """
+    # First verify this is a valid solid
+    if not issolid(x, fast=False):
+        raise ValueError('invalid solid passed to issolidclosed')
+
+    surfaces = x[1]
+
+    # Empty solid is trivially closed
+    if not surfaces:
+        return True
+
+    # Build a global edge map across all surfaces
+    # Key: canonical edge tuple (point_key1, point_key2)
+    # Value: count of faces that share this edge
+    global_edge_count = {}
+
+    for surf_idx, surf in enumerate(surfaces):
+        faces = surf[3]
+        vertices = surf[1]
+
+        # Process each face in this surface
+        for face_idx, face in enumerate(faces):
+            if len(face) != 3:
+                raise ValueError(f'non-triangular face in surface {surf_idx}, face {face_idx}')
+
+            # Get the three vertex positions
+            p0 = vertices[face[0]]
+            p1 = vertices[face[1]]
+            p2 = vertices[face[2]]
+
+            # Extract the three edges of this triangular face
+            edges = [
+                _canonical_edge_key(p0, p1),
+                _canonical_edge_key(p1, p2),
+                _canonical_edge_key(p2, p0)
+            ]
+
+            # Count this face's contribution to each edge
+            for edge in edges:
+                if edge not in global_edge_count:
+                    global_edge_count[edge] = 0
+                global_edge_count[edge] += 1
+
+    # Check that every edge is shared by exactly 2 faces
+    for edge, count in global_edge_count.items():
+        if count != 2:
+            return False
+
+    return True
+
+def volumeof(x):
+    """
+    Calculate the volume enclosed by a solid.
+
+    Uses the divergence theorem to compute volume from the surface triangulation.
+    For each triangular face with vertices (p0, p1, p2), the signed volume
+    contribution is: V_i = (1/6) * dot(p0, cross(p1-p0, p2-p0))
+
+    The total volume is the sum of absolute values of all face contributions.
+
+    Args:
+        x: A solid data structure (must be topologically closed)
+
+    Returns:
+        float: The volume of the solid (always non-negative)
+
+    Raises:
+        ValueError: if x is not a valid solid or is not closed
+
+    Example:
+        >>> from yapcad.geom3d_util import prism
+        >>> cube = prism(2, 2, 2)
+        >>> abs(volumeof(cube) - 8.0) < 0.001
+        True
+    """
+    # Verify this is a valid, closed solid
+    if not issolid(x, fast=False):
+        raise ValueError('invalid solid passed to volumeof')
+
+    if not issolidclosed(x):
+        raise ValueError('solid must be topologically closed to compute volume')
+
+    surfaces = x[1]
+
+    # Handle empty solid
+    if not surfaces:
+        return 0.0
+
+    total_volume = 0.0
+
+    # Accumulate signed volume contributions from all faces
+    for surf in surfaces:
+        vertices = surf[1]
+        faces = surf[3]
+
+        for face in faces:
+            if len(face) != 3:
+                raise ValueError('non-triangular face encountered')
+
+            # Get the three vertices of this face
+            p0 = vertices[face[0]]
+            p1 = vertices[face[1]]
+            p2 = vertices[face[2]]
+
+            # Compute vectors from p0 to other vertices
+            v1 = sub(p1, p0)
+            v2 = sub(p2, p0)
+
+            # Signed volume contribution: (1/6) * dot(p0, cross(v1, v2))
+            # This is the volume of the tetrahedron formed by the origin
+            # and the three face vertices
+            cross_product = cross(v1, v2)
+            signed_volume = dot(p0, cross_product) / 6.0
+
+            total_volume += signed_volume
+
+    # Return absolute value (orientation might cause negative result)
+    return abs(total_volume)
 
 def normfunc(tri):
     """
