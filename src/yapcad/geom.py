@@ -482,14 +482,15 @@ def isnurbs(obj):
 def _open_uniform_knot_vector(count, degree):
     """Generate an open-uniform knot vector of length ``count + degree + 1``."""
 
-    interior = count - degree
     length = count + degree + 1
     knots = [0.0] * (degree + 1)
-    if interior > 1:
-        for j in range(1, interior):
-            knots.append(j / (interior - 1))
-    elif interior == 1:
-        knots.append(0.5)
+
+    interior_knots = count - degree - 1
+    if interior_knots > 0:
+        denom = count - degree
+        for j in range(1, interior_knots + 1):
+            knots.append(j / denom)
+
     knots.extend([1.0] * (degree + 1))
     return knots[:length]
 
