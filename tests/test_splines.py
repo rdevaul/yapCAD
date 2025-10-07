@@ -69,6 +69,21 @@ def _make_simple_nurbs():
     return nurbs(ctrl, degree=degree)
 
 
+def test_default_open_uniform_knot_vector():
+    curve = _make_simple_nurbs()
+    knots = curve[2]['knots']
+    assert knots == [0.0, 0.0, 0.0, 1.0, 1.0, 1.0]
+
+    higher = nurbs([
+        point(0, 0),
+        point(1, 1),
+        point(2, -1),
+        point(3, 0),
+        point(4, 2),
+    ], degree=3)
+    assert higher[2]['knots'] == [0.0, 0.0, 0.0, 0.0, 0.5, 1.0, 1.0, 1.0, 1.0]
+
+
 def test_nurbs_samples_match_evaluator():
     curve = _make_simple_nurbs()
     assert isnurbs(curve)

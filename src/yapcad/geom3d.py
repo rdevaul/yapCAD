@@ -869,10 +869,10 @@ def volumeof(x):
             if len(face) != 3:
                 raise ValueError('non-triangular face encountered')
 
-            # Get the three vertices of this face
-            p0 = vertices[face[0]]
-            p1 = vertices[face[1]]
-            p2 = vertices[face[2]]
+            # Get the three vertices of this face and normalise to w=1 if needed
+            p0 = point(vertices[face[0]])
+            p1 = point(vertices[face[1]])
+            p2 = point(vertices[face[2]])
 
             # Compute vectors from p0 to other vertices
             v1 = sub(p1, p0)
