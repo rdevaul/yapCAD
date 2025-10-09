@@ -79,6 +79,9 @@ calling out include:
   creating sectional views of assemblies.
 - `yapcad.io.step`/`yapcad.io.stl` – faceted exporters suitable for
   interchange with FreeCAD, slicers, and other simulation tools.
+- `tools/validate_mesh.py` – CLI helper that runs `admesh`, `meshfix`, and an
+  optional slicer to gauge whether STL output is robust enough for CAM; see
+  `docs/mesh_validation.md` for usage.
 
 To build the HTML **yapCAD** documentation locally, install the
 documentation dependencies and run Sphinx from the project root:

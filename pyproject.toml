@@ -28,6 +28,10 @@ tests = [
   "pytest",
   "pytest-cov"
 ]
+meshcheck = [
+  "trimesh>=4.0",
+  "pymeshfix>=0.16",
+]
 [project.urls]
 "Homepage" = "https://github.com/rdevaul/yapCAD/"
 "Documentation" = "https://yapcad.readthedocs.io/en/latest/"
