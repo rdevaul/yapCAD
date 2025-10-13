@@ -83,10 +83,13 @@ def main():
                         help='output basename for STL/STEP export')
     parser.add_argument('--stitch', action='store_true',
                         help='experimentally stitch open edges in the result')
+    parser.add_argument('--engine', default=None,
+                        help='boolean engine to use (default: native)')
     args = parser.parse_args()
 
     solids = _build_solids(args.shapes)
-    result = solid_boolean(solids[0], solids[1], args.operation, stitch=args.stitch)
+    result = solid_boolean(solids[0], solids[1], args.operation,
+                           stitch=args.stitch, engine=args.engine)
 
     if args.mode == 'gl':
         _render_opengl(solids, result)

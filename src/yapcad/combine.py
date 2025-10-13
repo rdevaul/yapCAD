@@ -1,4 +1,5 @@
-## yapCAD boolen operation support
+## yapCAD boolen operation support for 2D closed curves. For three dimensional
+## boolean operations, see geom3d.py
 
 from yapcad.geom import *
 from yapcad.geom_util import *

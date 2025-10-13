@@ -81,6 +81,7 @@ icaIndices = [ [1,11,3],[3,11,5],[5,11,7],[7,11,9],[9,11,1],
                [0,2,4],[0,4,6],[0,6,8],[0,8,10],[0,10,2] ]
 
 vertexHash = {}
+_vertexHash_owner = None
 def addVertex(nv,nn,verts,normals):
     """
     Utility function that takes a vertex and associated normal and a
@@ -91,18 +92,25 @@ def addVertex(nv,nn,verts,normals):
 
     returns the index, and the (potentiall updated) lists
     """
-    global vertexHash
-    if len(verts) == 0:
+    global vertexHash, _vertexHash_owner
+    owner_id = id(verts)
+    if _vertexHash_owner != owner_id or len(verts) == 0:
         vertexHash = {}
+        _vertexHash_owner = owner_id
 
     found = False
     vkey = f"{nv[0]:.2f}{nv[1]:.2f}{nv[2]:.2f}"
     if vkey in vertexHash:
         found = True
         inds = vertexHash[vkey]
+        valid_inds = []
         for i in inds:
+            if i >= len(verts):
+                continue
             if vclose(nv,verts[i]):
                 return i,verts,normals
+            valid_inds.append(i)
+        vertexHash[vkey] = valid_inds
             
     verts.append(nv)
     normals.append(nn)
