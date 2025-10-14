@@ -112,7 +112,7 @@ def solid_boolean(a, b, operation: str, tol=_native._DEFAULT_RAY_TOL, *, stitch:
     available = engines_available()
     if backend is not None and backend not in available:
         raise RuntimeError(
-            f"trimesh backend '{backend}' is not available; install the appropriate binary (available: {sorted(available)})"
+            f"trimesh backend '{backend}' is not available; install the appropriate binary (available: {available})"
         )
     if backend is None and not available:
         raise RuntimeError(
