@@ -1,4 +1,5 @@
-## yapCAD boolen operation support
+## yapCAD boolen operation support for 2D closed curves. For three dimensional
+## boolean operations, see geom3d.py
 
 from yapcad.geom import *
 from yapcad.geom_util import *
@@ -46,6 +47,10 @@ class Boolean(Geometry):
             gl = geom_obj.geom
         else:
             gl = geom_obj
+
+        # If gl is a single arc/line/poly, wrap it in a list for geomlist2poly_with_holes
+        if isarc(gl) or isline(gl) or ispoly(gl):
+            gl = [gl]
 
         try:
             outer, holes = geomlist2poly_with_holes(gl, self.__minang, self.__minlen, checkcont=False)

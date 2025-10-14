@@ -6,7 +6,21 @@ from yapcad.geom import *
 from yapcad.geom_util import *
 from yapcad.xform import *
 from functools import reduce
+import os
+from yapcad.octtree import NTree
+
 from yapcad.triangulator import triangulate_polygon
+import yapcad.boolean.native as _boolean_native
+_DEFAULT_RAY_TOL = _boolean_native._DEFAULT_RAY_TOL
+invalidate_surface_octree = _boolean_native.invalidate_surface_octree
+surface_octree = _boolean_native.surface_octree
+_surface_from_triangles = _boolean_native._surface_from_triangles
+_iter_triangles_from_surface = _boolean_native._iter_triangles_from_surface
+_iter_triangles_from_solid = _boolean_native._iter_triangles_from_solid
+stitch_open_edges = _boolean_native.stitch_open_edges
+stitch_solid = _boolean_native.stitch_solid
+solid_contains_point = _boolean_native.solid_contains_point
+solids_intersect = _boolean_native.solids_intersect
 
 
 """
@@ -499,7 +513,25 @@ def surfacebbox(s):
     if not issurface(s):
         raise ValueError('bad surface passed to surfacebbox')
     return polybbox(s[1])
-            
+    
+
+
+
+def solid_boolean(a, b, operation, tol=_DEFAULT_RAY_TOL, *, stitch=False, engine=None):
+    selected_raw = engine or os.environ.get('YAPCAD_BOOLEAN_ENGINE', 'native')
+    backend = None
+    if selected_raw and ':' in selected_raw:
+        selected, backend = selected_raw.split(':', 1)
+    else:
+        selected = selected_raw
+    if selected == 'native':
+        return _boolean_native.solid_boolean(a, b, operation, tol=tol, stitch=stitch)
+    if selected == 'trimesh':
+        from yapcad.boolean import trimesh_engine
+        backend = backend or os.environ.get('YAPCAD_TRIMESH_BACKEND')
+        return trimesh_engine.solid_boolean(a, b, operation, tol=tol, stitch=stitch, backend=backend)
+    raise ValueError(f'unknown boolean engine {selected_raw!r}')
+
 def issurface(s,fast=True):
     """
     Check to see if ``s`` is a valid surface.
@@ -511,8 +543,8 @@ def issurface(s,fast=True):
         return (len(list(filter(lambda x: not (isinstance(x,int) or
                                                x < 0 or x >= l),
                                 inds))) == 0)
-    
-    if not isinstance(s,list) or s[0] != 'surface' or len(s) not in (6,7):
+
+    if not isinstance(s,list) or len(s) not in (6,7) or s[0] != 'surface':
         return False
     if fast:
         return True
@@ -657,7 +689,7 @@ def issolid(s,fast=True):
     of surfaces completely bounds a volume of space without holes
     """
 
-    if not isinstance(s,list) or s[0] != 'solid' or len(s) not in (4,5):
+    if not isinstance(s,list) or len(s) not in (4,5) or s[0] != 'solid':
         return False
     if fast:
         return True

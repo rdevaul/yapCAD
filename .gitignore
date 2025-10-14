@@ -54,5 +54,19 @@ v_*/
 #cached python version for pyenv
 .python-version
 
-# generated DXF files in examples
-examples/*.dxf
+
+
+# generated DXF files
+*.dxf
+# but include documentation DXF files
+!docs/*.dxf
+
+# generated stl files
+*.stl
+# but include documentation stl files
+!docs/*.stl
+
+# generated step files
+*.step
+# but include documentation step files
+!docs/*.step

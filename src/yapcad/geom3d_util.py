@@ -81,6 +81,7 @@ icaIndices = [ [1,11,3],[3,11,5],[5,11,7],[7,11,9],[9,11,1],
                [0,2,4],[0,4,6],[0,6,8],[0,8,10],[0,10,2] ]
 
 vertexHash = {}
+_vertexHash_owner = None
 def addVertex(nv,nn,verts,normals):
     """
     Utility function that takes a vertex and associated normal and a
@@ -91,18 +92,29 @@ def addVertex(nv,nn,verts,normals):
 
     returns the index, and the (potentiall updated) lists
     """
-    global vertexHash
-    if len(verts) == 0:
+    global vertexHash, _vertexHash_owner
+    owner_id = id(verts)
+    if _vertexHash_owner != owner_id or len(verts) == 0:
         vertexHash = {}
+        _vertexHash_owner = owner_id
 
     found = False
-    vkey = f"{nv[0]:.2f}{nv[1]:.2f}{nv[2]:.2f}"
+    # Normalize tiny values to avoid "-0.00" != "0.00" hash key mismatch
+    x = 0.0 if abs(nv[0]) < epsilon else nv[0]
+    y = 0.0 if abs(nv[1]) < epsilon else nv[1]
+    z = 0.0 if abs(nv[2]) < epsilon else nv[2]
+    vkey = f"{x:.2f}{y:.2f}{z:.2f}"
     if vkey in vertexHash:
         found = True
         inds = vertexHash[vkey]
+        valid_inds = []
         for i in inds:
+            if i >= len(verts):
+                continue
             if vclose(nv,verts[i]):
                 return i,verts,normals
+            valid_inds.append(i)
+        vertexHash[vkey] = valid_inds
             
     verts.append(nv)
     normals.append(nn)
@@ -347,20 +359,32 @@ def conic(baser,topr,height, center=point(0,0,0),angr=10):
                      ['procedure',call])
     else:
         topP = add(center,point(0,0,height))
-        conV = [ topP ] + baseV
+        # Only use perimeter vertices (baseV[1:]), skip the center point
+        conV = [ topP ] + baseV[1:]
         ll = len(conV)
-        conN = [[0,0,1,0]]
+        # Initialize all normals to a default value
+        conN = [[0,0,1,0] for _ in range(ll)]
         conF = []
 
-        for i in range(1,ll):
-            p0= conV[0]
-            p1= conV[(i-1)%ll]
-            p2= conV[(i+1)%ll]
+        # ll = apex(1) + perimeter vertices(36) = 37
+        # Perimeter vertex indices: 1 to ll-1
+        num_perimeter = ll - 1
+        for i in range(1, ll):
+            p0 = conV[0]  # apex
+            # Wrap indices within perimeter range [1, ll-1]
+            prev_idx = ((i - 2) % num_perimeter) + 1
+            next_idx = (i % num_perimeter) + 1
+            p1 = conV[prev_idx]
+            p2 = conV[next_idx]
 
-            conF.append([0,i,(i+1)%ll])
-            pp,n0 = tri2p0n([p0,p1,p2])
+            try:
+                pp, n0 = tri2p0n([p0, p1, p2])
+            except ValueError:
+                # Skip degenerate faces near the apex
+                continue
 
-            conN.append(n0)
+            conF.append([0, i, next_idx])
+            conN[i] = n0
 
         conS = surface(conV,conN,conF)
 
@@ -384,28 +408,112 @@ def makeRevolutionSurface(contour,zStart,zEnd,steps,arcSamples=36):
 
     degStep = 360.0/arcSamples
     radStep = pi2/arcSamples
+
+    # Pre-compute cos/sin values to avoid floating point errors at the seam
+    # Explicitly ensure that index 0 uses exact values
+    angle_cos = []
+    angle_sin = []
+    for i in range(arcSamples):
+        if i == 0:
+            angle_cos.append(1.0)
+            angle_sin.append(0.0)
+        else:
+            angle = i * radStep
+            angle_cos.append(math.cos(angle))
+            angle_sin.append(math.sin(angle))
+
+    # Check if we need pole caps
+    r_start = contour(zStart)
+    r_end = contour(zEnd)
+    need_start_cap = r_start < epsilon * 10
+    need_end_cap = r_end < epsilon * 10
+
+    # Add pole vertices if needed
+    start_pole_idx = None
+    end_pole_idx = None
+    if need_start_cap:
+        pole_point = [0.0, 0.0, zStart, 1.0]
+        pole_normal = [0.0, 0.0, -1.0, 0.0]  # Points downward for bottom pole
+        start_pole_idx, sV, sN = addVertex(pole_point, pole_normal, sV, sN)
+
+    if need_end_cap:
+        pole_point = [0.0, 0.0, zEnd, 1.0]
+        pole_normal = [0.0, 0.0, 1.0, 0.0]  # Points upward for top pole
+        end_pole_idx, sV, sN = addVertex(pole_point, pole_normal, sV, sN)
+
     for i in range(steps):
         z = i*zD+zStart
         r0 = contour(z)
         r1 = contour(z+zD)
-        if r0 < epsilon*10:
-            r0 = epsilon*10
-        if r1 < epsilon*10:
-            r1 = epsilon*10
+
+        # Handle pole caps
+        if i == 0 and need_start_cap:
+            # Create triangular faces from pole to first ring
+            if r1 < epsilon:
+                r1 = epsilon
+            for j in range(arcSamples):
+                a1_idx = j
+                a2_idx = (j+1) % arcSamples
+
+                pp1 = [angle_cos[a1_idx]*r1, angle_sin[a1_idx]*r1, z+zD, 1.0]
+                pp2 = [angle_cos[a2_idx]*r1, angle_sin[a2_idx]*r1, z+zD, 1.0]
+
+                try:
+                    _, n = tri2p0n([sV[start_pole_idx], pp1, pp2])
+                except ValueError:
+                    continue
+
+                k1, sV, sN = addVertex(pp1, n, sV, sN)
+                k2, sV, sN = addVertex(pp2, n, sV, sN)
+                sF.append([start_pole_idx, k1, k2])
+            continue
+
+        if i == steps - 1 and need_end_cap:
+            # Create triangular faces from last ring to pole
+            if r0 < epsilon:
+                r0 = epsilon
+            for j in range(arcSamples):
+                a1_idx = j
+                a2_idx = (j+1) % arcSamples
+
+                p1 = [angle_cos[a1_idx]*r0, angle_sin[a1_idx]*r0, z, 1.0]
+                p2 = [angle_cos[a2_idx]*r0, angle_sin[a2_idx]*r0, z, 1.0]
+
+                try:
+                    _, n = tri2p0n([p1, sV[end_pole_idx], p2])
+                except ValueError:
+                    continue
+
+                k1, sV, sN = addVertex(p1, n, sV, sN)
+                k2, sV, sN = addVertex(p2, n, sV, sN)
+                sF.append([k1, end_pole_idx, k2])
+            continue
+
+        # Regular quad strips for non-pole sections
+        if r0 < epsilon:
+            r0 = epsilon
+        if r1 < epsilon:
+            r1 = epsilon
+
         for j in range(arcSamples):
-            a0 = (j-1)*radStep
-            a1 = j*radStep
-            a2 = (j+1)*radStep
+            # Use pre-computed values with proper wrapping
+            a0_idx = (j-1) % arcSamples
+            a1_idx = j
+            a2_idx = (j+1) % arcSamples
 
-            p0 = [math.cos(a0)*r0,math.sin(a0)*r0,z,1.0]
-            p1 = [math.cos(a1)*r0,math.sin(a1)*r0,z,1.0]
-            p2 = [math.cos(a2)*r0,math.sin(a2)*r0,z,1.0]
+            p0 = [angle_cos[a0_idx]*r0, angle_sin[a0_idx]*r0, z, 1.0]
+            p1 = [angle_cos[a1_idx]*r0, angle_sin[a1_idx]*r0, z, 1.0]
+            p2 = [angle_cos[a2_idx]*r0, angle_sin[a2_idx]*r0, z, 1.0]
 
-            pp1 = [math.cos(a1)*r1,math.sin(a1)*r1,z+zD,1.0]
-            pp2 = [math.cos(a2)*r1,math.sin(a2)*r1,z+zD,1.0]
+            pp1 = [angle_cos[a1_idx]*r1, angle_sin[a1_idx]*r1, z+zD, 1.0]
+            pp2 = [angle_cos[a2_idx]*r1, angle_sin[a2_idx]*r1, z+zD, 1.0]
 
-            p,n = tri2p0n([p0,p2,pp1])
-            
+            try:
+                p,n = tri2p0n([p0,p2,pp1])
+            except ValueError:
+                # Skip degenerate faces
+                continue
+
             k1,sV,sN = addVertex(p1,n,sV,sN)
             k2,sV,sN = addVertex(p2,n,sV,sN)
             k3,sV,sN = addVertex(pp2,n,sV,sN)
@@ -575,12 +683,21 @@ def extrude(surf,distance,direction=vect(0,0,1,0)):
 
 
 def _loft_surface(lower_loop, upper_loop, invert=False):
-    """Create a surface connecting two XY loops."""
+    """Create a surface connecting two loops.
+
+    Args:
+        lower_loop: List of points forming the lower loop (must be open, not closed)
+        upper_loop: List of points forming the upper loop (must be open, not closed)
+        invert: If True, reverse the face winding order
+
+    Returns:
+        A yapCAD surface connecting the two loops with triangle strips
+    """
 
     if not lower_loop or not upper_loop:
         raise ValueError('invalid loops passed to loft surface')
-    lower = [point(p) for p in lower_loop[:-1]]
-    upper = [point(p) for p in upper_loop[:-1]]
+    lower = [point(p) for p in lower_loop]
+    upper = [point(p) for p in upper_loop]
     if len(lower) != len(upper):
         raise ValueError('loop length mismatch in loft surface')
 
