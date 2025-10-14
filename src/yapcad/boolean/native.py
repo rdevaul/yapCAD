@@ -556,9 +556,27 @@ def _clip_triangle_against_solid(tri, target, tol, reference_normal):
     tri2d_list = triangulate_polygon(outer_loop, holes=holes)
     for tri2d in tri2d_list:
         tri3d = [_from_local(pt) for pt in tri2d]
-        oriented = _orient_triangle(tri3d, reference_normal, tol)
-        if oriented:
-            outside_triangles.append(oriented)
+        # Don't call _orient_triangle! The winding order is already preserved through:
+        # 1. Original triangle had correct outward normal
+        # 2. Clipping preserves vertex order (just removes parts)
+        # 3. Transform to 2D preserves order
+        # 4. triangulate_polygon produces CCW triangles in 2D
+        # 5. Transform back to 3D should maintain correct orientation
+        # Check for degeneracy with better quality metric:
+        v01 = sub(tri3d[1], tri3d[0])
+        v02 = sub(tri3d[2], tri3d[0])
+        cross_prod = cross(v01, v02)
+        area = mag(cross_prod)
+        if area >= tol:
+            # Also filter out very thin slivers by checking aspect ratio
+            # A degenerate sliver has tiny area relative to edge lengths
+            edge_lengths = [mag(v01), mag(v02), dist(tri3d[1], tri3d[2])]
+            max_edge = max(edge_lengths)
+            # For a reasonable triangle, area should be at least 1% of max_edge^2
+            # This filters out slivers where one edge is extremely small
+            quality_threshold = 0.01 * max_edge * max_edge
+            if area >= max(tol, quality_threshold):
+                outside_triangles.append([point(tri3d[0]), point(tri3d[1]), point(tri3d[2])])
 
     split = bool(inside_triangles) and bool(outside_triangles)
     return inside_triangles, outside_triangles, split
@@ -954,6 +972,24 @@ def solid_boolean(a, b, operation, tol=_DEFAULT_RAY_TOL, *, stitch=False):
         result_tris = outside_a + outside_b
         if not result_tris:
             result_tris = inside_a if inside_a else inside_b
+
+        # Filter out triangles in the interior of the overlap region
+        # For union, if a triangle's center is inside both input solids,
+        # it's in the interior and should not be on the surface
+        filtered_tris = []
+        for tri in result_tris:
+            center = point((tri[0][0] + tri[1][0] + tri[2][0]) / 3.0,
+                          (tri[0][1] + tri[1][1] + tri[2][1]) / 3.0,
+                          (tri[0][2] + tri[1][2] + tri[2][2]) / 3.0)
+            # Use a tighter tolerance for containment check to avoid false positives
+            check_tol = tol * 100
+            in_a = solid_contains_point(a, center, tol=check_tol)
+            in_b = solid_contains_point(b, center, tol=check_tol)
+            # Keep triangle only if it's not clearly inside both solids
+            if not (in_a and in_b):
+                filtered_tris.append(tri)
+        result_tris = filtered_tris
+
     elif operation == 'intersection':
         result_tris = inside_a + inside_b
         if not result_tris:
