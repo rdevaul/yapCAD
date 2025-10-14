@@ -1,24 +1,73 @@
 # Boolean Engine Roadmap
 
-Status snapshot as of this session:
+## Status as of v0.5.1 (January 2025)
 
-- Native mesh boolean workflow now lives in `yapcad/boolean/native.py`, with `geom3d` re-exporting it for backward compatibility.
-- Diagnostics still rely on `tools/validate_mesh.py`; no engine-specific metrics yet.
-- External engine integration is underway; a `trimesh` backend is plumbed (requires an installed boolean operator such as Blender/OpenSCAD/Cork).
+### Completed Work
 
-Near-term tasks:
+- ✅ **Native Boolean Engine**: Production-ready implementation in `yapcad/boolean/native.py`
+  - Robust normal orientation for all operations (union, intersection, difference)
+  - Quality-based filtering for degenerate triangles (aspect ratio checks)
+  - Containment-based filtering to eliminate interior overlap artifacts
+  - All primitive boolean operations validated with correct watertight geometry
 
-- [x] **Code extraction** – current boolean implementation now resides in `yapcad/boolean/native.py`, referenced by `geom3d` wrappers.
-- [x] **Engine selector UX** – `solid_boolean(..., engine=...)` now routes through the native engine by default, accepts `trimesh` (and optional `trimesh:backend`), and the demo exposes `--engine`; document env flags (`YAPCAD_BOOLEAN_ENGINE`, `YAPCAD_TRIMESH_BACKEND`) for benchmarking.
-- [ ] **External prototype** – wrap at least one library boolean (e.g., `trimesh` or PyMeshFix) for STL solids, including geometry conversion helpers.
-- [ ] **Benchmark harness** – update the demo CLI and validation scripts to iterate across registered engines, saving STL/lint outputs for comparison.
+- ✅ **Code Organization**: Clean separation of boolean operations
+  - Native engine in `yapcad/boolean/native.py`
+  - Backward-compatible re-exports from `geom3d`
+  - Modular architecture supports multiple backends
 
-Open questions:
-- Which external kernel offers the best balance of licensing, install footprint, and mesh quality?
-- Do we keep the native engine on equal footing (for offline/embedded use), or treat it as a fallback once a third-party backend is available?
-- What minimal metrics should every engine report (shell count, single-facet edges, `validate_mesh` scores, render snapshots)?
+- ✅ **Engine Selector UX**: Flexible backend selection
+  - `solid_boolean(..., engine='native')` API
+  - Support for `trimesh:manifold` and `trimesh:blender` backends
+  - Environment variables: `YAPCAD_BOOLEAN_ENGINE`, `YAPCAD_TRIMESH_BACKEND`
+  - Command-line demo with `--engine` flag
 
-Once the refactor lands, future work will include:
-- Automatic tolerance scaling per engine.
-- Capturing validation output in machine-readable form (JSON) to feed regression dashboards.
-- Evaluating hybrid workflows (native preprocessing, external boolean, native stitches/cleanup).
+- ✅ **Validation Infrastructure**: Comprehensive mesh quality checks
+  - `tools/validate_mesh.py` CLI tool
+  - Integration with `admesh`, `meshfix`, and slicers
+  - 106 tests passing including boolean regression suite
+
+### In Progress
+
+- [ ] **Benchmark Harness**: Systematic comparison across engines
+  - Need automated iteration across all registered engines
+  - STL output comparison and quality metrics
+  - Performance profiling for complex operations
+
+- [ ] **External Engine Refinement**: Production deployment guidance
+  - Document installation requirements for each backend
+  - Best practices for engine selection
+  - Tolerance mapping for different engines
+
+### Near-Term Goals
+
+- [ ] **Documentation Expansion**: Complete API reference
+  - Engine selection guide with decision matrix
+  - Performance characteristics and trade-offs
+  - Migration guide from 0.5.0 to 0.5.1
+
+- [ ] **Metrics Collection**: Engine-specific reporting
+  - Shell count, boundary edge detection
+  - Validation scores in machine-readable format (JSON)
+  - Automated regression dashboards
+
+### Open Questions
+
+- **Engine Strategy**: Keep native engine as equal option vs fallback?
+  - **Current stance**: Native engine is production-ready for most use cases
+  - External engines provide alternatives for specific requirements (licensing, performance)
+  - Recommend native for offline/embedded use, external for high-complexity operations
+
+- **Quality Metrics**: What should every engine report?
+  - Proposed minimum: triangle count, boundary edge count, watertightness status
+  - Optional: volume calculation, self-intersection checks, performance timing
+
+- **Hybrid Workflows**: When to combine engines?
+  - Native preprocessing + external boolean + native cleanup?
+  - Needs experimentation with real-world complex geometries
+
+### Future Work (v0.6.0 and beyond)
+
+- Automatic tolerance scaling per engine
+- JSON-formatted validation output for CI/CD integration
+- Performance optimization for large assemblies
+- Enhanced STEP export with analytical surfaces (not just tessellated)

@@ -70,3 +70,7 @@ v_*/
 *.step
 # but include documentation step files
 !docs/*.step
+
+# ignore test python scripts in root
+/*.py
+

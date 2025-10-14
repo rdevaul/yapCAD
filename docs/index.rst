@@ -16,19 +16,19 @@ yapCAD
    the exported STEP file in FreeCAD.
 
 Welcome to **yapCAD**, yet another procedural CAD and computational
-geometry system, written in Python_.  The project is still evolving,
-but recent releases focus on making 3D generative workflows (solid
-modeling, STL export, interactive rendering) as straightforward as the
-original 2D/DXF tooling.
+geometry system, written in Python_.  The project is in active development,
+with recent releases focusing on production-ready 3D generative workflows
+(solid modeling, robust boolean operations, STL/STEP export, interactive
+rendering) alongside the original 2D/DXF tooling.
 
 .. note::
-    
+
     **yapCAD** was created to solve some fairly specific problems in
     procedural CAD and `parametric design`_.  Earlier releases were
     primarily geared toward generating 2D drawings in the `AutoCad
-    DXF`_ format; the current 0.5 series lays the groundwork for 3D
-    workflows, including STL export, metadata tracking, and geometry
-    validation utilities.
+    DXF`_ format; the current 0.5.x series delivers robust 3D boolean
+    operations, validated primitive generation, comprehensive mesh
+    validation tools, and production-ready STL/STEP export.
 
     Why use yapCAD? yapCAD allows you to transform the 2D and 3D mechanical
     design process from the manual creation of drawings, parts, and assemblies
@@ -38,7 +38,7 @@ original 2D/DXF tooling.
     Because yapCAD's foundations are in software, you can use powerful agentic
     or "vibe coding" tools to translate your design intent into functional and
     parameterized design, without ever writing a line of code yourself. For
-    example, the rocket example rendred above was generated in one-shot by
+    example, the rocket example rendered above was generated in one-shot by
     `gpt-5-codex` from the prompt: "Using what you know about yapCAD, I'd like
     you to create a demo that builds a simple 3D model of a rocket, visualizes
     it using pyglet, and then writes out the STL file. I'd like the rocket to
@@ -56,12 +56,13 @@ original 2D/DXF tooling.
 
     Much of the documentation for **yapCAD** can be found in the
     **README** files, as well as in the ``yapcad.geom`` module
-    documentation linked below.  New helper modules worth exploring
-    include ``yapcad.geometry_utils``/``yapcad.triangulator`` (triangle
+    documentation linked below.  Key helper modules include
+    ``yapcad.geometry_utils``/``yapcad.triangulator`` (triangle
     helpers and ear-cut tessellation), ``yapcad.geometry_checks`` (mesh
     validation), ``yapcad.metadata`` (surface/solid provenance),
     ``yapcad.geom3d_util.stack_solids`` and ``cutaway_solid_x`` (layout and
-    section tools), and ``yapcad.io`` for STL/STEP export.
+    section tools), ``yapcad.boolean.native`` (production-ready boolean
+    engine), and ``yapcad.io`` for validated STL/STEP export.
 
 Contents
 ========
