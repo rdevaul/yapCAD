@@ -543,8 +543,8 @@ def issurface(s,fast=True):
         return (len(list(filter(lambda x: not (isinstance(x,int) or
                                                x < 0 or x >= l),
                                 inds))) == 0)
-    
-    if not isinstance(s,list) or s[0] != 'surface' or len(s) not in (6,7):
+
+    if not isinstance(s,list) or len(s) not in (6,7) or s[0] != 'surface':
         return False
     if fast:
         return True
@@ -689,7 +689,7 @@ def issolid(s,fast=True):
     of surfaces completely bounds a volume of space without holes
     """
 
-    if not isinstance(s,list) or s[0] != 'solid' or len(s) not in (4,5):
+    if not isinstance(s,list) or len(s) not in (4,5) or s[0] != 'solid':
         return False
     if fast:
         return True

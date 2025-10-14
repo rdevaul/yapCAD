@@ -48,6 +48,10 @@ class Boolean(Geometry):
         else:
             gl = geom_obj
 
+        # If gl is a single arc/line/poly, wrap it in a list for geomlist2poly_with_holes
+        if isarc(gl) or isline(gl) or ispoly(gl):
+            gl = [gl]
+
         try:
             outer, holes = geomlist2poly_with_holes(gl, self.__minang, self.__minlen, checkcont=False)
         except Exception:
