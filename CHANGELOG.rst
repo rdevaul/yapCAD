@@ -2,6 +2,51 @@
 Changelog
 =========
 
+Version 0.5.1 (2025-10-14)
+==========================
+
+what's new:
+-----------
+
+  - **3D Boolean Operations Fixes**: Complete overhaul of solid boolean operations
+    with robust normal orientation and interior triangle filtering.
+
+    - Fixed sphere union normal orientation issues by filtering interior overlap triangles
+    - Added quality-based filtering for degenerate sliver triangles (aspect ratio checks)
+    - Implemented containment-based filtering to remove artifacts in overlap regions
+    - All primitive tests now pass with correct watertight geometry
+
+  - **2D Boolean Operations Fixes**: Resolved crash when performing boolean operations
+    on ``Circle`` and other single-geometry primitives.
+
+    - Fixed geometry wrapping in ``Boolean._prepare_geom()`` to handle unwrapped arc format
+    - Added comprehensive regression tests for 2D boolean operations
+
+  - **Primitive Improvements**: Enhanced reliability of 3D geometric primitives.
+
+    - Fixed ``conic()`` primitive to generate proper watertight solids
+    - Fixed ``tube()`` primitive normal orientation and end cap connectivity
+    - All 9 core primitives (box, sphere, cylinder, cone, tube, etc.) validated as watertight
+
+  - **Modular Boolean Engine Architecture**: Separated boolean operations into
+    ``yapcad.boolean.native`` module for better maintainability.
+
+    - Support for multiple boolean engine backends (native, trimesh:manifold, trimesh:blender)
+    - Engine selection via ``solid_boolean(..., engine='native')`` parameter
+    - Environment variable support (``YAPCAD_BOOLEAN_ENGINE``, ``YAPCAD_TRIMESH_BACKEND``)
+
+  - **Test Suite Improvements**: Enhanced test coverage and reliability.
+
+    - 106 tests passing (up from 99 in v0.5.0)
+    - Added boolean regression test suite
+    - Improved solid topology tests with better error reporting
+
+Known problems
+--------------
+
+- Incomplete documentation for some advanced 3D features.
+- STEP export currently supports tessellated geometry; analytical BREP support planned for 1.0.
+
 Version 0.5.0 (2024-09-30)
 ==========================
 

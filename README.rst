@@ -42,10 +42,14 @@ geometry experiments.
 software status
 ---------------
 
-**yapCAD** is still very much in **beta**, although it is already being
-used by for professional engineering purposes. If you are using
-**yapCAD** in interesting ways, feel free to let us know in the `yapCAD
-discussions <https://github.com/rdevaul/yapCAD/discussions>`__ forum
+**yapCAD** is in **active development** and is already being used for
+professional engineering purposes. Recent improvements include robust 3D
+boolean operations (union, intersection, difference) with proper normal
+orientation and degenerate triangle filtering. The 0.5.x series focuses on
+production-ready 3D workflows with validated STL and STEP export.
+
+If you are using **yapCAD** in interesting ways, feel free to let us know in the
+`yapCAD discussions <https://github.com/rdevaul/yapCAD/discussions>`__ forum
 
 **yapCAD** installation, documentation, and examples
 ----------------------------------------------------
@@ -100,8 +104,9 @@ recent updates include:
   using bounding boxes and optional ``space:<distance>`` directives.
 * ``yapcad.geom3d_util.cutaway_solid_x`` – trim solids against a plane to
   create sectional visualisations.
-* ``yapcad.io.step``/``yapcad.io.stl`` – streamlined mesh exporters for
-  interchange with FreeCAD, slicers, and analysis tools.
+* ``yapcad.io.step``/``yapcad.io.stl`` – production-ready faceted exporters
+  suitable for interchange with FreeCAD, slicers, and other simulation tools.
+  STEP export supports multi-component assemblies with proper face orientation.
 
 To build the HTML **yapCAD** documentation locally, install the
 documentation dependencies and run Sphinx from the project root::
@@ -181,14 +186,18 @@ drawing file format. At present, **yapCAD** supports:
 
 * AutoCAD DXF output for two-dimensional drawings (via
   `ezdxf <https://github.com/mozman/ezdxf>`__).
-* STL export for 3D solids (via the new ``yapcad.io.stl`` module).
+* STL and STEP export for 3D solids (via ``yapcad.io.stl`` and
+  ``yapcad.io.step`` modules).
 * OpenGL visualisation for 2D/3D geometries using
   `pyglet <https://github.com/pyglet/pyglet>`__.
+* Modular 3D boolean operations supporting both native and external engines
+  (trimesh with Manifold/Blender backends).
 
-The 0.5.0 release lays the shared foundations (triangle utilities,
-metadata, validation checks, and STL export) that pave the way toward STEP
-support and a packaged, provenance-aware project model targeted for the
-forthcoming 1.0 release.
+The 0.5.x series delivers robust 3D boolean operations, validated primitive
+generation (sphere, cylinder, cone, tube, etc.), comprehensive mesh validation
+tools, and production-ready export capabilities. These foundations pave the way
+toward enhanced STEP support and a packaged, provenance-aware project model
+targeted for the forthcoming 1.0 release.
 
 The foundations of **yapCAD** are grounded in decades of the author’s
 experience with graphics system programming, 3D CAD and simulation.
