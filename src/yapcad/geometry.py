@@ -417,15 +417,13 @@ class Geometry:
     
     def surface(self,minang = 5.0, minlen = 0.5):
         """
-        triangulate a closed polyline or geometry list, return a surface.
-        the ``minang`` parameter specifies a minimum angular resolution
-        for sampling arcs, and ``minleng`` specifies a minimum distance
-        between sampled points. 
-        ``surface = ['surface',vertices,normals,faces]``, where:
-            ``vertices`` is a list of ``yapcad.geom`` points,
-            ``normals`` is a list of ``yapcad.geom`` points of the same length as ``vertices``,
-            and ``faces`` is the list of faces, which is to say lists of three indices that 
-            refer to the vertices of the triangle that represents each face.
+        Triangulate a closed polyline or geometry list and return a surface.
+
+        :param minang: minimum angular resolution (degrees) for sampling arcs
+        :param minlen: minimum distance between sampled points
+        :returns: ``['surface', vertices, normals, faces]``. ``vertices`` and
+            ``normals`` are aligned lists of ``yapcad.geom`` points; ``faces`` is
+            a list of index triples describing the triangular mesh.
         """
         if not self.isclosed():
             raise ValueError("non-closed figure has no surface representation")

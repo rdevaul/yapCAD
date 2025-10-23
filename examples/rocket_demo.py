@@ -6,12 +6,15 @@ an STL file suitable for downstream slicers.
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 
 from yapcad.geom import point, vect
 from yapcad.geom3d import solid, surface, translatesolid, rotatesolid
 from yapcad.geom3d_util import conic, extrude
 from yapcad.io.stl import write_stl
+from yapcad.metadata import add_tags, set_material, get_solid_metadata, set_layer
+from yapcad.package import create_package_from_entities
 
 
 def stack_conic(baser: float, topr: float, height: float, z0: float) -> list:
@@ -84,6 +87,31 @@ def build_rocket() -> tuple[list[list], list[list]]:
     return components, assembly
 
 
+def annotate_components(components: list[list], assembly: list) -> None:
+    """Attach basic metadata to individual components and the overall assembly."""
+    for idx, comp in enumerate(components):
+        meta = get_solid_metadata(comp, create=True)
+        add_tags(meta, ['rocket', f'component-{idx}'])
+        if idx == 0:
+            set_material(meta, name='Aluminium 6061-T6')
+    # Assign simple layers for categories
+    structure_indices = list(range(7))  # core stack
+    propulsion_indices = list(range(7, 12))  # engines
+    aero_indices = list(range(12, len(components)))  # fins
+    for idx in structure_indices:
+        if idx < len(components):
+            set_layer(get_solid_metadata(components[idx], create=True), 'structure')
+    for idx in propulsion_indices:
+        if idx < len(components):
+            set_layer(get_solid_metadata(components[idx], create=True), 'propulsion')
+    for idx in aero_indices:
+        if idx < len(components):
+            set_layer(get_solid_metadata(components[idx], create=True), 'aerodynamics')
+    add_tags(get_solid_metadata(assembly, create=True), ['rocket', 'assembly'])
+    set_material(get_solid_metadata(assembly, create=True), name='Composite')
+    set_layer(get_solid_metadata(assembly, create=True), 'assembly')
+
+
 def visualise(components: list[list]) -> None:
     """Render the rocket components with simple colouring."""
     from yapcad.pyglet_drawable import pygletDraw
@@ -106,15 +134,68 @@ def export_stl(solid_obj: list, output_path: Path) -> Path:
     return output_path
 
 
-def main():
+def build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Generate the rocket demo geometry.")
+    parser.add_argument(
+        "--no-view",
+        action="store_true",
+        help="Skip launching the interactive viewer.",
+    )
+    parser.add_argument(
+        "--package",
+        type=Path,
+        help="Optional output directory for a .ycpkg package.",
+    )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Overwrite existing package directory if present.",
+    )
+    parser.add_argument(
+        "--name",
+        default="Rocket Demo",
+        help="Display name recorded in the package manifest.",
+    )
+    parser.add_argument(
+        "--version",
+        default="0.1.0",
+        help="Version string recorded in the package manifest.",
+    )
+    parser.add_argument(
+        "--description",
+        default="yapCAD rocket demonstration assembly",
+        help="Description stored in the package manifest.",
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None):
+    parser = build_arg_parser()
+    args = parser.parse_args(argv)
+
     components, assembly = build_rocket()
+    annotate_components(components, assembly)
+
     out_path = export_stl(assembly, Path('rocket_demo.stl'))
     print(f'STL written to {out_path}')
 
-    try:
-        visualise(components)
-    except Exception as exc:
-        print(f'Visualisation skipped: {exc}')
+    if args.package:
+        pkg_dir = args.package
+        manifest = create_package_from_entities(
+            components + [assembly],
+            pkg_dir,
+            name=args.name,
+            version=args.version,
+            description=args.description,
+            overwrite=args.overwrite,
+        )
+        print(f'Package created at {manifest.manifest_path}')
+
+    if not args.no_view:
+        try:
+            visualise(components)
+        except Exception as exc:
+            print(f'Visualisation skipped: {exc}')
 
 
 if __name__ == '__main__':

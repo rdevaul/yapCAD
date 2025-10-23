@@ -21,13 +21,13 @@ parametric soids and surfaces, and supporting functions.
 
 def sphere2cartesian(lat,lon,rad):
     """
-    Utility function to convert spherical polar coordinates to
-    cartesian coordinates for a sphere centered at the origin.
-        ``lat`` -- latitude
-        ``lon`` -- longitude
-        ``rad`` -- sphere radius
+    Convert spherical polar coordinates to Cartesian coordinates for a
+    sphere centered at the origin.
 
-    returns a ``yapcad.geom`` point
+    :param lat: latitude in degrees
+    :param lon: longitude in degrees
+    :param rad: sphere radius
+    :returns: ``yapcad.geom`` point in homogeneous coordinates
     """
     if lat == 90:
         return [0,0,rad,1]
@@ -393,11 +393,14 @@ def conic(baser,topr,height, center=point(0,0,0),angr=10):
 
 def makeRevolutionSurface(contour,zStart,zEnd,steps,arcSamples=36):
     """
-    Take a countour (any function z->y mapped over the interval
+    Generate a surface of revolution by sampling a contour function.
 
-     ``zStart`` and ``zEnd`` and produce the surface of revolution
-     around the z axis.  Sample ``steps`` contours of the function,
-    which in turn are turned into circles sampled `arcSamples`` times.
+    :param contour: callable mapping ``z`` to a radial distance
+    :param zStart: lower bound for the ``z`` interval
+    :param zEnd: upper bound for the ``z`` interval
+    :param steps: number of contour samples between ``zStart`` and ``zEnd``
+    :param arcSamples: number of samples around the revolution arc
+    :returns: ``['surface', vertices, normals, faces]`` list representing the surface
     """
 
     sV=[]

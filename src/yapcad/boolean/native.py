@@ -99,6 +99,12 @@ def _candidate_planes_for_triangle(tri, target, tri_plane, tol):
                     candidates.append(elem)
             if not candidates:
                 candidates = list(_iter_triangles_from_surface(surf))
+        meta = _ensure_surface_metadata_dict(surf)
+        orientation = meta.get('_surface_orientation')
+        if orientation is None:
+            orientation = _determine_surface_orientation(surf, target, extent, tol)
+            meta['_surface_orientation'] = orientation
+        sense_value = -orientation
         for cand in candidates:
             plane = _triangle_plane(cand)
             n, d = plane
@@ -107,17 +113,19 @@ def _candidate_planes_for_triangle(tri, target, tri_plane, tol):
                 (cand[0][1] + cand[1][1] + cand[2][1]) / 3.0,
                 (cand[0][2] + cand[1][2] + cand[2][2]) / 3.0,
             )
-            vec = point(centroid[0] - center[0],
-                        centroid[1] - center[1],
-                        centroid[2] - center[2])
-            dot_sign = n[0] * vec[0] + n[1] * vec[1] + n[2] * vec[2]
-            if dot_sign > epsilon_dot:
-                sense = -1
-            elif dot_sign < -epsilon_dot:
-                sense = 1
-            else:
-                center_eval = _plane_eval(plane, center)
-                sense = -1 if center_eval <= 0 else 1
+            sense = sense_value
+            if sense == 0:
+                vec = point(centroid[0] - center[0],
+                            centroid[1] - center[1],
+                            centroid[2] - center[2])
+                dot_sign = n[0] * vec[0] + n[1] * vec[1] + n[2] * vec[2]
+                if dot_sign > epsilon_dot:
+                    sense = -1
+                elif dot_sign < -epsilon_dot:
+                    sense = 1
+                else:
+                    center_eval = _plane_eval(plane, center)
+                    sense = -1 if center_eval <= 0 else 1
             plane_with_sense = (n, d, sense)
             key = _plane_key(plane_with_sense, tol)
             if key not in seen:
@@ -295,6 +303,41 @@ def _plane_key(plane, tol):
     n, d, sense = plane
     scale = 1.0 / tol
     return (round(n[0] * scale), round(n[1] * scale), round(n[2] * scale), round(d * scale), sense)
+
+
+def _plane_key_no_sense(plane, tol):
+    n, d = plane
+    scale = 1.0 / tol
+    return (round(n[0] * scale), round(n[1] * scale), round(n[2] * scale), round(d * scale))
+
+
+def _determine_surface_orientation(surf, solid, extent, tol):
+    offset = max(extent * 1e-3, tol * 1000.0, 1e-3)
+    eval_tol = max(tol * 10.0, 1e-6)
+    for tri in _iter_triangles_from_surface(surf):
+        try:
+            center, normal = _geom3d().tri2p0n(tri)
+        except ValueError:
+            continue
+        mag_n = _mag3([normal[0], normal[1], normal[2]])
+        if mag_n < tol:
+            continue
+        inside_probe = point(center[0] - normal[0] * offset,
+                             center[1] - normal[1] * offset,
+                             center[2] - normal[2] * offset)
+        outside_probe = point(center[0] + normal[0] * offset,
+                              center[1] + normal[1] * offset,
+                              center[2] + normal[2] * offset)
+        try:
+            inside_contains = solid_contains_point(solid, inside_probe, tol=eval_tol)
+            outside_contains = solid_contains_point(solid, outside_probe, tol=eval_tol)
+        except ValueError:
+            break
+        if inside_contains and not outside_contains:
+            return 1
+        if outside_contains and not inside_contains:
+            return -1
+    return 1
 
 
 def _sub3(a, b):
@@ -741,6 +784,85 @@ def _boolean_fragments(source, target, tol):
     return outside_tris, inside_tris, inside_overlap
 
 
+def _union_boundary_from_inside(triangles, other, tol):
+    if not triangles:
+        return []
+    box = _geom3d().solidbbox(other)
+    if box:
+        extent = max(box[1][0] - box[0][0],
+                     box[1][1] - box[0][1],
+                     box[1][2] - box[0][2])
+    else:
+        extent = 1.0
+    offset = max(extent * 1e-3, tol * 1000.0, 1e-3)
+    boundary = []
+    for tri in triangles:
+        try:
+            center, normal = _geom3d().tri2p0n(tri)
+        except ValueError:
+            continue
+        mag_n = _mag3([normal[0], normal[1], normal[2]])
+        if mag_n < tol:
+            continue
+        unit = [normal[0] / mag_n, normal[1] / mag_n, normal[2] / mag_n]
+        probe = point(center[0] + unit[0] * offset,
+                      center[1] + unit[1] * offset,
+                      center[2] + unit[2] * offset)
+        if not box or not _geom3d().isinsidebbox(box, probe):
+            boundary.append(tri)
+            continue
+        hits = _collect_segment_intersections(center, probe, other, tol)
+        if hits:
+            earliest = min(t for t, _ in hits)
+            if earliest < 1.0 - tol * 10.0:
+                boundary.append(tri)
+                continue
+        try:
+            check_tol = max(tol * 100.0, 1e-6)
+            if not solid_contains_point(other, probe, tol=check_tol):
+                boundary.append(tri)
+        except ValueError:
+            boundary.append(tri)
+    return boundary
+
+
+def _filter_triangles_against_other(triangles, other, tol):
+    if not triangles:
+        return []
+    box = _geom3d().solidbbox(other)
+    if box:
+        extent = max(box[1][0] - box[0][0],
+                     box[1][1] - box[0][1],
+                     box[1][2] - box[0][2])
+    else:
+        extent = 1.0
+    offset = max(extent * 1e-3, tol * 1000.0, 1e-3)
+    check_tol = max(tol * 100.0, 1e-6)
+    filtered = []
+    for tri in triangles:
+        try:
+            center, normal = _geom3d().tri2p0n(tri)
+        except ValueError:
+            filtered.append(tri)
+            continue
+        mag_n = _mag3([normal[0], normal[1], normal[2]])
+        if mag_n < tol:
+            filtered.append(tri)
+            continue
+        unit = [normal[0] / mag_n, normal[1] / mag_n, normal[2] / mag_n]
+        probe = point(center[0] + unit[0] * offset,
+                      center[1] + unit[1] * offset,
+                      center[2] + unit[2] * offset)
+        if box and not _geom3d().isinsidebbox(box, probe):
+            filtered.append(tri)
+            continue
+        try:
+            if not solid_contains_point(other, probe, tol=check_tol):
+                filtered.append(tri)
+        except ValueError:
+            filtered.append(tri)
+    return filtered
+
 
 def _ray_triangle_intersection(origin, direction, triangle, tol=_DEFAULT_RAY_TOL):
     v0, v1, v2 = triangle
@@ -969,26 +1091,27 @@ def solid_boolean(a, b, operation, tol=_DEFAULT_RAY_TOL, *, stitch=False):
     outside_b, inside_b, overlap_b = _boolean_fragments(b, a, tol)
 
     if operation == 'union':
-        result_tris = outside_a + outside_b
+        result_tris = []
+        filtered_outside_a = _filter_triangles_against_other(outside_a, b, tol)
+        filtered_outside_b = _filter_triangles_against_other(outside_b, a, tol)
+        if filtered_outside_a:
+            result_tris.extend(filtered_outside_a)
+        if filtered_outside_b:
+            result_tris.extend(filtered_outside_b)
+        boundary_a = _union_boundary_from_inside(inside_a, b, tol)
+        if boundary_a:
+            result_tris.extend(boundary_a)
+        boundary_b = _union_boundary_from_inside(inside_b, a, tol)
+        if boundary_b:
+            result_tris.extend(boundary_b)
+        filtered_overlap_a = _filter_triangles_against_other(overlap_a, b, tol)
+        filtered_overlap_b = _filter_triangles_against_other(overlap_b, a, tol)
+        if filtered_overlap_a:
+            result_tris.extend(filtered_overlap_a)
+        if filtered_overlap_b:
+            result_tris.extend(filtered_overlap_b)
         if not result_tris:
             result_tris = inside_a if inside_a else inside_b
-
-        # Filter out triangles in the interior of the overlap region
-        # For union, if a triangle's center is inside both input solids,
-        # it's in the interior and should not be on the surface
-        filtered_tris = []
-        for tri in result_tris:
-            center = point((tri[0][0] + tri[1][0] + tri[2][0]) / 3.0,
-                          (tri[0][1] + tri[1][1] + tri[2][1]) / 3.0,
-                          (tri[0][2] + tri[1][2] + tri[2][2]) / 3.0)
-            # Use a tighter tolerance for containment check to avoid false positives
-            check_tol = tol * 100
-            in_a = solid_contains_point(a, center, tol=check_tol)
-            in_b = solid_contains_point(b, center, tol=check_tol)
-            # Keep triangle only if it's not clearly inside both solids
-            if not (in_a and in_b):
-                filtered_tris.append(tri)
-        result_tris = filtered_tris
 
     elif operation == 'intersection':
         result_tris = inside_a + inside_b
@@ -1007,6 +1130,3 @@ def solid_boolean(a, b, operation, tol=_DEFAULT_RAY_TOL, *, stitch=False):
     if surface_result:
         return _geom3d().solid([surface_result], [], ['boolean', operation])
     return _geom3d().solid([], [], ['boolean', operation])
-
-
-

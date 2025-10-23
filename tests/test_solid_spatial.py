@@ -10,6 +10,7 @@ from yapcad.geom3d import (
     translatesolid,
     _iter_triangles_from_solid,
     tri2p0n,
+    issolid,
 )
 from yapcad.geom3d_util import prism, sphere, conic, tube
 
@@ -70,6 +71,13 @@ def _make_cavity_solid():
     inner = prism(1, 1, 1)
     cavity_surfaces = outer[1] + [reversesurface(s) for s in inner[1]]
     return ['solid', cavity_surfaces, [], []]
+
+
+def _merge_solids(*solids):
+    surfaces = []
+    for sld in solids:
+        surfaces.extend(copy.deepcopy(sld[1]))
+    return ['solid', surfaces, [], []]
 
 
 def test_solid_contains_point_basic():
@@ -168,3 +176,34 @@ def test_solid_boolean_tube_side_hole():
     assert not solid_contains_point(result, point(1.2, 0.0, 0.0))
     assert solid_contains_point(result, point(0.0, 1.3, 0.0))
     _assert_normals_outward(result, label='tube side hole')
+
+
+@pytest.mark.slow
+def test_solid_boolean_union_concave_target():
+    outer = prism(4.0, 4.0, 4.0)
+    inner = prism(3.2, 3.2, 3.2)
+    shell = solid_boolean(outer, inner, 'difference')
+    block = prism(2.5, 1.5, 4.0)
+
+    union = solid_boolean(block, shell, 'union')
+
+    assert issolid(union, fast=False)
+    assert solid_contains_point(union, point(1.2, 0.0, 0.0))
+    assert solid_contains_point(union, point(1.9, 0.0, 0.0))
+    _assert_normals_outward(union, label='concave union')
+
+
+@pytest.mark.slow
+def test_solid_boolean_difference_disconnected_target():
+    base = prism(5.0, 2.0, 2.0)
+    left_cut = translatesolid(prism(1.0, 1.5, 1.5), point(-1.8, 0.0, 0.0))
+    right_cut = translatesolid(prism(1.0, 1.5, 1.5), point(1.8, 0.0, 0.0))
+    cutter = _merge_solids(left_cut, right_cut)
+
+    result = solid_boolean(base, cutter, 'difference')
+
+    assert issolid(result, fast=False)
+    assert not solid_contains_point(result, point(-1.8, 0.0, 0.0))
+    assert not solid_contains_point(result, point(1.8, 0.0, 0.0))
+    assert solid_contains_point(result, point(0.0, 0.0, 0.0))
+    _assert_normals_outward(result, label='difference disconnected target')
