@@ -201,3 +201,9 @@ These APIs should be usable by both CLI and programmatic automation.
 - Digital signatures (`signatures` section) referencing PKI chain.
 - Dependency graph for multi-part assemblies.
 - Delta packages storing overrides against a base `.ycpkg`.
+## Viewer & Validation Quick Reference
+
+- `tools/ycpkg_validate.py <package>` – verifies hashes and geometry JSON.
+- `tools/ycpkg_viewer.py <package>` – launches the interactive viewer.
+  * 3D mode shows perspective/front/top/side quadrants, supports layer toggles (`1-9` to toggle, `0` reset) and a help overlay (`H`/`F1`).
+  * 2D sketches receive the same layer toggles, pan/zoom controls, and help overlay.

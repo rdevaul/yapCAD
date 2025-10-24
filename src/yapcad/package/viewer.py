@@ -22,6 +22,9 @@ from pyglet.gl import (
     GL_SCISSOR_TEST,
     GL_LINES,
     GL_LINE_LOOP,
+    GL_QUADS,
+    GL_ENABLE_BIT,
+    GL_DEPTH_BUFFER_BIT,
     GL_SRC_ALPHA,
     GL_TRIANGLES,
     glBegin,
@@ -38,7 +41,9 @@ from pyglet.gl import (
     glNormal3f,
     glOrtho,
     glPopMatrix,
+    glPopAttrib,
     glPushMatrix,
+    glPushAttrib,
     glScalef,
     glScissor,
     glTranslatef,
@@ -153,6 +158,7 @@ class FourViewWindow(pyglet.window.Window):
         self.visible_layers = {layer: True for layer in self.layer_names}
         self.bbox = bbox
         self.units = units
+        self.show_help = False
         self.azimuth = 35.0
         self.elevation = 25.0
         self.distance = max(bbox[3] - bbox[0], bbox[4] - bbox[1], bbox[5] - bbox[2]) * 1.5 or 10.0
@@ -183,6 +189,7 @@ class FourViewWindow(pyglet.window.Window):
         self._draw_viewport(w2, h2, w2, h2, "Front", orientation="front", fb_dims=(fb_width, fb_height))
         self._draw_viewport(0, 0, w2, h2, "Top", orientation="top", fb_dims=(fb_width, fb_height))
         self._draw_viewport(w2, 0, w2, h2, "Side", orientation="side", fb_dims=(fb_width, fb_height))
+        self._draw_help_overlay(fb_width, fb_height)
 
     def _apply_camera(self, orientation: str | None, width: int, height: int, perspective: bool):
         glMatrixMode(GL_PROJECTION)
@@ -353,7 +360,8 @@ class FourViewWindow(pyglet.window.Window):
         label.draw()
         axis_lines: List[str] = []
         if perspective:
-            axis_lines.append("+X →, +Y ↑, +Z out")
+            pass
+            #axis_lines.append("+X →, +Y ↑, +Z out")
         elif orientation == "front":
             axis_lines.append("+X →, +Y ↑")
         elif orientation == "top":
@@ -389,6 +397,84 @@ class FourViewWindow(pyglet.window.Window):
         glPopMatrix()
         glMatrixMode(GL_MODELVIEW)
 
+    def _draw_help_overlay(self, fb_width: int, fb_height: int) -> None:
+        if not self.show_help:
+            return
+        glPushAttrib(GL_ENABLE_BIT | GL_DEPTH_BUFFER_BIT)
+        try:
+            glDisable(GL_LIGHTING)
+            glDisable(GL_DEPTH_TEST)
+            glMatrixMode(GL_PROJECTION)
+            glPushMatrix()
+            glLoadIdentity()
+            glOrtho(0, fb_width, 0, fb_height, -1, 1)
+            glMatrixMode(GL_MODELVIEW)
+            glPushMatrix()
+            glLoadIdentity()
+
+            # margin = 40
+            margin = fb_width // 20
+            h_margin = fb_height // 30
+            panel_width = fb_width - 2 * margin
+            panel_height = min(fb_height // 1.5 , fb_height - 2 * h_margin)
+            left = margin
+            bottom = fb_height - h_margin - panel_height
+
+            glColor4f(0.05, 0.05, 0.08, 0.9)
+            pyglet.graphics.draw(
+                4,
+                GL_QUADS,
+                ("v2f", [
+                    left, bottom,
+                    left + panel_width, bottom,
+                    left + panel_width, bottom + panel_height,
+                    left, bottom + panel_height,
+                ]),
+            )
+
+            active_layers = ", ".join(layer for layer, vis in self.visible_layers.items() if vis) or "none"
+            help_lines = [
+                "Viewer Controls",
+                "Perspective View (top-left):",
+                "  Left drag within panel – rotate",
+                "  Right drag – pan",
+                "  Scroll/Swipe up – zoom out, down – zoom in",
+                "Front/Top/Side Views:",
+                "  Right drag – pan (axes specific)",
+                "Layers:",
+                "  Number keys 1-9 toggle layers, 0 resets",
+                f"  Active layers: {active_layers}",
+                "General:",
+                "  H or F1 – toggle help, ESC – close window",
+            ]
+
+#            title_font = max(28, min(fb_width, fb_height) // 13)
+#            body_font = max(20, title_font // 1.5)
+            title_font = max(28, min(fb_width, fb_height) // 23)
+            body_font = max(20, title_font // 1.5)
+            y = bottom + panel_height - (h_margin + title_font)
+            for idx, line in enumerate(help_lines):
+                size = title_font if idx == 0 else body_font
+                label = pyglet.text.Label(
+                    line,
+                    font_size=int(size),
+                    x=left + 26,
+                    y=y,
+                    anchor_x="left",
+                    anchor_y="baseline",
+                    color=(255, 255, 255, 235),
+                )
+                label.draw()
+                y -= label.content_height + 10
+
+            glMatrixMode(GL_MODELVIEW)
+            glPopMatrix()
+            glMatrixMode(GL_PROJECTION)
+            glPopMatrix()
+            glMatrixMode(GL_MODELVIEW)
+        finally:
+            glPopAttrib()
+
     def on_mouse_drag(self, x, y, dx, dy, buttons, modifiers):
         if buttons & pyglet.window.mouse.LEFT:
             if x < self.width // 2 and y > self.height // 2:
@@ -399,8 +485,10 @@ class FourViewWindow(pyglet.window.Window):
             self.pan_y += dy * 0.01
 
     def on_mouse_scroll(self, x, y, scroll_x, scroll_y):
-        factor = 0.9 if scroll_y > 0 else 1.1
-        self.distance = max(0.5, self.distance * factor)
+        if scroll_y > 0:
+            self.distance = max(0.5, self.distance * 1.1)
+        elif scroll_y < 0:
+            self.distance = max(0.5, self.distance * 0.9)
 
     def on_key_press(self, symbol, modifiers):
         if symbol == key.ESCAPE:
@@ -413,6 +501,10 @@ class FourViewWindow(pyglet.window.Window):
         elif symbol == key._0:
             for layer in self.layer_names:
                 self.visible_layers[layer] = True
+        elif symbol in (key.H, key.F1):
+            self.show_help = not self.show_help
+#        else:
+#            print(f"Key pressed: {key.symbol_string(symbol)}")
 
 
 class SketchWindow(pyglet.window.Window):
@@ -433,6 +525,7 @@ class SketchWindow(pyglet.window.Window):
         self.pan = [0.0, 0.0]
         self.dragging = False
         self.drag_start = (0, 0)
+        self.show_help = False
         glClearColor(0.05, 0.05, 0.07, 1.0)
         glEnable(pyglet.gl.GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
@@ -495,6 +588,7 @@ class SketchWindow(pyglet.window.Window):
                 glEnd()
 
         self._draw_overlay()
+        self._draw_help_overlay(fb_width, fb_height)
 
     def _draw_overlay(self):
         glMatrixMode(GL_PROJECTION)
@@ -506,7 +600,7 @@ class SketchWindow(pyglet.window.Window):
         glPushMatrix()
         glLoadIdentity()
 
-        overlay_text = "Scroll to zoom • Right drag to pan • Number keys toggle layers"
+        overlay_text = "Press H for help"
         if self.units:
             overlay_text += f" • Units: {self.units}"
         if len(self.layer_names) > 1:
@@ -534,9 +628,72 @@ class SketchWindow(pyglet.window.Window):
         glPopMatrix()
         glMatrixMode(GL_MODELVIEW)
 
+    def _draw_help_overlay(self, fb_width: int, fb_height: int) -> None:
+        if not self.show_help:
+            return
+        glMatrixMode(GL_PROJECTION)
+        glPushMatrix()
+        glLoadIdentity()
+        glOrtho(0, fb_width, 0, fb_height, -1, 1)
+        glMatrixMode(GL_MODELVIEW)
+        glPushMatrix()
+        glLoadIdentity()
+
+        margin = fb_width // 20
+        h_margin = fb_height // 30
+        panel_width = fb_width/2 - 2 * margin
+        panel_height = min(fb_height // 1.5 , fb_height // 3 - h_margin)
+        left = margin
+        bottom = fb_height - margin - panel_height
+
+        pyglet.gl.glColor4f(0.08, 0.08, 0.1, 0.9)
+        pyglet.graphics.draw(
+            4,
+            GL_QUADS,
+            ("v2f", [
+                left, bottom,
+                left + panel_width, bottom,
+                left + panel_width, bottom + panel_height,
+                left, bottom + panel_height,
+            ]),
+        )
+
+        help_lines = [
+            "Sketch Viewer Controls",
+            "  Scroll/Swipe up – zoom out",
+            "  Scroll/Swipe down – zoom in",
+            "  Right drag – pan",
+            "  1-9 – toggle layers (0 resets)",
+            "  H or F1 – toggle help, ESC – close",
+        ]
+        title_font = max(36, min(fb_width, fb_height) // 30)
+        body_font = max(24, title_font // 1.5)
+        y = bottom + panel_height - (h_margin + title_font)
+        for idx, line in enumerate(help_lines):
+            size = title_font if idx == 0 else body_font
+            label = pyglet.text.Label(
+                line,
+                font_size=int(size),
+                x=left + 22,
+                y=y,
+                anchor_x="left",
+                anchor_y="baseline",
+                color=(255, 255, 255, 230),
+            )
+            label.draw()
+            y -= label.content_height + 10
+
+        glMatrixMode(GL_MODELVIEW)
+        glPopMatrix()
+        glMatrixMode(GL_PROJECTION)
+        glPopMatrix()
+        glMatrixMode(GL_MODELVIEW)
+
     def on_mouse_scroll(self, x, y, scroll_x, scroll_y):
-        factor = 1.1 if scroll_y > 0 else 0.9
-        self.scale *= factor
+        if scroll_y > 0:
+            self.scale *= 0.9
+        elif scroll_y < 0:
+            self.scale *= 1.1
 
     def on_mouse_drag(self, x, y, dx, dy, buttons, modifiers):
         if buttons & pyglet.window.mouse.RIGHT:
@@ -554,6 +711,10 @@ class SketchWindow(pyglet.window.Window):
         elif symbol == pyglet.window.key._0:
             for layer in self.layer_names:
                 self.active_layers[layer] = True
+        elif symbol in (key.H, key.F1):
+            self.show_help = not self.show_help
+#        else:
+#            print(f"Key pressed: {key.symbol_string(symbol)}")
 
 
 def view_package(package_path: Path | str, *, strict: bool = False) -> bool:

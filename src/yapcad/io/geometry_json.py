@@ -56,6 +56,8 @@ def _serialize_surface(surface: list, metadata_override: Optional[Dict[str, Any]
     metadata = get_surface_metadata(surface, create=True)
     if metadata_override:
         metadata.update(metadata_override)
+    if "layer" not in metadata or not metadata.get("layer"):
+        metadata["layer"] = "default"
     verts = surface[1]
     norms = surface[2]
     faces = surface[3]
@@ -85,6 +87,8 @@ def _serialize_solid(solid: list, surface_cache: Dict[str, Dict[str, Any]], meta
     metadata = get_solid_metadata(solid, create=True)
     if metadata_override:
         metadata.update(metadata_override)
+    if "layer" not in metadata or not metadata.get("layer"):
+        metadata["layer"] = "default"
     try:
         bbox = _bbox_or_none(solidbbox(solid))
     except Exception:
@@ -92,10 +96,18 @@ def _serialize_solid(solid: list, surface_cache: Dict[str, Dict[str, Any]], meta
 
     shell_ids: List[str] = []
     layers_seen = []
+    parent_layer = metadata.get("layer")
     for surf in solid[1]:
         if not issurface(surf):
             continue
-        serialized = _serialize_surface(surf)
+        surface_meta = get_surface_metadata(surf, create=True)
+        surface_override = None
+        if metadata_override:
+            surface_override = dict(metadata_override)
+        if parent_layer and (not surface_meta.get("layer") or surface_meta.get("layer") == "default"):
+            surface_override = dict(surface_override or {})
+            surface_override["layer"] = parent_layer
+        serialized = _serialize_surface(surf, surface_override)
         surface_cache.setdefault(serialized["id"], serialized)
         shell_ids.append(serialized["id"])
         layers_seen.append(serialized["metadata"].get("layer", "default"))
@@ -107,7 +119,14 @@ def _serialize_solid(solid: list, surface_cache: Dict[str, Dict[str, Any]], meta
             for surf in void:
                 if not issurface(surf):
                     continue
-                serialized = _serialize_surface(surf)
+                surface_meta = get_surface_metadata(surf, create=True)
+                surface_override = None
+                if metadata_override:
+                    surface_override = dict(metadata_override)
+                if parent_layer and (not surface_meta.get("layer") or surface_meta.get("layer") == "default"):
+                    surface_override = dict(surface_override or {})
+                    surface_override["layer"] = parent_layer
+                serialized = _serialize_surface(surf, surface_override)
                 surface_cache.setdefault(serialized["id"], serialized)
                 void_ids.append(serialized["id"])
                 layers_seen.append(serialized["metadata"].get("layer", "default"))
