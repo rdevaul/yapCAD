@@ -736,6 +736,7 @@ def view_package(package_path: Path | str, *, strict: bool = False) -> bool:
 
     units = manifest.data.get("units", "")
     layer_tris, bbox = _collect_triangles(doc)
+    print(f"bounding box: {bbox}")
     if layer_tris:
         window = FourViewWindow(layer_tris, bbox, units=units)
     else:

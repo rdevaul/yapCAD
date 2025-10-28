@@ -1,6 +1,6 @@
 import json
 
-from yapcad.geom import point
+from yapcad.geom import point, line, arc, iscircle, isarc, catmullrom, iscatmullrom, nurbs, isnurbs
 from yapcad.geom3d import poly2surfaceXY, solid
 from yapcad.io.geometry_json import geometry_from_json, geometry_to_json, SCHEMA_ID
 from yapcad.metadata import (
@@ -61,3 +61,26 @@ def test_geometry_json_roundtrip():
     surf_meta = get_surface_metadata(surfaces[0], create=False)
     assert surf_meta['schema'] == 'metadata-namespace-v0.1'
     assert surf_meta['layer'] == 'structure'
+
+
+def test_sketch_primitives_roundtrip():
+    geom = [
+        line(point(0, 0), point(1, 0)),
+        arc(point(0, 0), 5),
+        arc(point(2, 2), 3, 0, 180),
+        catmullrom([point(0, 0), point(1, 2), point(2, 0)]),
+        nurbs([point(0, 0), point(1, 2), point(3, 3), point(4, 0)], degree=3),
+    ]
+    doc = geometry_to_json([{'geometry': geom, 'metadata': {'layer': 'sketch'}}])
+    sketch_entry = next(e for e in doc['entities'] if e['type'] == 'sketch')
+    primitives = sketch_entry.get('primitives', [])
+    kinds = {prim['kind'] for prim in primitives}
+    assert {'line', 'circle', 'arc'}.issubset(kinds)
+
+    roundtrip = geometry_from_json(doc)
+    assert len(roundtrip) == 1
+    returned_geom = roundtrip[0]
+    assert any(iscircle(entity) for entity in returned_geom)
+    assert any(isarc(entity) and not iscircle(entity) for entity in returned_geom)
+    assert any(iscatmullrom(entity) for entity in returned_geom)
+    assert any(isnurbs(entity) for entity in returned_geom)

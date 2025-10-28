@@ -5,10 +5,17 @@ Implements the draft schema described in ``docs/geometry_json_schema.md``.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+import uuid
+from typing import Any, Dict, Iterable, List, Optional, Tuple, Sequence
 
 from yapcad.geom import (
+    arc,
+    catmullrom,
+    isnurbs,
+    iscatmullrom,
+    nurbs,
     point,
+    vect,
     bbox as bbox2d,
     isarc,
     iscircle,
@@ -28,8 +35,6 @@ from yapcad.metadata import (
     set_surface_metadata,
     set_layer,
 )
-import uuid
-
 SCHEMA_ID = "yapcad-geometry-json-v0.1"
 
 
@@ -46,6 +51,23 @@ def _bbox_or_none(box: Optional[List[List[float]]]) -> Optional[List[float]]:
         return None
     (xmin, ymin, zmin, _), (xmax, ymax, zmax, _) = box
     return [float(xmin), float(ymin), float(zmin), float(xmax), float(ymax), float(zmax)]
+
+
+def _point_components(pt: Sequence[float]) -> List[float]:
+    """Return point components including homogeneous coordinate."""
+    x = float(pt[0])
+    y = float(pt[1])
+    z = float(pt[2]) if len(pt) > 2 else 0.0
+    w = float(pt[3]) if len(pt) > 3 else 1.0
+    return [x, y, z, w]
+
+
+def _point_from_components(components: Sequence[float]) -> List[float]:
+    if len(components) >= 4:
+        return point(float(components[0]), float(components[1]), float(components[2]), float(components[3]))
+    if len(components) == 3:
+        return point(float(components[0]), float(components[1]), float(components[2]))
+    return point(float(components[0]), float(components[1]))
 
 
 def _serialize_surface(surface: list, metadata_override: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -108,8 +130,17 @@ def _serialize_solid(solid: list, surface_cache: Dict[str, Dict[str, Any]], meta
             surface_override = dict(surface_override or {})
             surface_override["layer"] = parent_layer
         serialized = _serialize_surface(surf, surface_override)
-        surface_cache.setdefault(serialized["id"], serialized)
-        shell_ids.append(serialized["id"])
+        surface_id = serialized["id"]
+        while surface_id in surface_cache:
+            new_id = uuid.uuid4().hex
+            meta = serialized["metadata"]
+            meta["entityId"] = new_id
+            meta["id"] = new_id
+            serialized["id"] = new_id
+            set_surface_metadata(surf, meta)
+            surface_id = new_id
+        surface_cache[surface_id] = serialized
+        shell_ids.append(surface_id)
         layers_seen.append(serialized["metadata"].get("layer", "default"))
 
     voids: List[List[str]] = []
@@ -127,8 +158,17 @@ def _serialize_solid(solid: list, surface_cache: Dict[str, Dict[str, Any]], meta
                     surface_override = dict(surface_override or {})
                     surface_override["layer"] = parent_layer
                 serialized = _serialize_surface(surf, surface_override)
-                surface_cache.setdefault(serialized["id"], serialized)
-                void_ids.append(serialized["id"])
+                surface_id = serialized["id"]
+                while surface_id in surface_cache:
+                    new_id = uuid.uuid4().hex
+                    meta = serialized["metadata"]
+                    meta["entityId"] = new_id
+                    meta["id"] = new_id
+                    serialized["id"] = new_id
+                    set_surface_metadata(surf, meta)
+                    surface_id = new_id
+                surface_cache[surface_id] = serialized
+                void_ids.append(surface_id)
                 layers_seen.append(serialized["metadata"].get("layer", "default"))
             voids.append(void_ids)
 
@@ -165,7 +205,10 @@ def _sample_geometry_element(element: list, min_segments: int = 8) -> List[List[
             _polyline_points(element[0]),
             _polyline_points(element[1]),
         ]
-    segs = max(min_segments, int(max(length(element), 1.0)))
+    if iscatmullrom(element) or isnurbs(element):
+        segs = max(min_segments, 32)
+    else:
+        segs = max(min_segments, int(max(length(element), 1.0)))
     points = []
     for i in range(segs + 1):
         t = i / segs
@@ -175,13 +218,79 @@ def _sample_geometry_element(element: list, min_segments: int = 8) -> List[List[
 
 
 def _serialize_sketch(geomlist: list, metadata_override: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    poly_vectors = []
+    poly_vectors: List[List[List[float]]] = []
+    primitives: List[Dict[str, Any]] = []
+
     for element in geomlist:
-        if isline(element) or isarc(element) or iscircle(element):
+        if isline(element):
+            start = _polyline_points(element[0])
+            end = _polyline_points(element[1])
+            poly_vectors.append([start, end])
+            primitives.append(
+                {
+                    "kind": "line",
+                    "start": start,
+                    "end": end,
+                }
+            )
+        elif iscircle(element):
+            center = _point_components(element[0])
+            radius = float(element[1][0])
+            primitive: Dict[str, Any] = {
+                "kind": "circle",
+                "center": center,
+                "radius": radius,
+                "orientation": int(element[1][3]),
+            }
+            if len(element) >= 3:
+                primitive["normal"] = _point_components(element[2])
+            primitives.append(primitive)
+            poly_vectors.append(_sample_geometry_element(element))
+        elif isarc(element):
+            center = _point_components(element[0])
+            radius = float(element[1][0])
+            start_angle = float(element[1][1])
+            end_angle = float(element[1][2])
+            primitive = {
+                "kind": "arc",
+                "center": center,
+                "radius": radius,
+                "start": start_angle,
+                "end": end_angle,
+                "orientation": int(element[1][3]),
+            }
+            if len(element) >= 3:
+                primitive["normal"] = _point_components(element[2])
+            primitives.append(primitive)
+            poly_vectors.append(_sample_geometry_element(element))
+        elif iscatmullrom(element):
+            control_points = [_point_components(pt) for pt in element[1]]
+            params = dict(element[2])
+            primitives.append(
+                {
+                    "kind": "catmullrom",
+                    "points": control_points,
+                    "params": params,
+                }
+            )
+            poly_vectors.append(_sample_geometry_element(element))
+        elif isnurbs(element):
+            control_points = [_point_components(pt) for pt in element[1]]
+            params = dict(element[2])
+            primitives.append(
+                {
+                    "kind": "nurbs",
+                    "points": control_points,
+                    "params": params,
+                }
+            )
             poly_vectors.append(_sample_geometry_element(element))
         elif isinstance(element, list) and len(element) >= 2 and all(isinstance(pt, list) for pt in element):
-            # treat as polyline
-            poly_vectors.append([_polyline_points(pt) for pt in element])
+            coords = [_polyline_points(pt) for pt in element]
+            if coords:
+                poly_vectors.append(coords)
+                primitives.append({"kind": "polyline", "points": coords})
+
     box = bbox2d(geomlist)
     if box:
         min_pt, max_pt = box
@@ -203,6 +312,7 @@ def _serialize_sketch(geomlist: list, metadata_override: Optional[Dict[str, Any]
         "metadata": metadata,
         "boundingBox": bbox,
         "polylines": poly_vectors,
+        "primitives": primitives,
     }
 
 
@@ -342,6 +452,72 @@ def geometry_from_json(doc: Dict[str, Any]) -> List[list]:
     if sketches:
         geomlists: List[list] = []
         for sketch in sketches:
+            primitives = sketch.get("primitives") or []
+            elements: List[list] = []
+            for prim in primitives:
+                kind = prim.get("kind")
+                if kind == "line":
+                    start = prim.get("start", [])
+                    end = prim.get("end", [])
+                    if len(start) >= 2 and len(end) >= 2:
+                        p0 = point(float(start[0]), float(start[1]))
+                        p1 = point(float(end[0]), float(end[1]))
+                        elements.append(line(p0, p1))
+                elif kind == "circle":
+                    center = _point_from_components(prim.get("center", [0.0, 0.0, 0.0, 1.0]))
+                    radius = float(prim.get("radius", 0.0))
+                    orientation = int(prim.get("orientation", -1))
+                    vect_data = vect(radius, 0.0, 360.0, orientation)
+                    normal = prim.get("normal")
+                    if normal is not None:
+                        elements.append(arc(center, vect_data, _point_from_components(normal)))
+                    else:
+                        elements.append(arc(center, vect_data))
+                elif kind == "arc":
+                    center = _point_from_components(prim.get("center", [0.0, 0.0, 0.0, 1.0]))
+                    radius = float(prim.get("radius", 0.0))
+                    start_angle = float(prim.get("start", 0.0))
+                    end_angle = float(prim.get("end", 0.0))
+                    orientation = int(prim.get("orientation", -1))
+                    vect_data = vect(radius, start_angle, end_angle, orientation)
+                    normal = prim.get("normal")
+                    if normal is not None:
+                        elements.append(arc(center, vect_data, _point_from_components(normal)))
+                    else:
+                        elements.append(arc(center, vect_data))
+                elif kind == "polyline":
+                    coords = prim.get("points", [])
+                    pts = [point(float(pt[0]), float(pt[1])) for pt in coords if len(pt) >= 2]
+                    for idx in range(len(pts) - 1):
+                        elements.append(line(pts[idx], pts[idx + 1]))
+                elif kind == "catmullrom":
+                    ctrl_points = [_point_from_components(pt) for pt in prim.get("points", [])]
+                    params = prim.get("params") or {}
+                    elements.append(
+                        catmullrom(
+                            ctrl_points,
+                            closed=bool(params.get("closed", False)),
+                            alpha=float(params.get("alpha", 0.5)),
+                        )
+                    )
+                elif kind == "nurbs":
+                    ctrl_points = [_point_from_components(pt) for pt in prim.get("points", [])]
+                    params = prim.get("params") or {}
+                    degree = int(params.get("degree", 3))
+                    weights = params.get("weights")
+                    knots = params.get("knots")
+                    elements.append(
+                        nurbs(
+                            ctrl_points,
+                            degree=degree,
+                            weights=weights,
+                            knots=knots,
+                        )
+                    )
+            if elements:
+                geomlists.append(elements)
+                continue
+
             polylines = []
             for poly in sketch.get("polylines", []):
                 if len(poly) < 2:

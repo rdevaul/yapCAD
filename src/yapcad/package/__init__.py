@@ -7,6 +7,7 @@ from .core import (
     PACKAGE_SCHEMA,
     PackageManifest,
     create_package_from_entities,
+    add_geometry_file,
     load_geometry,
 )
 from .validator import validate_package
@@ -24,6 +25,7 @@ __all__ = [
     "MANIFEST_FILENAME",
     "PackageManifest",
     "create_package_from_entities",
+    "add_geometry_file",
     "load_geometry",
     "validate_package",
     "view_package",

@@ -10,6 +10,7 @@ from yapcad.package import (
     PackageManifest,
     create_package_from_entities,
     load_geometry,
+    add_geometry_file,
 )
 from yapcad.package.validator import validate_package
 
@@ -111,3 +112,30 @@ def test_package_from_geomlist(tmp_path: Path):
     with (pkg_root / manifest.data['geometry']['primary']['path']).open() as fp:
         doc = json.load(fp)
     assert all(entry['metadata'].get('layer') == 'sketch' for entry in doc['entities'])
+
+
+def test_add_geometry_file(tmp_path: Path):
+    sld = _make_solid()
+    pkg_root = tmp_path / "demo.ycpkg"
+    manifest = create_package_from_entities(
+        [sld],
+        pkg_root,
+        name="Demo Part",
+        version="0.1.0",
+    )
+
+    external = tmp_path / "imported_gear.step"
+    external.write_text("STEP 700\n")  # dummy payload
+
+    entry = add_geometry_file(
+        manifest,
+        external,
+        purpose="imported component",
+    )
+    manifest.save()
+
+    copied = pkg_root / entry["path"]
+    assert copied.exists()
+    assert entry["format"] == "step"
+    assert entry["source"]["kind"] == "import"
+    assert any(item["path"] == entry["path"] for item in manifest.data["geometry"]["derived"])

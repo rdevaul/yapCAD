@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import hashlib
+import shutil
 import json
 import uuid
 from dataclasses import dataclass, field
@@ -195,6 +196,88 @@ def load_geometry(manifest: PackageManifest) -> List[list]:
     return geometry_from_json(doc)
 
 
+def add_geometry_file(
+    manifest: PackageManifest,
+    source: Path | str,
+    *,
+    dest_relative: str | None = None,
+    purpose: Optional[str] = None,
+    category: str = "derived",
+    overwrite: bool = False,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Copy an external geometry file (e.g., STEP/STL) into the package and record it.
+
+    Args:
+        manifest: Loaded manifest wrapper.
+        source: Path to the external file that should be bundled.
+        dest_relative: Optional relative destination path inside the package root.
+            Defaults to ``geometry/derived/<source.name>``.
+        purpose: Optional description stored alongside the entry.
+        category: Manifest section to update. Supported: ``"derived"`` (default), ``"attachments"``.
+        overwrite: Allow replacing an existing file at the target location.
+        metadata: Additional key/value pairs merged into the manifest entry.
+
+    Returns:
+        The manifest entry dictionary that was inserted.
+    """
+
+    src_path = Path(source)
+    if not src_path.exists():
+        raise FileNotFoundError(f"geometry source not found: {src_path}")
+
+    if dest_relative is None:
+        if category == "derived":
+            dest_relative_path = Path("geometry") / "derived" / src_path.name
+        elif category == "attachments":
+            dest_relative_path = Path("attachments") / src_path.name
+        else:
+            dest_relative_path = Path(src_path.name)
+    else:
+        dest_relative_path = Path(dest_relative)
+        if dest_relative_path.is_absolute():
+            raise ValueError("dest_relative must be a relative path")
+
+    dest_path = manifest.root / dest_relative_path
+    dest_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if dest_path.exists() and not overwrite:
+        raise FileExistsError(f"target file already exists: {dest_path}")
+
+    shutil.copy2(src_path, dest_path)
+
+    entry: Dict[str, Any] = {
+        "path": str(dest_relative_path.as_posix()),
+        "hash": _compute_hash(dest_path),
+        "format": src_path.suffix.lstrip(".").lower(),
+        "source": {
+            "kind": "import",
+            "original": str(src_path),
+        },
+    }
+    if purpose:
+        entry["purpose"] = purpose
+    if metadata:
+        entry.update(metadata)
+
+    if category == "derived":
+        geometry = manifest.data.setdefault("geometry", {})
+        derived = geometry.setdefault("derived", [])
+        derived = [item for item in derived if item.get("path") != entry["path"]]
+        derived.append(entry)
+        geometry["derived"] = derived
+    elif category == "attachments":
+        attachments = manifest.data.setdefault("attachments", [])
+        attachments = [item for item in attachments if item.get("path") != entry["path"]]
+        entry.setdefault("id", dest_relative_path.stem)
+        attachments.append(entry)
+        manifest.data["attachments"] = attachments
+    else:
+        raise ValueError(f"unsupported category for geometry file: {category}")
+
+    return entry
+
+
 __all__ = [
     "PACKAGE_SCHEMA",
     "MANIFEST_FILENAME",
@@ -202,4 +285,5 @@ __all__ = [
     "create_package_from_entities",
     "load_geometry",
     "_compute_hash",
+    "add_geometry_file",
 ]

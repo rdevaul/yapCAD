@@ -2277,6 +2277,7 @@ def isgeomlist(a):
         return False
     b = list(filter(lambda x: not (ispoint(x) or isline(x) \
                                    or isarc(x) or ispoly(x) \
+                                   or iscatmullrom(x) or isnurbs(x) \
                                    or isgeomlist(x)),a))
     return not len(b) > 0
 
@@ -2492,6 +2493,10 @@ def geomlistbbox(gl):
             ply = ply+g
         elif isarc(g):
             ply = ply + arcbbox(g)
+        elif iscatmullrom(g) or isnurbs(g):
+            segs = 64
+            for i in range(segs + 1):
+                ply.append(sample(g, i / segs))
         elif isgeomlist(g):
             ply = ply + geomlistbbox(g)
         else:

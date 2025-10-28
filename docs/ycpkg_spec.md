@@ -24,10 +24,17 @@ my_design.ycpkg/
 ├── manifest.yaml
 ├── geometry/
 │   ├── primary.json          # native yapCAD geometry (schema v0.1)
+│   ├── entities/             # canonical solids/sketches produced by DSL commands
 │   └── derived/…             # optional derived geometry files
+├── instances/                # placements/replications referencing canonical entities
+│   └── *.json
 ├── metadata/
 │   ├── requirements.yaml     # requirement statements + trace links
 │   └── history.log           # change log (optional)
+├── src/                      # packaged DSL modules
+│   └── *.dsl
+├── scripts/                  # optional Python helpers invoked by DSL fallback blocks
+│   └── *.py
 ├── validation/
 │   ├── plans/…               # definitions per test/tool
 │   └── results/…             # captured outputs (JSON/CSV/etc.)
@@ -71,10 +78,47 @@ geometry:
     schema: yapcad-geometry-json-v0.1
     entities: ["solid-main", "surface-top"]
     # Each entity's metadata.layer encodes the logical drawing layer (default "default").
+    # Sketch entries now capture both sampled polylines and ``primitives``
+    # (line/arc/circle/catmullrom/nurbs/polyline records) so round-tripping
+    # preserves parametric fidelity for downstream exporters.
   derived:
     - path: geometry/derived/offset.json
       purpose: "shell offset for analysis"
       hash: sha256:…
+    - path: geometry/derived/external_gear.step
+      purpose: "imported downstream component"
+      format: step
+      source:
+        kind: import
+        original: /workspace/library/gear.step
+      hash: sha256:…
+
+instances:
+  - id: gear_a
+    entity: geometry/entities/gear_primary.json
+    count: 4
+    transforms:
+      - instances/gear_a_1.json
+      - instances/gear_a_2.json
+  - id: bolt_m10
+    entity: geometry/entities/bolt_m10.json
+    count: 100
+
+source:
+  modules:
+    - id: involute_gear
+      path: src/involute_gear.dsl
+      language: yapdsl-v0.1
+      hash: sha256:…
+      exports: [INVOLUTE_SPUR, INVOLUTE_SPUR2D]
+    - id: metric_fasteners
+      path: src/metric_fasteners.dsl
+      language: yapdsl-v0.1
+  runtime:
+    python:
+      helpers:
+        - path: scripts/custom_helpers.py
+          hash: sha256:…
 
 metadata:
   requirements: metadata/requirements.yaml
@@ -106,6 +150,8 @@ attachments:
     path: attachments/design_prompt.txt
     description: "LLM prompt that generated initial geometry"
     hash: sha256:…
+
+Sketch entities now persist a `primitives` array alongside their sampled `polylines`. Each primitive captures the original parametric definition—`line`, `circle`, `arc`, `catmullrom`, `nurbs`, or explicit `polyline`—so geometry exchanged between yapCAD agents retains full fidelity. Export tools (e.g., `tools/ycpkg_export.py`) can therefore emit native DXF entities instead of approximating curves with short segments.
 
 provenance:
   parent: null
@@ -175,6 +221,7 @@ Implement Python helpers under `yapcad.package`:
 - `load_geometry(manifest: PackageManifest)` – returns list of yapCAD entities.
 - `update_metadata(manifest, modifier_fn)` – convenience to mutate metadata and persist.
 - `run_validation(manifest, plan_id, runner)` – hooks to validation subsystem.
+- `add_geometry_file(manifest, source_path, ...)` – copy an external STEP/STL/etc. into `geometry/derived/` (or attachments) and register it in the manifest with hash + provenance.
 
 These APIs should be usable by both CLI and programmatic automation.
 
@@ -197,7 +244,9 @@ These APIs should be usable by both CLI and programmatic automation.
 ---
 
 ## 8. Future Enhancements
-
+- Layer-aware viewer interactions (already implemented) may evolve into annotated layer libraries.
+- DSL compilation pipeline will eventually support signed modules and hashed invocation metadata per entity.
+- Canonical-entity instancing will feed BOM generation utilities.
 - Digital signatures (`signatures` section) referencing PKI chain.
 - Dependency graph for multi-part assemblies.
 - Delta packages storing overrides against a base `.ycpkg`.
@@ -207,3 +256,10 @@ These APIs should be usable by both CLI and programmatic automation.
 - `tools/ycpkg_viewer.py <package>` – launches the interactive viewer.
   * 3D mode shows perspective/front/top/side quadrants, supports layer toggles (`1-9` to toggle, `0` reset) and a help overlay (`H`/`F1`).
   * 2D sketches receive the same layer toggles, pan/zoom controls, and help overlay.
+│   ├── register/…            # signatures, approvals, etc. (optional)
+### 4.5 DSL Compilation & Canonical Entities
+
+- `yapcad dsl compile src/involute_gear.dsl` parses the DSL module, emits canonical solids/sketches under `geometry/entities/`, and records exported commands in the manifest `source.modules` block.
+- `yapcad package assemble --dsl module:command=params` resolves DSL invocations, deduplicates canonical geometry, and populates the `instances/` directory plus `manifest.instances` entries.
+- Python fallback blocks inside DSL modules must live under `scripts/` and are listed under `source.runtime` for reproducibility.
+- `register_instance(entity_id, params, transform)` helpers (TBD) will let higher-level assemblies reuse canonical geometry and populate `manifest.instances`.

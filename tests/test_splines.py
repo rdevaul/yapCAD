@@ -1,5 +1,9 @@
 import math
+import subprocess
+import sys
 from pathlib import Path
+
+import ezdxf
 
 import pytest
 
@@ -10,8 +14,12 @@ from yapcad.geom import (
     iscatmullrom,
     nurbs,
     point,
+    sample,
 )
+from yapcad.geom3d import solidbbox
+from yapcad.geom3d_util import extrude, poly2surfaceXY
 from yapcad.geom_util import geomlist2poly
+from yapcad.package import create_package_from_entities
 from yapcad.spline import (
     evaluate_catmullrom,
     evaluate_nurbs,
@@ -136,3 +144,115 @@ def test_spline_dxf_output(tmp_path):
     output = tmp_path / 'splines.dxf'
     assert output.exists()
     assert output.stat().st_size > 0
+
+
+def _sample_closed_curve(curve, segments):
+    pts = [point(sample(curve, i / segments)) for i in range(segments)]
+    pts.append(point(sample(curve, 0.0)))
+    return pts
+
+
+def test_spline_extrusion_package(tmp_path):
+    outer_ctrl = [
+        point(-40, 0),
+        point(-30, 30),
+        point(0, 40),
+        point(30, 30),
+        point(40, 0),
+        point(30, -30),
+        point(0, -40),
+        point(-30, -30),
+    ]
+    outer_curve = catmullrom(outer_ctrl, closed=True)
+
+    hole1_ctrl = [
+        point(-10, 0),
+        point(-6, 8),
+        point(0, 10),
+        point(6, 8),
+        point(10, 0),
+        point(6, -8),
+        point(0, -10),
+        point(-6, -8),
+        point(-10, 0),
+    ]
+    hole1_curve = catmullrom(hole1_ctrl, closed=True)
+
+    hole2_ctrl = [
+        point(15, 5),
+        point(18, 8),
+        point(22, 5),
+        point(18, 2),
+        point(15, 5),
+    ]
+    hole2_curve = nurbs(hole2_ctrl, degree=3)
+
+    outer_poly = _sample_closed_curve(outer_curve, segments=256)
+    hole_polys = [
+        _sample_closed_curve(hole1_curve, segments=160),
+        _sample_closed_curve(hole2_curve, segments=120),
+    ]
+    surface, _ = poly2surfaceXY(outer_poly, hole_polys, minlen=0.1)
+    solid = extrude(surface, 6.0)
+    bbox = solidbbox(solid)
+    assert pytest.approx(bbox[1][2] - bbox[0][2], abs=1e-6) == 6.0
+
+    sketch_geom = [outer_curve, hole1_curve, hole2_curve]
+
+    pkg_root = tmp_path / "spline_extrusion.ycpkg"
+    manifest = create_package_from_entities(
+        [
+            {"geometry": solid, "metadata": {"layer": "solid", "tags": ["spline"]}},
+            {"geometry": sketch_geom, "metadata": {"layer": "sketch"}},
+        ],
+        pkg_root,
+        name="Spline Extrusion",
+        version="0.1",
+        units="mm",
+        overwrite=True,
+    )
+    manifest.recompute_hashes()
+    manifest.save()
+
+    primary_json = pkg_root / "geometry" / "primary.json"
+    import json
+    with primary_json.open() as fh:
+        doc = json.load(fh)
+    sketch_entries = [entry for entry in doc["entities"] if entry["type"] == "sketch"]
+    assert sketch_entries
+    primitive_kinds = {prim["kind"] for entry in sketch_entries for prim in entry.get("primitives", [])}
+    assert {"catmullrom", "nurbs"}.issubset(primitive_kinds)
+
+    export_dir = tmp_path / "exports"
+    subprocess.check_call(
+        [
+            sys.executable,
+            "tools/ycpkg_export.py",
+            str(pkg_root),
+            "--format",
+            "dxf",
+            "--format",
+            "step",
+            "--output",
+            str(export_dir),
+            "--overwrite",
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+    )
+    dxf_path = export_dir / "sketches.dxf"
+    step_path = export_dir / "solid_01.step"
+    assert dxf_path.exists() and dxf_path.stat().st_size > 0
+    assert step_path.exists() and step_path.stat().st_size > 0
+    assert "LWPOLYLINE" in dxf_path.read_text()
+
+    doc = ezdxf.readfile(dxf_path)
+    polylines = list(doc.modelspace().query("LWPOLYLINE"))
+    assert polylines
+    # Pick the smallest loop (nurbs hole)
+    def loop_span(pl):
+        xs = [v[0] for v in pl.get_points()]
+        ys = [v[1] for v in pl.get_points()]
+        return max(xs) - min(xs) + max(ys) - min(ys)
+
+    small_loop = min(polylines, key=loop_span)
+    assert small_loop.closed
