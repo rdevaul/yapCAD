@@ -712,6 +712,40 @@ class TestSurface:
         dd.display()
 
 
+def test_makeRevolutionSurface_cap_normals():
+    """End-cap normals on revolution surfaces should point outward."""
+
+    def contour(z):
+        # Zero radius at both ends, smooth bump in the middle.
+        return max(0.0, 0.5 - abs(z - 0.5))
+
+    surf = makeRevolutionSurface(contour, 0.0, 1.0, steps=12, arcSamples=24)
+    verts = surf[1]
+    faces = surf[3]
+
+    def normals_for_pole(z_value):
+        idxs = [
+            i for i, v in enumerate(verts)
+            if abs(v[0]) < epsilon and abs(v[1]) < epsilon and abs(v[2] - z_value) < epsilon
+        ]
+        assert len(idxs) == 1, "expected exactly one pole vertex"
+        pole_idx = idxs[0]
+        collected = []
+        for face in faces:
+            if pole_idx in face:
+                tri = [verts[i] for i in face]
+                _, n = tri2p0n(tri)
+                collected.append(n[2])
+        return collected
+
+    bottom_normals = normals_for_pole(0.0)
+    top_normals = normals_for_pole(1.0)
+
+    assert bottom_normals and top_normals
+    assert all(n < -1e-6 for n in bottom_normals)
+    assert all(n > 1e-6 for n in top_normals)
+
+
 class TestSolidTopology:
     """Test solid topology analysis functions: issolidclosed and volumeof"""
 

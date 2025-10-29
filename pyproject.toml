@@ -1,15 +1,15 @@
 [project]
 name = "yapCAD"
-version = "0.5.1"
+version = "0.6.0"
 authors = [
   { name="Richard DeVaul", email="richard.devaul@gmail.com" },
 ]
 description = "yet another procedural CAD and computational geometry system"
 readme = "README.rst"
 requires-python = ">=3.10"
+license = "MIT"
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
 dependencies = [

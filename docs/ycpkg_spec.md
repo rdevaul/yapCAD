@@ -66,7 +66,7 @@ created:
   author: rdevaul
 generator:
   tool: yapCAD
-  version: 0.5.1
+  version: 0.6.0
   build: sha256:…
 units: mm
 tags: [prototype, waterjet]

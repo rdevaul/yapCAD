@@ -16,13 +16,18 @@ STL for downstream slicing and simulation.  You can still use
 experiments, but the core is increasingly optimised for 3D generative
 design.
 
-## software status
+## software status (October 2025)
 
-**yapCAD** is in **active development** and is already being used for
-professional engineering purposes. Recent improvements include robust 3D
-boolean operations (union, intersection, difference) with proper normal
-orientation and degenerate triangle filtering. The 0.5.x series focuses on
-production-ready 3D workflows with validated STL and STEP export.
+**yapCAD** is in **active development** and already powers production design
+pipelines. Highlights from the 0.5.x cycle include:
+
+- `.ycpkg` project packaging with manifest, geometry JSON, exports, and metadata.
+- CLI helpers (`tools/ycpkg_validate.py`, `tools/ycpkg_export.py`) for validation and DXF/STEP/STL export.
+- Robust 3D boolean operations with validated tessellation and mesh diagnostics.
+- Native sketch primitives (lines, arcs, splines) preserved through package round-trips and exported to DXF as analytic entities.
+- Regression-tested spline extrusion flow (`tests/test_splines.py`) covering STEP/STL/DXF export.
+
+Upcoming work (tracked in `docs/yapCADone.md` and `docs/yapBREP.md`) focuses on the parametric DSL/compiler, validation execution layer, provenance signatures, STEP/STL import, and analytic BREP/STEP export.
 
 If you are using **yapCAD** in interesting ways, feel free to let us know in the
 [**yapCAD** discussions](https://github.com/rdevaul/yapCAD/discussions)
@@ -46,47 +51,30 @@ You can also clone the github repository and install from source:
 
 ### examples
 
-The **yapCAD** github repository includes examples. To run the
-examples, clone the github repository as shown above, and make sure
-that your PYTHONPATH includes the cloned top-level `yapCAD` directory.
-You will find the examples in the `yapCAD/examples` directory.
+Clone the repository (or install the package) and ensure `PYTHONPATH` contains the
+top-level `src` directory. Example entry points:
 
-For a fully worked 2D parametric design system, see the `boxcut` example. For a
-3D generative example that builds a multi-stage rocket, visualises it, and
-exports STL, see `examples/rocket_demo.py`. **NOTE** The 3D rocket example code
-was generated in one shot by `gpt-5-codex` from the following prompt:
-
-    Using what you know about yapCAD, I'd like you to create a demo that builds a simple 3D model of a rocket, visualizes it using pyglet, and then writes out the STL file. I'd like the rocket to have a cluster of five engines, guidance fins, a cylindrical body with at least one diameter transition before the payload fairing, and an aerodynamic fairing. Can you do this for me?
+- `examples/boxcut` – fully parametric 2D joinery workflow (DXF output).
+- `examples/rocket_demo.py` – generative multi-stage rocket with viewer + STL export.
+- `examples/rocket_cutaway_internal.py` – layout/cutaway helper demo exporting STEP (screenshot below).
+- `examples/involute_gear_package/` – canonical gear library packaged as `.ycpkg` and reused by assemblies.
 
 ![**yapCAD** rocket cutaway STEP export](images/RocketCutawaySTEP.png)
 
-To see how the newer helper utilities can be combined to lay out internal
-subsystems and export STEP, try `examples/rocket_cutaway_internal.py` — the
-screenshot above shows its STEP output rendered in FreeCAD.
+Several demos were authored with LLM assistance to illustrate automation-friendly workflows.
 
 
 ### documentation
 
 Online **yapCAD** documentation can be found here:
-https://yapcad.readthedocs.io/en/latest/ &mdash; some module references
-lag behind the current 3D-focused APIs, so you may want to build a
-local copy (see below) to explore the latest `geometry_utils`,
-`geometry_checks`, `metadata`, and `io` modules. Recent additions worth
-calling out include:
+https://yapcad.readthedocs.io/en/latest/ — key documents include:
 
-- `yapcad.geometry_utils` & `yapcad.triangulator` – robust triangle
-  utilities used by the ear-cut tessellator and STEP exporter.
-- `yapcad.geom3d_util.stack_solids` – a convenience routine that packs
-  solids along an axis using bounding boxes and optional spacing
-  directives (used by the rocket cutaway demo).
-- `yapcad.geom3d_util.cutaway_solid_x` – simple clipping helper for
-  creating sectional views of assemblies.
-- `yapcad.io.step`/`yapcad.io.stl` – production-ready faceted exporters suitable for
-  interchange with FreeCAD, slicers, and other simulation tools. STEP export supports
-  multi-component assemblies with proper face orientation.
-- `tools/validate_mesh.py` – CLI helper that runs `admesh`, `meshfix`, and an
-  optional slicer to gauge whether STL output is robust enough for CAM; see
-  `docs/mesh_validation.md` for usage.
+- `docs/ycpkg_spec.md` – `.ycpkg` manifest schema, packaging workflow, CLI usage.
+- `docs/yapBREP.md` – analytic STEP/BREP upgrade roadmap.
+- `docs/dsl_spec.md` – parametric DSL and validation plans.
+- Module references for `yapcad.io`, `yapcad.geom3d_util`, `yapcad.geometry_utils`,
+  and `yapcad.metadata`.
+- Mesh validation workflow (`docs/mesh_validation.md`, `tools/validate_mesh.py`).
 
 To build the HTML **yapCAD** documentation locally, install the
 documentation dependencies and run Sphinx from the project root:
@@ -101,6 +89,31 @@ directory.  You can also build documentation in the other formats
 supported by Sphinx.  See the [Sphinx
 documentation](https://www.sphinx-doc.org/en/master/) for more
 information.
+
+### project packages & CLI
+
+The preferred interchange format is the `.ycpkg` project package:
+
+```
+my_design.ycpkg/
+├── manifest.yaml
+├── geometry/primary.json
+├── exports/
+├── validation/
+└── ...
+```
+
+Helper commands:
+
+```bash
+# Validate package structure / hashes
+python tools/ycpkg_validate.py path/to/design.ycpkg
+
+# Export STEP/STL/DXF from a package
+python tools/ycpkg_export.py path/to/design.ycpkg --format step --format stl --output exports/
+```
+
+See [`docs/ycpkg_spec.md`](docs/ycpkg_spec.md) for the manifest schema and workflow details.
 
 ### running tests
 
