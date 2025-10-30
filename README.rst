@@ -11,15 +11,9 @@ python 3, now with a growing focus on 3D generative design and STL export
 
 .. note::
 
-   The 3D rocket demo above was produced in a single shot by
-   ``gpt-5-codex`` from the prompt::
-
-      Using what you know about yapCAD, I'd like you to create a demo that
-      builds a simple 3D model of a rocket, visualizes it using pyglet, and
-      then writes out the STL file. I'd like the rocket to have a cluster of
-      five engines, guidance fins, a cylindrical body with at least one
-      diameter transition before the payload fairing, and an aerodynamic
-      fairing. Can you do this for me?
+   Many examples were authored with LLM assistance to illustrate
+   automation-friendly workflows, but the code lives in the repository and can
+   be customised directly or via upcoming DSL tooling.
 
 .. figure:: images/RocketCutawaySTEP.png
    :alt: **yapCAD** rocket cutaway STEP export
@@ -39,14 +33,19 @@ systems. Starting with the 0.5 release, the emphasis has shifted toward
 simulation, while retaining support for DXF generation and computational
 geometry experiments.
 
-software status
----------------
+software status (October 2025)
+------------------------------
 
-**yapCAD** is in **active development** and is already being used for
-professional engineering purposes. Recent improvements include robust 3D
-boolean operations (union, intersection, difference) with proper normal
-orientation and degenerate triangle filtering. The 0.5.x series focuses on
-production-ready 3D workflows with validated STL and STEP export.
+**yapCAD** is in **active development** and already powers production design
+pipelines. Highlights from the 0.5.x cycle include:
+
+* ``.ycpkg`` project packaging with manifest, geometry JSON, exports, and metadata.
+* CLI helpers (``tools/ycpkg_validate.py``, ``tools/ycpkg_export.py``) for validation and DXF/STEP/STL export.
+* Robust 3D boolean operations with validated tessellation and mesh diagnostics.
+* Native sketch primitives (lines, arcs, splines) preserved through package round-trips and exported to DXF as analytic entities.
+* Regression-tested spline extrusion flow (``tests/test_splines.py``) covering STEP/STL/DXF export.
+
+Upcoming work (tracked in ``docs/yapCADone.md`` and ``docs/yapBREP.md``) focuses on the parametric DSL/compiler, validation execution layer, provenance signatures, STEP/STL import, and analytic BREP/STEP support.
 
 If you are using **yapCAD** in interesting ways, feel free to let us know in the
 `yapCAD discussions <https://github.com/rdevaul/yapCAD/discussions>`__ forum
@@ -77,36 +76,24 @@ You can also clone the github repository and install from source:
 examples
 ~~~~~~~~
 
-The **yapCAD** github repository includes examples. To run the examples,
-clone the github repository as shown above, and make sure that your
-PYTHONPATH includes the cloned top-level ``yapCAD`` directory. You will
-find the examples in the ``yapCAD/examples`` directory.
+Clone the repository (or install the package) and ensure ``PYTHONPATH`` includes the
+top-level ``src`` directory. Example entry points:
 
-For a fully worked 2D parametric design system, see the ``boxcut`` example.
-For a 3D generative example that builds a multi-stage rocket, visualises it,
-and exports STL, see ``examples/rocket_demo.py``. To explore the new stacking
-and cutaway helpers while exporting STEP, run
-``examples/rocket_cutaway_internal.py`` whose output is shown above.
+* ``examples/boxcut`` – parametric 2D joinery workflow (DXF output).
+* ``examples/rocket_demo.py`` – generative multi-stage rocket with viewer + STL export.
+* ``examples/rocket_cutaway_internal.py`` – subsystem layout/cutaway demo exporting STEP.
+* ``examples/involute_gear_package`` – canonical gear library packaged as ``.ycpkg`` and reused by assemblies.
 
 documentation
 ~~~~~~~~~~~~~
 
-Online **yapCAD** documentation can be found here:
-https://yapcad.readthedocs.io/en/latest/ — some module references lag
-behind the latest 3D-focused APIs, so you may want to build a local copy
-as described below to explore ``geometry_utils``, ``geometry_checks``,
-``metadata``, and the ``yapcad.io`` exporters. Highlights from the most
-recent updates include:
+Online **yapCAD** documentation is available at https://yapcad.readthedocs.io/en/latest/ — key references:
 
-* ``yapcad.geometry_utils`` and ``yapcad.triangulator`` – triangle helpers
-  backing the ear-cut tessellator and faceted exporters.
-* ``yapcad.geom3d_util.stack_solids`` – quickly pack solids along an axis
-  using bounding boxes and optional ``space:<distance>`` directives.
-* ``yapcad.geom3d_util.cutaway_solid_x`` – trim solids against a plane to
-  create sectional visualisations.
-* ``yapcad.io.step``/``yapcad.io.stl`` – production-ready faceted exporters
-  suitable for interchange with FreeCAD, slicers, and other simulation tools.
-  STEP export supports multi-component assemblies with proper face orientation.
+* ``docs/ycpkg_spec.md`` – ``.ycpkg`` manifest schema, packaging workflow, CLI usage.
+* ``docs/yapBREP.md`` – analytic STEP/BREP roadmap.
+* ``docs/dsl_spec.md`` – parametric DSL and validation plans.
+* Module references for ``yapcad.io``, ``yapcad.geom3d_util``, ``yapcad.geometry_utils``, and ``yapcad.metadata``.
+* Mesh validation workflow (``docs/mesh_validation.md``, ``tools/validate_mesh.py``).
 
 To build the HTML **yapCAD** documentation locally, install the
 documentation dependencies and run Sphinx from the project root::
@@ -119,6 +106,28 @@ directory. You can also build documentation in the other formats
 supported by Sphinx. See the `Sphinx
 documentation <https://www.sphinx-doc.org/en/master/>`__ for more
 information.
+
+project packages & CLI
+~~~~~~~~~~~~~~~~~~~~~~
+
+The preferred interchange format is the ``.ycpkg`` project package::
+
+   my_design.ycpkg/
+   ├── manifest.yaml
+   ├── geometry/primary.json
+   ├── exports/
+   ├── validation/
+   └── ...
+
+Helper commands::
+
+   # Validate package structure / hashes
+   python tools/ycpkg_validate.py path/to/design.ycpkg
+
+   # Export STEP/STL/DXF from a package
+   python tools/ycpkg_export.py path/to/design.ycpkg --format step --format stl --output exports/
+
+See ``docs/ycpkg_spec.md`` for details.
 
 running tests
 ~~~~~~~~~~~~~
@@ -543,6 +552,14 @@ everything you are doing happens to lie in the x-y plane.
 So, if you want to do simple 2D drawings, we have you covered. If you
 want to build a GPU-accelerated constructive solid geometry system, you
 can do that, too.
+
+Third-party credits
+-------------------
+
+The involute gear helper is derived from the MIT-licensed
+`figgear <https://github.com/chromia/figgear>`__ project. The vendored
+implementation lives in ``yapcad.contrib.figgear`` and its original
+license text is preserved in ``third_party/figgear_LICENSE``.
 
 Note
 ----

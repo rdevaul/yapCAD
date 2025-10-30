@@ -155,10 +155,13 @@ html_theme = 'sphinx_rtd_theme' if _has_rtd_theme else 'alabaster'
 # Theme options are theme-specific and customize the look and feel of a theme
 # further.  For a list of options available for each theme, see the
 # documentation.
-html_theme_options = {
-    'sidebar_width': '300px',
-    'page_width': '1200px'
-}
+if html_theme == 'alabaster':
+    html_theme_options = {
+        'sidebar_width': '300px',
+        'page_width': '1200px'
+    }
+else:
+    html_theme_options = {}
 
 # Add any paths that contain custom themes here, relative to this directory.
 # html_theme_path = []

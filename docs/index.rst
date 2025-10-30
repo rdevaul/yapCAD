@@ -17,18 +17,18 @@ yapCAD
 
 Welcome to **yapCAD**, yet another procedural CAD and computational
 geometry system, written in Python_.  The project is in active development,
-with recent releases focusing on production-ready 3D generative workflows
+with the 0.5.x series delivering production-ready 3D generative workflows
 (solid modeling, robust boolean operations, STL/STEP export, interactive
-rendering) alongside the original 2D/DXF tooling.
+rendering) plus the new `.ycpkg` project packaging model.
 
 .. note::
 
     **yapCAD** was created to solve some fairly specific problems in
     procedural CAD and `parametric design`_.  Earlier releases were
     primarily geared toward generating 2D drawings in the `AutoCad
-    DXF`_ format; the current 0.5.x series delivers robust 3D boolean
+    DXF`_ format; the current 0.5.x cycle adds robust 3D boolean
     operations, validated primitive generation, comprehensive mesh
-    validation tools, and production-ready STL/STEP export.
+    validation tools, `.ycpkg` packaging, and production-ready STL/STEP export.
 
     Why use yapCAD? yapCAD allows you to transform the 2D and 3D mechanical
     design process from the manual creation of drawings, parts, and assemblies
@@ -36,15 +36,9 @@ rendering) alongside the original 2D/DXF tooling.
     modular, parametric, and even LLM-generated code.
 
     Because yapCAD's foundations are in software, you can use powerful agentic
-    or "vibe coding" tools to translate your design intent into functional and
-    parameterized design, without ever writing a line of code yourself. For
-    example, the rocket example rendered above was generated in one-shot by
-    `gpt-5-codex` from the prompt: "Using what you know about yapCAD, I'd like
-    you to create a demo that builds a simple 3D model of a rocket, visualizes
-    it using pyglet, and then writes out the STL file. I'd like the rocket to
-    have a cluster of five engines, guidance fins, a cylindrical body with at
-    least one diameter transition before the payload fairing, and an aerodynamic
-    fairing. Can you do this for me?"
+    tools to translate your design intent into functional, parameterized code
+    without manual drawing edits. Several shipped examples were authored via LLM
+    prompts to demonstrate automation-friendly workflows.
 
     And becuse yapCAD designs are software, they can be parametric and modular.
     So if you are tired of manually editing your CAD files whenever you change the
@@ -74,7 +68,10 @@ Contents
    Authors <authors>
    Changelog <changelog>
    Module Reference <api/modules>
-   README <README>	      
+   README <README>
+   Project Packaging <ycpkg_spec>
+   DSL Draft <dsl_spec>
+   BREP Roadmap <yapBREP>
 
 
 Indices and tables
