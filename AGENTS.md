@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-Core library code lives in `src/yapcad`, with geometry primitives (`geom.py`, `geom3d.py`), boolean ops (`boolean/`), IO adapters (`io/`), and render helpers (`drawable.py`, `ezdxf_drawable.py`). PyPI metadata sits alongside in `pyproject.toml` and `setup.cfg`. Automated tests are under `tests/`, mirroring the module names (e.g., `test_geom3d.py`). Sphinx docs reside in `docs/`, while `examples/`, `dxf/`, and `images/` provide sample CAD assets for manual inspection.
+Core library code lives in `src/yapcad`, with geometry primitives (`geom.py`, `geom3d.py`), boolean ops (`boolean/`), IO adapters (`io/`), and render helpers (`drawable.py`, `ezdxf_drawable.py`). Vendored helpers live under `src/yapcad/contrib`, with corresponding license notices in `third_party/`. PyPI metadata sits alongside in `pyproject.toml` and `setup.cfg`. Automated tests are under `tests/`, mirroring the module names (e.g., `test_geom3d.py`). Sphinx docs reside in `docs/`, while `examples/`, `dxf/`, and `images/` provide sample CAD assets for manual inspection.
 
 ## Setup, Build & Test Commands
 Create a local environment with:

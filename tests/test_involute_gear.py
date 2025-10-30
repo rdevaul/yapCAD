@@ -1,10 +1,4 @@
 import math
-from importlib import util
-
-import pytest
-
-if util.find_spec("figgear.gear") is None:  # pragma: no cover - environment guard
-    pytest.skip("figgear module required for involute gear tests", allow_module_level=True)
 
 from examples.involute_gear_package.involute_gear import generate_involute_profile
 

@@ -10,10 +10,7 @@ from yapcad.geom3d import translatesolid, rotatesolid
 from yapcad.geom3d_util import extrude, poly2surfaceXY
 from yapcad.geom3d import point as point3d
 
-try:
-    from figgear.gear import make_gear_figure as _figgear_make_gear
-except ImportError:  # pragma: no cover - optional dependency helper
-    _figgear_make_gear = None
+from yapcad.contrib.figgear import make_gear_figure as _figgear_make_gear
 
 
 def _arc_points(
@@ -53,16 +50,12 @@ def generate_involute_profile(
     if module_mm <= 0:
         raise ValueError("module must be positive")
 
-    if _figgear_make_gear is None:
-        raise RuntimeError(
-            "figgear package not available; expected under repo root for gear generation"
-        )
-
     figure_points, _ = _figgear_make_gear(
         m=module_mm,
         z=teeth,
         alpha_deg=pressure_angle_deg,
         bottom_type="line",
+        #bottom_type="spline",
         involute_step=max(module_mm / max(tooth_resolution, 8), 0.05),
         spline_division_num=max(root_resolution * 4, 20),
     )

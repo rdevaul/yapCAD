@@ -526,6 +526,13 @@ So, if you want to do simple 2D drawings, we have you covered.  If you
 want to build a GPU-accelerated constructive solid geometry system, you
 can do that, too.
 
+## Third-party credits
+
+The involute gear helper is derived from the MIT-licensed
+[figgear](https://github.com/chromia/figgear) project. The vendored implementation
+lives in `yapcad.contrib.figgear`, and the original license text is preserved in
+`third_party/figgear_LICENSE`.
+
 ## Note
 
 This project has been set up using PyScaffold 3.2.3. For details and usage

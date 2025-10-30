@@ -1,8 +1,7 @@
 # Involute Gear Package Example
 
 This example demonstrates how to build a `.ycpkg` package that supplies parametric involute spur gears and how that package can be consumed inside another design.
-
-It reuses the open-source [figgear](https://github.com/chromia/figgear) involute generator (MIT Licensed). Clone the figgear repository into the repo root (or install it as a Python package) so that `examples/involute_gear_package/involute_gear.py` can import `figgear.gear.make_gear_figure` while generating profiles.
+The gear profile math is derived from the open-source [figgear](https://github.com/chromia/figgear) generator (MIT Licensed) and is vendored into `yapcad.contrib.figgear`, so no extra dependency is required.
 
 ## Files
 
