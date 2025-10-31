@@ -28,6 +28,11 @@ from pyglet.gl import (
     GL_DEPTH_BUFFER_BIT,
     GL_SRC_ALPHA,
     GL_TRIANGLES,
+    GL_LINE,
+    GL_FILL,
+    GL_FRONT_AND_BACK,
+    GL_POLYGON_OFFSET_LINE,
+    glPolygonOffset,
     glBegin,
     glBlendFunc,
     glClear,
@@ -54,6 +59,8 @@ from pyglet.gl import (
     gluLookAt,
     gluPerspective,
     glColor4f,
+    glPolygonMode,
+    glLineWidth,
     GLfloat,
 )
 
@@ -167,6 +174,7 @@ class FourViewWindow(pyglet.window.Window):
         self.pan_y = 0.0
         self._dragging = False
         self._last = (0, 0)
+        self.render_mode = 0  # 0 = solid, 1 = solid+mesh, 2 = mesh only
         self._layer_vertex_lists: Dict[str, graphics.vertexdomain.VertexList] = {}
         glEnable(GL_DEPTH_TEST)
         glEnable(GL_LIGHTING)
@@ -247,13 +255,35 @@ class FourViewWindow(pyglet.window.Window):
             gluLookAt(cx, cy, cz + self.distance, cx, cy, cz, 0, 1, 0)
 
     def _draw_triangles(self):
-        glColor4f(0.6, 0.85, 1.0, 1.0)
-        for layer in self.layer_names:
-            if not self.visible_layers.get(layer, True):
-                continue
-            vlist = self._layer_vertex_lists.get(layer)
-            if vlist:
-                vlist.draw(GL_TRIANGLES)
+        mode = self.render_mode
+
+        if mode in (0, 1):
+            glEnable(GL_LIGHTING)
+            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
+            glColor4f(0.6, 0.85, 1.0, 1.0)
+            for layer in self.layer_names:
+                if not self.visible_layers.get(layer, True):
+                    continue
+                vlist = self._layer_vertex_lists.get(layer)
+                if vlist:
+                    vlist.draw(GL_TRIANGLES)
+
+        if mode in (1, 2):
+            glDisable(GL_LIGHTING)
+            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
+            glEnable(GL_POLYGON_OFFSET_LINE)
+            glPolygonOffset(-1.0, 1.0)
+            glColor4f(1.0, 1.0, 1.0, 1.0)
+            glLineWidth(1.0)
+            for layer in self.layer_names:
+                if not self.visible_layers.get(layer, True):
+                    continue
+                vlist = self._layer_vertex_lists.get(layer)
+                if vlist:
+                    vlist.draw(GL_TRIANGLES)
+            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
+            glDisable(GL_POLYGON_OFFSET_LINE)
+            glEnable(GL_LIGHTING)
 
     def _draw_grid(self, orientation: str | None, perspective: bool):
         xmin, ymin, zmin, xmax, ymax, zmax = self.bbox
@@ -467,6 +497,7 @@ class FourViewWindow(pyglet.window.Window):
                 f"  Active layers: {active_layers}",
                 "General:",
                 "  H or F1 – toggle help, ESC – close window",
+                "  L – cycle shading (solid → mesh overlay → mesh only)",
             ]
 
 #            title_font = max(28, min(fb_width, fb_height) // 13)
@@ -524,6 +555,8 @@ class FourViewWindow(pyglet.window.Window):
                 self.visible_layers[layer] = True
         elif symbol in (key.H, key.F1):
             self.show_help = not self.show_help
+        elif symbol == key.L:
+            self.render_mode = (self.render_mode + 1) % 3
 
     def on_close(self):
         for vlist in self._layer_vertex_lists.values():
