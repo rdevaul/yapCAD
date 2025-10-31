@@ -58,6 +58,7 @@ top-level `src` directory. Example entry points:
 - `examples/rocket_demo.py` – generative multi-stage rocket with viewer + STL export.
 - `examples/rocket_cutaway_internal.py` – layout/cutaway helper demo exporting STEP (screenshot below).
 - `examples/involute_gear_package/` – canonical gear library packaged as `.ycpkg` and reused by assemblies.
+- `examples/bulkhead_sweep.py` – sweeps bulkhead thickness from 5–12 mm, runs CalculiX through the new analysis framework, and reports max deflection per case.
 
 ![**yapCAD** rocket cutaway STEP export](images/RocketCutawaySTEP.png)
 
@@ -70,8 +71,10 @@ Online **yapCAD** documentation can be found here:
 https://yapcad.readthedocs.io/en/latest/ — key documents include:
 
 - `docs/ycpkg_spec.rst` – `.ycpkg` manifest schema, packaging workflow, CLI usage.
+- `docs/metadata_namespace.rst` – standard metadata blocks for materials, manufacturing, and analysis annotations.
 - `docs/yapBREP.rst` – analytic STEP/BREP upgrade roadmap.
 - `docs/dsl_spec.rst` – parametric DSL and validation plans.
+- Example analysis plans live under `examples/` (see `examples/bulkhead_calculix.yaml`) and can be staged with `python tools/ycpkg_analyze.py <package> --plan validation/plans/...`. The bundled CalculiX adapter approximates the bulkhead as an axisymmetric plate and will attempt to run `ccx` if available (otherwise the plan is marked `skipped`).
 - Module references for `yapcad.io`, `yapcad.geom3d_util`, `yapcad.geometry_utils`,
   and `yapcad.metadata`.
 - Mesh validation workflow (`docs/mesh_validation.md`, `tools/validate_mesh.py`).

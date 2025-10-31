@@ -1,0 +1,35 @@
+id: bulkhead-fea
+kind: fea
+backend: calculix
+name: Rocket bulkhead static thrust case
+geometry:
+  inner_radius_mm: 50.8
+  outer_radius_mm: 152.4
+backendOptions:
+  inner_radius_mm: 50.8
+  outer_radius_mm: 152.4
+  thickness_mm: 12.0
+  thrust_n: 2224.0  # ~500 lbf
+  radial_divisions: 32
+  thickness_divisions: 3
+  youngs_modulus_mpa: 68900.0
+  poisson_ratio: 0.33
+  density_tonemm3: 2.70e-6
+loads:
+  - id: engine-thrust
+    type: axial
+    magnitude_n: 2224.0
+    application: inner-bore
+boundaryConditions:
+  - id: stringer-constraint
+    type: fixed
+    surfaces: [stringer]
+acceptance:
+  displacement.max:
+    limit_mm: 10.0
+    comparison: "<="
+execution:
+  mode: local
+  command: ccx
+  env:
+    OMP_NUM_THREADS: "8"

@@ -12,6 +12,11 @@ what's new:
     reStructuredText, added the roadmap snapshot to the Sphinx toctree, and
     rebased all release references on the refreshed docs set. Sphinx builds
     now complete without missing toctree warnings.
+  - **Analysis Planning**: Documented validation plan schema, expanded the
+    metadata namespace for analysis annotations, and introduced the
+    ``ycpkg_analyze`` CLI plus plan-loading APIs. The bundled CalculiX backend
+    now generates an axisymmetric plate approximation, invokes ``ccx`` when
+    available, and records maximum axial deflection for acceptance checks.
   - **Viewer Performance**: Layered triangle meshes are cached as pyglet vertex
     lists, eliminating per-frame immediate-mode uploads and noticeably improving
     pan/rotate responsiveness in the four-view window.

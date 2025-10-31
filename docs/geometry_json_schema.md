@@ -47,11 +47,11 @@ Each entity is a JSON object with the following common fields:
 | `id`           | string   | Stable UUID (should match `entityId` in metadata). |
 | `type`         | string   | `"solid"`, `"surface"`, `"mesh"`, `"group"`, `"datum"`, `"sketch"`. |
 | `name`         | string   | Optional human-readable label. |
-| `metadata`     | object   | Metadata dictionary conforming to `metadata_namespace.md`. |
+| `metadata`     | object   | Metadata dictionary conforming to `metadata_namespace.rst`. |
 | `boundingBox`  | number[] | `[xmin, ymin, zmin, xmax, ymax, zmax]` in document units. |
 | `properties`   | object   | Derived properties (volume, area). |
 
-Each entity's `metadata` block MUST include the root fields from `metadata_namespace.md`, including `layer` (defaulting to `"default"`). Serialisers SHOULD propagate layer assignments for solids down to child surfaces and sketches so that viewers can offer layer-based visibility controls.
+Each entity's `metadata` block MUST include the root fields from `metadata_namespace.rst`, including `layer` (defaulting to `"default"`). Serialisers SHOULD propagate layer assignments for solids down to child surfaces and sketches so that viewers can offer layer-based visibility controls.
 
 ### 2.1 Solids (`type: "solid"`)
 

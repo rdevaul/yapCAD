@@ -71,6 +71,7 @@ Contents
    Module Reference <api/modules>
    README <README>
    Roadmap Snapshot <yapCADone>
+   Metadata Namespace <metadata_namespace>
    Project Packaging <ycpkg_spec>
    DSL Draft <dsl_spec>
    BREP Roadmap <yapBREP>
