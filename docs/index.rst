@@ -17,18 +17,19 @@ yapCAD
 
 Welcome to **yapCAD**, yet another procedural CAD and computational
 geometry system, written in Python_.  The project is in active development,
-with the 0.5.x series delivering production-ready 3D generative workflows
-(solid modeling, robust boolean operations, STL/STEP export, interactive
-rendering) plus the new `.ycpkg` project packaging model.
+with the 0.6.x series delivering reusable `.ycpkg` package workflows, an
+embedded involute gear toolkit, spline-aware exports, and continued
+improvements to robust boolean operations, STL/STEP export, and the
+interactive viewer.
 
 .. note::
 
     **yapCAD** was created to solve some fairly specific problems in
     procedural CAD and `parametric design`_.  Earlier releases were
     primarily geared toward generating 2D drawings in the `AutoCad
-    DXF`_ format; the current 0.5.x cycle adds robust 3D boolean
-    operations, validated primitive generation, comprehensive mesh
-    validation tools, `.ycpkg` packaging, and production-ready STL/STEP export.
+    DXF`_ format; the current 0.6.x cycle adds reusable `.ycpkg`
+    packaging, vendored gear generation utilities, spline-native exports, and
+    production-ready STL/STEP output with improved validation.
 
     Why use yapCAD? yapCAD allows you to transform the 2D and 3D mechanical
     design process from the manual creation of drawings, parts, and assemblies
@@ -69,6 +70,7 @@ Contents
    Changelog <changelog>
    Module Reference <api/modules>
    README <README>
+   Roadmap Snapshot <yapCADone>
    Project Packaging <ycpkg_spec>
    DSL Draft <dsl_spec>
    BREP Roadmap <yapBREP>

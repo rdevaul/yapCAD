@@ -45,7 +45,7 @@ pipelines. Highlights from the 0.5.x cycle include:
 * Native sketch primitives (lines, arcs, splines) preserved through package round-trips and exported to DXF as analytic entities.
 * Regression-tested spline extrusion flow (``tests/test_splines.py``) covering STEP/STL/DXF export.
 
-Upcoming work (tracked in ``docs/yapCADone.md`` and ``docs/yapBREP.md``) focuses on the parametric DSL/compiler, validation execution layer, provenance signatures, STEP/STL import, and analytic BREP/STEP support.
+Upcoming work (tracked in ``docs/yapCADone.rst`` and ``docs/yapBREP.rst``) focuses on the parametric DSL/compiler, validation execution layer, provenance signatures, STEP/STL import, and analytic BREP/STEP support.
 
 If you are using **yapCAD** in interesting ways, feel free to let us know in the
 `yapCAD discussions <https://github.com/rdevaul/yapCAD/discussions>`__ forum
@@ -89,9 +89,9 @@ documentation
 
 Online **yapCAD** documentation is available at https://yapcad.readthedocs.io/en/latest/ — key references:
 
-* ``docs/ycpkg_spec.md`` – ``.ycpkg`` manifest schema, packaging workflow, CLI usage.
-* ``docs/yapBREP.md`` – analytic STEP/BREP roadmap.
-* ``docs/dsl_spec.md`` – parametric DSL and validation plans.
+* ``docs/ycpkg_spec.rst`` – ``.ycpkg`` manifest schema, packaging workflow, CLI usage.
+* ``docs/yapBREP.rst`` – analytic STEP/BREP roadmap.
+* ``docs/dsl_spec.rst`` – parametric DSL and validation plans.
 * Module references for ``yapcad.io``, ``yapcad.geom3d_util``, ``yapcad.geometry_utils``, and ``yapcad.metadata``.
 * Mesh validation workflow (``docs/mesh_validation.md``, ``tools/validate_mesh.py``).
 
@@ -127,7 +127,7 @@ Helper commands::
    # Export STEP/STL/DXF from a package
    python tools/ycpkg_export.py path/to/design.ycpkg --format step --format stl --output exports/
 
-See ``docs/ycpkg_spec.md`` for details.
+See ``docs/ycpkg_spec.rst`` for details.
 
 running tests
 ~~~~~~~~~~~~~

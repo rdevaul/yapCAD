@@ -65,7 +65,7 @@
   - Native preprocessing + external boolean + native cleanup?
   - Needs experimentation with real-world complex geometries
 
-### Future Work (v0.6.0 and beyond)
+### Future Work (v0.6.x and beyond)
 
 - Automatic tolerance scaling per engine
 - JSON-formatted validation output for CI/CD integration
