@@ -2,6 +2,54 @@
 Changelog
 =========
 
+Version 0.6.1 (2025-10-30)
+==========================
+
+what's new:
+-----------
+
+  - **Documentation Polish**: Converted packaging/DSL/BREP specifications to
+    reStructuredText, added the roadmap snapshot to the Sphinx toctree, and
+    rebased all release references on the refreshed docs set. Sphinx builds
+    now complete without missing toctree warnings.
+  - **Viewer Performance**: Layered triangle meshes are cached as pyglet vertex
+    lists, eliminating per-frame immediate-mode uploads and noticeably improving
+    pan/rotate responsiveness in the four-view window.
+
+Known problems
+--------------
+
+- Analytic STEP export and full BREP kernel support remain in planning (`docs/yapBREP.rst`).
+- DSL compiler/validator tooling tracked in `docs/dsl_spec.rst` remains under development.
+
+Version 0.6.0 (2025-10-28)
+==========================
+
+what's new:
+-----------
+
+  - **Package Format**: `.ycpkg` manifests now capture canonical entities, reusable
+    instances, metadata layers, and JSON geometry version `0.6.0` for reliable
+    round-tripping between authoring, export, and viewer tooling.
+  - **Involute Gear Toolkit**: Vendored the MIT-licensed `figgear` generator
+    (`yapcad.contrib.figgear`) so gear examples and tests no longer require external
+    clones. Canonical gear packages embed both 2D profiles and extruded solids with
+    provenance metadata.
+  - **Viewer Enhancements**: Added four-view layout updates (grids, lighting,
+    layer toggles, help overlay) and fixed revolution solid cap normals along with
+    trackpad gesture support.
+  - **DXF / Spline Upgrades**: Native exporter writes analytic `CIRCLE`/`ARC`
+    elements, spline loops remain watertight, and extrusion tests cover spline-based
+    perimeters and holes.
+  - **Documentation Refresh**: Roadmap snapshot (`docs/yapCADone.rst`), BREP plan
+    (`docs/yapBREP.rst`), and README/Sphinx front matter updated for the 0.6 series.
+
+Known problems
+--------------
+
+- Analytic STEP export and full BREP kernel support remain in planning (`docs/yapBREP.rst`).
+- DSL compiler/validator tooling tracked in `docs/dsl_spec.rst` remains under development.
+
 Version 0.5.1 (2025-10-14)
 ==========================
 

@@ -27,7 +27,7 @@ pipelines. Highlights from the 0.5.x cycle include:
 - Native sketch primitives (lines, arcs, splines) preserved through package round-trips and exported to DXF as analytic entities.
 - Regression-tested spline extrusion flow (`tests/test_splines.py`) covering STEP/STL/DXF export.
 
-Upcoming work (tracked in `docs/yapCADone.md` and `docs/yapBREP.md`) focuses on the parametric DSL/compiler, validation execution layer, provenance signatures, STEP/STL import, and analytic BREP/STEP export.
+Upcoming work (tracked in `docs/yapCADone.rst` and `docs/yapBREP.rst`) focuses on the parametric DSL/compiler, validation execution layer, provenance signatures, STEP/STL import, and analytic BREP/STEP export.
 
 If you are using **yapCAD** in interesting ways, feel free to let us know in the
 [**yapCAD** discussions](https://github.com/rdevaul/yapCAD/discussions)
@@ -69,9 +69,9 @@ Several demos were authored with LLM assistance to illustrate automation-friendl
 Online **yapCAD** documentation can be found here:
 https://yapcad.readthedocs.io/en/latest/ — key documents include:
 
-- `docs/ycpkg_spec.md` – `.ycpkg` manifest schema, packaging workflow, CLI usage.
-- `docs/yapBREP.md` – analytic STEP/BREP upgrade roadmap.
-- `docs/dsl_spec.md` – parametric DSL and validation plans.
+- `docs/ycpkg_spec.rst` – `.ycpkg` manifest schema, packaging workflow, CLI usage.
+- `docs/yapBREP.rst` – analytic STEP/BREP upgrade roadmap.
+- `docs/dsl_spec.rst` – parametric DSL and validation plans.
 - Module references for `yapcad.io`, `yapcad.geom3d_util`, `yapcad.geometry_utils`,
   and `yapcad.metadata`.
 - Mesh validation workflow (`docs/mesh_validation.md`, `tools/validate_mesh.py`).
@@ -113,7 +113,7 @@ python tools/ycpkg_validate.py path/to/design.ycpkg
 python tools/ycpkg_export.py path/to/design.ycpkg --format step --format stl --output exports/
 ```
 
-See [`docs/ycpkg_spec.md`](docs/ycpkg_spec.md) for the manifest schema and workflow details.
+See [`docs/ycpkg_spec.rst`](docs/ycpkg_spec.rst) for the manifest schema and workflow details.
 
 ### running tests
 

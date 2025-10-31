@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Dict, List, Sequence, Tuple
 
 import pyglet
+from pyglet import graphics
 from pyglet.window import key
 from pyglet.gl import (
     GL_COLOR_BUFFER_BIT,
@@ -166,6 +167,7 @@ class FourViewWindow(pyglet.window.Window):
         self.pan_y = 0.0
         self._dragging = False
         self._last = (0, 0)
+        self._layer_vertex_lists: Dict[str, graphics.vertexdomain.VertexList] = {}
         glEnable(GL_DEPTH_TEST)
         glEnable(GL_LIGHTING)
         glEnable(GL_LIGHT0)
@@ -178,6 +180,27 @@ class FourViewWindow(pyglet.window.Window):
         light_ambient = (GLfloat * 4)(0.15, 0.15, 0.15, 1.0)
         glLightfv(GL_LIGHT0, pyglet.gl.GL_AMBIENT, light_ambient)
         glClearColor(0.05, 0.05, 0.07, 1.0)
+        self._build_triangle_cache()
+
+    def _build_triangle_cache(self) -> None:
+        for vlist in self._layer_vertex_lists.values():
+            vlist.delete()
+        self._layer_vertex_lists = {}
+        for layer in self.layer_names:
+            tris = self.layer_triangles.get(layer, [])
+            if not tris:
+                continue
+            coords: List[float] = []
+            normals: List[float] = []
+            for vertex, normal in tris:
+                coords.extend((vertex[0], vertex[1], vertex[2]))
+                normals.extend((normal[0], normal[1], normal[2]))
+            if coords:
+                self._layer_vertex_lists[layer] = graphics.vertex_list(
+                    len(tris),
+                    ('v3f/static', coords),
+                    ('n3f/static', normals),
+                )
 
     def on_draw(self):
         self.clear()
@@ -225,14 +248,12 @@ class FourViewWindow(pyglet.window.Window):
 
     def _draw_triangles(self):
         glColor4f(0.6, 0.85, 1.0, 1.0)
-        glBegin(GL_TRIANGLES)
         for layer in self.layer_names:
             if not self.visible_layers.get(layer, True):
                 continue
-            for v, n in self.layer_triangles.get(layer, []):
-                glNormal3f(n[0], n[1], n[2])
-                glVertex3f(v[0], v[1], v[2])
-        glEnd()
+            vlist = self._layer_vertex_lists.get(layer)
+            if vlist:
+                vlist.draw(GL_TRIANGLES)
 
     def _draw_grid(self, orientation: str | None, perspective: bool):
         xmin, ymin, zmin, xmax, ymax, zmax = self.bbox
@@ -503,6 +524,12 @@ class FourViewWindow(pyglet.window.Window):
                 self.visible_layers[layer] = True
         elif symbol in (key.H, key.F1):
             self.show_help = not self.show_help
+
+    def on_close(self):
+        for vlist in self._layer_vertex_lists.values():
+            vlist.delete()
+        self._layer_vertex_lists.clear()
+        super().on_close()
 #        else:
 #            print(f"Key pressed: {key.symbol_string(symbol)}")
 

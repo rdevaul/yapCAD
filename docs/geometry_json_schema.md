@@ -13,7 +13,7 @@
   "schema": "yapcad-geometry-json-v0.1",
   "generator": {
     "name": "yapCAD",
-    "version": "0.6.0",
+    "version": "0.6.1",
     "build": "sha256:…"
   },
   "units": "mm",

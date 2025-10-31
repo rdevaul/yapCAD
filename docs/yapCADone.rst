@@ -1,24 +1,34 @@
-# yapCAD 1.0 Requirements & Roadmap
+yapCAD 1.0 Requirements & Roadmap
+=================================
 
-## Vision
+
+Vision
+------
+
 Deliver a requirements-driven, provenance-aware design platform where yapCAD projects encapsulate specifications, parametric sources, validation workflows, and exportable geometry within a unified, verifiable package ready for collaboration with CAD/FEA/simulation ecosystems.
 
-## Guiding Principles
+Guiding Principles
+------------------
+
 - Traceability: every geometry artefact links back to requirements, parametric sources, tests, and toolchain versions.
 - Modularity: separate geometry core, viewers, exporters, and validation tooling.
 - Openness: use documented schemas and standard formats (STEP, STL, JSON/YAML manifests) for interoperability.
 - Automation friendly: support LLM-driven design loops and continuous validation pipelines.
 
-## Progress Snapshot (October 2025)
-- `.ycpkg` packaging, manifest schema, and CLI tooling implemented (validation & export helpers, metadata tracking, analytic sketch primitives).
+Progress Snapshot (October 2025)
+--------------------------------
+
+- ``.ycpkg`` packaging, manifest schema, and CLI tooling implemented (validation & export helpers, metadata tracking, analytic sketch primitives).
 - DXF/STEP/STL exports available; viewers operate on packaged geometry; regression tests cover spline/tessellation workflows.
-- DSL, validation framework, and security/signature features remain in design phase (`docs/dsl_spec.md`, `docs/ycpkg_spec.md`).
-- Analytic BREP roadmap captured in `docs/yapBREP.md` (ellipses/conics, analytic surfaces, topology graph).
+- DSL, validation framework, and security/signature features remain in design phase (``docs/dsl_spec.rst``, ``docs/ycpkg_spec.rst``).
+- Analytic BREP roadmap captured in ``docs/yapBREP.rst`` (ellipses/conics, analytic surfaces, topology graph).
 - Upcoming work: DSL compiler, validation execution layer, STEP/STL import, analytic STEP exporter, automation APIs.
 
-## Functional Requirements
+Functional Requirements
+-----------------------
+
 1. **Project Packaging**
-   - Define a `.ycpkg` package (directory or archive) containing manifest, requirements, design sources, validation definitions, results, exports, metadata.
+   - Define a ``.ycpkg`` package (directory or archive) containing manifest, requirements, design sources, validation definitions, results, exports, metadata.
    - Manifest must include identifiers, versioning, dependency hashes, optional signatures.
 2. **Specification Management**
    - Structured requirement documents with schemas describing functional, geometric, material, and testing constraints.
@@ -46,48 +56,58 @@ Deliver a requirements-driven, provenance-aware design platform where yapCAD pro
    - APIs for LLM agents to read/write specs, propose design variants, trigger validation, and compare outcomes.
    - Hooks for CI/CD style workflows (batch validation, export refresh).
 
-## Non-Functional Requirements
+Non-Functional Requirements
+---------------------------
+
 - **Backward compatibility:** provide migration tools from 0.x projects; maintain 0.x runtime for legacy designs.
 - **Performance:** metadata tracking should not significantly degrade geometry operations; exporters must scale to moderately complex assemblies.
 - **Security:** hashing/signature features optional but easy to enable; documentation on best practices.
 - **Extensibility:** manifest schema versioned; allow third-party extensions (custom validators, exporters).
 
-## Roadmap & Milestones
+Roadmap & Milestones
+--------------------
 
-### Phase 1 – Shared Foundations (v0.x) — ✅ Completed
-- Mesh/metadata utilities (`yapCADfoundations.md`), viewer refactor, and geometry JSON enhancements delivered.
+
+**Phase 1 - Shared Foundations (v0.x) [Completed]**
+- Mesh/metadata utilities (``yapCADfoundations.md``), viewer refactor, and geometry JSON enhancements delivered.
 - STL/STEP exporters available; STL import deferred to Phase 4 analytic work.
 
-### Phase 2 – Project Packaging Prototype — ✅ Completed
-- Manifest schema, `.ycpkg` layout, CLIs (`ycpkg_validate`, `ycpkg_export`), external asset support (`add_geometry_file`) in place.
+**Phase 2 - Project Packaging Prototype [Completed]**
+- Manifest schema, ``.ycpkg`` layout, CLIs (``ycpkg_validate``, ``ycpkg_export``), external asset support (``add_geometry_file``) in place.
 - Regression tests cover packaging round-trips; migration tooling still TBD for legacy 0.x projects.
 
-### Phase 3 – Parametric DSL & Validation Layer — 🚧 In Progress (Design)
-- Specifications drafted (`docs/dsl_spec.md`), but compiler/runtime and validation execution manager not yet implemented.
+**Phase 3 - Parametric DSL & Validation Layer [In Progress]**
+- Specifications drafted (``docs/dsl_spec.rst``), but compiler/runtime and validation execution manager not yet implemented.
 - Next steps: prototype DSL compiler, define validation schema, integrate with packaging/metadata.
 
-### Phase 4 – Export/Import Expansion — 🚧 Ongoing
+**Phase 4 - Export/Import Expansion [Ongoing]**
 - STEP (faceted), STL, DXF exports implemented; viewer consumes packaged geometry.
-- STL import pending; analytic STEP import/export scoped in `docs/yapBREP.md` (requires new BREP kernel work).
+- STL import pending; analytic STEP import/export scoped in ``docs/yapBREP.rst`` (requires new BREP kernel work).
 
-### Phase 5 – Provenance & Security Enhancements — ⏳ Not Started
+**Phase 5 - Provenance & Security Enhancements [Not Started]**
 - Hashing exists for geometry/assets; signatures/approvals still on backlog.
 
-### Phase 6 – Release yapCAD 1.0 — ⏳ Not Started
+**Phase 6 - Release yapCAD 1.0 [Not Started]**
 - Depends on completing Phases 3–5 plus documentation and migration tooling.
 
-## Dependencies & Tooling Considerations
+Dependencies & Tooling Considerations
+-------------------------------------
+
 - Potential third-party STEP libraries (e.g. pythonocc-core) for parsing/advanced export—evaluate licensing and integration cost.
 - Hashing/signature libraries (cryptography, nacl) for provenance features.
 - Testing infrastructure to run simulations (container support, job orchestration where required).
-- Analytic BREP implementation plan documented in `docs/yapBREP.md`; evaluate whether to leverage OCC kernels or extend native primitives per that roadmap.
+- Analytic BREP implementation plan documented in ``docs/yapBREP.rst``; evaluate whether to leverage OCC kernels or extend native primitives per that roadmap.
 
-## Risks & Mitigations
+Risks & Mitigations
+-------------------
+
 - **Complex migration:** provide automated conversion scripts and dual-loading support during transition.
 - **Metadata proliferation:** keep schemas lean, allow opt-in extensions rather than mandatory fields.
 - **External tool dependencies:** isolate behind adapters, provide graceful degradation when unavailable.
 
-## Open Questions
+Open Questions
+--------------
+
 - Level of BREP fidelity required for initial STEP release.
 - Signature trust model (self-signed vs. PKI integration).
 - Integration story for non-visual viewers and headless pipelines.
