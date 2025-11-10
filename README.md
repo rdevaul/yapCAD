@@ -59,6 +59,7 @@ top-level `src` directory. Example entry points:
 - `examples/rocket_cutaway_internal.py` – layout/cutaway helper demo exporting STEP (screenshot below).
 - `examples/involute_gear_package/` – canonical gear library packaged as `.ycpkg` and reused by assemblies.
 - `examples/bulkhead_sweep.py` – sweeps bulkhead thickness from 5–12 mm, runs CalculiX through the new analysis framework, and reports max deflection per case.
+- `examples/thread_profiles.py` – previews/exporst thread surfaces using the thread sampler + theta-based revolve.
 
 ![**yapCAD** rocket cutaway STEP export](images/RocketCutawaySTEP.png)
 

@@ -5,6 +5,7 @@ from yapcad.geom import *
 from yapcad.geom_util import *
 from yapcad.geom3d import *
 from yapcad.geom3d_util import *
+from yapcad.geom3d_util import makeRevolutionThetaSamplingSurface
 from yapcad.poly import *
 from yapcad.combine import *
 
@@ -744,6 +745,20 @@ def test_makeRevolutionSurface_cap_normals():
     assert bottom_normals and top_normals
     assert all(n < -1e-6 for n in bottom_normals)
     assert all(n > 1e-6 for n in top_normals)
+
+
+def test_makeRevolutionThetaSamplingSurface_cylinder():
+    def contour(z0, z1, theta):
+        return [
+            point(z0, 5.0),
+            point(z1, 5.0),
+        ]
+
+    surf = makeRevolutionThetaSamplingSurface(contour, 0.0, 10.0, arcSamples=36)
+    assert issurface(surf)
+    bbox = surfacebbox(surf)
+    assert bbox[0][2] == 0.0
+    assert bbox[1][2] == 10.0
 
 
 class TestSolidTopology:
