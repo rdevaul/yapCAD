@@ -526,6 +526,189 @@ def makeRevolutionSurface(contour,zStart,zEnd,steps,arcSamples=36):
         
     return surface(sV,sN,sF)
 
+def makeRevolutionThetaSamplingSurface(contour, zStart, zEnd, arcSamples=360,
+                                       endcaps=False, degrees=True):
+    """Generate a surface of revolution using a theta-dependent, self-sampling contour
+    function. The function (such as a thread profile generator) willl determine
+    the number and distribution of samples over the specified interval.
+
+    NOTE: the countour function returns a series of points in the X-Y plane,
+    where X maps to the surface Z and Y is the surface offset value. These
+    points can be returned as simple [x,y] pairs of full yapCAD points
+    [x,y,0,1]. The self-sampling function must return a consistent number of samples
+    for a given zStart and ZEnd, regardless of theta. If that number changes,
+    the surface will break.
+
+    NOTE: Both the returned X and Y coordinates of each returned sample are
+    meaningful, since there is no guarantee that the countour generator will
+    return evenly-spaced samples. In fact, for thread profile generators the
+    spacing is guranteed to be non-uniform, and re-sampling to uniform would
+    destroy the fidelity of the threads. The X value of the first sample should
+    always correspond to zStart, and the X value of the last sample should
+    always correspond to zEnd.
+
+    :param contour: callable mapping ``zStart``, ``zEnd``, and ``theta`` to a radial distance.
+    :param zStart: lower bound for the ``z`` interval, usually 0.0
+    :param zEnd: upper bound for the ``z`` interval, must be greater than ``zStart``
+    :param arcSamples: number of samples around the revolution arc - default is 360,
+    or one-degree increments
+    :param endcaps: do we need to create end caps for surface?
+    :param degrees: do we pass theta in degrees?
+
+    :returns: ``['surface', vertices, normals, faces]`` list representing the surface
+
+    """
+    sV = []
+    sN = []
+    sF = []
+    zRange = zEnd - zStart
+    if zRange <= 0:
+        raise ValueError('zEnd must be greater than zStart')
+
+    base_theta = 0.0 if degrees else 0.0
+    profile_zero_raw = contour(zStart, zEnd, base_theta)
+    profile_zero = _normalize_theta_profile(profile_zero_raw)
+    steps = len(profile_zero)
+    if steps < 2:
+        raise ValueError('contour function must return at least two samples')
+
+    degStep = 360.0/arcSamples
+    radStep = pi2/arcSamples
+
+    # Pre-compute cos/sin values to avoid floating point errors at the seam
+    # Explicitly ensure that index 0 uses exact values
+    angle_cos = []
+    angle_sin = []
+    for i in range(arcSamples):
+        if i == 0:
+            angle_cos.append(1.0)
+            angle_sin.append(0.0)
+        else:
+            angle = i * radStep
+            angle_cos.append(math.cos(angle))
+            angle_sin.append(math.sin(angle))
+
+    need_start_cap = False
+    need_end_cap = False
+    start_pole_idx = None
+    end_pole_idx = None
+
+    if endcaps:
+        r_start = profile_zero[0][1]
+        r_end = profile_zero[-1][1]
+        need_start_cap = r_start < epsilon * 10
+        need_end_cap = r_end < epsilon * 10
+
+        if need_start_cap:
+            pole_point = [0.0, 0.0, profile_zero[0][0], 1.0]
+            pole_normal = [0.0, 0.0, -1.0, 0.0]
+            start_pole_idx, sV, sN = addVertex(pole_point, pole_normal, sV, sN)
+
+        if need_end_cap:
+            pole_point = [0.0, 0.0, profile_zero[-1][0], 1.0]
+            pole_normal = [0.0, 0.0, 1.0, 0.0]
+            end_pole_idx, sV, sN = addVertex(pole_point, pole_normal, sV, sN)
+
+    # Generate all of the profiles for each angle step:
+    profiles = [profile_zero]
+
+    for i in range(1, arcSamples):
+        theta_val = degStep * i if degrees else radStep * i
+        prof_raw = contour(zStart, zEnd, theta_val)
+        prof = _normalize_theta_profile(prof_raw)
+        if len(prof) != steps:
+            raise ValueError('contour returned inconsistent sample counts for theta sweep')
+        profiles.append(prof)
+
+    for ang_idx in range(arcSamples):
+        next_idx = (ang_idx + 1) % arcSamples
+        cos_a = angle_cos[ang_idx]
+        sin_a = angle_sin[ang_idx]
+        cos_b = angle_cos[next_idx]
+        sin_b = angle_sin[next_idx]
+
+        prof_a = profiles[ang_idx]
+        prof_b = profiles[next_idx]
+
+        for j in range(steps - 1):
+            z0, r0 = prof_a[j]
+            z1, r1 = prof_a[j + 1]
+            z2, r2 = prof_b[j + 1]
+            z3, r3 = prof_b[j]
+
+            v0 = [cos_a * r0, sin_a * r0, z0, 1.0]
+            v1 = [cos_a * r1, sin_a * r1, z1, 1.0]
+            v2 = [cos_b * r2, sin_b * r2, z2, 1.0]
+            v3 = [cos_b * r3, sin_b * r3, z3, 1.0]
+
+            try:
+                _, n0 = tri2p0n([v0, v1, v2])
+            except ValueError:
+                continue
+
+            k0, sV, sN = addVertex(v0, n0, sV, sN)
+            k1, sV, sN = addVertex(v1, n0, sV, sN)
+            k2, sV, sN = addVertex(v2, n0, sV, sN)
+            k3, sV, sN = addVertex(v3, n0, sV, sN)
+
+            sF.append([k0, k1, k2])
+            sF.append([k0, k2, k3])
+
+    if endcaps:
+        if need_start_cap and start_pole_idx is not None:
+            for ang_idx in range(arcSamples):
+                next_idx = (ang_idx + 1) % arcSamples
+                prof = profiles[ang_idx]
+                prof_next = profiles[next_idx]
+                r_curr = prof[0][1]
+                r_next = prof_next[0][1]
+                v_curr = [angle_cos[ang_idx] * r_curr, angle_sin[ang_idx] * r_curr, prof[0][0], 1.0]
+                v_next = [angle_cos[next_idx] * r_next, angle_sin[next_idx] * r_next, prof_next[0][0], 1.0]
+                try:
+                    _, n_cap = tri2p0n([v_curr, v_next, sV[start_pole_idx]])
+                except ValueError:
+                    continue
+                i_curr, sV, sN = addVertex(v_curr, n_cap, sV, sN)
+                i_next, sV, sN = addVertex(v_next, n_cap, sV, sN)
+                sF.append([start_pole_idx, i_curr, i_next])
+
+        if need_end_cap and end_pole_idx is not None:
+            for ang_idx in range(arcSamples):
+                next_idx = (ang_idx + 1) % arcSamples
+                prof = profiles[ang_idx]
+                prof_next = profiles[next_idx]
+                r_curr = prof[-1][1]
+                r_next = prof_next[-1][1]
+                v_curr = [angle_cos[ang_idx] * r_curr, angle_sin[ang_idx] * r_curr, prof[-1][0], 1.0]
+                v_next = [angle_cos[next_idx] * r_next, angle_sin[next_idx] * r_next, prof_next[-1][0], 1.0]
+                try:
+                    _, n_cap = tri2p0n([v_next, v_curr, sV[end_pole_idx]])
+                except ValueError:
+                    continue
+                i_curr, sV, sN = addVertex(v_curr, n_cap, sV, sN)
+                i_next, sV, sN = addVertex(v_next, n_cap, sV, sN)
+                sF.append([end_pole_idx, i_next, i_curr])
+
+    return surface(sV, sN, sF)
+
+
+def _normalize_theta_profile(samples):
+    if not isinstance(samples, (list, tuple)) or not samples:
+        raise ValueError('contour must return a sequence of samples')
+
+    normalized = []
+    for sample in samples:
+        if ispoint(sample):
+            z_val = float(sample[0])
+            r_val = abs(float(sample[1]))
+        elif isinstance(sample, (list, tuple)) and len(sample) >= 2:
+            z_val = float(sample[0])
+            r_val = abs(float(sample[1]))
+        else:
+            raise ValueError('invalid contour sample; expected point or [x,y] pair')
+        normalized.append((z_val, r_val))
+    return normalized
+
 def contour(poly,distance,direction, samples,scalefunc= lambda x: (1,1,1)):
     """take a closed polygon and apply a scaling function defined on the
     interval 0,1 that returns a tuple of x,y,z scaling values. For

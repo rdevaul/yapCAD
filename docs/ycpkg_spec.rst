@@ -136,13 +136,50 @@ High-level structure:
 
     validation:
       plans:
-        - id: mass-check
-          path: validation/plans/mass_check.yaml
+        - id: bulkhead-fea
+          kind: fea
+          backend: calculix
+          path: validation/plans/bulkhead_fea.yaml
+          geometry:
+            source: geometry/primary.json
+            entities: ["solid-main"]
+          execution:
+            mode: local
+            command: ccx
+            env:
+              OMP_NUM_THREADS: "8"
+          acceptance:
+            stress.von_mises.max:
+              limit: 1.5e8
+              comparison: "<="
+        - id: bulkhead-comsol
+          kind: multiphysics
+          backend: comsol
+          path: validation/plans/bulkhead_comsol.yaml
+          execution:
+            mode: remote
+            transport: ssh
+            host: fea-cluster.example.com
+            options:
+              queue: premium
+              licenseTokens: 1
       results:
-        - plan: mass-check
-          path: validation/results/mass_check.json
+        - plan: bulkhead-fea
+          path: validation/results/bulkhead-fea/summary.json
           status: passed
-          timestamp: 2024-10-12T19:00:00Z
+          timestamp: 2025-10-27T12:42:00Z
+          metrics:
+            stress.von_mises.max: 1.2e8
+          artifacts:
+            - kind: solver-input
+              path: validation/results/bulkhead-fea/model.inp
+            - kind: log
+              path: validation/results/bulkhead-fea/run.log
+        - plan: bulkhead-comsol
+          path: validation/results/bulkhead-comsol/summary.json
+          status: pending
+          timestamp: 2025-10-28T09:15:00Z
+          statusDetail: "Remote solver job queued"
 
     exports:
       - id: step-main
@@ -184,6 +221,82 @@ Key notes:
 - ``extensions`` is the sanctioned namespace for custom data.
 
 
+3.1 Validation Plan Files
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Validation plans capture the instructions for structural analysis, CFD, or other
+design checks. Plans live under ``validation/plans/`` and are authored in YAML.
+Every plan MUST include an ``id``, ``kind`` (e.g. ``fea``, ``multiphysics``), and
+``backend`` identifier. The remaining sections are backend agnostic and may be
+ignored by adapters that do not need them.
+
+.. code-block:: yaml
+
+   id: bulkhead-fea
+   kind: fea
+   backend: calculix
+   description: Static structural analysis for bulkhead load case A
+   geometry:
+     source: geometry/primary.json
+     outer_radius_mm: 152.4
+     inner_radius_mm: 50.8
+   backendOptions:
+     outer_radius_mm: 152.4
+     inner_radius_mm: 50.8
+     thickness_mm: 12.0
+     thrust_n: 2224.0
+     radial_divisions: 32
+     thickness_divisions: 3
+     entities: ["solid-main"]
+     mesh:
+       format: inp
+       elementType: C3D10
+   materials:
+     default: metadata/materials/al6061.yaml
+   loads:
+     - id: axial-load
+       type: pressure
+       magnitude_pa: 2.0e5
+       surfaces: ["surface-top"]
+   boundaryConditions:
+     - id: base-fixed
+       type: fixed
+       surfaces: ["surface-bottom"]
+   acceptance:
+     stress.von_mises.max:
+       limit: 1.5e8
+       comparison: "<="
+     displacement.max:
+       limit_mm: 2.0
+   execution:
+     mode: local
+     command: ccx
+     env:
+       CCX_NPROC_SMP: "16"
+   attachments:
+     - path: validation/supporting_docs/load_case_A.pdf
+       kind: reference
+
+Execution ``mode`` values:
+
+``local``
+  Run the solver on the same machine as the yapCAD agent. ``command`` should
+  point to the solver executable (e.g. ``ccx``). Environment variables, working
+  directory, and auxiliary options may be supplied.
+
+``remote``
+  Submit jobs to a licensed solver farm (e.g. COMSOL, Abaqus). Use the
+  ``transport`` block to describe how to connect (``ssh``, REST endpoint) and
+  specify queue, license token requirements, or project identifiers via
+  ``options``. Adapters are responsible for staging inputs, monitoring remote
+  execution, and retrieving artefacts into ``validation/results/<plan_id>/``.
+
+Adapters SHOULD record a summary file ``summary.json`` in the plan's results
+folder, alongside any solver-native artefacts (logs, meshes, field data).
+Manifest ``validation.results`` entries then reference that summary and include
+high-value metrics to make the outcome machine readable.
+
+
 
 4. CLI Workflow
 ---------------
@@ -202,17 +315,19 @@ Steps:
 4. Optionally run exports (``--export step,stl``).
 5. Assemble manifest and write to disk.
 
-4.2 Validation Update
-~~~~~~~~~~~~~~~~~~~~~
+4.2 Validation & Analysis
+~~~~~~~~~~~~~~~~~~~~~~~~~
 
 
-``yapcad package validate my_design.ycpkg/ --plan validation/plans/mass_check.yaml``
+``python tools/ycpkg_analyze.py my_design.ycpkg/ --plan validation/plans/bulkhead_fea.yaml``
 
 Steps:
-1. Load manifest.
-2. Execute specified validation plan (commands defined in YAML).
-3. Store outputs under ``validation/results/`` with status.
-4. Update manifest ``validation.results``.
+1. Load manifest and requested plan, merging any missing plan metadata into ``manifest.validation.plans``.
+2. Prepare a workspace under ``validation/results/<plan_id>/``.
+3. Invoke the registered backend adapter (CalculiX ships with yapCAD; additional solvers can register via ``register_backend``).
+4. Capture solver artefacts and summary metrics, update ``manifest.validation.results`` with status ``pending``/``passed``/``failed`` and timestamps.
+
+``yapcad package validate`` continues to run structural manifest checks (geometry hashes, attachments). Automation pipelines should run both commands: package validation first, followed by any analysis plans. Future releases will expose ``yapcad package analyze`` as a consolidated entry point. The ``calculix`` backend generates an axisymmetric plate approximation, writes a CalculiX ``.inp`` file, executes ``ccx`` when present (and records deflection metrics), or marks the plan ``skipped`` if the solver binary cannot be located.
 
 4.3 Metadata Edit / Sync
 ~~~~~~~~~~~~~~~~~~~~~~~~

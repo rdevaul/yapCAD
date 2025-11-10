@@ -90,8 +90,12 @@ documentation
 Online **yapCAD** documentation is available at https://yapcad.readthedocs.io/en/latest/ — key references:
 
 * ``docs/ycpkg_spec.rst`` – ``.ycpkg`` manifest schema, packaging workflow, CLI usage.
+* ``docs/metadata_namespace.rst`` – standard metadata blocks for materials, manufacturing, and analysis annotations.
 * ``docs/yapBREP.rst`` – analytic STEP/BREP roadmap.
 * ``docs/dsl_spec.rst`` – parametric DSL and validation plans.
+* Example analysis plans live under ``examples/`` (e.g. ``examples/bulkhead_calculix.yaml``) and can be staged with ``python tools/ycpkg_analyze.py <package> --plan validation/plans/...``. The bundled CalculiX adapter approximates the bulkhead as an axisymmetric plate and will run ``ccx`` when installed (otherwise the plan is marked ``skipped``).
+* ``examples/bulkhead_sweep.py`` sweeps bulkhead thicknesses (default 5–12 mm), regenerates the plan per case, runs CalculiX, and prints the resulting deflection table.
+* ``examples/thread_profiles.py`` preview/export thread surfaces using the new thread sampler and theta-based revolution utility.
 * Module references for ``yapcad.io``, ``yapcad.geom3d_util``, ``yapcad.geometry_utils``, and ``yapcad.metadata``.
 * Mesh validation workflow (``docs/mesh_validation.md``, ``tools/validate_mesh.py``).
 

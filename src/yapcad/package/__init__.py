@@ -11,6 +11,16 @@ from .core import (
     load_geometry,
 )
 from .validator import validate_package
+from .analysis import (
+    AnalysisAdapter,
+    AnalysisPlan,
+    AnalysisResult,
+    ExecutionConfig,
+    available_backends,
+    load_plan as load_analysis_plan,
+    register_backend,
+)
+from .analysis.cli import analyze_package
 
 
 def view_package(package_path, *, strict: bool = False):
@@ -28,5 +38,13 @@ __all__ = [
     "add_geometry_file",
     "load_geometry",
     "validate_package",
+    "AnalysisAdapter",
+    "AnalysisPlan",
+    "AnalysisResult",
+    "ExecutionConfig",
+    "available_backends",
+    "load_analysis_plan",
+    "register_backend",
+    "analyze_package",
     "view_package",
 ]

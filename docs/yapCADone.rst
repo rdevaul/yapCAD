@@ -79,6 +79,7 @@ Roadmap & Milestones
 **Phase 3 - Parametric DSL & Validation Layer [In Progress]**
 - Specifications drafted (``docs/dsl_spec.rst``), but compiler/runtime and validation execution manager not yet implemented.
 - Next steps: prototype DSL compiler, define validation schema, integrate with packaging/metadata.
+- Validation plan schema (``docs/ycpkg_spec.rst``) and analysis metadata updates published; placeholder analyzer CLI records plan execution summaries pending full solver adapters.
 
 **Phase 4 - Export/Import Expansion [Ongoing]**
 - STEP (faceted), STL, DXF exports implemented; viewer consumes packaged geometry.
