@@ -68,13 +68,13 @@ def sample_thread_profile(
     theta_deg: float,
     *,
     samples_per_pitch: int = 1,
-) -> List[List[float]]:
+) -> tuple[List[List[float]], int]:
     if x_end <= x_start:
         raise ValueError("x_end must be greater than x_start")
     if profile.P_pitch <= 0:
         raise ValueError("pitch must be positive")
 
-    points = _collect_breakpoints(profile, x_start, x_end, samples_per_pitch)
+    points, wrap = _collect_breakpoints(profile, x_start, x_end, samples_per_pitch)
     lead = profile.lead()
     offset = (theta_deg / 360.0) * lead
     if profile.handedness.lower() == "left":
@@ -83,12 +83,18 @@ def sample_thread_profile(
     sampled = []
     for x_val in points:
         x_eff = x_val + offset
+        lead = profile.lead()
+        while x_eff < x_start:
+            x_eff += lead
+        while x_eff > x_end:
+            x_eff -= lead
         radius = _radius_at(profile, x_val, x_eff)
-        sampled.append(point(x_val, radius))
-    return sampled
+        sampled.append(point(x_eff, radius))
+    sampled.sort(key=lambda pt: pt[0])
+    return sampled, wrap
 
 
-def _collect_breakpoints(profile: ThreadProfile, x_start: float, x_end: float, samples_per_pitch: int) -> List[float]:
+def _collect_breakpoints(profile: ThreadProfile, x_start: float, x_end: float, samples_per_pitch: int) -> tuple[List[float], int]:
     pitch = profile.P_pitch
     breakpoints = _pitch_breakpoints(profile)
     extra = max(1, samples_per_pitch)
@@ -96,6 +102,7 @@ def _collect_breakpoints(profile: ThreadProfile, x_start: float, x_end: float, s
     base_end = math.ceil(x_end / pitch) + 1
 
     xs = {x_start, x_end}
+    pitch_samples = set()
     for idx in range(base_start, base_end + 1):
         base = idx * pitch
         for bp in breakpoints:
@@ -107,7 +114,18 @@ def _collect_breakpoints(profile: ThreadProfile, x_start: float, x_end: float, s
             x = base + frac * pitch
             if x_start - 1e-9 <= x <= x_end + 1e-9:
                 xs.add(min(max(x, x_start), x_end))
-    return sorted(xs)
+    # samples within single pitch starting at zero
+    for base in (0,):
+        for bp in breakpoints:
+            pitch_samples.add(base + bp)
+        for seg in range(1, extra):
+            frac = seg / extra
+            pitch_samples.add(base + frac * pitch)
+        pitch_samples.add(pitch)
+
+    wrap = max(1, len(sorted(pitch_samples)) - 1)
+
+    return sorted(xs), wrap
 
 
 def _pitch_breakpoints(profile: ThreadProfile) -> Iterable[float]:

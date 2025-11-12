@@ -1,10 +1,8 @@
-# -*- coding: utf-8 -*-
-"""
-    Dummy conftest.py for yapcad.
+import sys
+from pathlib import Path
 
-    If you don't know what this is for, just leave it empty.
-    Read more about conftest.py under:
-    https://pytest.org/latest/plugins.html
-"""
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
 
-# import pytest
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(SRC))
