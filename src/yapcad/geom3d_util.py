@@ -602,8 +602,15 @@ def makeRevolutionThetaSamplingSurface(contour, zStart, zEnd, arcSamples=360,
         for j in range(steps - 1):
             z0, r0 = prof_a[j]
             z1, r1 = prof_a[j + 1]
-            idx_b1 = (j + 1 + apply_shift) % steps
-            idx_b0 = (j + apply_shift) % steps
+
+            idx_b0 = j
+            idx_b1 = j + 1
+            if apply_shift:
+                idx_b0 = j + apply_shift
+                idx_b1 = j + 1 + apply_shift
+                if idx_b1 >= steps:
+                    continue
+
             z2, r2 = prof_b[idx_b1]
             z3, r3 = prof_b[idx_b0]
 
