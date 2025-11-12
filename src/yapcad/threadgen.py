@@ -81,16 +81,17 @@ def sample_thread_profile(
         offset = -offset
 
     sampled = []
-    for x_val in points:
-        x_eff = x_val + offset
-        lead = profile.lead()
-        while x_eff < x_start:
-            x_eff += lead
-        while x_eff > x_end:
-            x_eff -= lead
-        radius = _radius_at(profile, x_val, x_eff)
-        sampled.append(point(x_eff, radius))
-    sampled.sort(key=lambda pt: pt[0])
+    z_min = x_start
+    z_max = x_end
+    for base_z in points:
+        shifted = base_z + offset
+        actual_z = shifted
+        if actual_z < z_min:
+            actual_z = z_min
+        elif actual_z > z_max:
+            actual_z = z_max
+        radius = _radius_at(profile, actual_z, base_z)
+        sampled.append(point(actual_z, radius))
     return sampled, wrap
 
 
