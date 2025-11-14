@@ -20,8 +20,8 @@ from yapcad.threadgen import ThreadProfile, metric_profile, sample_thread_profil
 
 def _profile_from_args(args: argparse.Namespace) -> ThreadProfile:
     if args.standard == "metric":
-        return metric_profile(args.diameter, args.pitch, internal=args.internal)
-    return unified_profile(args.diameter, args.tpi, internal=args.internal)
+        return metric_profile(args.diameter, args.pitch, strts=args.starts, internal=args.internal)
+    return unified_profile(args.diameter, args.tpi, strts=args.starts,internal=args.internal)
 
 
 def _build_surface(profile: ThreadProfile, length: float, arc_samples: int):
@@ -83,6 +83,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--length", type=float, default=15.0, help="Threaded length in mm")
     parser.add_argument("--internal", default=False,  action="store_true", help="Generate internal/tapped profile")
     parser.add_argument("--arc-samples", type=int, default=180, help="Angular samples for revolution")
+    parser.add_argument("--starts", type=int, default=1, help="Starts for fastener")
     parser.add_argument("--mode", choices=["view", "stl", "step", "ycpkg"], default="view")
     parser.add_argument("--output", type=Path, default=Path("thread_profile"),
                         help="Output path (for export modes)")

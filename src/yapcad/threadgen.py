@@ -33,7 +33,7 @@ class ThreadProfile:
         return self.P_pitch * max(1, self.starts)
 
 
-def metric_profile(d_nominal_mm: float, pitch_mm: float, *, internal: bool = False) -> ThreadProfile:
+def metric_profile(d_nominal_mm: float, pitch_mm: float, *, strts: int = 1, internal: bool = False) -> ThreadProfile:
     crest = 1.0 / 8.0
     root = 1.0 / 4.0 if not internal else 1.0 / 8.0
     return ThreadProfile(
@@ -42,21 +42,23 @@ def metric_profile(d_nominal_mm: float, pitch_mm: float, *, internal: bool = Fal
         crest_flat_ratio=crest,
         root_flat_ratio=root,
         thread_depth_ratio=0.54127,
+        starts=strts,
         internal=internal,
     )
 
 
-def unified_profile(d_nominal_in: float, tpi: float, *, internal: bool = False) -> ThreadProfile:
+def unified_profile(d_nominal_in: float, tpi: float, *, strts: int=1, internal: bool = False) -> ThreadProfile:
     pitch = 25.4 / tpi
     crest = 1.0 / 8.0
     root = 1.0 / 4.0 if not internal else 1.0 / 8.0
-    depth_ratio = 0.64952 / tpi / pitch
+    depth_ratio = 0.64952 * pitch
     return ThreadProfile(
         D_nominal=d_nominal_in * 25.4,
         P_pitch=pitch,
         crest_flat_ratio=crest,
         root_flat_ratio=root,
         thread_depth_ratio=depth_ratio,
+        starts=strts,
         internal=internal,
     )
 
@@ -74,8 +76,9 @@ def sample_thread_profile(
     if profile.P_pitch <= 0:
         raise ValueError("pitch must be positive")
 
-    points, wrap = _collect_breakpoints(profile, x_start, x_end, samples_per_pitch)
     lead = profile.lead()
+
+    points, wrap = _collect_breakpoints(profile, x_start-lead, x_end, samples_per_pitch)
     offset = (theta_deg / 360.0) * lead
     if profile.handedness.lower() == "left":
         offset = -offset
@@ -83,14 +86,41 @@ def sample_thread_profile(
     sampled = []
     z_min = x_start
     z_max = x_end
-    for base_z in points:
+    depth = profile.thread_depth_ratio * profile.P_pitch
+    tdepth=lead*0.2
+    for i,base_z in enumerate(points):
+        leadin = False
+        leadout = False
+        blend = 0.0
         shifted = base_z + offset
         actual_z = shifted
+
         if actual_z < z_min:
             actual_z = z_min
         elif actual_z > z_max:
             actual_z = z_max
+
+        if actual_z < z_min+tdepth:
+            leadin = True
+            blend = (actual_z-z_min)/tdepth
+        elif actual_z > z_max-tdepth:
+            leadout = True
+            blend = (z_max - actual_z)/tdepth
+
+        base_major = (profile.D_nominal + profile.taper_ratio)/2.0
+        crest = base_major + depth
         radius = _radius_at(profile, actual_z, base_z)
+        if leadin:
+            if profile.internal:
+                radius = radius*blend + (1.0-blend)*(base_major+depth)
+            else:
+                radius = radius*blend + (1.0-blend)*(base_major-depth)
+        elif leadout:
+            if profile.internal:
+                radius = radius*blend + (1.0-blend)*(base_major + depth)
+            else:
+                radius = radius*blend + (1.0-blend)*base_major
+
         sampled.append(point(actual_z, radius))
     return sampled, wrap
 
@@ -124,7 +154,7 @@ def _collect_breakpoints(profile: ThreadProfile, x_start: float, x_end: float, s
             pitch_samples.add(base + frac * pitch)
         pitch_samples.add(pitch)
 
-    wrap = max(1, len(sorted(pitch_samples)) - 1)
+    wrap = max(1, len(sorted(pitch_samples)) - 1) * profile.starts
 
     return sorted(xs), wrap
 
