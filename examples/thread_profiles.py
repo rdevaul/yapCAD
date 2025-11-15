@@ -9,13 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from yapcad.geom import point
-try:
-    from yapcad.geom3d import solid
-except ImportError as exc:  # pragma: no cover - optional dependency
-    raise SystemExit(
-        "This example requires mapbox-earcut. Install it via 'pip install mapbox-earcut'."
-    ) from exc
-
+from yapcad.geom3d import solid
 from yapcad.geom3d_util import makeRevolutionThetaSamplingSurface
 from yapcad.io.step import write_step
 from yapcad.io.stl import write_stl
@@ -26,14 +20,14 @@ from yapcad.threadgen import ThreadProfile, metric_profile, sample_thread_profil
 
 def _profile_from_args(args: argparse.Namespace) -> ThreadProfile:
     if args.standard == "metric":
-        return metric_profile(args.diameter, args.pitch, internal=args.internal)
-    return unified_profile(args.diameter, args.tpi, internal=args.internal)
+        return metric_profile(args.diameter, args.pitch, strts=args.starts, internal=args.internal)
+    return unified_profile(args.diameter, args.tpi, strts=args.starts,internal=args.internal)
 
 
 def _build_surface(profile: ThreadProfile, length: float, arc_samples: int):
     def contour(z0: float, z1: float, theta: float):
-        points = sample_thread_profile(profile, z0, z1, theta)
-        return [point(pt[0], pt[1]) for pt in points]
+        pts, wrap = sample_thread_profile(profile, z0, z1, theta)
+        return (pts, wrap)
 
     return makeRevolutionThetaSamplingSurface(
         contour,
@@ -87,8 +81,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--pitch", type=float, default=1.5, help="Pitch in mm (metric only)")
     parser.add_argument("--tpi", type=float, default=20.0, help="Threads per inch (unified only)")
     parser.add_argument("--length", type=float, default=15.0, help="Threaded length in mm")
-    parser.add_argument("--internal", action="store_true", help="Generate internal/tapped profile")
+    parser.add_argument("--internal", default=False,  action="store_true", help="Generate internal/tapped profile")
     parser.add_argument("--arc-samples", type=int, default=180, help="Angular samples for revolution")
+    parser.add_argument("--starts", type=int, default=1, help="Starts for fastener")
     parser.add_argument("--mode", choices=["view", "stl", "step", "ycpkg"], default="view")
     parser.add_argument("--output", type=Path, default=Path("thread_profile"),
                         help="Output path (for export modes)")

@@ -142,6 +142,11 @@ automatically, and without having to revise any code or drawing.
     workflow, and ``rocket_demo.py`` for a 3D generative workflow that
     visualises and exports STL.
 
+Generative fasteners
+--------------------
+
+The ``yapcad.fasteners`` helpers provide canonically parameterized screws, nuts, and washers for both metric and unified standards.  They build on the thread sampler developed for the involute gear work and support external/internal threads, handedness, multi-start configurations, and catalog-backed defaults.  See ``examples/threaded_fastener_package.py`` for a CLI that emits ``.ycpkg`` packages for common fasteners, or consume the helpers directly from Python/DSL to populate assemblies.
+
 This ability to solve for an entire family of related design problems
 with a single parametric design system is what gives this approach
 it's power and flexibility.  For anyone who has spent hours

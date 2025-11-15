@@ -73,9 +73,8 @@ def _solid_to_mesh(sld) -> "trimesh.Trimesh":
     mesh.remove_unreferenced_vertices()
     if not mesh.is_watertight:
         mesh.merge_vertices()
-        mesh.remove_duplicate_faces()
-        mesh.remove_degenerate_faces()
-        mesh.process(validate=True)
+        mesh.update_faces(mesh.unique_faces())
+        mesh.update_faces(mesh.nondegenerate_faces())
     try:
         mesh.fix_normals()
     except Exception:
