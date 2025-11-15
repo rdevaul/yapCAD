@@ -62,6 +62,8 @@ top-level `src` directory. Example entry points:
 - `examples/thread_profiles.py` – previews/exporst thread surfaces using the thread sampler + theta-based revolve.
 - `examples/threaded_fastener_package.py` – generates `.ycpkg` packages for screws, nuts, or washers (metric/unified catalog defaults or custom parameters). Fastener helpers expose `metric_hex_cap_catalog()` / `unified_hex_cap_catalog()` as well as `metric_hex_nut_catalog()` / `unified_hex_nut_catalog()` for dimensional lookups.
 
+The fastener helpers live in `yapcad.fasteners` and cover metric and unified hex-cap screws, nuts, and small hardware such as bearing washers.  They share the same thread sampler (internal/external, multi-start, handedness-aware) so threaded assemblies can be generated programmatically or packaged for downstream workflows.
+
 ![**yapCAD** rocket cutaway STEP export](images/RocketCutawaySTEP.png)
 
 Several demos were authored with LLM assistance to illustrate automation-friendly workflows.
