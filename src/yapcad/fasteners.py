@@ -9,7 +9,13 @@ from typing import Dict, Iterable
 
 from yapcad.geom import arc, epsilon, point
 from yapcad.geom_util import geomlist2poly
-from yapcad.geom3d import poly2surfaceXY, solid, solid_boolean, translate
+from yapcad.geom3d import (
+    poly2surfaceXY,
+    reversesurface,
+    solid,
+    solid_boolean,
+    translate,
+)
 from yapcad.geom3d_util import (
     circleSurface,
     conic,
@@ -26,6 +32,12 @@ __all__ = [
     "unified_hex_cap_screw",
     "metric_hex_cap_catalog",
     "unified_hex_cap_catalog",
+    "HexNutSpec",
+    "build_hex_nut",
+    "metric_hex_nut",
+    "unified_hex_nut",
+    "metric_hex_nut_catalog",
+    "unified_hex_nut_catalog",
 ]
 
 
@@ -41,6 +53,18 @@ class HexCapScrewSpec:
     washer_thickness: float = 0.5
     washer_diameter: float | None = None
     shank_diameter: float | None = None
+    thread_arc_samples: int = 180
+    thread_samples_per_pitch: int = 6
+
+
+@dataclass(frozen=True)
+class HexNutSpec:
+    diameter: float
+    pitch: float
+    width_flat: float
+    thickness: float
+    handedness: str = "right"
+    starts: int = 1
     thread_arc_samples: int = 180
     thread_samples_per_pitch: int = 6
 
@@ -82,6 +106,41 @@ def build_hex_cap_screw(profile: ThreadProfile, spec: HexCapScrewSpec):
         "washer_diameter": spec.washer_diameter or spec.head_flat_diameter,
     }
     return body
+
+
+def build_hex_nut(profile: ThreadProfile, spec: HexNutSpec):
+    if spec.thickness <= epsilon:
+        raise ValueError("nut thickness must be positive")
+    if spec.width_flat <= epsilon:
+        raise ValueError("nut width across flats must be positive")
+
+    nut_profile = replace(
+        profile,
+        internal=True,
+        handedness=spec.handedness,
+        starts=spec.starts,
+    )
+
+    thread_surface, hole_radius = _build_internal_thread_surface(nut_profile, spec)
+    side_surfaces = _build_hex_side_surfaces(spec.width_flat, spec.thickness)
+    top_surface, bottom_surface = _build_hex_cap_with_hole(spec.width_flat, hole_radius, spec.thickness)
+
+    surfaces = [bottom_surface, *side_surfaces, thread_surface, top_surface]
+    nut = solid(surfaces)
+    _scrub_surface_octrees(nut)
+
+    meta = get_solid_metadata(nut, create=True)
+    add_tags(meta, ["fastener", "hex_nut"])
+    set_layer(meta, "hardware")
+    meta["hex_nut"] = {
+        "diameter": spec.diameter,
+        "pitch": spec.pitch,
+        "width_flat": spec.width_flat,
+        "thickness": spec.thickness,
+        "starts": spec.starts,
+        "handedness": spec.handedness,
+    }
+    return nut
 
 
 def metric_hex_cap_screw(
@@ -155,6 +214,52 @@ def unified_hex_cap_screw(
     return build_hex_cap_screw(profile, spec)
 
 
+def metric_hex_nut(
+    size: str,
+    *,
+    starts: int = 1,
+    handedness: str = "right",
+    thread_arc_samples: int = 180,
+    thread_samples_per_pitch: int = 6,
+):
+    dims = _METRIC_NUT_TABLE[size.upper()]
+    profile = metric_profile(dims.diameter, dims.pitch, internal=True)
+    spec = HexNutSpec(
+        diameter=dims.diameter,
+        pitch=dims.pitch,
+        width_flat=dims.width_flat,
+        thickness=dims.thickness,
+        starts=starts,
+        handedness=handedness,
+        thread_arc_samples=thread_arc_samples,
+        thread_samples_per_pitch=thread_samples_per_pitch,
+    )
+    return build_hex_nut(profile, spec)
+
+
+def unified_hex_nut(
+    size: str,
+    *,
+    starts: int = 1,
+    handedness: str = "right",
+    thread_arc_samples: int = 180,
+    thread_samples_per_pitch: int = 6,
+):
+    dims = _UNIFIED_NUT_TABLE[size.lower()]
+    profile = unified_profile(dims.diameter / 25.4, dims.tpi, internal=True)
+    spec = HexNutSpec(
+        diameter=dims.diameter,
+        pitch=25.4 / dims.tpi,
+        width_flat=dims.width_flat,
+        thickness=dims.thickness,
+        starts=starts,
+        handedness=handedness,
+        thread_arc_samples=thread_arc_samples,
+        thread_samples_per_pitch=thread_samples_per_pitch,
+    )
+    return build_hex_nut(profile, spec)
+
+
 def _build_thread(profile: ThreadProfile, spec: HexCapScrewSpec):
     samples0, _ = sample_thread_profile(
         profile,
@@ -221,6 +326,77 @@ def _build_hex_head(spec: HexCapScrewSpec):
     return translate(head, point(0, 0, base_z))
 
 
+def _circle_loop_xy(radius: float, minang: float = 5.0):
+    loop = geomlist2poly([arc(point(0, 0), radius)], minang=minang, minlen=0.0)
+    if not loop:
+        raise ValueError("failed to construct circle loop")
+    return [point(pt[0], pt[1], 0.0) for pt in loop]
+
+
+def _build_hex_cap_with_hole(width_flat: float, hole_radius: float, thickness: float):
+    incircle = width_flat / 2.0
+    circum = incircle / math.cos(math.pi / 6.0)
+    outer = []
+    for idx in range(6):
+        angle = math.pi / 6.0 + idx * (math.pi / 3.0)
+        outer.append(point(circum * math.cos(angle), circum * math.sin(angle), 0.0))
+    outer.append(outer[0])
+
+    hole_loop = list(_circle_loop_xy(hole_radius))
+
+    top_surface, _ = poly2surfaceXY(outer, holepolys=[hole_loop])
+    top_surface = translate(top_surface, point(0, 0, thickness))
+
+    bottom_surface, _ = poly2surfaceXY(outer, holepolys=[hole_loop])
+    bottom_surface = reversesurface(bottom_surface)
+    return top_surface, bottom_surface
+
+
+def _build_internal_thread_surface(profile: ThreadProfile, spec: HexNutSpec):
+    samples, _ = sample_thread_profile(
+        profile,
+        0.0,
+        spec.thickness,
+        0.0,
+        samples_per_pitch=spec.thread_samples_per_pitch,
+    )
+    min_radius = min(pt[1] for pt in samples)
+    max_radius = max(pt[1] for pt in samples)
+
+    def contour(_z0: float, _z1: float, theta: float):
+        return sample_thread_profile(
+            profile,
+            0.0,
+            spec.thickness,
+            theta,
+            samples_per_pitch=spec.thread_samples_per_pitch,
+        )
+
+    surface = makeRevolutionThetaSamplingSurface(
+        contour,
+        0.0,
+        spec.thickness,
+        arcSamples=max(24, spec.thread_arc_samples),
+        endcaps=False,
+    )
+    surface = reversesurface(surface)
+    return surface, max_radius
+
+
+def _build_hex_side_surfaces(width_flat: float, thickness: float):
+    incircle = width_flat / 2.0
+    circum = incircle / math.cos(math.pi / 6.0)
+    pts = []
+    for idx in range(6):
+        angle = math.pi / 6.0 + idx * (math.pi / 3.0)
+        pts.append(point(circum * math.cos(angle), circum * math.sin(angle), 0.0))
+    pts.append(pts[0])
+    surface, _ = poly2surfaceXY(pts)
+    prism = extrude(surface, thickness)
+    # extrude returns [top, side strip, bottom]; keep side strip only
+    return [prism[1][1]]
+
+
 def _default_thread_length(shank_length: float, diameter: float) -> float:
     return max(shank_length - diameter * 0.75, shank_length * 0.65)
 
@@ -278,7 +454,6 @@ class _MetricDims:
     head_height: float
     head_flat: float
     washer_thickness: float
-    washer_diameter: float | None = None
 
 
 @dataclass(frozen=True)
@@ -288,7 +463,6 @@ class _UnifiedDims:
     head_height: float
     head_flat: float
     washer_thickness: float
-    washer_diameter: float | None = None
 
 
 _METRIC_TABLE: Dict[str, _MetricDims] = {
@@ -304,12 +478,49 @@ _UNIFIED_TABLE: Dict[str, _UnifiedDims] = {
 }
 
 
+@dataclass(frozen=True)
+class _MetricNutDims:
+    diameter: float
+    pitch: float
+    width_flat: float
+    thickness: float
+
+
+@dataclass(frozen=True)
+class _UnifiedNutDims:
+    diameter: float
+    tpi: float
+    width_flat: float
+    thickness: float
+
+
+_METRIC_NUT_TABLE: Dict[str, _MetricNutDims] = {
+    "M6": _MetricNutDims(6.0, 1.0, 10.0, 5.0),
+    "M8": _MetricNutDims(8.0, 1.25, 13.0, 6.5),
+    "M10": _MetricNutDims(10.0, 1.5, 17.0, 8.0),
+}
+
+_UNIFIED_NUT_TABLE: Dict[str, _UnifiedNutDims] = {
+    "1/4-20": _UnifiedNutDims(6.35, 20, 11.11, 5.0),
+    "5/16-18": _UnifiedNutDims(7.9375, 18, 13.5, 6.5),
+    "3/8-16": _UnifiedNutDims(9.525, 16, 16.0, 7.5),
+}
+
+
 def metric_hex_cap_catalog():
     return {name: asdict(dim) for name, dim in _METRIC_TABLE.items()}
 
 
 def unified_hex_cap_catalog():
     return {name: asdict(dim) for name, dim in _UNIFIED_TABLE.items()}
+
+
+def metric_hex_nut_catalog():
+    return {name: asdict(dim) for name, dim in _METRIC_NUT_TABLE.items()}
+
+
+def unified_hex_nut_catalog():
+    return {name: asdict(dim) for name, dim in _UNIFIED_NUT_TABLE.items()}
 
 
 def _normalized_washer_dims(head_flat: float, base_thickness: float | None):
