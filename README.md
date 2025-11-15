@@ -60,6 +60,7 @@ top-level `src` directory. Example entry points:
 - `examples/involute_gear_package/` – canonical gear library packaged as `.ycpkg` and reused by assemblies.
 - `examples/bulkhead_sweep.py` – sweeps bulkhead thickness from 5–12 mm, runs CalculiX through the new analysis framework, and reports max deflection per case.
 - `examples/thread_profiles.py` – previews/exporst thread surfaces using the thread sampler + theta-based revolve.
+- `examples/hex_cap_screw_package.py` – generates `.ycpkg` fasteners for metric or unified hex cap screws (see `yapcad.fasteners.metric_hex_cap_catalog()` / `unified_hex_cap_catalog()` for the available size tables).
 
 ![**yapCAD** rocket cutaway STEP export](images/RocketCutawaySTEP.png)
 
