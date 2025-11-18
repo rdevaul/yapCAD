@@ -60,7 +60,7 @@ top-level `src` directory. Example entry points:
 - `examples/involute_gear_package/` – canonical gear library packaged as `.ycpkg` and reused by assemblies.
 - `examples/bulkhead_sweep.py` – sweeps bulkhead thickness from 5–12 mm, runs CalculiX through the new analysis framework, and reports max deflection per case.
 - `examples/thread_profiles.py` – previews/exporst thread surfaces using the thread sampler + theta-based revolve.
-- `examples/threaded_fastener_package.py` – generates `.ycpkg` packages for screws, nuts, or washers (metric/unified catalog defaults or custom parameters). Fastener helpers expose `metric_hex_cap_catalog()` / `unified_hex_cap_catalog()` as well as `metric_hex_nut_catalog()` / `unified_hex_nut_catalog()` for dimensional lookups.
+- `examples/threaded_fastener_package.py` – generates `.ycpkg` packages for screws, nuts, or washers (metric/unified catalog defaults or custom parameters), and can emit paired screw+nut assemblies with threads aligned mid-shank. Fastener helpers expose `metric_hex_cap_catalog()` / `unified_hex_cap_catalog()` as well as `metric_hex_nut_catalog()` / `unified_hex_nut_catalog()` for dimensional lookups.
 
 The fastener helpers live in `yapcad.fasteners` and cover metric and unified hex-cap screws, nuts, and small hardware such as bearing washers.  They share the same thread sampler (internal/external, multi-start, handedness-aware) so threaded assemblies can be generated programmatically or packaged for downstream workflows.
 
