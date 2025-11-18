@@ -484,9 +484,9 @@ class _UnifiedDims:
 
 
 _METRIC_TABLE: Dict[str, _MetricDims] = {
-    "M6": _MetricDims(6.0, 1.0, 4.0, 10.0, 0.4),
-    "M8": _MetricDims(8.0, 1.25, 5.3, 13.0, 0.5),
-    "M10": _MetricDims(10.0, 1.5, 6.4, 16.0, 0.6),
+    "M6": _MetricDims(5.884, 1.0, 4.0, 10.0, 0.4),
+    "M8": _MetricDims(7.866, 1.25, 5.3, 13.0, 0.5),
+    "M10": _MetricDims(9.85, 1.5, 6.4, 16.0, 0.6),
 }
 
 _UNIFIED_TABLE: Dict[str, _UnifiedDims] = {
@@ -513,9 +513,9 @@ class _UnifiedNutDims:
 
 
 _METRIC_NUT_TABLE: Dict[str, _MetricNutDims] = {
-    "M6": _MetricNutDims(6.0, 1.0, 10.0, 5.0),
-    "M8": _MetricNutDims(8.0, 1.25, 13.0, 6.5),
-    "M10": _MetricNutDims(10.0, 1.5, 17.0, 8.0),
+    "M6": _MetricNutDims(6.147, 1.0, 10.0, 5.0),
+    "M8": _MetricNutDims(8.17, 1.25, 13.0, 6.5),
+    "M10": _MetricNutDims(10.1985, 1.5, 17.0, 8.0),
 }
 
 _UNIFIED_NUT_TABLE: Dict[str, _UnifiedNutDims] = {
