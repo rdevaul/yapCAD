@@ -91,6 +91,12 @@ from copy import deepcopy
 from yapcad.geom import *
 from yapcad.geom_util import *
 from yapcad.geom3d import *
+from yapcad.brep import is_brep, BrepSolid
+
+from OCC.Core.Bnd import Bnd_Box
+from OCC.Core.BRepBndLib import brepbndlib
+from OCC.Core.GProp import GProp_GProps
+from OCC.Core.BRepGProp import brepgprop
 
 class Geometry:
     """generalized computational geometry base class, also acts as a
@@ -143,7 +149,12 @@ class Geometry:
                 self.__intersectable=True
                 self.__continuous=iscontinuousgeomlist(a)
                 self.__closed=isclosedgeomlist(a)
-
+            elif is_brep(a):
+                self.__elem = a
+                self.__sampleable = False
+                self.__intersectable = True
+                self.__continuous = True
+                self.__closed = True
             elif isinstance(a,Geometry):
                 self.__elem = deepcopy(a.elem)
                 self.__sampleable = a.issampleable()
@@ -300,6 +311,23 @@ class Geometry:
                 self.__length = 0.0
                 self.__center = None
                 self.__bbox = None
+            elif is_brep(self.__elem):
+                self.__length = 0.0 # Length is not well-defined for a solid
+                
+                # Bounding Box
+                brep_bbox = Bnd_Box()
+                brepbndlib.Add(self.__elem.shape, brep_bbox)
+                xmin, ymin, zmin, xmax, ymax, zmax = brep_bbox.Get()
+                self.__bbox = [point(xmin, ymin, zmin), point(xmax, ymax, zmax)]
+
+                # Center of Mass
+                props = GProp_GProps()
+                brepgprop.VolumeProperties(self.__elem.shape, props)
+                if props.Mass() > 0:
+                    com = props.CentreOfMass()
+                    self.__center = point(com.X(), com.Y(), com.Z())
+                else:
+                    self.__center = point(0,0,0) # Fallback for zero-mass shapes
             else:
                 self.__length = length(self.__elem)
                 self.__center = center(self.__elem)
@@ -435,6 +463,11 @@ class Geometry:
             return self.__surface
         self.__surface_ang = minang
         self.__surface_len = minlen
+        
+        if is_brep(self.__elem) and isinstance(self.__elem, BrepSolid):
+            self.__surface = self.__elem.tessellate()
+            return self.__surface
+
         geo = self.geom
         if len(geo) == 0:
             return []

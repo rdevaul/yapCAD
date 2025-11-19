@@ -271,7 +271,7 @@ def bbox2oct(bbx,refbox,center):
     
 def bbox2quad(bbx,refbox,center):
     """Utility Function to take a bounding box representation and assign
-       it to zero or more quads
+       to zero or more quads
 
     box2quad(bbx,refbox,center)
 
@@ -399,14 +399,15 @@ class NTree():
 
     """Generalized n-tree representation for yapCAD geometry"""
 
-    def __init__(self,n=8,geom=None,center=None,
-                 mindim=None,maxdepth=None):
+    def __init__(self, n=8, geom=None, center=None,
+                 mindim=None, maxdepth=None, octree_size=None):
 
         if not n in [4,8]:
             raise ValueError('only quad- or octtrees supported')
 
         self.__n = n
         self.__depth = 0
+        self.__octree_size = octree_size if octree_size is not None else 256
         if mindim:
             if isinstance(mindim,(int,float)) and mindim > epsilon:
                 self.__mindim = mindim
