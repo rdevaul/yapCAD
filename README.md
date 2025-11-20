@@ -122,6 +122,29 @@ python tools/ycpkg_export.py path/to/design.ycpkg --format step --format stl --o
 
 See [`docs/ycpkg_spec.rst`](docs/ycpkg_spec.rst) for the manifest schema and workflow details.
 
+## Import STEP geometry (experimental)
+
+BREP-backed STEP import relies on `pythonocc-core`, so activate the conda
+environment described in `docs/BREP_integration_strategy.md` before running the
+importer:
+
+```bash
+conda activate yapcad-brep
+# Inspect bounding boxes via the importer API
+PYTHONPATH=src python - <<'PY'
+from yapcad.io.step_importer import import_step
+parts = import_step("examples/rocket_grid_demo.step")
+for geom in parts:
+    print(geom.bbox)
+PY
+
+# Launch the interactive scaling/boolean demo
+PYTHONPATH=src python examples/step_import_demo.py examples/rocket_grid_demo.step
+```
+
+The importer currently extracts solids and wraps them as `Geometry(BrepSolid)`
+instances; richer face/edge metadata will arrive in the next BREP milestone.
+
 ### running tests
 
 The repository includes a comprehensive pytest suite that exercises both core

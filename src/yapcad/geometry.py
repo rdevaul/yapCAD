@@ -88,15 +88,63 @@ figure.
 """
 
 from copy import deepcopy
+import math
+
 from yapcad.geom import *
 from yapcad.geom_util import *
 from yapcad.geom3d import *
-from yapcad.brep import is_brep, BrepSolid
+from yapcad.brep import is_brep, BrepSolid, require_occ
 
-from OCC.Core.Bnd import Bnd_Box
-from OCC.Core.BRepBndLib import brepbndlib
-from OCC.Core.GProp import GProp_GProps
-from OCC.Core.BRepGProp import brepgprop
+try:  # pragma: no cover - optional dependency
+    from OCC.Core.Bnd import Bnd_Box
+    from OCC.Core.BRepBndLib import brepbndlib
+    from OCC.Core.GProp import GProp_GProps
+    from OCC.Core.BRepGProp import brepgprop
+    from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
+    from OCC.Core.gp import gp_Trsf, gp_Vec, gp_Pnt, gp_Ax1, gp_Dir, gp_Ax2
+    from OCC.Core.TopoDS import topods
+
+    _GEOMETRY_HAVE_OCC = True
+except ImportError:  # pragma: no cover - handled when accessed
+    Bnd_Box = None
+    brepbndlib = None
+    GProp_GProps = None
+    brepgprop = None
+    BRepBuilderAPI_Transform = None
+    gp_Trsf = gp_Vec = gp_Pnt = gp_Ax1 = gp_Dir = gp_Ax2 = None
+    topods = None
+    _GEOMETRY_HAVE_OCC = False
+
+
+def _as_xyz(vec):
+    """Return a tuple of (x, y, z) from a point/vector-like object."""
+    if isinstance(vec, (list, tuple)):
+        length = len(vec)
+        x = vec[0] if length > 0 else 0.0
+        y = vec[1] if length > 1 else 0.0
+        z = vec[2] if length > 2 else 0.0
+    else:
+        x = vec
+        y = 0.0
+        z = 0.0
+    return float(x), float(y), float(z)
+
+
+def _matrix_to_trsf(matrix):
+    """Convert a 4x4 affine matrix into a gp_Trsf."""
+    if not _GEOMETRY_HAVE_OCC:
+        require_occ()
+    if (isinstance(matrix, (list, tuple)) and len(matrix) == 4 and
+            all(isinstance(row, (list, tuple)) and len(row) == 4 for row in matrix)):
+        r11, r12, r13, t1 = [float(val) for val in matrix[0]]
+        r21, r22, r23, t2 = [float(val) for val in matrix[1]]
+        r31, r32, r33, t3 = [float(val) for val in matrix[2]]
+        trsf = gp_Trsf()
+        trsf.SetValues(r11, r12, r13, t1,
+                       r21, r22, r23, t2,
+                       r31, r32, r33, t3)
+        return trsf
+    raise ValueError("matrix must be a 4x4 iterable for BREP transforms")
 
 class Geometry:
     """generalized computational geometry base class, also acts as a
@@ -261,16 +309,45 @@ class Geometry:
 
     def translate(self,delta):
         """apply a translation to figure"""
+        if is_brep(self.__elem):
+            require_occ()
+            dx, dy, dz = _as_xyz(delta)
+            trsf = gp_Trsf()
+            trsf.SetTranslation(gp_Vec(dx, dy, dz))
+            self._applyBrepTransform(trsf)
+            return
         self._setElem(translate(self.__elem,delta))
         self._setUpdate(True)
 
     def scale(self,sx=1.0,sy=False,sz=False,cent=point(0,0,0)):
         """apply a scaling to a figure"""
+        if is_brep(self.__elem):
+            require_occ()
+            if sy not in (False, None) and not close(sy, sx):
+                raise NotImplementedError("BREP scaling currently supports uniform factors only")
+            if sz not in (False, None) and not close(sz, sx):
+                raise NotImplementedError("BREP scaling currently supports uniform factors only")
+            cx, cy, cz = _as_xyz(cent)
+            trsf = gp_Trsf()
+            trsf.SetScale(gp_Pnt(cx, cy, cz), sx)
+            self._applyBrepTransform(trsf)
+            return
         self._setElem(scale(self.__elem,sx,sy,sz,cent))
         self._setUpdate(True)
 
     def rotate(self,ang,cent=point(0,0,0),axis=point(0,0,1.0)):
         """apply a rotation to a figure"""
+        if is_brep(self.__elem):
+            require_occ()
+            axx, axy, axz = _as_xyz(axis)
+            mag = math.sqrt(axx * axx + axy * axy + axz * axz)
+            if mag == 0:
+                raise ValueError("rotation axis must be non-zero for BREP geometry")
+            cx, cy, cz = _as_xyz(cent)
+            trsf = gp_Trsf()
+            trsf.SetRotation(gp_Ax1(gp_Pnt(cx, cy, cz), gp_Dir(axx, axy, axz)), math.radians(ang))
+            self._applyBrepTransform(trsf)
+            return
         self._setElem(rotate(self.__elem,ang,cent,axis))
         self._setUpdate(True)
 
@@ -288,6 +365,12 @@ class Geometry:
         a face into a hole, or vice-versa.
 
         """
+        if is_brep(self.__elem):
+            require_occ()
+            trsf = gp_Trsf()
+            trsf.SetMirror(self._brepMirrorAxis(plane))
+            self._applyBrepTransform(trsf)
+            return
         nelm = mirror(self.__elem,plane)
         if keepSign:
             nelm = reverseGeomList(nelm)
@@ -298,6 +381,14 @@ class Geometry:
         """apply an arbitrary transformation to a figure, as specified by a
         transformation matrix.
         """
+        if is_brep(self.__elem):
+            require_occ()
+            try:
+                trsf = _matrix_to_trsf(m)
+            except ValueError as exc:
+                raise NotImplementedError("Matrix transforms must be 4x4 lists for BREP geometry") from exc
+            self._applyBrepTransform(trsf)
+            return
         self._setElem(transform(self.elem,m))
         self._setUpdate(True)
         
@@ -312,15 +403,15 @@ class Geometry:
                 self.__center = None
                 self.__bbox = None
             elif is_brep(self.__elem):
+                if not _GEOMETRY_HAVE_OCC:
+                    require_occ()
                 self.__length = 0.0 # Length is not well-defined for a solid
-                
-                # Bounding Box
+
                 brep_bbox = Bnd_Box()
                 brepbndlib.Add(self.__elem.shape, brep_bbox)
                 xmin, ymin, zmin, xmax, ymax, zmax = brep_bbox.Get()
                 self.__bbox = [point(xmin, ymin, zmin), point(xmax, ymax, zmax)]
 
-                # Center of Mass
                 props = GProp_GProps()
                 brepgprop.VolumeProperties(self.__elem.shape, props)
                 if props.Mass() > 0:
@@ -361,11 +452,43 @@ class Geometry:
     def elem(self,e):
         self._setElem(e)
 
+    def _clearSurfaceCache(self):
+        """Reset cached tessellation so it can be regenerated."""
+        self.__surface = None
+        self.__surface_ang = -1
+        self.__surface_len = -1
+
+    def _applyBrepTransform(self, trsf):
+        """Apply an OCC transformation to the wrapped BrepSolid."""
+        if not isinstance(self.__elem, BrepSolid):
+            raise ValueError("BREP transforms currently only supported for solids")
+        if not _GEOMETRY_HAVE_OCC:
+            require_occ()
+        builder = BRepBuilderAPI_Transform(self.__elem.shape, trsf, True)
+        new_shape = topods.Solid(builder.Shape())
+        self.__elem = BrepSolid(new_shape)
+        self._clearSurfaceCache()
+        self._setUpdate(True)
+
+    def _brepMirrorAxis(self, plane):
+        """Return a gp_Ax2 describing the mirror plane."""
+        mapping = {
+            'xy': ((0.0, 0.0, 1.0), (1.0, 0.0, 0.0)),
+            'xz': ((0.0, 1.0, 0.0), (1.0, 0.0, 0.0)),
+            'yz': ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0)),
+        }
+        if plane not in mapping:
+            raise ValueError(f'unsupported mirror plane "{plane}" for BREP geometry')
+        (nx, ny, nz), (rx, ry, rz) = mapping[plane]
+        return gp_Ax2(gp_Pnt(0.0, 0.0, 0.0), gp_Dir(nx, ny, nz), gp_Dir(rx, ry, rz))
+
     @property
     def geom(self):
         """return yapcad.geom representation of figure"""
         if self.update:
             self._updateInternals()
+        if is_brep(self.__elem):
+            return self.__elem
         return deepcopy(self.__elem)
 
     def sample(self,u):
@@ -465,6 +588,8 @@ class Geometry:
         self.__surface_len = minlen
         
         if is_brep(self.__elem) and isinstance(self.__elem, BrepSolid):
+            if not _GEOMETRY_HAVE_OCC:
+                require_occ()
             self.__surface = self.__elem.tessellate()
             return self.__surface
 

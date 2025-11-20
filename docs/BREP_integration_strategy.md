@@ -70,11 +70,18 @@ To ensure backward compatibility, the new BREP classes will provide a mechanism 
 
 ## 8. STEP Import
 
-A new module, `src/yapcad/io/step_importer.py`, will be created to handle STEP import.
+The initial STEP importer now lives in `src/yapcad/io/step_importer.py`.
 
-*   This module will contain a new function, `import_step(file_path)`, which will use `pythonocc-core` to read a STEP file.
-*   The `import_step()` function will traverse the imported STEP model and create corresponding `yapCAD` `BrepSolid`, `BrepFace`, `BrepEdge`, and `BrepVertex` objects.
-*   The function will return a `yapCAD` `Geometry` object (or a list of `Geometry` objects) containing the imported BREP model.
+*   `import_step(path)` uses `pythonocc-core` to read a STEP file (run inside `conda activate yapcad-brep`) and returns a list of `Geometry(BrepSolid)` wrappers.
+*   The current implementation traverses solids inside the file and generates lazy-faceted geometries on demand. Mapping the full face/edge graph is still on the roadmap.
+*   Example usage:
+    ```python
+    from yapcad.io.step_importer import import_step
+
+    parts = import_step("rocket.step")
+    for geom in parts:
+        print(geom.bbox)
+    ```
 
 ## 9. Development Roadmap
 
@@ -90,7 +97,7 @@ The implementation of this strategy will be broken down into the following phase
 3.  **Phase 3: Backward Compatibility:**
     *   Implement the `to_geomlist()` method on the `Brep` classes.
 4.  **Phase 4: STEP Import:**
-    *   Implement the `import_step()` function in `src/yapcad/io/step_importer.py`.
+    *   Implement the `import_step()` function in `src/yapcad/io/step_importer.py`. *(Initial solids-only importer landed; edge/face metadata tracking still outstanding.)*
 5.  **Phase 5: Testing:**
     *   Create a comprehensive suite of tests for the new BREP functionality, including tests for STEP import, lazy faceting, and backward compatibility.
 
