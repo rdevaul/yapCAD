@@ -98,6 +98,8 @@ The implementation of this strategy will be broken down into the following phase
     *   Implement the `to_geomlist()` method on the `Brep` classes.
 4.  **Phase 4: STEP Import:**
     *   Implement the `import_step()` function in `src/yapcad/io/step_importer.py`. *(Initial solids-only importer landed; edge/face metadata tracking still outstanding.)*
+    *   Serialize OCC shapes directly inside geometry JSON/`.ycpkg` metadata so analytic models round-trip without tessellation loss. *(Implemented via base64-encoded `.brep` payloads in the `metadata.brep` block.)*
+    *   Provide an OCC-backed boolean engine (`--engine occ`) that consumes the stored BREP metadata and emits new analytic shapes. *(Implemented; falls back to tessellation engines when BREP data is missing.)*
 5.  **Phase 5: Testing:**
     *   Create a comprehensive suite of tests for the new BREP functionality, including tests for STEP import, lazy faceting, and backward compatibility.
 

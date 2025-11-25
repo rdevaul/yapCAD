@@ -93,7 +93,15 @@ import math
 from yapcad.geom import *
 from yapcad.geom_util import *
 from yapcad.geom3d import *
-from yapcad.brep import is_brep, BrepSolid, require_occ
+from yapcad.brep import (
+    is_brep,
+    BrepSolid,
+    require_occ,
+    has_brep_data,
+    scale_brep_solid,
+    attach_brep_to_solid,
+    brep_from_solid,
+)
 
 try:  # pragma: no cover - optional dependency
     from OCC.Core.Bnd import Bnd_Box
@@ -199,6 +207,12 @@ class Geometry:
                 self.__closed=isclosedgeomlist(a)
             elif is_brep(a):
                 self.__elem = a
+                self.__sampleable = False
+                self.__intersectable = True
+                self.__continuous = True
+                self.__closed = True
+            elif issolid(a, fast=False):
+                self.__elem = deepcopy(a)
                 self.__sampleable = False
                 self.__intersectable = True
                 self.__continuous = True
@@ -309,34 +323,89 @@ class Geometry:
 
     def translate(self,delta):
         """apply a translation to figure"""
+        if issolid(self.__elem, fast=False):
+            from yapcad.geom3d import translatesolid
+            self._setElem(translatesolid(self.__elem, delta))
+            self._setUpdate(True)
+            self._clearSurfaceCache()
+            return
         if is_brep(self.__elem):
             require_occ()
             dx, dy, dz = _as_xyz(delta)
             trsf = gp_Trsf()
             trsf.SetTranslation(gp_Vec(dx, dy, dz))
-            self._applyBrepTransform(trsf)
+            from yapcad.brep import transform_brep_shape
+            transformed = transform_brep_shape(self.__elem, trsf)
+            if transformed:
+                self.__elem = transformed
+                self._clearSurfaceCache()
+                self._setUpdate(True)
             return
         self._setElem(translate(self.__elem,delta))
         self._setUpdate(True)
 
     def scale(self,sx=1.0,sy=False,sz=False,cent=point(0,0,0)):
         """apply a scaling to a figure"""
+        if issolid(self.__elem, fast=False):
+            if sy not in (False, None) and not close(sy, sx):
+                raise NotImplementedError("Solid scaling currently supports uniform factors only")
+            if sz not in (False, None) and not close(sz, sx):
+                raise NotImplementedError("Solid scaling currently supports uniform factors only")
+            if has_brep_data(self.__elem):
+                scale_brep_solid(self.__elem, sx, cent)
+                self.__elem = _retessellate_brep_solid(self.__elem) or self.__elem
+                self._clearSurfaceCache()
+                self._setUpdate(True)
+                return
+            # fallback: scale vertices of each surface (uniform only)
+            def _scale_point(p):
+                return point(
+                    cent[0] + sx * (p[0] - cent[0]),
+                    cent[1] + sx * (p[1] - cent[1]),
+                    cent[2] + sx * (p[2] - cent[2]),
+                )
+            new_surfaces = []
+            for surf in self.__elem[1]:
+                new_pts = [_scale_point(v) for v in surf[1]]
+                new_surf = [new_pts, list(deepcopy(surf[2])), list(deepcopy(surf[3]))]
+                # boundaries/holes/metadata if present
+                if len(surf) > 4:
+                    new_surf.append(deepcopy(surf[4]))
+                if len(surf) > 5:
+                    new_surf.append(deepcopy(surf[5]))
+                if len(surf) > 6:
+                    new_surf.append(deepcopy(surf[6]))
+                new_surfaces.append(new_surf)
+            meta = self.__elem[3] if len(self.__elem) > 3 else []
+            self._setElem(['solid', new_surfaces, [] , meta])
+            self._setUpdate(True)
+            return
         if is_brep(self.__elem):
             require_occ()
             if sy not in (False, None) and not close(sy, sx):
                 raise NotImplementedError("BREP scaling currently supports uniform factors only")
             if sz not in (False, None) and not close(sz, sx):
                 raise NotImplementedError("BREP scaling currently supports uniform factors only")
-            cx, cy, cz = _as_xyz(cent)
             trsf = gp_Trsf()
-            trsf.SetScale(gp_Pnt(cx, cy, cz), sx)
-            self._applyBrepTransform(trsf)
+            trsf.SetScale(gp_Pnt(float(cent[0]), float(cent[1]), float(cent[2])), float(sx))
+            from yapcad.brep import transform_brep_shape
+            transformed = transform_brep_shape(self.__elem, trsf)
+            if transformed:
+                self.__elem = transformed
+                self._clearSurfaceCache()
+                self._setUpdate(True)
             return
         self._setElem(scale(self.__elem,sx,sy,sz,cent))
         self._setUpdate(True)
 
     def rotate(self,ang,cent=point(0,0,0),axis=point(0,0,1.0)):
         """apply a rotation to a figure"""
+        if issolid(self.__elem, fast=False):
+            from yapcad.geom3d import rotatesolid
+            self._setElem(rotatesolid(self.__elem, ang, cent=cent, axis=axis))
+            self._setUpdate(True)
+            self._clearSurfaceCache()
+            return
         if is_brep(self.__elem):
             require_occ()
             axx, axy, axz = _as_xyz(axis)
@@ -346,7 +415,12 @@ class Geometry:
             cx, cy, cz = _as_xyz(cent)
             trsf = gp_Trsf()
             trsf.SetRotation(gp_Ax1(gp_Pnt(cx, cy, cz), gp_Dir(axx, axy, axz)), math.radians(ang))
-            self._applyBrepTransform(trsf)
+            from yapcad.brep import transform_brep_shape
+            transformed = transform_brep_shape(self.__elem, trsf)
+            if transformed:
+                self.__elem = transformed
+                self._clearSurfaceCache()
+                self._setUpdate(True)
             return
         self._setElem(rotate(self.__elem,ang,cent,axis))
         self._setUpdate(True)
@@ -365,11 +439,31 @@ class Geometry:
         a face into a hole, or vice-versa.
 
         """
+        if issolid(self.__elem, fast=False):
+            try:
+                from yapcad.brep import mirror_brep_solid
+                mirror_brep_solid(self.__elem, plane)
+                self.__elem = _retessellate_brep_solid(self.__elem) or self.__elem
+                self._clearSurfaceCache()
+                self._setUpdate(True)
+                return
+            except Exception:
+                pass
+            from yapcad.geom3d import mirror as mirror_solid
+            self._setElem(mirror_solid(self.__elem, plane))
+            self._setUpdate(True)
+            self._clearSurfaceCache()
+            return
         if is_brep(self.__elem):
             require_occ()
             trsf = gp_Trsf()
             trsf.SetMirror(self._brepMirrorAxis(plane))
-            self._applyBrepTransform(trsf)
+            from yapcad.brep import transform_brep_shape
+            transformed = transform_brep_shape(self.__elem, trsf)
+            if transformed:
+                self.__elem = transformed
+                self._clearSurfaceCache()
+                self._setUpdate(True)
             return
         nelm = mirror(self.__elem,plane)
         if keepSign:
@@ -387,7 +481,6 @@ class Geometry:
                 trsf = _matrix_to_trsf(m)
             except ValueError as exc:
                 raise NotImplementedError("Matrix transforms must be 4x4 lists for BREP geometry") from exc
-            self._applyBrepTransform(trsf)
             return
         self._setElem(transform(self.elem,m))
         self._setUpdate(True)
@@ -419,7 +512,34 @@ class Geometry:
                     self.__center = point(com.X(), com.Y(), com.Z())
                 else:
                     self.__center = point(0,0,0) # Fallback for zero-mass shapes
+            elif issolid(self.__elem, fast=False):
+                # No length for solids; use bbox/center from surfaces
+                self.__length = 0.0
+                try:
+                    if has_brep_data(self.__elem) and _GEOMETRY_HAVE_OCC:
+                        brep = brep_from_solid(self.__elem)
+                        if brep:
+                            brep_bbox = Bnd_Box()
+                            brepbndlib.Add(brep.shape, brep_bbox)
+                            xmin, ymin, zmin, xmax, ymax, zmax = brep_bbox.Get()
+                            self.__bbox = [point(xmin, ymin, zmin), point(xmax, ymax, zmax)]
+                    if not self.__bbox:
+                        self.__bbox = solidbbox(self.__elem)
+                    self.__center = center(self.__elem[1][0]) if self.__elem[1] else point(0,0,0)
+                except Exception:
+                    self.__bbox = None
+                    self.__center = None
             else:
+                # Fallback: if this looks like a solid, handle it without length()
+                if isinstance(self.__elem, list) and len(self.__elem) >= 2 and self.__elem[0] == 'solid':
+                    self.__length = 0.0
+                    try:
+                        self.__bbox = solidbbox(self.__elem)
+                        self.__center = center(self.__elem[1][0]) if self.__elem[1] else point(0,0,0)
+                    except Exception:
+                        self.__bbox = None
+                        self.__center = None
+                    return
                 self.__length = length(self.__elem)
                 self.__center = center(self.__elem)
                 self.__bbox = bbox(self.__elem)
@@ -624,6 +744,20 @@ def Arc(c,rp=False,sn=False,e=False,n=False,samplereverse=False):
 
 def Figure(*args):
     return Geometry(list(*args))
+
+# helper to rebuild a tessellated solid from its BREP metadata
+def _retessellate_brep_solid(sld: list):
+    if not has_brep_data(sld):
+        return None
+    brep = brep_from_solid(sld)
+    if brep is None:
+        return None
+    surf = brep.tessellate()
+    voids = sld[2] if len(sld) > 2 else []
+    meta = sld[3] if len(sld) > 3 else []
+    new_solid = ['solid', [surf], voids, meta]
+    attach_brep_to_solid(new_solid, brep)
+    return new_solid
 
 
                     

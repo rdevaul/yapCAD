@@ -5,6 +5,7 @@ from yapcad.geom import *
 from yapcad.geom_util import *
 from yapcad.xform import *
 from yapcad.geom3d import *
+from yapcad.brep import attach_brep_to_solid, occ_available, BrepSolid
 
 import math
 
@@ -194,8 +195,20 @@ def sphereSurface(diameter,center=point(0,0,0),depth=2):
 # make sphere, return solid representation
 def sphere(diameter,center=point(0,0,0),depth=2):
     call = f"yapcad.geom3d_util.sphere({diameter},center={center},depth={depth})"
-    return solid( [ sphereSurface(diameter,center,depth)],
-                  [],['procedure',call] )
+    sld = solid([sphereSurface(diameter, center, depth)],
+                [], ['procedure', call])
+    if occ_available():
+        try:
+            from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeSphere
+            from OCC.Core.gp import gp_Pnt
+
+            c = center
+            center_point = gp_Pnt(float(c[0]), float(c[1]), float(c[2]))
+            shape = BRepPrimAPI_MakeSphere(center_point, float(diameter) / 2.0).Shape()
+            attach_brep_to_solid(sld, BrepSolid(shape))
+        except Exception:  # pragma: no cover - OCC optional
+            pass
+    return sld
                     
 
 def rectangularPlane(length,width,center=point(0,0,0)):
@@ -213,7 +226,8 @@ def rectangularPlane(length,width,center=point(0,0,0)):
     surf = surface( [p0,p1,p2,p3],[n,n,n,n],
                     [[0,1,2],
                      [2,3,0]])
-
+    surf[4] = [0, 1, 2, 3]
+    surf[5] = []
     return surf
 
 # make a rectangular prism from six surfaces, return a solid
@@ -242,6 +256,16 @@ def prism(length,width,height,center=point(0,0,0)):
     sol = solid(surfaces,
                 [],
                 ['procedure',call])
+    if occ_available():
+        try:
+            from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeBox
+            from OCC.Core.gp import gp_Pnt
+            cx, cy, cz = center[0], center[1], center[2]
+            corner = gp_Pnt(cx - l2, cy - w2, cz - h2)
+            shape = BRepPrimAPI_MakeBox(corner, float(length), float(width), float(height)).Shape()
+            attach_brep_to_solid(sol, BrepSolid(shape))
+        except Exception:
+            pass
     return sol
 
 def circleSurface(center,radius,angr=10,zup=True):
@@ -285,7 +309,10 @@ def circleSurface(center,radius,angr=10,zup=True):
     n = vect(0,0,z,0)
     basen= [ n ] * len(basep)
 
-    return surface(basep,basen,basef)
+    surf = surface(basep,basen,basef)
+    surf[4] = list(range(1, len(basep)))
+    surf[5] = []
+    return surf
 
 def conic(baser,topr,height, center=point(0,0,0),angr=10):
 
@@ -355,8 +382,8 @@ def conic(baser,topr,height, center=point(0,0,0),angr=10):
 
         cylS = surface(cylV,cylN,cylF)
 
-        return solid([baseS,cylS,topS],[],
-                     ['procedure',call])
+        result = solid([baseS,cylS,topS],[],
+                       ['procedure',call])
     else:
         topP = add(center,point(0,0,height))
         # Only use perimeter vertices (baseV[1:]), skip the center point
@@ -388,10 +415,97 @@ def conic(baser,topr,height, center=point(0,0,0),angr=10):
 
         conS = surface(conV,conN,conF)
 
-        return solid([baseS,conS],[],
-                     ['procedure',call])
+        result = solid([baseS,conS],[],
+                       ['procedure',call])
 
-def makeRevolutionSurface(contour,zStart,zEnd,steps,arcSamples=36):
+    if occ_available():
+        try:
+            brep_shape = _make_conic_brep(baser, topr, height, center)
+            if brep_shape is not None:
+                attach_brep_to_solid(result, BrepSolid(brep_shape))
+        except Exception:
+            pass
+
+    return result
+
+def _make_revolution_brep(contour, zStart, zEnd, steps):
+    """Build a BREP solid of revolution for a simple r(z) contour."""
+    if not occ_available():
+        return None
+    try:
+        from OCC.Core.gp import gp_Pnt, gp_Ax1, gp_Dir  # type: ignore
+        from OCC.Core.BRepBuilderAPI import (  # type: ignore
+            BRepBuilderAPI_MakeWire,
+            BRepBuilderAPI_MakeEdge,
+            BRepBuilderAPI_MakeFace,
+            BRepBuilderAPI_MakeSolid,
+        )
+        from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeRevol  # type: ignore
+        from OCC.Core.TopExp import TopExp_Explorer  # type: ignore
+        from OCC.Core.TopAbs import TopAbs_SOLID  # type: ignore
+        from OCC.Core import TopoDS  # type: ignore
+        from OCC.Core.TopoDS import topods  # type: ignore
+    except Exception:
+        return None
+
+    def _safe_radius(z):
+        try:
+            r = float(contour(z))
+        except Exception:
+            return None
+        return max(abs(r), epsilon)
+
+    zs = [zStart + (zEnd - zStart) * i / float(max(1, steps)) for i in range(steps + 1)]
+    samples = []
+    for z in zs:
+        r = _safe_radius(z)
+        if r is None:
+            return None
+        samples.append((r, z))
+
+    # Build a closed polyline: profile along r(z), then axis back to start.
+    pts = [gp_Pnt(r, 0.0, z) for (r, z) in samples]
+    axis_top = gp_Pnt(0.0, 0.0, samples[-1][1])
+    axis_bottom = gp_Pnt(0.0, 0.0, samples[0][1])
+
+    wire_maker = BRepBuilderAPI_MakeWire()
+    for a, b in zip(pts[:-1], pts[1:]):
+        wire_maker.Add(BRepBuilderAPI_MakeEdge(a, b).Edge())
+    wire_maker.Add(BRepBuilderAPI_MakeEdge(pts[-1], axis_top).Edge())
+    wire_maker.Add(BRepBuilderAPI_MakeEdge(axis_top, axis_bottom).Edge())
+    wire_maker.Add(BRepBuilderAPI_MakeEdge(axis_bottom, pts[0]).Edge())
+    wire = wire_maker.Wire()
+
+    face_builder = BRepBuilderAPI_MakeFace(wire)
+    if not face_builder.IsDone():
+        return None
+    face = face_builder.Face()
+
+    axis = gp_Ax1(gp_Pnt(0.0, 0.0, 0.0), gp_Dir(0.0, 0.0, 1.0))
+    revol = BRepPrimAPI_MakeRevol(face, axis, pi2)
+    shape = revol.Shape()
+
+    # Prefer an explicit solid if present
+    exp = TopExp_Explorer(shape, TopAbs_SOLID)
+    if exp.More():
+        return topods.Solid(exp.Current())
+
+    # If we got a shell, try to promote it to a solid
+    try:
+        shell = TopoDS.topods_Shell(shape)
+        solid_builder = BRepBuilderAPI_MakeSolid(shell)
+        if solid_builder.IsDone():
+            return solid_builder.Solid()
+    except Exception:
+        pass
+
+    try:
+        return topods.Solid(shape)
+    except Exception:
+        return None
+
+
+def makeRevolutionSurface(contour,zStart,zEnd,steps,arcSamples=36,*,return_brep=False):
     """
     Generate a surface of revolution by sampling a contour function.
 
@@ -524,11 +638,27 @@ def makeRevolutionSurface(contour,zStart,zEnd,steps,arcSamples=36):
             sF.append([k1,k2,k3])
             sF.append([k1,k3,k4])
         
-    return surface(sV,sN,sF)
+    surf = surface(sV,sN,sF)
+
+    if not return_brep:
+        return surf
+
+    brep_shape = None
+    try:
+        brep_shape = _make_revolution_brep(contour, zStart, zEnd, steps)
+    except Exception:
+        brep_shape = None
+    return surf, brep_shape
 
 def makeRevolutionThetaSamplingSurface(contour, zStart, zEnd, arcSamples=360,
-                                       endcaps=False, degrees=True):
-    """Generate a surface of revolution using a theta-dependent contour."""
+                                       endcaps=False, degrees=True, *,
+                                       return_brep=False):
+    """Generate a surface of revolution using a theta-dependent contour.
+
+    If ``return_brep`` is True and the contour is axisymmetric (identical for
+    all theta and ``wrap_shift == 0``), a native BREP solid is also returned;
+    otherwise the second return value is ``None``.
+    """
 
     sV = []
     sN = []
@@ -578,6 +708,7 @@ def makeRevolutionThetaSamplingSurface(contour, zStart, zEnd, arcSamples=360,
             end_pole_idx, sV, sN = addVertex(pole_point, pole_normal, sV, sN)
 
     profiles = [profile_zero]
+    axisymmetric = True
 
     for i in range(1, arcSamples):
         theta_val = degStep * i if degrees else radStep * i
@@ -587,6 +718,13 @@ def makeRevolutionThetaSamplingSurface(contour, zStart, zEnd, arcSamples=360,
             raise ValueError('contour returned inconsistent sample counts for theta sweep')
         if wrap_val and wrap_shift == 0:
             wrap_shift = int(max(0, min(wrap_val, steps - 1)))
+        if axisymmetric and wrap_val != wrap_shift:
+            axisymmetric = False
+        if axisymmetric:
+            for a, b in zip(prof, profile_zero):
+                if abs(a[0] - b[0]) > 1e-9 or abs(a[1] - b[1]) > 1e-6:
+                    axisymmetric = False
+                    break
         profiles.append(prof)
 
     for ang_idx in range(arcSamples):
@@ -666,7 +804,56 @@ def makeRevolutionThetaSamplingSurface(contour, zStart, zEnd, arcSamples=360,
                 i_next, sV, sN = addVertex(v_next, n_cap, sV, sN)
                 sF.append([end_pole_idx, i_curr, i_next])
 
-    return surface(sV, sN, sF)
+    surf = surface(sV, sN, sF)
+
+    if not return_brep:
+        return surf
+
+    brep_shape = None
+    if wrap_shift == 0 and axisymmetric:
+        def _contour_r(z_val):
+            # linear interpolate over profile_zero
+            if z_val <= profile_zero[0][0]:
+                return profile_zero[0][1]
+            if z_val >= profile_zero[-1][0]:
+                return profile_zero[-1][1]
+            for idx in range(len(profile_zero) - 1):
+                z0, r0 = profile_zero[idx]
+                z1, r1 = profile_zero[idx + 1]
+                if z0 <= z_val <= z1 or z1 <= z_val <= z0:
+                    t = (z_val - z0) / (z1 - z0) if abs(z1 - z0) > 1e-12 else 0.0
+                    return r0 + t * (r1 - r0)
+            return profile_zero[-1][1]
+
+        try:
+            brep_shape = _make_revolution_brep(_contour_r, zStart, zEnd, steps)
+        except Exception:
+            brep_shape = None
+
+    return surf, brep_shape
+
+
+def makeRevolutionSolid(contour, zStart, zEnd, steps, arcSamples=36, metadata=None):
+    """
+    Build a solid of revolution around the Z axis. When pythonocc-core is
+    available, a native BREP is attached; otherwise we fall back to the
+    tessellated representation.
+    """
+    surf, brep_shape = makeRevolutionSurface(
+        contour, zStart, zEnd, steps, arcSamples=arcSamples, return_brep=True
+    )
+    call = f"yapcad.geom3d_util.makeRevolutionSolid(contour,{zStart},{zEnd},{steps},{arcSamples})"
+    construction = ['procedure', call]
+    if metadata is not None and isinstance(metadata, dict):
+        sld = solid([surf], [], construction, metadata)
+    else:
+        sld = solid([surf], [], construction)
+    if brep_shape is not None:
+        try:
+            attach_brep_to_solid(sld, BrepSolid(brep_shape))
+        except Exception:
+            pass
+    return sld
 
 
 def _normalize_theta_profile(samples):
@@ -844,12 +1031,90 @@ def extrude(surf,distance,direction=vect(0,0,1,0)):
             stripF.append([j1, j3, j4])
 
     #import pdb ; pdb.set_trace()
-    strip = surface(stripV,stripN,stripF)
+    if stripF:
+        strip = surface(stripV, stripN, stripF)
+    else:
+        strip = ['surface', [], [], [], [], []]
 
-    return solid([s2,strip,s1],
-                 [],
-                 ['procedure',call])
+    result = solid([s2,strip,s1],
+                   [],
+                   ['procedure',call])
+    if occ_available():
+        try:
+            brep_shape = _extrude_brep_shape(s2[1], loops, distance, direction)
+            if brep_shape is not None:
+                attach_brep_to_solid(result, BrepSolid(brep_shape))
+        except Exception:
+            pass
+    return result
 
+
+def _extrude_brep_shape(vertices, loops, distance, direction):
+    if not loops:
+        return None
+    try:
+        from OCC.Core.BRepBuilderAPI import (
+            BRepBuilderAPI_MakeWire,
+            BRepBuilderAPI_MakeEdge,
+            BRepBuilderAPI_MakeFace,
+        )
+        from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakePrism
+        from OCC.Core.gp import gp_Pnt, gp_Vec
+    except ImportError:
+        return None
+
+    def _loop_points(loop):
+        return [
+            (float(vertices[idx][0]), float(vertices[idx][1]), float(vertices[idx][2]))
+            for idx in loop
+        ]
+
+    def _wire_for_points(points):
+        if len(points) < 2:
+            return None
+        writer = BRepBuilderAPI_MakeWire()
+        for i in range(len(points)):
+            p0 = gp_Pnt(*points[i])
+            p1 = gp_Pnt(*points[(i + 1) % len(points)])
+            if p0.Distance(p1) <= epsilon:
+                continue
+            edge = BRepBuilderAPI_MakeEdge(p0, p1).Edge()
+            writer.Add(edge)
+        return writer.Wire()
+
+    outer = _wire_for_points(_loop_points(loops[0]))
+    if outer is None:
+        return None
+    face_builder = BRepBuilderAPI_MakeFace(outer, False)
+    for hole in loops[1:]:
+        wire = _wire_for_points(_loop_points(hole))
+        if wire is not None:
+            face_builder.Add(wire)
+    face = face_builder.Face()
+    dir_vec = scale4(direction, distance)
+    prism_vec = gp_Vec(float(dir_vec[0]), float(dir_vec[1]), float(dir_vec[2]))
+    prism = BRepPrimAPI_MakePrism(face, prism_vec, True).Shape()
+    try:
+        from OCC.Core.TopoDS import topods
+        prism = topods.Solid(prism)
+    except Exception:
+        pass
+    return prism
+
+
+def _make_conic_brep(baser, topr, height, center):
+    try:
+        from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeCone, BRepPrimAPI_MakeCylinder
+        from OCC.Core.gp import gp_Ax2, gp_Pnt, gp_Dir
+    except ImportError:
+        return None
+    axis = gp_Ax2(gp_Pnt(float(center[0]), float(center[1]), float(center[2])),
+                  gp_Dir(0.0, 0.0, 1.0))
+    if abs(baser - topr) < epsilon:
+        if baser < epsilon:
+            return None
+        return BRepPrimAPI_MakeCylinder(axis, float(baser), float(height)).Shape()
+    return BRepPrimAPI_MakeCone(axis, float(baser), float(topr), float(height)).Shape()
 
 
 def _loft_surface(lower_loop, upper_loop, invert=False):
@@ -866,9 +1131,16 @@ def _loft_surface(lower_loop, upper_loop, invert=False):
 
     if not lower_loop or not upper_loop:
         raise ValueError('invalid loops passed to loft surface')
-    lower = [point(p) for p in lower_loop]
-    upper = [point(p) for p in upper_loop]
-    if len(lower) != len(upper):
+    def _dedupe(loop):
+        cleaned = []
+        for pt in loop:
+            if not cleaned or mag(sub(pt, cleaned[-1])) > epsilon:
+                cleaned.append(point(pt))
+        return cleaned
+
+    lower = _dedupe(lower_loop)
+    upper = _dedupe(upper_loop)
+    if len(lower) != len(upper) or len(lower) < 3:
         raise ValueError('loop length mismatch in loft surface')
 
     vertices = lower + upper
@@ -901,7 +1173,76 @@ def _loft_surface(lower_loop, upper_loop, invert=False):
         faces.append(tri1)
         faces.append(tri2)
 
+    if not faces:
+        raise ValueError('loft surface produced no faces; check input loops')
+
     return surface(vertices, normals, faces)
+
+
+def _loft_brep(lower_loop, upper_loop):
+    if not occ_available():
+        return None
+    try:
+        from OCC.Core.gp import gp_Pnt  # type: ignore
+        from OCC.Core.BRepBuilderAPI import (  # type: ignore
+            BRepBuilderAPI_MakeWire,
+            BRepBuilderAPI_MakeEdge,
+            BRepBuilderAPI_MakeFace,
+        )
+        from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_ThruSections  # type: ignore
+        from OCC.Core.TopoDS import topods  # type: ignore
+    except Exception:
+        return None
+
+    def _wire_from_loop(loop):
+        builder = BRepBuilderAPI_MakeWire()
+        for i in range(len(loop)):
+            p0 = loop[i]
+            p1 = loop[(i + 1) % len(loop)]
+            e = BRepBuilderAPI_MakeEdge(
+                gp_Pnt(float(p0[0]), float(p0[1]), float(p0[2])),
+                gp_Pnt(float(p1[0]), float(p1[1]), float(p1[2])),
+            ).Edge()
+            builder.Add(e)
+        return builder.Wire()
+
+    w1 = _wire_from_loop(lower_loop)
+    w2 = _wire_from_loop(upper_loop)
+    loft = BRepOffsetAPI_ThruSections(True, False, 1.0e-6)
+    loft.AddWire(w1)
+    loft.AddWire(w2)
+    loft.Build()
+    if not loft.IsDone():
+        return None
+    shape = loft.Shape()
+    try:
+        return topods.Solid(shape)
+    except Exception:
+        return shape
+
+
+def makeLoftSolid(lower_loop, upper_loop, *, metadata=None):
+    """
+    Create a solid loft between two planar loops (matching vertex counts).
+    Attempts to attach a native BREP when pythonocc-core is available,
+    otherwise falls back to the tessellated representation.
+    """
+    surf = _loft_surface(lower_loop, upper_loop)
+    call = f"yapcad.geom3d_util.makeLoftSolid(lower_loop, upper_loop)"
+    construction = ['procedure', call]
+    if metadata is not None and isinstance(metadata, dict):
+        sld = solid([surf], [], construction, metadata)
+    else:
+        sld = solid([surf], [], construction)
+
+    try:
+        brep_shape = _loft_brep(lower_loop, upper_loop)
+        if brep_shape is not None:
+            attach_brep_to_solid(sld, BrepSolid(brep_shape))
+    except Exception:
+        pass
+
+    return sld
 
 
         
@@ -965,9 +1306,24 @@ def tube(outer_diameter, wall_thickness, length,
     surfaces = [base_surface, outer_side, top_surface, inner_side]
     if not include_caps:
         surfaces = [outer_side, inner_side]
-    return solid(surfaces,
-                 [],
-                 ['procedure', call])
+    result = solid(surfaces,
+                   [],
+                   ['procedure', call])
+    if occ_available():
+        try:
+            from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeCylinder
+            from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut
+            from OCC.Core.gp import gp_Pnt, gp_Dir, gp_Ax2
+
+            axis = gp_Ax2(gp_Pnt(float(base_point[0]), float(base_point[1]), float(base_point[2])),
+                          gp_Dir(0.0, 0.0, 1.0))
+            cyl_outer = BRepPrimAPI_MakeCylinder(axis, float(outer_radius), float(length)).Shape()
+            cyl_inner = BRepPrimAPI_MakeCylinder(axis, float(inner_radius), float(length)).Shape()
+            brep_shape = BRepAlgoAPI_Cut(cyl_outer, cyl_inner).Shape()
+            attach_brep_to_solid(result, BrepSolid(brep_shape))
+        except Exception:
+            pass
+    return result
 
 
 def conic_tube(bottom_outer_diameter, top_outer_diameter, wall_thickness,
@@ -1022,9 +1378,23 @@ def conic_tube(bottom_outer_diameter, top_outer_diameter, wall_thickness,
     surfaces = [base_surface, outer_side, top_surface, inner_side]
     if not include_caps:
         surfaces = [outer_side, inner_side]
-    return solid(surfaces,
-                 [],
-                 ['procedure', call])
+    result = solid(surfaces,
+                   [],
+                   ['procedure', call])
+    if occ_available():
+        try:
+            from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeCone
+            from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut
+            from OCC.Core.gp import gp_Ax2, gp_Pnt, gp_Dir
+            axis = gp_Ax2(gp_Pnt(float(base_point[0]), float(base_point[1]), float(base_point[2])),
+                          gp_Dir(0.0, 0.0, 1.0))
+            outer = BRepPrimAPI_MakeCone(axis, float(r0_outer), float(r1_outer), float(length)).Shape()
+            inner = BRepPrimAPI_MakeCone(axis, float(r0_inner), float(r1_inner), float(length)).Shape()
+            brep_shape = BRepAlgoAPI_Cut(outer, inner).Shape()
+            attach_brep_to_solid(result, BrepSolid(brep_shape))
+        except Exception:
+            pass
+    return result
 
 
 def spherical_shell(outer_diameter, wall_thickness,
@@ -1092,9 +1462,25 @@ def spherical_shell(outer_diameter, wall_thickness,
 
     call = ("yapcad.geom3d_util.spherical_shell("
             f"{outer_diameter}, {wall_thickness}, {solid_angle}, center={center})")
-    return solid(surfaces,
-                 [],
-                 ['procedure', call])
+    result = solid(surfaces,
+                   [],
+                   ['procedure', call])
+
+    if occ_available():
+        try:
+            from OCC.Core.gp import gp_Ax2, gp_Pnt, gp_Dir  # type: ignore
+            from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeSphere  # type: ignore
+            from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut  # type: ignore
+            axis = gp_Ax2(gp_Pnt(float(center[0]), float(center[1]), float(center[2])),
+                          gp_Dir(0.0, 0.0, 1.0))
+            outer_shape = BRepPrimAPI_MakeSphere(axis, float(outer_radius), float(theta)).Shape()
+            inner_shape = BRepPrimAPI_MakeSphere(axis, float(inner_radius), float(theta)).Shape()
+            brep_shape = BRepAlgoAPI_Cut(outer_shape, inner_shape).Shape()
+            attach_brep_to_solid(result, BrepSolid(brep_shape))
+        except Exception:
+            pass
+
+    return result
 
 
 def stack_solids(solids, *, axis='z', start=0.0, gap=0.0, align='center'):

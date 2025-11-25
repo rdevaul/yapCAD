@@ -9,6 +9,7 @@ from pathlib import Path
 from yapcad.geom import point
 from yapcad.geom3d import solid_boolean, translatesolid
 from yapcad.geom3d_util import prism, sphere, conic, tube
+from yapcad.brep import has_brep_data
 from yapcad.io.stl import write_stl
 from yapcad.io.step import write_step
 
@@ -88,8 +89,15 @@ def main():
     args = parser.parse_args()
 
     solids = _build_solids(args.shapes)
+    engine = args.engine
+    if engine == 'occ':
+        if not (has_brep_data(solids[0]) and has_brep_data(solids[1])):
+            print("OCC engine requested but one or both solids lack BREP metadata. "
+                  "Falling back to native boolean.")
+            engine = None
+
     result = solid_boolean(solids[0], solids[1], args.operation,
-                           stitch=args.stitch, engine=args.engine)
+                           stitch=args.stitch, engine=engine)
 
     if args.mode == 'gl':
         _render_opengl(solids, result)

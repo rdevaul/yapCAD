@@ -530,6 +530,9 @@ def solid_boolean(a, b, operation, tol=_DEFAULT_RAY_TOL, *, stitch=False, engine
         from yapcad.boolean import trimesh_engine
         backend = backend or os.environ.get('YAPCAD_TRIMESH_BACKEND')
         return trimesh_engine.solid_boolean(a, b, operation, tol=tol, stitch=stitch, backend=backend)
+    if selected == 'occ':
+        from yapcad.boolean import occ_engine
+        return occ_engine.solid_boolean(a, b, operation)
     raise ValueError(f'unknown boolean engine {selected_raw!r}')
 
 def issurface(s,fast=True):
@@ -731,6 +734,11 @@ def translatesolid(x,delta):
     for s in x[1]:
         surfs.append(translatesurface(s,delta))
     s2[1] = surfs    
+    try:
+        from yapcad.brep import translate_brep_solid
+        translate_brep_solid(s2, delta)
+    except ImportError:
+        pass
     return s2
 
 def rotatesolid(x,ang,cent=point(0,0,0),axis=point(0,0,1.0),mat=False):
@@ -741,6 +749,11 @@ def rotatesolid(x,ang,cent=point(0,0,0),axis=point(0,0,1.0),mat=False):
     for s in x[1]:
         surfs.append(rotatesurface(s,ang,cent=cent,axis=axis,mat=mat))
     s2[1] = surfs
+    try:
+        from yapcad.brep import rotate_brep_solid
+        rotate_brep_solid(s2, ang, cent, axis)
+    except ImportError:
+        pass
     return s2
 
 def mirrorsolid(x,plane,preserveNormal=True):
@@ -754,6 +767,11 @@ def mirrorsolid(x,plane,preserveNormal=True):
             surf = reversesurface(surf)
         surfs.append(surf)
     s2[1] = surfs
+    try:
+        from yapcad.brep import mirror_brep_solid
+        mirror_brep_solid(s2, plane)
+    except ImportError:
+        pass
     return s2
 
 def _point_to_key(p):

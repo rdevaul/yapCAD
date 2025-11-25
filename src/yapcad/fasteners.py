@@ -23,6 +23,7 @@ from yapcad.geom3d_util import (
     makeRevolutionThetaSamplingSurface,
 )
 from yapcad.metadata import add_tags, get_solid_metadata, set_layer
+from yapcad.brep import has_brep_data, occ_available
 from yapcad.threadgen import ThreadProfile, metric_profile, sample_thread_profile, unified_profile
 
 __all__ = [
@@ -89,8 +90,16 @@ def build_hex_cap_screw(profile: ThreadProfile, spec: HexCapScrewSpec):
 
     components.append(_build_hex_head(spec))
     try:
-        body = _union_solids(components)
-    except Exception:
+        brep_parts = [part for part in components if has_brep_data(part)]
+        non_brep_parts = [part for part in components if not has_brep_data(part)]
+        if brep_parts:
+            body = _union_solids(brep_parts)
+        else:
+            body = non_brep_parts.pop(0)
+        for part in non_brep_parts:
+            body = solid_boolean(body, part, "union")
+    except Exception as e:
+        print(f"got exception {e} performing unions, stacking instead")
         body = _stack_solids(components)
     _scrub_surface_octrees(body)
     meta = get_solid_metadata(body, create=True)
@@ -419,14 +428,23 @@ def _validate_spec(spec: HexCapScrewSpec):
 
 
 def _union_solids(solids: Iterable[list]):
-    iterator = iter(solids)
-    try:
-        result = next(iterator)
-    except StopIteration:
+    solids = list(solids)
+    if not solids:
         raise ValueError("no solids supplied")
-    for part in iterator:
-        result = solid_boolean(result, part, "union")
-    return result
+
+    def _run(engine=None):
+        result = solids[0]
+        for part in solids[1:]:
+            result = solid_boolean(result, part, "union", engine=engine)
+        return result
+
+    use_occ = occ_available() and all(has_brep_data(s) for s in solids)
+    if use_occ:
+        try:
+            return _run(engine="occ")
+        except Exception:
+            pass
+    return _run(engine=None)
 
 
 def _stack_solids(solids: Iterable[list]):

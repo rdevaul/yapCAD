@@ -26,6 +26,7 @@ from yapcad.geom import (
     sample,
 )
 from yapcad.geom3d import issolid, issurface, solidbbox, surfacebbox
+from yapcad.brep import brep_from_solid
 from yapcad.metadata import (
     get_solid_metadata,
     get_surface_metadata,
@@ -442,6 +443,7 @@ def geometry_from_json(doc: Dict[str, Any]) -> List[list]:
         metadata = entry.get("metadata")
         if metadata:
             set_solid_metadata(solid, metadata)
+        brep_from_solid(solid)
         solids.append(solid)
 
     if solids:

@@ -17,11 +17,7 @@ import argparse
 from pathlib import Path
 from typing import Iterable, List, Tuple
 
-try:
-    from yapcad.brep import occ_available
-except ImportError:  # pragma: no cover - older installs
-    def occ_available() -> bool:
-        return False
+from yapcad.brep import BrepSolid, attach_brep_to_solid, has_brep_data, occ_available
 from yapcad.geom import point
 from yapcad.geom3d import solid, solid_boolean, solidbbox
 from yapcad.geom3d_util import sphere
@@ -73,7 +69,11 @@ def _scale_and_center_geoms(geoms, target_size: float) -> Tuple[float, point]:
 
 def _geometry_to_solid(geo):
     surface = geo.surface()
-    return solid([surface])
+    sld = solid([surface])
+    elem = geo.geom
+    if isinstance(elem, BrepSolid):
+        attach_brep_to_solid(sld, elem)
+    return sld
 
 
 def _merge_solids(solids: Iterable) -> object:
@@ -123,9 +123,6 @@ def main():
                         help='Radius of the optional boolean sphere.')
     args = parser.parse_args()
 
-    if not occ_available():  # pragma: no cover - requires OCC runtime
-        raise SystemExit("pythonocc-core unavailable. Activate the yapcad-brep conda environment.")
-
     geoms = import_step(args.step_file)
     if not geoms:
         raise SystemExit("No solids found in STEP file.")
@@ -139,8 +136,11 @@ def main():
     boolean_result = None
     backend = args.engine
     if backend == 'auto':
-        available = engines_available()
-        backend = next(iter(available)) if available else None
+        if has_brep_data(base_solid) and occ_available():
+            backend = 'occ'
+        else:
+            available = engines_available()
+            backend = next(iter(available)) if available else None
 
     if args.boolean != 'none':
         sphere_solid = sphere(args.sphere_radius * 2.0, center=center)

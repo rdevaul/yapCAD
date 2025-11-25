@@ -2968,7 +2968,7 @@ def scale(x,sx=1.0,sy=False,sz=False,cent=point(0,0),mat=False):
             gl.append(scale(g,sx,sy,sz,cent,mat))
         return gl
     else:
-        raise VauleError("don't know how to scale ",vstr(x))
+        raise ValueError("don't know how to scale ",vstr(x))
     
 
     

@@ -34,7 +34,10 @@ instead, we raise a clear runtime error the first time a BREP feature is
 requested so users know to activate the conda environment.
 """
 
+import base64
 import math
+import os
+import tempfile
 from typing import Any, Optional
 
 try:  # pragma: no cover - exercised indirectly in environments with OCC
@@ -46,11 +49,17 @@ try:  # pragma: no cover - exercised indirectly in environments with OCC
         TopoDS_Shell,
         TopoDS_Solid,
     )
-    from OCC.Core.BRep import BRep_Tool
+    from OCC.Core.BRep import BRep_Tool, BRep_Builder
     from OCC.Core.TopExp import TopExp_Explorer
     from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_REVERSED
     from OCC.Core.TopLoc import TopLoc_Location
     from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
+    from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
+    from OCC.Core.gp import gp_Trsf, gp_Vec, gp_Dir, gp_Pnt, gp_Ax1, gp_Ax2
+    from OCC.Core import BRepTools as _BRepTools
+    BRepTools_Write = _BRepTools.breptools_Write  # type: ignore[attr-defined]
+    BRepTools_Read = _BRepTools.breptools_Read    # type: ignore[attr-defined]
+    from OCC.Core.TopoDS import topods
 
     _OCC_IMPORT_ERROR: Optional[Exception] = None
     _HAVE_OCC = True
@@ -59,10 +68,18 @@ except ImportError as exc:  # pragma: no cover - handled during runtime detectio
     TopExp_Explorer = TopLoc_Location = BRep_Tool = BRepMesh_IncrementalMesh = Any
     TopAbs_FACE = 0
     TopAbs_REVERSED = -1
+    BRep_Builder = Any
+    BRepTools_Write = None
+    BRepTools_Read = None
+    gp_Trsf = gp_Vec = gp_Dir = gp_Pnt = gp_Ax1 = gp_Ax2 = None
+    topods = None
     _OCC_IMPORT_ERROR = exc
     _HAVE_OCC = False
 
 from yapcad.geom import point
+from yapcad.metadata import ensure_solid_id, get_solid_metadata
+
+_BREP_SOLID_CACHE: dict[str, "BrepSolid"] = {}
 
 
 def occ_available() -> bool:
@@ -82,6 +99,164 @@ def require_occ() -> None:
         "yapCAD's BREP features."
     ) from _OCC_IMPORT_ERROR
 
+
+def _shape_to_bytes(shape) -> bytes:
+    require_occ()
+    if BRepTools_Write is None:
+        raise RuntimeError("BRepTools write support is unavailable")
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".brep")
+    tmp.close()
+    BRepTools_Write(shape, tmp.name)
+    with open(tmp.name, "rb") as handle:
+        data = handle.read()
+    os.remove(tmp.name)
+    return data
+
+
+def _shape_from_bytes(data: bytes) -> TopoDS_Shape:
+    require_occ()
+    if BRepTools_Read is None:
+        raise RuntimeError("BRepTools read support is unavailable")
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".brep")
+    tmp.close()
+    with open(tmp.name, "wb") as handle:
+        handle.write(data)
+    builder = BRep_Builder()
+    shape = TopoDS_Shape()
+    BRepTools_Read(shape, tmp.name, builder)
+    os.remove(tmp.name)
+    return shape
+
+
+def attach_brep_to_solid(solid: list, brep: "BrepSolid") -> None:
+    """Embed serialized BREP data into the solid metadata and cache the shape."""
+    require_occ()
+    meta = get_solid_metadata(solid, create=True)
+    solid_id = ensure_solid_id(solid)
+    encoded = base64.b64encode(_shape_to_bytes(brep.shape)).decode("ascii")
+    meta["brep"] = {
+        "encoding": "brep-ascii-base64",
+        "data": encoded,
+    }
+    _BREP_SOLID_CACHE[solid_id] = brep
+
+
+def brep_from_solid(solid: list) -> Optional["BrepSolid"]:
+    """Return the cached BrepSolid for ``solid`` if metadata is present."""
+    if not occ_available():
+        return None
+    meta = get_solid_metadata(solid, create=False)
+    if not meta:
+        return None
+    solid_id = meta.get("entityId")
+    if not solid_id:
+        return None
+    cached = _BREP_SOLID_CACHE.get(solid_id)
+    if cached:
+        return cached
+    brep_info = meta.get("brep")
+    if not brep_info:
+        return None
+    data = brep_info.get("data")
+    if not data:
+        return None
+    try:
+        decoded = base64.b64decode(data)
+    except Exception:
+        return None
+    try:
+        shape = _shape_from_bytes(decoded)
+    except Exception:
+        return None
+    brep = BrepSolid(topods.Solid(shape) if topods is not None else shape)
+    _BREP_SOLID_CACHE[solid_id] = brep
+    return brep
+
+
+def has_brep_data(solid: list) -> bool:
+    meta = get_solid_metadata(solid, create=False)
+    return bool(meta and meta.get("brep"))
+
+
+def translate_brep_solid(solid: list, delta) -> None:
+    """Apply a translation to the stored BREP shape if present."""
+    if not occ_available() or gp_Trsf is None or gp_Vec is None:
+        return
+    dx = float(delta[0]) if len(delta) > 0 else 0.0
+    dy = float(delta[1]) if len(delta) > 1 else 0.0
+    dz = float(delta[2]) if len(delta) > 2 else 0.0
+    trsf = gp_Trsf()
+    trsf.SetTranslation(gp_Vec(dx, dy, dz))
+    _apply_trsf_to_brep(solid, trsf)
+
+
+def rotate_brep_solid(solid: list, ang: float, center, axis) -> None:
+    if not occ_available() or gp_Trsf is None or gp_Pnt is None or gp_Ax1 is None or gp_Dir is None:
+        return
+    ax = axis or point(0, 0, 1)
+    magnitude = math.sqrt(ax[0] ** 2 + ax[1] ** 2 + ax[2] ** 2)
+    if magnitude <= 1e-12:
+        return
+    trsf = gp_Trsf()
+    direction = gp_Dir(ax[0], ax[1], ax[2])
+    trsf.SetRotation(gp_Ax1(gp_Pnt(center[0], center[1], center[2]), direction), math.radians(ang))
+    _apply_trsf_to_brep(solid, trsf)
+
+
+def mirror_brep_solid(solid: list, plane: str) -> None:
+    if not occ_available() or gp_Trsf is None or gp_Ax2 is None or gp_Dir is None or gp_Pnt is None:
+        return
+    mapping = {
+        'xy': (0.0, 0.0, 1.0),
+        'yz': (1.0, 0.0, 0.0),
+        'xz': (0.0, 1.0, 0.0),
+    }
+    normal = mapping.get(plane)
+    if normal is None:
+        return
+    trsf = gp_Trsf()
+    trsf.SetMirror(gp_Ax2(gp_Pnt(0.0, 0.0, 0.0), gp_Dir(*normal)))
+    _apply_trsf_to_brep(solid, trsf)
+
+
+def scale_brep_solid(solid: list, factor: float, center=None) -> None:
+    if not occ_available() or gp_Trsf is None or gp_Pnt is None:
+        return
+    if center is None:
+        center = point(0, 0, 0)
+    trsf = gp_Trsf()
+    trsf.SetScale(gp_Pnt(float(center[0]), float(center[1]), float(center[2])), float(factor))
+    _apply_trsf_to_brep(solid, trsf)
+
+
+def _apply_trsf_to_brep(solid: list, trsf) -> None:
+    if not occ_available() or BRepBuilderAPI_Transform is None:
+        return
+    brep = brep_from_solid(solid)
+    if brep is None:
+        return
+    builder = BRepBuilderAPI_Transform(brep.shape, trsf, True)
+    shape = builder.Shape()
+    if topods is not None:
+        try:
+            shape = topods.Solid(shape)
+        except Exception:
+            pass
+    attach_brep_to_solid(solid, BrepSolid(shape))
+
+
+def transform_brep_shape(brep: "BrepSolid", trsf) -> Optional["BrepSolid"]:
+    """Return a transformed BrepSolid (does not touch metadata)."""
+    if not occ_available() or BRepBuilderAPI_Transform is None:
+        return None
+    builder = BRepBuilderAPI_Transform(brep.shape, trsf, True)
+    shape = builder.Shape()
+    if topods is not None:
+        try:
+            shape = topods.Solid(shape)
+        except Exception:
+            pass
+    return BrepSolid(shape)
 class BrepVertex:
     """A wrapper for a TopoDS_Vertex."""
     def __init__(self, shape: TopoDS_Vertex):
@@ -238,4 +413,7 @@ __all__ = [
     "is_brep",
     "occ_available",
     "require_occ",
+    "attach_brep_to_solid",
+    "brep_from_solid",
+    "has_brep_data",
 ]
