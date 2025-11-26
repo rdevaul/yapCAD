@@ -518,12 +518,51 @@ def surfacebbox(s):
 
 
 def solid_boolean(a, b, operation, tol=_DEFAULT_RAY_TOL, *, stitch=False, engine=None):
-    selected_raw = engine or os.environ.get('YAPCAD_BOOLEAN_ENGINE', 'native')
+    """Perform a boolean operation (union, intersection, difference) on two solids.
+
+    Engine selection:
+    - If ``engine`` parameter or ``YAPCAD_BOOLEAN_ENGINE`` env var is set,
+      that engine is used explicitly (backward compatible behavior).
+    - Otherwise, auto-selects OCC BREP engine when available and both solids
+      have BREP metadata, falling back to mesh engine on failure or when
+      BREP data is missing.
+    - Fallback mesh engine is selectable via ``YAPCAD_MESH_BOOLEAN_ENGINE``
+      env var (defaults to 'native').
+
+    Environment variables:
+    - ``YAPCAD_BOOLEAN_ENGINE``: Force specific engine ('native', 'trimesh', 'occ')
+    - ``YAPCAD_MESH_BOOLEAN_ENGINE``: Fallback mesh engine ('native' or 'trimesh')
+    - ``YAPCAD_TRIMESH_BACKEND``: Backend for trimesh engine (e.g., 'manifold', 'blender')
+    """
+    # Lazy import to avoid circular dependency (geom3d -> brep -> metadata -> geom3d)
+    from yapcad.brep import occ_available, has_brep_data
+
+    # Explicit engine override takes precedence (backward compatible)
+    explicit_engine = engine or os.environ.get('YAPCAD_BOOLEAN_ENGINE')
+    if explicit_engine:
+        return _dispatch_boolean_engine(explicit_engine, a, b, operation, tol, stitch)
+
+    # Auto-select: prefer OCC BREP when available and both solids have BREP data
+    if occ_available() and has_brep_data(a) and has_brep_data(b):
+        try:
+            from yapcad.boolean import occ_engine
+            return occ_engine.solid_boolean(a, b, operation)
+        except Exception:
+            pass  # Fall through to mesh engine
+
+    # Fallback to mesh engine (selectable via env var, defaults to native)
+    mesh_engine = os.environ.get('YAPCAD_MESH_BOOLEAN_ENGINE', 'native')
+    return _dispatch_boolean_engine(mesh_engine, a, b, operation, tol, stitch)
+
+
+def _dispatch_boolean_engine(engine_spec, a, b, operation, tol, stitch):
+    """Dispatch to a specific boolean engine by name."""
     backend = None
-    if selected_raw and ':' in selected_raw:
-        selected, backend = selected_raw.split(':', 1)
+    if engine_spec and ':' in engine_spec:
+        selected, backend = engine_spec.split(':', 1)
     else:
-        selected = selected_raw
+        selected = engine_spec
+
     if selected == 'native':
         return _boolean_native.solid_boolean(a, b, operation, tol=tol, stitch=stitch)
     if selected == 'trimesh':
@@ -533,7 +572,7 @@ def solid_boolean(a, b, operation, tol=_DEFAULT_RAY_TOL, *, stitch=False, engine
     if selected == 'occ':
         from yapcad.boolean import occ_engine
         return occ_engine.solid_boolean(a, b, operation)
-    raise ValueError(f'unknown boolean engine {selected_raw!r}')
+    raise ValueError(f'unknown boolean engine {engine_spec!r}')
 
 def issurface(s,fast=True):
     """
