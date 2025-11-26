@@ -209,7 +209,9 @@ def _write_package(sld, output):
 
     out = Path(output)
     out.mkdir(parents=True, exist_ok=True)
-    manifest = create_package_from_entities([sld], primary_path=out / "rocket.step", root=out)
+    manifest = create_package_from_entities([sld], out,
+                                            name="rocket_loft_demo",
+                                            version="0.1")
     print(f"Wrote package to {out} with manifest {manifest}")
 
 
