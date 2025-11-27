@@ -187,10 +187,16 @@ def sphereSurface(diameter,center=point(0,0,0),depth=2):
             verts, norms, newfaces = subdivide(f,verts,normals,rad)
             ff+=newfaces
         faces = ff
-                      
+
     if not vclose(center,point(0,0,0)):
         verts = list(map(lambda x: add(x,center),verts))
-    return ['surface',verts,normals,faces,[],[]]
+
+    # Attach analytic surface definition for precise operations
+    from yapcad.analytic_surfaces import sphere_surface
+    analytic = sphere_surface(center, rad)
+    metadata = {'analytic_surface': analytic}
+
+    return ['surface',verts,normals,faces,[],[], metadata]
 
 # make sphere, return solid representation
 def sphere(diameter,center=point(0,0,0),depth=2):

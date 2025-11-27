@@ -19,7 +19,29 @@ class Drawable:
     ## pure virtual functions -- override for specific rendering
     ## system
     def draw_arc(self,p,r,start,end):
-        print("pure virtual draw_arc called: {}, {}, {}, {}".format(p,r,start,end)) 
+        print("pure virtual draw_arc called: {}, {}, {}, {}".format(p,r,start,end))
+        return
+
+    def draw_ellipse(self, center, semi_major, semi_minor, rotation, start, end):
+        """Draw an ellipse or elliptical arc.
+
+        Parameters
+        ----------
+        center : point
+            Center point of the ellipse.
+        semi_major : float
+            Semi-major axis length.
+        semi_minor : float
+            Semi-minor axis length.
+        rotation : float
+            Rotation of major axis from x-axis in degrees.
+        start : float
+            Start angle in degrees.
+        end : float
+            End angle in degrees.
+        """
+        print("pure virtual draw_ellipse called: {}, {}, {}, {}, {}, {}".format(
+            center, semi_major, semi_minor, rotation, start, end))
         return
 
     def draw_line(self,p1,p2):
@@ -273,6 +295,10 @@ class Drawable:
             self.draw_line(x[0],x[1])
         elif isarc(x):
             self.draw_arc(x[0],x[1][0],x[1][1],x[1][2])
+        elif isellipse(x):
+            meta = x[2]
+            self.draw_ellipse(x[1], meta['semi_major'], meta['semi_minor'],
+                              meta['rotation'], meta['start'], meta['end'])
         elif ispoly(x):
             if self.polystyle in ('points','lines','both'):
                 if self.polystyle == 'points' or \

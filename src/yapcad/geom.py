@@ -479,6 +479,326 @@ def isnurbs(obj):
     )
 
 
+def ellipse(center, semi_major, semi_minor, *, rotation=0.0, start=0, end=360, normal=None):
+    """Return an ellipse curve definition.
+
+    Parameters
+    ----------
+    center : point
+        Center point of the ellipse.
+    semi_major : float
+        Semi-major axis length (must be >= semi_minor).
+    semi_minor : float
+        Semi-minor axis length.
+    rotation : float, optional
+        Rotation of major axis from x-axis in degrees (default 0).
+    start : float, optional
+        Start angle in degrees (default 0).
+    end : float, optional
+        End angle in degrees (default 360 for full ellipse).
+    normal : point, optional
+        Normal vector for 3D orientation (default [0,0,1,0]).
+
+    Returns
+    -------
+    list
+        Ellipse definition: ``['ellipse', center, metadata_dict]``
+
+    Notes
+    -----
+    The ellipse is parameterized so that angle=0 corresponds to the
+    positive major axis direction. Angles increase counter-clockwise.
+    When start=0 and end=360, a full ellipse is created.
+    """
+    from copy import deepcopy
+
+    if not (isinstance(semi_major, (int, float)) and semi_major > 0):
+        raise ValueError('semi_major must be a positive number')
+    if not (isinstance(semi_minor, (int, float)) and semi_minor > 0):
+        raise ValueError('semi_minor must be a positive number')
+    if semi_minor > semi_major:
+        # Swap so semi_major is always the larger one
+        semi_major, semi_minor = semi_minor, semi_major
+        rotation = rotation + 90.0
+
+    # Convert center to a proper point - handle both 3-element and 4-element inputs
+    if ispoint(center):
+        cen = deepcopy(center)
+    elif isinstance(center, (list, tuple)) and len(center) >= 3:
+        cen = point(center[0], center[1], center[2])
+    else:
+        cen = point(center)
+
+    if normal is None:
+        norm = [0.0, 0.0, 1.0, 0.0]  # Default to XY plane
+    else:
+        norm = [float(normal[0]), float(normal[1]), float(normal[2]), 0.0]
+        mag_n = (norm[0]**2 + norm[1]**2 + norm[2]**2)**0.5
+        if mag_n < 1e-10:
+            raise ValueError('normal vector cannot be zero')
+        norm = [norm[0]/mag_n, norm[1]/mag_n, norm[2]/mag_n, 0.0]
+
+    meta = {
+        'semi_major': float(semi_major),
+        'semi_minor': float(semi_minor),
+        'rotation': float(rotation),
+        'start': start if isinstance(start, int) and start == 0 else float(start),
+        'end': end if isinstance(end, int) and end == 360 else float(end),
+        'normal': norm,
+    }
+
+    return ['ellipse', cen, meta]
+
+
+def isellipse(obj):
+    """Return ``True`` if *obj* is an ellipse curve."""
+
+    return (
+        isinstance(obj, list)
+        and len(obj) == 3
+        and obj[0] == 'ellipse'
+        and ispoint(obj[1])
+        and isinstance(obj[2], dict)
+        and 'semi_major' in obj[2]
+        and 'semi_minor' in obj[2]
+    )
+
+
+def isfullellipse(obj):
+    """Return ``True`` if *obj* is a full (closed) ellipse."""
+
+    if not isellipse(obj):
+        return False
+    meta = obj[2]
+    return meta.get('start') == 0 and meta.get('end') == 360
+
+
+def ellipse_sample(e, u):
+    """Evaluate a point on an ellipse at parameter u in [0, 1].
+
+    Parameters
+    ----------
+    e : ellipse
+        The ellipse to sample.
+    u : float
+        Parameter value in [0, 1].
+
+    Returns
+    -------
+    point
+        The point on the ellipse at parameter u.
+    """
+    if not isellipse(e):
+        raise ValueError('argument is not an ellipse')
+
+    from math import cos, sin, radians
+
+    center = e[1]
+    meta = e[2]
+    a = meta['semi_major']
+    b = meta['semi_minor']
+    rot = radians(meta['rotation'])
+    start = meta['start']
+    end = meta['end']
+    normal = meta['normal']
+
+    # Handle full ellipse vs arc
+    if start == 0 and end == 360:
+        theta = u * 2.0 * 3.141592653589793
+    else:
+        start_rad = radians(start)
+        end_rad = radians(end)
+        # Handle wrap-around
+        if end_rad < start_rad:
+            end_rad += 2.0 * 3.141592653589793
+        theta = start_rad + u * (end_rad - start_rad)
+
+    # Point on unrotated ellipse in local coords
+    x_local = a * cos(theta)
+    y_local = b * sin(theta)
+
+    # Apply rotation
+    cos_rot = cos(rot)
+    sin_rot = sin(rot)
+    x_rot = x_local * cos_rot - y_local * sin_rot
+    y_rot = x_local * sin_rot + y_local * cos_rot
+
+    # If normal is not [0,0,1], we need to transform to 3D
+    # For now, assume XY plane (will extend for 3D later)
+    if abs(normal[2] - 1.0) < 1e-10:
+        # XY plane
+        return point(center[0] + x_rot, center[1] + y_rot, center[2])
+    else:
+        # General 3D case - build rotation matrix from normal
+        # Use Rodrigues' rotation to align [0,0,1] with normal
+        z_axis = [0.0, 0.0, 1.0]
+        n = [normal[0], normal[1], normal[2]]
+
+        # Cross product z_axis x normal
+        cross = [
+            z_axis[1]*n[2] - z_axis[2]*n[1],
+            z_axis[2]*n[0] - z_axis[0]*n[2],
+            z_axis[0]*n[1] - z_axis[1]*n[0]
+        ]
+        cross_mag = (cross[0]**2 + cross[1]**2 + cross[2]**2)**0.5
+
+        if cross_mag < 1e-10:
+            # Normal is parallel to z-axis
+            if n[2] > 0:
+                return point(center[0] + x_rot, center[1] + y_rot, center[2])
+            else:
+                return point(center[0] + x_rot, center[1] - y_rot, center[2])
+
+        # Normalize cross product (rotation axis)
+        k = [cross[0]/cross_mag, cross[1]/cross_mag, cross[2]/cross_mag]
+
+        # Angle between z_axis and normal
+        dot_val = z_axis[0]*n[0] + z_axis[1]*n[1] + z_axis[2]*n[2]
+        angle = 3.141592653589793 - 2.0 * (0.5 * 3.141592653589793 - 0.5 * (3.141592653589793 - (dot_val if dot_val <= 1.0 else 1.0)))
+        # Actually use acos
+        from math import acos
+        angle = acos(max(-1.0, min(1.0, dot_val)))
+
+        # Rodrigues' rotation formula
+        c_a = cos(angle)
+        s_a = sin(angle)
+        p = [x_rot, y_rot, 0.0]
+
+        # K x p
+        kxp = [
+            k[1]*p[2] - k[2]*p[1],
+            k[2]*p[0] - k[0]*p[2],
+            k[0]*p[1] - k[1]*p[0]
+        ]
+        # k dot p
+        kdp = k[0]*p[0] + k[1]*p[1] + k[2]*p[2]
+
+        # Rotated point: p*cos(a) + (k x p)*sin(a) + k*(k.p)*(1-cos(a))
+        x_3d = p[0]*c_a + kxp[0]*s_a + k[0]*kdp*(1-c_a)
+        y_3d = p[1]*c_a + kxp[1]*s_a + k[1]*kdp*(1-c_a)
+        z_3d = p[2]*c_a + kxp[2]*s_a + k[2]*kdp*(1-c_a)
+
+        return point(center[0] + x_3d, center[1] + y_3d, center[2] + z_3d)
+
+
+def ellipse_tangent(e, u):
+    """Return the tangent vector at parameter u on an ellipse.
+
+    Parameters
+    ----------
+    e : ellipse
+        The ellipse.
+    u : float
+        Parameter value in [0, 1].
+
+    Returns
+    -------
+    list
+        Unit tangent vector (direction, w=0).
+    """
+    if not isellipse(e):
+        raise ValueError('argument is not an ellipse')
+
+    from math import cos, sin, radians
+
+    meta = e[2]
+    a = meta['semi_major']
+    b = meta['semi_minor']
+    rot = radians(meta['rotation'])
+    start = meta['start']
+    end = meta['end']
+
+    # Handle full ellipse vs arc
+    if start == 0 and end == 360:
+        theta = u * 2.0 * 3.141592653589793
+    else:
+        start_rad = radians(start)
+        end_rad = radians(end)
+        if end_rad < start_rad:
+            end_rad += 2.0 * 3.141592653589793
+        theta = start_rad + u * (end_rad - start_rad)
+
+    # Derivative of ellipse parametric equation
+    dx_local = -a * sin(theta)
+    dy_local = b * cos(theta)
+
+    # Apply rotation
+    cos_rot = cos(rot)
+    sin_rot = sin(rot)
+    dx_rot = dx_local * cos_rot - dy_local * sin_rot
+    dy_rot = dx_local * sin_rot + dy_local * cos_rot
+
+    # Normalize
+    mag = (dx_rot**2 + dy_rot**2)**0.5
+    if mag < 1e-10:
+        return [1.0, 0.0, 0.0, 0.0]
+
+    return [dx_rot/mag, dy_rot/mag, 0.0, 0.0]
+
+
+def ellipse_length(e, segments=100):
+    """Approximate the arc length of an ellipse using numerical integration.
+
+    Parameters
+    ----------
+    e : ellipse
+        The ellipse.
+    segments : int, optional
+        Number of segments for approximation (default 100).
+
+    Returns
+    -------
+    float
+        Approximate arc length.
+    """
+    if not isellipse(e):
+        raise ValueError('argument is not an ellipse')
+
+    # Use simple trapezoidal integration
+    total = 0.0
+    prev_pt = ellipse_sample(e, 0.0)
+    for i in range(1, segments + 1):
+        u = i / segments
+        curr_pt = ellipse_sample(e, u)
+        dx = curr_pt[0] - prev_pt[0]
+        dy = curr_pt[1] - prev_pt[1]
+        dz = curr_pt[2] - prev_pt[2]
+        total += (dx**2 + dy**2 + dz**2)**0.5
+        prev_pt = curr_pt
+
+    return total
+
+
+def ellipse_bbox(e, segments=36):
+    """Compute the bounding box of an ellipse.
+
+    Parameters
+    ----------
+    e : ellipse
+        The ellipse.
+    segments : int, optional
+        Number of sample points (default 36).
+
+    Returns
+    -------
+    list
+        Bounding box as [min_point, max_point].
+    """
+    if not isellipse(e):
+        raise ValueError('argument is not an ellipse')
+
+    pts = [ellipse_sample(e, i / segments) for i in range(segments + 1)]
+
+    min_x = min(p[0] for p in pts)
+    min_y = min(p[1] for p in pts)
+    min_z = min(p[2] for p in pts)
+    max_x = max(p[0] for p in pts)
+    max_y = max(p[1] for p in pts)
+    max_z = max(p[2] for p in pts)
+
+    return [point(min_x, min_y, min_z), point(max_x, max_y, max_z)]
+
+
 def _open_uniform_knot_vector(count, degree):
     """Generate an open-uniform knot vector of length ``count + degree + 1``."""
 
@@ -2276,7 +2596,7 @@ def isgeomlist(a):
     if not isinstance(a,list):
         return False
     b = list(filter(lambda x: not (ispoint(x) or isline(x) \
-                                   or isarc(x) or ispoly(x) \
+                                   or isarc(x) or isellipse(x) or ispoly(x) \
                                    or iscatmullrom(x) or isnurbs(x) \
                                    or isgeomlist(x)),a))
     return not len(b) > 0
@@ -2493,6 +2813,8 @@ def geomlistbbox(gl):
             ply = ply+g
         elif isarc(g):
             ply = ply + arcbbox(g)
+        elif isellipse(g):
+            ply = ply + ellipse_bbox(g)
         elif iscatmullrom(g) or isnurbs(g):
             segs = 64
             for i in range(segs + 1):
@@ -2746,6 +3068,8 @@ def length(x):
         return linelength(x)
     elif isarc(x):
         return arclength(x)
+    elif isellipse(x):
+        return ellipse_length(x)
     elif ispoly(x):
         return polylength(x)
     elif isgeomlist(x):
@@ -2767,6 +3091,8 @@ def center(x):
         return linecenter(x)
     elif isarc(x):
         return arccenter(x)
+    elif isellipse(x):
+        return point(x[1])  # Return the center point of the ellipse
     elif ispoly(x):
         return polycenter(x)
     elif isgeomlist(x):
@@ -2789,6 +3115,8 @@ def bbox(x):
         return linebbox(x)
     elif isarc(x):
         return arcbbox(x)
+    elif isellipse(x):
+        return ellipse_bbox(x)
     elif ispoly(x):
         return polybbox(x)
     elif isgeomlist(x):
@@ -2810,6 +3138,8 @@ def sample(x,u):
         return sampleline(x,u)
     elif isarc(x):
         return samplearc(x,u)
+    elif isellipse(x):
+        return ellipse_sample(x, u)
     elif ispoly(x):
         return samplepoly(x,u)
     elif iscatmullrom(x):
@@ -2839,6 +3169,8 @@ def unsample(x,p):
         return unsampleline(x,p)
     elif isarc(x):
         return unsamplearc(x,p)
+    elif isellipse(x):
+        return _unsample_curve(x, p, ellipse_sample)
     elif ispoly(x):
         return unsamplepoly(x,p)
     elif iscatmullrom(x):

@@ -1,0 +1,845 @@
+"""OCC ↔ Native BREP conversion utilities.
+
+This module provides bidirectional conversion between OCC (Open CASCADE) BREP
+representations and yapCAD native BREP representations.
+
+The native BREP representation is the primary/canonical form for yapCAD geometry.
+OCC representations are derived and used for:
+- STEP file import/export
+- Boolean operations (when OCC engine is selected)
+- Complex surface operations
+
+Conversion functions:
+- occ_surface_to_native: Convert OCC Geom_Surface to native analytic surface
+- occ_solid_to_native_brep: Convert OCC TopoDS_Solid to native BREP topology
+- native_surface_to_occ: Convert native analytic surface to OCC Geom_Surface
+- native_brep_to_occ: Convert native BREP topology to OCC TopoDS_Solid
+
+Copyright (c) 2025 Richard DeVaul
+MIT License
+"""
+
+from math import sqrt, pi, atan2, acos
+from typing import Optional, Any, Tuple, List
+
+from yapcad.geom import point
+
+# OCC imports - gracefully handle missing dependency
+try:
+    from OCC.Core.TopoDS import (
+        TopoDS_Shape, TopoDS_Solid, TopoDS_Shell, TopoDS_Face,
+        TopoDS_Wire, TopoDS_Edge, TopoDS_Vertex, topods
+    )
+    from OCC.Core.TopExp import TopExp_Explorer, topexp
+    from OCC.Core.TopAbs import (
+        TopAbs_SOLID, TopAbs_SHELL, TopAbs_FACE, TopAbs_WIRE,
+        TopAbs_EDGE, TopAbs_VERTEX, TopAbs_FORWARD, TopAbs_REVERSED
+    )
+    from OCC.Core.BRep import BRep_Tool
+    from OCC.Core.BRepAdaptor import BRepAdaptor_Surface, BRepAdaptor_Curve
+    from OCC.Core.GeomAbs import (
+        GeomAbs_Plane, GeomAbs_Cylinder, GeomAbs_Cone,
+        GeomAbs_Sphere, GeomAbs_Torus, GeomAbs_BSplineSurface,
+        GeomAbs_BezierSurface, GeomAbs_SurfaceOfRevolution,
+        GeomAbs_SurfaceOfExtrusion, GeomAbs_OffsetSurface,
+        GeomAbs_OtherSurface,
+        GeomAbs_Line, GeomAbs_Circle, GeomAbs_Ellipse,
+        GeomAbs_BSplineCurve, GeomAbs_BezierCurve, GeomAbs_OtherCurve
+    )
+    from OCC.Core.gp import gp_Pnt, gp_Vec, gp_Dir, gp_Ax1, gp_Ax2, gp_Ax3
+    from OCC.Core.TopLoc import TopLoc_Location
+    from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
+    from OCC.Core.Geom import (
+        Geom_Plane, Geom_CylindricalSurface, Geom_ConicalSurface,
+        Geom_SphericalSurface, Geom_ToroidalSurface, Geom_BSplineSurface
+    )
+    from OCC.Core.BRepBuilderAPI import (
+        BRepBuilderAPI_MakeVertex, BRepBuilderAPI_MakeEdge,
+        BRepBuilderAPI_MakeWire, BRepBuilderAPI_MakeFace,
+        BRepBuilderAPI_MakeShell, BRepBuilderAPI_MakeSolid
+    )
+    from OCC.Core.TColgp import TColgp_Array2OfPnt
+    from OCC.Core.TColStd import TColStd_Array1OfReal, TColStd_Array1OfInteger
+    _OCC_AVAILABLE = True
+except ImportError:
+    _OCC_AVAILABLE = False
+    # Type stubs for when OCC is not available
+    TopoDS_Shape = TopoDS_Solid = TopoDS_Shell = TopoDS_Face = Any
+    TopoDS_Wire = TopoDS_Edge = TopoDS_Vertex = Any
+    BRepAdaptor_Surface = BRepAdaptor_Curve = Any
+
+from yapcad.analytic_surfaces import (
+    plane_surface, sphere_surface, cylinder_surface, cone_surface, torus_surface,
+    bspline_surface, tessellated_surface, is_analytic_surface
+)
+from yapcad.native_brep import (
+    brep_vertex, brep_edge, brep_trim, brep_loop, brep_face, brep_shell, brep_solid,
+    line_edge, circle_edge, bspline_edge,
+    vertex_location, edge_vertices,
+    TopologyGraph
+)
+
+
+def occ_available() -> bool:
+    """Return True if OCC is available."""
+    return _OCC_AVAILABLE
+
+
+def require_occ() -> None:
+    """Raise error if OCC is not available."""
+    if not _OCC_AVAILABLE:
+        raise RuntimeError(
+            "pythonocc-core is not available. Activate the yapcad-brep conda "
+            "environment to use OCC conversion features."
+        )
+
+
+# -----------------------------------------------------------------------------
+# OCC Surface → Native Surface Conversion
+# -----------------------------------------------------------------------------
+
+def _gp_pnt_to_point(pnt) -> list:
+    """Convert gp_Pnt to yapCAD point."""
+    return point(pnt.X(), pnt.Y(), pnt.Z())
+
+
+def _gp_dir_to_vector(d) -> list:
+    """Convert gp_Dir to yapCAD vector."""
+    return [d.X(), d.Y(), d.Z(), 0.0]
+
+
+def occ_surface_to_native(face: TopoDS_Face, tessellate_fallback: bool = True):
+    """Convert an OCC face's surface to a native analytic surface.
+
+    Parameters
+    ----------
+    face : TopoDS_Face
+        The OCC face to convert.
+    tessellate_fallback : bool
+        If True, fall back to tessellation for unsupported surface types.
+
+    Returns
+    -------
+    native_surface
+        A native analytic surface representation, or None if conversion fails.
+    """
+    require_occ()
+
+    adaptor = BRepAdaptor_Surface(face)
+    surface_type = adaptor.GetType()
+
+    # Get parameter bounds
+    u_min, u_max, v_min, v_max = adaptor.FirstUParameter(), adaptor.LastUParameter(), \
+                                  adaptor.FirstVParameter(), adaptor.LastVParameter()
+
+    if surface_type == GeomAbs_Plane:
+        return _convert_plane(adaptor, u_min, u_max, v_min, v_max)
+    elif surface_type == GeomAbs_Sphere:
+        return _convert_sphere(adaptor, u_min, u_max, v_min, v_max)
+    elif surface_type == GeomAbs_Cylinder:
+        return _convert_cylinder(adaptor, u_min, u_max, v_min, v_max)
+    elif surface_type == GeomAbs_Cone:
+        return _convert_cone(adaptor, u_min, u_max, v_min, v_max)
+    elif surface_type == GeomAbs_Torus:
+        return _convert_torus(adaptor, u_min, u_max, v_min, v_max)
+    elif surface_type == GeomAbs_BSplineSurface:
+        return _convert_bspline_surface(adaptor, u_min, u_max, v_min, v_max)
+    elif surface_type == GeomAbs_BezierSurface:
+        # Convert Bezier to BSpline representation
+        return _convert_bezier_surface(adaptor, u_min, u_max, v_min, v_max)
+    else:
+        # Fallback: tessellate the face
+        if tessellate_fallback:
+            return _tessellate_occ_face(face, u_min, u_max, v_min, v_max)
+        return None
+
+
+def _convert_plane(adaptor, u_min, u_max, v_min, v_max):
+    """Convert OCC plane to native plane surface."""
+    pln = adaptor.Plane()
+    loc = pln.Location()
+    axis = pln.Axis()
+
+    origin = _gp_pnt_to_point(loc)
+    normal = _gp_dir_to_vector(axis.Direction())
+
+    return plane_surface(origin, normal, u_range=(u_min, u_max), v_range=(v_min, v_max))
+
+
+def _convert_sphere(adaptor, u_min, u_max, v_min, v_max):
+    """Convert OCC sphere to native sphere surface."""
+    sph = adaptor.Sphere()
+    center = _gp_pnt_to_point(sph.Location())
+    radius = sph.Radius()
+
+    return sphere_surface(center, radius, u_range=(u_min, u_max), v_range=(v_min, v_max))
+
+
+def _convert_cylinder(adaptor, u_min, u_max, v_min, v_max):
+    """Convert OCC cylinder to native cylinder surface."""
+    cyl = adaptor.Cylinder()
+    axis = cyl.Axis()
+    loc = axis.Location()
+    direction = axis.Direction()
+    radius = cyl.Radius()
+
+    axis_point = _gp_pnt_to_point(loc)
+    axis_dir = _gp_dir_to_vector(direction)
+
+    return cylinder_surface(axis_point, axis_dir, radius,
+                           u_range=(u_min, u_max), v_range=(v_min, v_max))
+
+
+def _convert_cone(adaptor, u_min, u_max, v_min, v_max):
+    """Convert OCC cone to native cone surface."""
+    cone = adaptor.Cone()
+    apex = cone.Apex()
+    axis = cone.Axis()
+    half_angle = cone.SemiAngle()
+
+    apex_pt = _gp_pnt_to_point(apex)
+    axis_dir = _gp_dir_to_vector(axis.Direction())
+
+    return cone_surface(apex_pt, axis_dir, half_angle,
+                       u_range=(u_min, u_max), v_range=(v_min, v_max))
+
+
+def _convert_torus(adaptor, u_min, u_max, v_min, v_max):
+    """Convert OCC torus to native torus surface."""
+    torus = adaptor.Torus()
+    axis = torus.Axis()
+    loc = axis.Location()
+    direction = axis.Direction()
+    major_radius = torus.MajorRadius()
+    minor_radius = torus.MinorRadius()
+
+    center = _gp_pnt_to_point(loc)
+    axis_dir = _gp_dir_to_vector(direction)
+
+    return torus_surface(center, axis_dir, major_radius, minor_radius,
+                        u_range=(u_min, u_max), v_range=(v_min, v_max))
+
+
+def _convert_bspline_surface(adaptor, u_min, u_max, v_min, v_max):
+    """Convert OCC B-spline surface to native B-spline surface."""
+    bspl = adaptor.BSpline()
+
+    # Get degrees
+    u_degree = bspl.UDegree()
+    v_degree = bspl.VDegree()
+
+    # Get pole counts
+    n_u = bspl.NbUPoles()
+    n_v = bspl.NbVPoles()
+
+    # Get control points
+    control_points = []
+    for j in range(1, n_v + 1):
+        row = []
+        for i in range(1, n_u + 1):
+            pnt = bspl.Pole(i, j)
+            row.append([pnt.X(), pnt.Y(), pnt.Z()])
+        control_points.append(row)
+
+    # Get weights (if rational)
+    weights = None
+    if bspl.IsURational() or bspl.IsVRational():
+        weights = []
+        for j in range(1, n_v + 1):
+            row = []
+            for i in range(1, n_u + 1):
+                row.append(bspl.Weight(i, j))
+            weights.append(row)
+
+    # Get knot vectors
+    u_knots = []
+    for i in range(1, bspl.NbUKnots() + 1):
+        knot = bspl.UKnot(i)
+        mult = bspl.UMultiplicity(i)
+        u_knots.extend([knot] * mult)
+
+    v_knots = []
+    for i in range(1, bspl.NbVKnots() + 1):
+        knot = bspl.VKnot(i)
+        mult = bspl.VMultiplicity(i)
+        v_knots.extend([knot] * mult)
+
+    return bspline_surface(control_points, u_knots, v_knots, u_degree, v_degree,
+                          weights=weights, u_range=(u_min, u_max), v_range=(v_min, v_max))
+
+
+def _convert_bezier_surface(adaptor, u_min, u_max, v_min, v_max):
+    """Convert OCC Bezier surface to native B-spline surface.
+
+    Bezier surfaces are a special case of B-splines with specific knot vectors.
+    """
+    bez = adaptor.Bezier()
+
+    # Get degrees
+    u_degree = bez.UDegree()
+    v_degree = bez.VDegree()
+
+    # Get pole counts
+    n_u = bez.NbUPoles()
+    n_v = bez.NbVPoles()
+
+    # Get control points
+    control_points = []
+    for j in range(1, n_v + 1):
+        row = []
+        for i in range(1, n_u + 1):
+            pnt = bez.Pole(i, j)
+            row.append([pnt.X(), pnt.Y(), pnt.Z()])
+        control_points.append(row)
+
+    # Get weights (if rational)
+    weights = None
+    if bez.IsURational() or bez.IsVRational():
+        weights = []
+        for j in range(1, n_v + 1):
+            row = []
+            for i in range(1, n_u + 1):
+                row.append(bez.Weight(i, j))
+            weights.append(row)
+
+    # Bezier knot vectors: [0, 0, ..., 0, 1, 1, ..., 1]
+    # with (degree + 1) zeros and (degree + 1) ones
+    u_knots = [0.0] * (u_degree + 1) + [1.0] * (u_degree + 1)
+    v_knots = [0.0] * (v_degree + 1) + [1.0] * (v_degree + 1)
+
+    return bspline_surface(control_points, u_knots, v_knots, u_degree, v_degree,
+                          weights=weights, u_range=(u_min, u_max), v_range=(v_min, v_max))
+
+
+def _tessellate_occ_face(face: TopoDS_Face, u_min, u_max, v_min, v_max,
+                         deflection: float = 0.1):
+    """Tessellate an OCC face and return as tessellated_surface.
+
+    Used as fallback for unsupported surface types.
+    """
+    require_occ()
+
+    # Ensure mesh is generated
+    BRepMesh_IncrementalMesh(face, deflection)
+
+    loc = TopLoc_Location()
+    triangulation = BRep_Tool.Triangulation(face, loc)
+
+    if triangulation is None:
+        return None
+
+    trsf = loc.Transformation()
+    orientation = face.Orientation()
+    reverse = (orientation == TopAbs_REVERSED)
+
+    vertices = []
+    normals = []
+
+    # Extract vertices
+    for i in range(1, triangulation.NbNodes() + 1):
+        pnt = triangulation.Node(i).Transformed(trsf)
+        vertices.append([pnt.X(), pnt.Y(), pnt.Z()])
+
+    # Extract normals if available
+    if triangulation.HasNormals():
+        for i in range(1, triangulation.NbNodes() + 1):
+            n = triangulation.Normal(i)
+            vec = gp_Vec(n.X(), n.Y(), n.Z())
+            vec.Transform(trsf)
+            if reverse:
+                normals.append([-vec.X(), -vec.Y(), -vec.Z()])
+            else:
+                normals.append([vec.X(), vec.Y(), vec.Z()])
+    else:
+        # Compute normals from triangles
+        accum = [[0.0, 0.0, 0.0] for _ in range(triangulation.NbNodes())]
+        for i in range(1, triangulation.NbTriangles() + 1):
+            t = triangulation.Triangle(i)
+            n1, n2, n3 = t.Get()
+            if reverse:
+                n2, n3 = n3, n2
+            v0 = vertices[n1 - 1]
+            v1 = vertices[n2 - 1]
+            v2 = vertices[n3 - 1]
+            # Cross product
+            nx = (v1[1] - v0[1]) * (v2[2] - v0[2]) - (v1[2] - v0[2]) * (v2[1] - v0[1])
+            ny = (v1[2] - v0[2]) * (v2[0] - v0[0]) - (v1[0] - v0[0]) * (v2[2] - v0[2])
+            nz = (v1[0] - v0[0]) * (v2[1] - v0[1]) - (v1[1] - v0[1]) * (v2[0] - v0[0])
+            for idx in [n1 - 1, n2 - 1, n3 - 1]:
+                accum[idx][0] += nx
+                accum[idx][1] += ny
+                accum[idx][2] += nz
+
+        for vec in accum:
+            length = sqrt(vec[0]**2 + vec[1]**2 + vec[2]**2)
+            if length > 1e-12:
+                normals.append([vec[0]/length, vec[1]/length, vec[2]/length])
+            else:
+                normals.append([0.0, 0.0, 1.0])
+
+    # Extract faces
+    faces = []
+    for i in range(1, triangulation.NbTriangles() + 1):
+        t = triangulation.Triangle(i)
+        n1, n2, n3 = t.Get()
+        if reverse:
+            n2, n3 = n3, n2
+        faces.append([n1 - 1, n2 - 1, n3 - 1])
+
+    return tessellated_surface(vertices, normals, faces,
+                              u_range=(u_min, u_max), v_range=(v_min, v_max))
+
+
+# -----------------------------------------------------------------------------
+# OCC Edge → Native Edge Conversion
+# -----------------------------------------------------------------------------
+
+def occ_edge_to_native(edge: TopoDS_Edge, vertex_map: dict = None):
+    """Convert an OCC edge to a native BREP edge.
+
+    Parameters
+    ----------
+    edge : TopoDS_Edge
+        The OCC edge to convert.
+    vertex_map : dict, optional
+        Map from OCC vertex hash to native vertex, for topology consistency.
+
+    Returns
+    -------
+    tuple
+        (native_edge, start_vertex, end_vertex)
+    """
+    require_occ()
+
+    if vertex_map is None:
+        vertex_map = {}
+
+    adaptor = BRepAdaptor_Curve(edge)
+    curve_type = adaptor.GetType()
+
+    # Get vertices
+    v1 = topexp.FirstVertex(edge)
+    v2 = topexp.LastVertex(edge)
+
+    p1 = BRep_Tool.Pnt(v1)
+    p2 = BRep_Tool.Pnt(v2)
+
+    # Get or create native vertices
+    v1_hash = hash((round(p1.X(), 8), round(p1.Y(), 8), round(p1.Z(), 8)))
+    v2_hash = hash((round(p2.X(), 8), round(p2.Y(), 8), round(p2.Z(), 8)))
+
+    if v1_hash in vertex_map:
+        native_v1 = vertex_map[v1_hash]
+    else:
+        native_v1 = brep_vertex([p1.X(), p1.Y(), p1.Z()])
+        vertex_map[v1_hash] = native_v1
+
+    if v2_hash in vertex_map:
+        native_v2 = vertex_map[v2_hash]
+    else:
+        native_v2 = brep_vertex([p2.X(), p2.Y(), p2.Z()])
+        vertex_map[v2_hash] = native_v2
+
+    # Get parameter bounds
+    t_min, t_max = adaptor.FirstParameter(), adaptor.LastParameter()
+
+    if curve_type == GeomAbs_Line:
+        # Line edge
+        native_edge = line_edge(native_v1, native_v2)
+    elif curve_type == GeomAbs_Circle:
+        # Circle edge
+        circ = adaptor.Circle()
+        center = _gp_pnt_to_point(circ.Location())
+        axis = _gp_dir_to_vector(circ.Axis().Direction())
+        radius = circ.Radius()
+        native_edge = circle_edge(native_v1, native_v2, center, axis, radius,
+                                  t_start=t_min, t_end=t_max)
+    elif curve_type in (GeomAbs_BSplineCurve, GeomAbs_BezierCurve):
+        # B-spline edge
+        native_edge = _convert_bspline_edge(adaptor, native_v1, native_v2, t_min, t_max)
+    else:
+        # Fallback: sample the curve and create B-spline approximation
+        native_edge = _approximate_edge_as_bspline(adaptor, native_v1, native_v2,
+                                                   t_min, t_max, num_samples=20)
+
+    return native_edge, native_v1, native_v2
+
+
+def _convert_bspline_edge(adaptor, v1, v2, t_min, t_max):
+    """Convert OCC B-spline curve to native B-spline edge."""
+    bspl = adaptor.BSpline()
+
+    degree = bspl.Degree()
+    n_poles = bspl.NbPoles()
+
+    # Get control points
+    control_points = []
+    for i in range(1, n_poles + 1):
+        pnt = bspl.Pole(i)
+        control_points.append([pnt.X(), pnt.Y(), pnt.Z()])
+
+    # Get weights
+    weights = None
+    if bspl.IsRational():
+        weights = [bspl.Weight(i) for i in range(1, n_poles + 1)]
+
+    # Get knot vector
+    knots = []
+    for i in range(1, bspl.NbKnots() + 1):
+        knot = bspl.Knot(i)
+        mult = bspl.Multiplicity(i)
+        knots.extend([knot] * mult)
+
+    return bspline_edge(v1, v2, control_points, knots, degree,
+                       weights=weights, t_start=t_min, t_end=t_max)
+
+
+def _approximate_edge_as_bspline(adaptor, v1, v2, t_min, t_max, num_samples=20):
+    """Approximate an arbitrary OCC curve as a B-spline edge.
+
+    Samples the curve and fits a cubic B-spline through the points.
+    """
+    # Sample points along the curve
+    points = []
+    for i in range(num_samples):
+        t = t_min + (t_max - t_min) * i / (num_samples - 1)
+        pnt = adaptor.Value(t)
+        points.append([pnt.X(), pnt.Y(), pnt.Z()])
+
+    # Create cubic B-spline approximation
+    # For simplicity, use clamped uniform knot vector
+    degree = 3
+    n = len(points)
+
+    if n <= degree:
+        # Too few points, use linear interpolation
+        return line_edge(v1, v2)
+
+    # Clamped uniform knot vector
+    knots = [0.0] * (degree + 1)
+    num_internal = n - degree - 1
+    for i in range(1, num_internal + 1):
+        knots.append(i / (num_internal + 1))
+    knots.extend([1.0] * (degree + 1))
+
+    # Use sampled points as control points (approximation)
+    return bspline_edge(v1, v2, points, knots, degree, t_start=t_min, t_end=t_max)
+
+
+# -----------------------------------------------------------------------------
+# OCC Solid → Native BREP Conversion
+# -----------------------------------------------------------------------------
+
+def occ_solid_to_native_brep(shape: TopoDS_Shape, tessellate_fallback: bool = True):
+    """Convert an OCC solid to native BREP representation.
+
+    Parameters
+    ----------
+    shape : TopoDS_Shape
+        The OCC shape (solid) to convert.
+    tessellate_fallback : bool
+        If True, use tessellation for unsupported surface types.
+
+    Returns
+    -------
+    tuple
+        (native_solid, topology_graph) where native_solid is the BREP solid
+        and topology_graph is the TopologyGraph containing all entities.
+    """
+    require_occ()
+
+    graph = TopologyGraph()
+    vertex_map = {}  # OCC vertex hash -> native vertex
+    edge_map = {}    # OCC edge hash -> native edge
+
+    # Get the solid (handle both Solid and Shell inputs)
+    if shape.ShapeType() == TopAbs_SOLID:
+        solid = topods.Solid(shape)
+    elif shape.ShapeType() == TopAbs_SHELL:
+        # Wrap shell in a solid
+        solid = shape
+    else:
+        raise ValueError(f"Expected SOLID or SHELL, got {shape.ShapeType()}")
+
+    shells = []
+
+    # Iterate over shells
+    shell_explorer = TopExp_Explorer(shape, TopAbs_SHELL)
+    while shell_explorer.More():
+        occ_shell = topods.Shell(shell_explorer.Current())
+        native_faces = []
+
+        # Iterate over faces in shell
+        face_explorer = TopExp_Explorer(occ_shell, TopAbs_FACE)
+        while face_explorer.More():
+            occ_face = topods.Face(face_explorer.Current())
+
+            # Convert surface
+            native_surface = occ_surface_to_native(occ_face, tessellate_fallback)
+            if native_surface is None:
+                face_explorer.Next()
+                continue
+
+            # Convert loops (wires)
+            native_loops = []
+            wire_explorer = TopExp_Explorer(occ_face, TopAbs_WIRE)
+            while wire_explorer.More():
+                occ_wire = topods.Wire(wire_explorer.Current())
+                native_trims = []
+
+                # Iterate over edges in wire
+                edge_explorer = TopExp_Explorer(occ_wire, TopAbs_EDGE)
+                while edge_explorer.More():
+                    occ_edge = topods.Edge(edge_explorer.Current())
+
+                    # Get or create native edge
+                    edge_hash = occ_edge.__hash__()
+                    if edge_hash in edge_map:
+                        native_edge = edge_map[edge_hash]
+                    else:
+                        native_edge, v1, v2 = occ_edge_to_native(occ_edge, vertex_map)
+                        edge_map[edge_hash] = native_edge
+                        graph.add_vertex(v1)
+                        graph.add_vertex(v2)
+                        graph.add_edge(native_edge)
+
+                    # Determine trim sense
+                    sense = occ_edge.Orientation() != TopAbs_REVERSED
+                    native_trim = brep_trim(native_edge, sense=sense)
+                    graph.add_trim(native_trim)
+                    native_trims.append(native_trim)
+
+                    edge_explorer.Next()
+
+                if native_trims:
+                    # Determine loop type (outer vs inner)
+                    # First wire is typically outer loop
+                    loop_type = 'outer' if not native_loops else 'inner'
+                    native_loop = brep_loop(native_trims, loop_type=loop_type)
+                    graph.add_loop(native_loop)
+                    native_loops.append(native_loop)
+
+                wire_explorer.Next()
+
+            # Create native face
+            native_face = brep_face(native_surface, native_loops)
+            graph.add_face(native_face)
+            native_faces.append(native_face)
+
+            face_explorer.Next()
+
+        if native_faces:
+            # Create shell (auto-detect closure)
+            native_shell = brep_shell(native_faces, closed=None)
+            graph.add_shell(native_shell, validate_closure=False)
+            shells.append(native_shell)
+
+        shell_explorer.Next()
+
+    if not shells:
+        raise ValueError("No shells found in OCC shape")
+
+    # Create solid
+    native_solid = brep_solid(shells)
+    graph.add_solid(native_solid, validate=False)
+
+    return native_solid, graph
+
+
+# -----------------------------------------------------------------------------
+# Native Surface → OCC Surface Conversion
+# -----------------------------------------------------------------------------
+
+def native_surface_to_occ(surf):
+    """Convert a native analytic surface to an OCC Geom_Surface.
+
+    Parameters
+    ----------
+    surf : native surface
+        A native analytic surface.
+
+    Returns
+    -------
+    Geom_Surface or None
+        The OCC surface, or None if conversion is not supported.
+    """
+    require_occ()
+
+    if not is_analytic_surface(surf):
+        return None
+
+    surface_type = surf[0]
+
+    if surface_type == 'plane_surface':
+        return _native_plane_to_occ(surf)
+    elif surface_type == 'sphere_surface':
+        return _native_sphere_to_occ(surf)
+    elif surface_type == 'cylinder_surface':
+        return _native_cylinder_to_occ(surf)
+    elif surface_type == 'cone_surface':
+        return _native_cone_to_occ(surf)
+    elif surface_type == 'torus_surface':
+        return _native_torus_to_occ(surf)
+    elif surface_type == 'bspline_surface':
+        return _native_bspline_to_occ(surf)
+    else:
+        return None
+
+
+def _native_plane_to_occ(surf):
+    """Convert native plane surface to OCC Geom_Plane."""
+    origin = surf[1]
+    meta = surf[2]
+    normal = meta['normal']
+
+    pnt = gp_Pnt(origin[0], origin[1], origin[2])
+    direction = gp_Dir(normal[0], normal[1], normal[2])
+
+    return Geom_Plane(pnt, direction)
+
+
+def _native_sphere_to_occ(surf):
+    """Convert native sphere surface to OCC Geom_SphericalSurface."""
+    center = surf[1]
+    meta = surf[2]
+    radius = meta['radius']
+
+    pnt = gp_Pnt(center[0], center[1], center[2])
+    ax3 = gp_Ax3(pnt, gp_Dir(0, 0, 1))  # Default axis
+
+    return Geom_SphericalSurface(ax3, radius)
+
+
+def _native_cylinder_to_occ(surf):
+    """Convert native cylinder surface to OCC Geom_CylindricalSurface."""
+    origin = surf[1]
+    meta = surf[2]
+    axis = meta['axis']
+    radius = meta['radius']
+
+    pnt = gp_Pnt(origin[0], origin[1], origin[2])
+    direction = gp_Dir(axis[0], axis[1], axis[2])
+    ax3 = gp_Ax3(pnt, direction)
+
+    return Geom_CylindricalSurface(ax3, radius)
+
+
+def _native_cone_to_occ(surf):
+    """Convert native cone surface to OCC Geom_ConicalSurface."""
+    apex = surf[1]
+    meta = surf[2]
+    axis = meta['axis']
+    half_angle = meta['half_angle']
+
+    pnt = gp_Pnt(apex[0], apex[1], apex[2])
+    direction = gp_Dir(axis[0], axis[1], axis[2])
+    ax3 = gp_Ax3(pnt, direction)
+
+    return Geom_ConicalSurface(ax3, half_angle, 0.0)  # Reference radius at apex
+
+
+def _native_torus_to_occ(surf):
+    """Convert native torus surface to OCC Geom_ToroidalSurface."""
+    center = surf[1]
+    meta = surf[2]
+    axis = meta['axis']
+    major_radius = meta['major_radius']
+    minor_radius = meta['minor_radius']
+
+    pnt = gp_Pnt(center[0], center[1], center[2])
+    direction = gp_Dir(axis[0], axis[1], axis[2])
+    ax3 = gp_Ax3(pnt, direction)
+
+    return Geom_ToroidalSurface(ax3, major_radius, minor_radius)
+
+
+def _native_bspline_to_occ(surf):
+    """Convert native B-spline surface to OCC Geom_BSplineSurface."""
+    cpts = surf[1]
+    meta = surf[2]
+
+    n_u = meta['n_u']
+    n_v = meta['n_v']
+    u_degree = meta['u_degree']
+    v_degree = meta['v_degree']
+    u_knots_flat = meta['u_knots']
+    v_knots_flat = meta['v_knots']
+    weights = meta['weights']
+
+    # Create control points array
+    poles = TColgp_Array2OfPnt(1, n_u, 1, n_v)
+    for j in range(n_v):
+        for i in range(n_u):
+            cp = cpts[j][i]
+            poles.SetValue(i + 1, j + 1, gp_Pnt(cp[0], cp[1], cp[2]))
+
+    # Convert flat knot vector to knots + multiplicities
+    def knots_to_occ(flat_knots):
+        """Convert flat knot vector to unique knots and multiplicities."""
+        unique_knots = []
+        multiplicities = []
+        prev = None
+        for k in flat_knots:
+            if prev is None or abs(k - prev) > 1e-10:
+                unique_knots.append(k)
+                multiplicities.append(1)
+            else:
+                multiplicities[-1] += 1
+            prev = k
+        return unique_knots, multiplicities
+
+    u_knots, u_mults = knots_to_occ(u_knots_flat)
+    v_knots, v_mults = knots_to_occ(v_knots_flat)
+
+    # Create OCC arrays
+    u_knots_arr = TColStd_Array1OfReal(1, len(u_knots))
+    for i, k in enumerate(u_knots):
+        u_knots_arr.SetValue(i + 1, k)
+
+    v_knots_arr = TColStd_Array1OfReal(1, len(v_knots))
+    for i, k in enumerate(v_knots):
+        v_knots_arr.SetValue(i + 1, k)
+
+    u_mults_arr = TColStd_Array1OfInteger(1, len(u_mults))
+    for i, m in enumerate(u_mults):
+        u_mults_arr.SetValue(i + 1, m)
+
+    v_mults_arr = TColStd_Array1OfInteger(1, len(v_mults))
+    for i, m in enumerate(v_mults):
+        v_mults_arr.SetValue(i + 1, m)
+
+    # Check if rational (non-uniform weights)
+    is_rational = False
+    for row in weights:
+        for w in row:
+            if abs(w - 1.0) > 1e-10:
+                is_rational = True
+                break
+
+    if is_rational:
+        # Create weights array
+        from OCC.Core.TColStd import TColStd_Array2OfReal
+        weights_arr = TColStd_Array2OfReal(1, n_u, 1, n_v)
+        for j in range(n_v):
+            for i in range(n_u):
+                weights_arr.SetValue(i + 1, j + 1, weights[j][i])
+
+        return Geom_BSplineSurface(poles, weights_arr,
+                                   u_knots_arr, v_knots_arr,
+                                   u_mults_arr, v_mults_arr,
+                                   u_degree, v_degree)
+    else:
+        return Geom_BSplineSurface(poles,
+                                   u_knots_arr, v_knots_arr,
+                                   u_mults_arr, v_mults_arr,
+                                   u_degree, v_degree)
+
+
+__all__ = [
+    'occ_available',
+    'require_occ',
+    'occ_surface_to_native',
+    'occ_edge_to_native',
+    'occ_solid_to_native_brep',
+    'native_surface_to_occ',
+]
