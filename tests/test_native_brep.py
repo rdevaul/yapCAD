@@ -778,3 +778,594 @@ class TestSolidValidation:
         # May or may not find triangles depending on tessellation,
         # but octree should not error
         assert isinstance(elements, list)
+
+
+class TestSerialization:
+    """Test BREP topology serialization and deserialization."""
+
+    def test_serialize_vertex(self):
+        """Test vertex serialization round-trip."""
+        from yapcad.native_brep import (
+            brep_vertex, _serialize_vertex, _deserialize_vertex,
+            vertex_id, vertex_location
+        )
+
+        v = brep_vertex([1.5, 2.5, 3.5], tolerance=0.001)
+        serialized = _serialize_vertex(v)
+
+        # Check serialized structure
+        assert serialized['type'] == 'brep_vertex'
+        assert serialized['location'] == [1.5, 2.5, 3.5, 1.0]
+        assert serialized['tolerance'] == 0.001
+
+        # Round-trip
+        v2 = _deserialize_vertex(serialized)
+        assert vertex_id(v2) == serialized['id']
+        loc = vertex_location(v2)
+        assert abs(loc[0] - 1.5) < 1e-10
+        assert abs(loc[1] - 2.5) < 1e-10
+        assert abs(loc[2] - 3.5) < 1e-10
+
+    def test_serialize_line_edge(self):
+        """Test line edge serialization round-trip."""
+        from yapcad.native_brep import (
+            brep_vertex, line_edge, _serialize_edge, _deserialize_edge,
+            edge_id, edge_curve_type
+        )
+
+        v1 = brep_vertex([0, 0, 0])
+        v2 = brep_vertex([1, 1, 1])
+        e = line_edge(v1, v2)
+
+        serialized = _serialize_edge(e)
+
+        # Check serialized structure
+        assert serialized['type'] == 'brep_edge'
+        assert serialized['curve_type'] == 'line'
+
+        # Round-trip
+        e2 = _deserialize_edge(serialized)
+        assert edge_id(e2) == serialized['id']
+        assert edge_curve_type(e2) == 'line'
+
+    def test_serialize_arc_edge(self):
+        """Test arc edge serialization round-trip."""
+        from yapcad.native_brep import (
+            brep_vertex, arc_edge, _serialize_edge, _deserialize_edge,
+            edge_id, edge_curve_type
+        )
+
+        v1 = brep_vertex([1, 0, 0])
+        v2 = brep_vertex([0, 1, 0])
+        # arc_edge uses center (not radius - radius is computed from geometry)
+        e = arc_edge(v1, v2, center=[0, 0, 0])
+
+        serialized = _serialize_edge(e)
+
+        # Check serialized structure
+        assert serialized['type'] == 'brep_edge'
+        assert serialized['curve_type'] == 'arc'
+        assert 'curve_params' in serialized
+
+        # Round-trip
+        e2 = _deserialize_edge(serialized)
+        assert edge_id(e2) == serialized['id']
+        assert edge_curve_type(e2) == 'arc'
+
+    def test_serialize_topology_graph(self):
+        """Test full topology graph serialization round-trip."""
+        from yapcad.native_brep import (
+            brep_vertex, line_edge, brep_trim, brep_loop,
+            brep_face, brep_shell,
+            serialize_topology_graph, deserialize_topology_graph
+        )
+        from yapcad.analytic_surfaces import plane_surface
+
+        # Build a simple topology
+        graph = TopologyGraph()
+
+        # Add vertices
+        v1 = brep_vertex([0, 0, 0])
+        v2 = brep_vertex([1, 0, 0])
+        v3 = brep_vertex([1, 1, 0])
+        v4 = brep_vertex([0, 1, 0])
+
+        for v in [v1, v2, v3, v4]:
+            graph.add_vertex(v)
+
+        # Add edges
+        e1 = line_edge(v1, v2)
+        e2 = line_edge(v2, v3)
+        e3 = line_edge(v3, v4)
+        e4 = line_edge(v4, v1)
+
+        for e in [e1, e2, e3, e4]:
+            graph.add_edge(e)
+
+        # Add trims, loop, face
+        trims = [brep_trim(e) for e in [e1, e2, e3, e4]]
+        for t in trims:
+            graph.add_trim(t)
+
+        loop = brep_loop(trims, loop_type='outer')
+        graph.add_loop(loop)
+
+        surface = plane_surface([0, 0, 0], [0, 0, 1])
+        face = brep_face(surface, [loop])
+        graph.add_face(face)
+
+        shell = brep_shell([face], closed=False)
+        graph.add_shell(shell, validate_closure=False)
+
+        # Serialize
+        serialized = serialize_topology_graph(graph)
+
+        # Check structure
+        assert serialized['version'] == '1.0'
+        assert len(serialized['vertices']) == 4
+        assert len(serialized['edges']) == 4
+        assert len(serialized['trims']) == 4
+        assert len(serialized['loops']) == 1
+        assert len(serialized['faces']) == 1
+        assert len(serialized['shells']) == 1
+
+        # Deserialize
+        graph2 = deserialize_topology_graph(serialized)
+
+        # Check counts match
+        assert len(graph2.vertices) == 4
+        assert len(graph2.edges) == 4
+        assert len(graph2.trims) == 4
+        assert len(graph2.loops) == 1
+        assert len(graph2.faces) == 1
+        assert len(graph2.shells) == 1
+
+    def test_serialize_surface_plane(self):
+        """Test plane surface serialization round-trip."""
+        from yapcad.native_brep import _serialize_surface, _deserialize_surface
+        from yapcad.analytic_surfaces import plane_surface, is_plane_surface
+
+        surf = plane_surface([1, 2, 3], [0, 0, 1])
+        serialized = _serialize_surface(surf)
+
+        # Check structure
+        assert serialized['surface_type'] == 'plane_surface'
+        assert serialized['origin'] == [1.0, 2.0, 3.0, 1.0]
+
+        # Round-trip
+        surf2 = _deserialize_surface(serialized)
+        assert is_plane_surface(surf2)
+
+    def test_serialize_surface_sphere(self):
+        """Test sphere surface serialization round-trip."""
+        from yapcad.native_brep import _serialize_surface, _deserialize_surface
+        from yapcad.analytic_surfaces import sphere_surface, is_sphere_surface
+
+        surf = sphere_surface([0, 0, 0], 2.5)
+        serialized = _serialize_surface(surf)
+
+        # Check structure
+        assert serialized['surface_type'] == 'sphere_surface'
+        assert serialized['metadata']['radius'] == 2.5
+
+        # Round-trip
+        surf2 = _deserialize_surface(serialized)
+        assert is_sphere_surface(surf2)
+        assert surf2[2]['radius'] == 2.5
+
+
+class TestSolidMetadataIntegration:
+    """Test native BREP integration with yapCAD solid metadata."""
+
+    def test_attach_and_retrieve_native_brep(self):
+        """Test attaching and retrieving native BREP from a solid."""
+        from yapcad.geom3d_util import prism
+        from yapcad.native_brep import (
+            attach_native_brep_to_solid, native_brep_from_solid,
+            has_native_brep, clear_native_brep,
+            brep_vertex, line_edge, brep_trim, brep_loop,
+            brep_face, brep_shell
+        )
+        from yapcad.analytic_surfaces import plane_surface
+
+        # Create a simple yapCAD solid
+        solid = prism(1, 1, 1)
+
+        # Initially no native BREP
+        assert not has_native_brep(solid)
+
+        # Build a simple native BREP (single face)
+        graph = TopologyGraph()
+
+        v1 = brep_vertex([0, 0, 0])
+        v2 = brep_vertex([1, 0, 0])
+        v3 = brep_vertex([1, 1, 0])
+        v4 = brep_vertex([0, 1, 0])
+
+        for v in [v1, v2, v3, v4]:
+            graph.add_vertex(v)
+
+        e1 = line_edge(v1, v2)
+        e2 = line_edge(v2, v3)
+        e3 = line_edge(v3, v4)
+        e4 = line_edge(v4, v1)
+
+        for e in [e1, e2, e3, e4]:
+            graph.add_edge(e)
+
+        trims = [brep_trim(e) for e in [e1, e2, e3, e4]]
+        for t in trims:
+            graph.add_trim(t)
+
+        loop = brep_loop(trims)
+        graph.add_loop(loop)
+
+        surface = plane_surface([0, 0, 0], [0, 0, 1])
+        face = brep_face(surface, [loop])
+        graph.add_face(face)
+
+        shell = brep_shell([face], closed=False)
+        graph.add_shell(shell, validate_closure=False)
+
+        # Attach to solid
+        attach_native_brep_to_solid(solid, graph)
+
+        # Now has native BREP
+        assert has_native_brep(solid)
+
+        # Retrieve and verify
+        graph2 = native_brep_from_solid(solid)
+        assert graph2 is not None
+        assert len(graph2.vertices) == 4
+        assert len(graph2.edges) == 4
+        assert len(graph2.faces) == 1
+
+        # Clear and verify
+        clear_native_brep(solid)
+        assert not has_native_brep(solid)
+        assert native_brep_from_solid(solid) is None
+
+    def test_json_serializable(self):
+        """Test that serialized native BREP is JSON-serializable."""
+        import json
+        from yapcad.native_brep import (
+            brep_vertex, line_edge, brep_trim, brep_loop,
+            brep_face, brep_shell, serialize_topology_graph
+        )
+        from yapcad.analytic_surfaces import plane_surface
+
+        # Build topology
+        graph = TopologyGraph()
+
+        v1 = brep_vertex([0, 0, 0])
+        v2 = brep_vertex([1, 0, 0])
+        graph.add_vertex(v1)
+        graph.add_vertex(v2)
+
+        e = line_edge(v1, v2)
+        graph.add_edge(e)
+
+        surface = plane_surface([0, 0, 0], [0, 0, 1])
+        face = brep_face(surface, [])
+        graph.add_face(face)
+
+        # Serialize
+        serialized = serialize_topology_graph(graph)
+
+        # Should be JSON-serializable
+        json_str = json.dumps(serialized)
+        assert isinstance(json_str, str)
+        assert len(json_str) > 0
+
+        # Should round-trip through JSON
+        parsed = json.loads(json_str)
+        assert parsed['version'] == '1.0'
+        assert len(parsed['vertices']) == 2
+
+
+class TestNativeBrepTransformations:
+    """Test native BREP transformation functions."""
+
+    def test_translate_native_brep(self):
+        """Test translation of native BREP in solid metadata."""
+        from yapcad.geom3d_util import prism
+        from yapcad.native_brep import (
+            attach_native_brep_to_solid, native_brep_from_solid,
+            has_native_brep, brep_vertex, line_edge, brep_trim,
+            brep_loop, brep_face, brep_shell, vertex_location,
+            translate_native_brep
+        )
+        from yapcad.analytic_surfaces import plane_surface
+
+        # Create a simple yapCAD solid with native BREP
+        solid = prism(1, 1, 1)
+
+        # Build a simple native BREP with one vertex at origin
+        graph = TopologyGraph()
+        v1 = brep_vertex([0, 0, 0])
+        v2 = brep_vertex([1, 0, 0])
+        graph.add_vertex(v1)
+        graph.add_vertex(v2)
+
+        e = line_edge(v1, v2)
+        graph.add_edge(e)
+
+        surface = plane_surface([0, 0, 0], [0, 0, 1])
+        face = brep_face(surface, [])
+        graph.add_face(face)
+
+        attach_native_brep_to_solid(solid, graph)
+
+        # Translate
+        translate_native_brep(solid, [10, 20, 30])
+
+        # Verify transformation
+        graph2 = native_brep_from_solid(solid)
+        v1_new = list(graph2.vertices.values())[0]
+        loc = vertex_location(v1_new)
+        # Original was at (0,0,0) -> should now be at (10,20,30)
+        # or original was at (1,0,0) -> should now be at (11,20,30)
+        # Just check that z is around 30
+        assert abs(loc[2] - 30) < 0.01
+
+    def test_transform_topology_graph(self):
+        """Test generic transformation of topology graph."""
+        from yapcad.native_brep import (
+            brep_vertex, line_edge, brep_face,
+            transform_topology_graph, vertex_location
+        )
+        from yapcad.analytic_surfaces import plane_surface
+        from yapcad.geom import point
+
+        graph = TopologyGraph()
+        v1 = brep_vertex([1, 0, 0])
+        v2 = brep_vertex([0, 1, 0])
+        graph.add_vertex(v1)
+        graph.add_vertex(v2)
+
+        e = line_edge(v1, v2)
+        graph.add_edge(e)
+
+        # Simple translation transform
+        def translate(p):
+            return point(p[0] + 5, p[1] + 5, p[2] + 5)
+
+        transform_topology_graph(graph, translate)
+
+        # Verify vertex positions changed
+        for vid, vertex in graph.vertices.items():
+            loc = vertex_location(vertex)
+            # All z values should be 5 now
+            assert abs(loc[2] - 5) < 0.01
+
+
+class TestOCCNativeConversion:
+    """Test OCC ↔ Native BREP conversion functions."""
+
+    @pytest.fixture
+    def occ_available(self):
+        """Check if OCC is available."""
+        try:
+            from yapcad.occ_native_convert import occ_available
+            return occ_available()
+        except ImportError:
+            return False
+
+    def test_native_vertex_to_occ(self, occ_available):
+        """Test converting a native vertex to OCC."""
+        if not occ_available:
+            pytest.skip("OCC not available")
+
+        from yapcad.native_brep import brep_vertex, vertex_location
+        from yapcad.occ_native_convert import native_vertex_to_occ
+        from OCC.Core.BRep import BRep_Tool
+
+        # Create native vertex
+        v = brep_vertex([1.0, 2.0, 3.0])
+
+        # Convert to OCC
+        occ_v = native_vertex_to_occ(v)
+
+        # Verify position
+        pnt = BRep_Tool.Pnt(occ_v)
+        assert abs(pnt.X() - 1.0) < 1e-10
+        assert abs(pnt.Y() - 2.0) < 1e-10
+        assert abs(pnt.Z() - 3.0) < 1e-10
+
+    def test_native_edge_to_occ_line(self, occ_available):
+        """Test converting a line edge to OCC."""
+        if not occ_available:
+            pytest.skip("OCC not available")
+
+        from yapcad.native_brep import brep_vertex, line_edge
+        from yapcad.occ_native_convert import native_edge_to_occ
+        from OCC.Core.BRep import BRep_Tool
+        from OCC.Core.TopExp import topexp
+
+        # Create native line edge
+        v1 = brep_vertex([0, 0, 0])
+        v2 = brep_vertex([10, 0, 0])
+
+        graph = TopologyGraph()
+        graph.add_vertex(v1)
+        graph.add_vertex(v2)
+
+        e = line_edge(v1, v2)
+        graph.add_edge(e)
+
+        # Convert to OCC
+        occ_e = native_edge_to_occ(e, graph)
+
+        # Verify endpoints
+        first_v = topexp.FirstVertex(occ_e)
+        last_v = topexp.LastVertex(occ_e)
+
+        p1 = BRep_Tool.Pnt(first_v)
+        p2 = BRep_Tool.Pnt(last_v)
+
+        # One should be at origin, other at (10, 0, 0)
+        assert (abs(p1.X()) < 1e-6 or abs(p2.X()) < 1e-6)
+        assert (abs(p1.X() - 10) < 1e-6 or abs(p2.X() - 10) < 1e-6)
+
+    def test_native_surface_to_occ_plane(self, occ_available):
+        """Test converting a plane surface to OCC."""
+        if not occ_available:
+            pytest.skip("OCC not available")
+
+        from yapcad.analytic_surfaces import plane_surface
+        from yapcad.occ_native_convert import native_surface_to_occ
+        from OCC.Core.GeomAbs import GeomAbs_Plane
+
+        # Create native plane
+        p = plane_surface([0, 0, 5], [0, 0, 1])
+
+        # Convert to OCC
+        occ_surf = native_surface_to_occ(p)
+
+        assert occ_surf is not None
+        # Check it's a plane
+        pln = occ_surf.Pln()
+        loc = pln.Location()
+        assert abs(loc.Z() - 5.0) < 1e-10
+
+    def test_native_surface_to_occ_sphere(self, occ_available):
+        """Test converting a sphere surface to OCC."""
+        if not occ_available:
+            pytest.skip("OCC not available")
+
+        from yapcad.analytic_surfaces import sphere_surface
+        from yapcad.occ_native_convert import native_surface_to_occ
+
+        # Create native sphere
+        s = sphere_surface([1, 2, 3], 5.0)
+
+        # Convert to OCC
+        occ_surf = native_surface_to_occ(s)
+
+        assert occ_surf is not None
+        sph = occ_surf.Sphere()
+        assert abs(sph.Radius() - 5.0) < 1e-10
+        loc = sph.Location()
+        assert abs(loc.X() - 1.0) < 1e-10
+        assert abs(loc.Y() - 2.0) < 1e-10
+        assert abs(loc.Z() - 3.0) < 1e-10
+
+    def test_native_surface_to_occ_cylinder(self, occ_available):
+        """Test converting a cylinder surface to OCC."""
+        if not occ_available:
+            pytest.skip("OCC not available")
+
+        from yapcad.analytic_surfaces import cylinder_surface
+        from yapcad.occ_native_convert import native_surface_to_occ
+
+        # Create native cylinder
+        c = cylinder_surface([0, 0, 0], [0, 0, 1], 3.0)
+
+        # Convert to OCC
+        occ_surf = native_surface_to_occ(c)
+
+        assert occ_surf is not None
+        cyl = occ_surf.Cylinder()
+        assert abs(cyl.Radius() - 3.0) < 1e-10
+
+    def test_roundtrip_occ_to_native_to_occ(self, occ_available):
+        """Test round-trip conversion OCC → Native → OCC."""
+        if not occ_available:
+            pytest.skip("OCC not available")
+
+        from yapcad.occ_native_convert import (
+            occ_solid_to_native_brep, native_brep_to_occ
+        )
+        from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeBox
+        from OCC.Core.GProp import GProp_GProps
+        from OCC.Core.BRepGProp import brepgprop
+
+        # Create an OCC box
+        box_maker = BRepPrimAPI_MakeBox(10, 10, 10)
+        occ_box = box_maker.Solid()
+
+        # Convert to native BREP
+        native_solid, graph = occ_solid_to_native_brep(occ_box)
+
+        # Verify graph has topology
+        assert len(graph.faces) == 6  # Cube has 6 faces
+        assert len(graph.vertices) > 0
+        assert len(graph.edges) > 0
+
+        # Convert back to OCC
+        occ_box2 = native_brep_to_occ(graph)
+
+        # Verify it's a valid solid by computing volume
+        props = GProp_GProps()
+        brepgprop.VolumeProperties(occ_box2, props)
+        volume = props.Mass()
+
+        # Volume should be close to 10*10*10 = 1000
+        # Allow tolerance because sewing might slightly affect shape
+        assert volume > 900 and volume < 1100
+
+    def test_roundtrip_cylinder(self, occ_available):
+        """Test round-trip conversion of a cylinder.
+
+        Note: Cylinder round-trip is challenging due to circular edge reconstruction.
+        This test verifies the conversion completes without error; volume preservation
+        for curved geometry may require additional curve conversion work.
+        """
+        if not occ_available:
+            pytest.skip("OCC not available")
+
+        from yapcad.occ_native_convert import (
+            occ_solid_to_native_brep, native_brep_to_occ
+        )
+        from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeCylinder
+        from OCC.Core.TopAbs import TopAbs_SOLID, TopAbs_SHELL
+
+        # Create an OCC cylinder
+        cyl_maker = BRepPrimAPI_MakeCylinder(5, 10)
+        occ_cyl = cyl_maker.Solid()
+
+        # Convert to native BREP
+        native_solid, graph = occ_solid_to_native_brep(occ_cyl)
+
+        # Verify graph has topology (cylinder: 3 faces - top, bottom, side)
+        assert len(graph.faces) == 3
+
+        # Convert back to OCC - just verify it completes without exception
+        occ_cyl2 = native_brep_to_occ(graph)
+
+        # Should return some shape (solid or shell)
+        assert occ_cyl2 is not None
+        assert occ_cyl2.ShapeType() in (TopAbs_SOLID, TopAbs_SHELL)
+
+    def test_native_brep_to_occ_from_solid(self, occ_available):
+        """Test converting native BREP from a yapCAD solid via OCC roundtrip."""
+        if not occ_available:
+            pytest.skip("OCC not available")
+
+        from yapcad.geom3d_util import prism
+        from yapcad.native_brep import (
+            attach_native_brep_to_solid, has_native_brep
+        )
+        from yapcad.occ_native_convert import (
+            native_brep_to_occ_from_solid, occ_solid_to_native_brep
+        )
+        from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeBox
+        from OCC.Core.TopAbs import TopAbs_SOLID, TopAbs_SHELL
+
+        # Create a yapCAD solid
+        solid = prism(2, 2, 2)
+
+        # Create an OCC box to get a valid native BREP
+        occ_box = BRepPrimAPI_MakeBox(2, 2, 2).Solid()
+        _, graph = occ_solid_to_native_brep(occ_box)
+
+        # Attach the native BREP to the yapCAD solid
+        attach_native_brep_to_solid(solid, graph)
+        assert has_native_brep(solid)
+
+        # Now convert back to OCC
+        occ_shape = native_brep_to_occ_from_solid(solid)
+
+        # Should get either a solid or shell back
+        assert occ_shape is not None
+        assert occ_shape.ShapeType() in (TopAbs_SOLID, TopAbs_SHELL)

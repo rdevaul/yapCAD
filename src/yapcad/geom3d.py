@@ -772,10 +772,15 @@ def translatesolid(x,delta):
     surfs = []
     for s in x[1]:
         surfs.append(translatesurface(s,delta))
-    s2[1] = surfs    
+    s2[1] = surfs
     try:
         from yapcad.brep import translate_brep_solid
         translate_brep_solid(s2, delta)
+    except ImportError:
+        pass
+    try:
+        from yapcad.native_brep import translate_native_brep
+        translate_native_brep(s2, delta)
     except ImportError:
         pass
     return s2
@@ -791,6 +796,11 @@ def rotatesolid(x,ang,cent=point(0,0,0),axis=point(0,0,1.0),mat=False):
     try:
         from yapcad.brep import rotate_brep_solid
         rotate_brep_solid(s2, ang, cent, axis)
+    except ImportError:
+        pass
+    try:
+        from yapcad.native_brep import rotate_native_brep
+        rotate_native_brep(s2, ang, cent, axis)
     except ImportError:
         pass
     return s2
@@ -809,6 +819,11 @@ def mirrorsolid(x,plane,preserveNormal=True):
     try:
         from yapcad.brep import mirror_brep_solid
         mirror_brep_solid(s2, plane)
+    except ImportError:
+        pass
+    try:
+        from yapcad.native_brep import mirror_native_brep
+        mirror_native_brep(s2, plane)
     except ImportError:
         pass
     return s2

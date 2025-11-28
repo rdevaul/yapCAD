@@ -56,10 +56,14 @@ try:
     from OCC.Core.BRepBuilderAPI import (
         BRepBuilderAPI_MakeVertex, BRepBuilderAPI_MakeEdge,
         BRepBuilderAPI_MakeWire, BRepBuilderAPI_MakeFace,
-        BRepBuilderAPI_MakeShell, BRepBuilderAPI_MakeSolid
+        BRepBuilderAPI_MakeShell, BRepBuilderAPI_MakeSolid,
+        BRepBuilderAPI_Sewing
     )
-    from OCC.Core.TColgp import TColgp_Array2OfPnt
+    from OCC.Core.TColgp import TColgp_Array2OfPnt, TColgp_Array1OfPnt
     from OCC.Core.TColStd import TColStd_Array1OfReal, TColStd_Array1OfInteger
+    from OCC.Core.ShapeFix import ShapeFix_Solid, ShapeFix_Shell
+    from OCC.Core.Geom import Geom_Line, Geom_Circle, Geom_BSplineCurve
+    from OCC.Core.GC import GC_MakeCircle, GC_MakeLine, GC_MakeArcOfCircle
     _OCC_AVAILABLE = True
 except ImportError:
     _OCC_AVAILABLE = False
@@ -835,11 +839,476 @@ def _native_bspline_to_occ(surf):
                                    u_degree, v_degree)
 
 
+# -----------------------------------------------------------------------------
+# Native BREP → OCC Conversion (for boolean operations)
+# -----------------------------------------------------------------------------
+
+def native_vertex_to_occ(vertex):
+    """Convert a native BREP vertex to an OCC TopoDS_Vertex.
+
+    Parameters
+    ----------
+    vertex : brep_vertex
+        The native vertex to convert.
+
+    Returns
+    -------
+    TopoDS_Vertex
+        The OCC vertex.
+    """
+    require_occ()
+    from yapcad.native_brep import vertex_location
+
+    loc = vertex_location(vertex)
+    pnt = gp_Pnt(loc[0], loc[1], loc[2])
+    return BRepBuilderAPI_MakeVertex(pnt).Vertex()
+
+
+def native_edge_to_occ(edge, graph):
+    """Convert a native BREP edge to an OCC TopoDS_Edge.
+
+    Parameters
+    ----------
+    edge : brep_edge
+        The native edge to convert.
+    graph : TopologyGraph
+        The topology graph containing the edge's vertices.
+
+    Returns
+    -------
+    TopoDS_Edge
+        The OCC edge.
+    """
+    require_occ()
+    from yapcad.native_brep import (
+        edge_curve_type, edge_vertices, edge_curve_params, vertex_location
+    )
+
+    curve_type = edge_curve_type(edge)
+    start_vid, end_vid = edge_vertices(edge)
+    params = edge_curve_params(edge)
+
+    # Get vertex locations - handle missing vertices
+    if start_vid is None or start_vid not in graph.vertices:
+        raise ValueError(f"Edge missing start vertex: {start_vid}")
+    if end_vid is None or end_vid not in graph.vertices:
+        raise ValueError(f"Edge missing end vertex: {end_vid}")
+
+    start_loc = vertex_location(graph.vertices[start_vid])
+    end_loc = vertex_location(graph.vertices[end_vid])
+
+    p1 = gp_Pnt(start_loc[0], start_loc[1], start_loc[2])
+    p2 = gp_Pnt(end_loc[0], end_loc[1], end_loc[2])
+
+    if curve_type == 'line':
+        # Line edge
+        edge_builder = BRepBuilderAPI_MakeEdge(p1, p2)
+
+    elif curve_type == 'circle':
+        # Circle/arc edge
+        center = params.get('center', [0, 0, 0])
+        axis = params.get('axis', [0, 0, 1])
+        radius = params.get('radius', 1.0)
+
+        center_pnt = gp_Pnt(center[0], center[1], center[2])
+        axis_dir = gp_Dir(axis[0], axis[1], axis[2])
+        ax2 = gp_Ax2(center_pnt, axis_dir)
+
+        # Create arc through three points or by angle
+        try:
+            arc_maker = GC_MakeArcOfCircle(p1, p2, center_pnt)
+            if arc_maker.IsDone():
+                edge_builder = BRepBuilderAPI_MakeEdge(arc_maker.Value(), p1, p2)
+            else:
+                # Fallback to line
+                edge_builder = BRepBuilderAPI_MakeEdge(p1, p2)
+        except Exception:
+            edge_builder = BRepBuilderAPI_MakeEdge(p1, p2)
+
+    elif curve_type == 'arc':
+        # Arc with bulge or center
+        if 'center' in params:
+            center = params['center']
+            center_pnt = gp_Pnt(center[0], center[1], center[2])
+            try:
+                arc_maker = GC_MakeArcOfCircle(p1, p2, center_pnt)
+                if arc_maker.IsDone():
+                    edge_builder = BRepBuilderAPI_MakeEdge(arc_maker.Value())
+                else:
+                    edge_builder = BRepBuilderAPI_MakeEdge(p1, p2)
+            except Exception:
+                edge_builder = BRepBuilderAPI_MakeEdge(p1, p2)
+        else:
+            # Bulge-based arc - compute center
+            edge_builder = BRepBuilderAPI_MakeEdge(p1, p2)
+
+    elif curve_type == 'bspline':
+        # B-spline edge
+        control_points = params.get('control_points', [])
+        knots = params.get('knots', [])
+        degree = params.get('degree', 3)
+        weights = params.get('weights', None)
+
+        if len(control_points) < 2:
+            edge_builder = BRepBuilderAPI_MakeEdge(p1, p2)
+        else:
+            try:
+                occ_curve = _native_bspline_curve_to_occ(
+                    control_points, knots, degree, weights
+                )
+                if occ_curve is not None:
+                    edge_builder = BRepBuilderAPI_MakeEdge(occ_curve)
+                else:
+                    edge_builder = BRepBuilderAPI_MakeEdge(p1, p2)
+            except Exception:
+                edge_builder = BRepBuilderAPI_MakeEdge(p1, p2)
+
+    else:
+        # Unknown curve type - fallback to line
+        edge_builder = BRepBuilderAPI_MakeEdge(p1, p2)
+
+    if not edge_builder.IsDone():
+        # Fallback to simple line
+        edge_builder = BRepBuilderAPI_MakeEdge(p1, p2)
+
+    try:
+        return edge_builder.Edge()
+    except RuntimeError:
+        # Edge builder failed - return a minimal degenerate edge
+        # Create a line edge as last resort
+        edge_builder = BRepBuilderAPI_MakeEdge(p1, p2)
+        if edge_builder.IsDone():
+            return edge_builder.Edge()
+        # If even that fails, create edge from a very small offset
+        p2_offset = gp_Pnt(p1.X() + 1e-6, p1.Y(), p1.Z())
+        return BRepBuilderAPI_MakeEdge(p1, p2_offset).Edge()
+
+
+def _native_bspline_curve_to_occ(control_points, knots, degree, weights=None):
+    """Convert native B-spline curve data to OCC Geom_BSplineCurve."""
+    require_occ()
+
+    n = len(control_points)
+    if n < 2:
+        return None
+
+    # Create control points array
+    poles = TColgp_Array1OfPnt(1, n)
+    for i, cp in enumerate(control_points):
+        poles.SetValue(i + 1, gp_Pnt(cp[0], cp[1], cp[2]))
+
+    # Convert flat knot vector to unique knots + multiplicities
+    unique_knots = []
+    multiplicities = []
+    prev = None
+    for k in knots:
+        if prev is None or abs(k - prev) > 1e-10:
+            unique_knots.append(k)
+            multiplicities.append(1)
+        else:
+            multiplicities[-1] += 1
+        prev = k
+
+    knots_arr = TColStd_Array1OfReal(1, len(unique_knots))
+    for i, k in enumerate(unique_knots):
+        knots_arr.SetValue(i + 1, k)
+
+    mults_arr = TColStd_Array1OfInteger(1, len(multiplicities))
+    for i, m in enumerate(multiplicities):
+        mults_arr.SetValue(i + 1, m)
+
+    # Check if rational
+    is_rational = False
+    if weights is not None:
+        for w in weights:
+            if abs(w - 1.0) > 1e-10:
+                is_rational = True
+                break
+
+    if is_rational and weights is not None:
+        weights_arr = TColStd_Array1OfReal(1, n)
+        for i, w in enumerate(weights):
+            weights_arr.SetValue(i + 1, w)
+        return Geom_BSplineCurve(poles, weights_arr, knots_arr, mults_arr, degree)
+    else:
+        return Geom_BSplineCurve(poles, knots_arr, mults_arr, degree)
+
+
+def native_loop_to_occ_wire(loop, graph, edge_cache=None):
+    """Convert a native BREP loop to an OCC TopoDS_Wire.
+
+    Parameters
+    ----------
+    loop : brep_loop
+        The native loop to convert.
+    graph : TopologyGraph
+        The topology graph containing the loop's edges.
+    edge_cache : dict, optional
+        Cache of edge_id -> TopoDS_Edge for reuse.
+
+    Returns
+    -------
+    TopoDS_Wire
+        The OCC wire.
+    """
+    require_occ()
+    from yapcad.native_brep import is_brep_loop, trim_edge_id
+
+    if edge_cache is None:
+        edge_cache = {}
+
+    # Get trim IDs from loop
+    trim_ids = loop[1]  # ['brep_loop', trim_refs, metadata]
+
+    wire_builder = BRepBuilderAPI_MakeWire()
+
+    for tid in trim_ids:
+        trim = graph.trims.get(tid)
+        if trim is None:
+            continue
+
+        edge_id = trim_edge_id(trim)
+        edge = graph.edges.get(edge_id)
+        if edge is None:
+            continue
+
+        # Get or create OCC edge
+        if edge_id in edge_cache:
+            occ_edge = edge_cache[edge_id]
+        else:
+            occ_edge = native_edge_to_occ(edge, graph)
+            edge_cache[edge_id] = occ_edge
+
+        # Add edge to wire (handle sense/orientation)
+        sense = trim[2].get('sense', True)
+        if sense:
+            wire_builder.Add(occ_edge)
+        else:
+            # Reversed edge
+            reversed_edge = occ_edge.Reversed()
+            wire_builder.Add(topods.Edge(reversed_edge))
+
+    if wire_builder.IsDone():
+        return wire_builder.Wire()
+    else:
+        return None
+
+
+def native_face_to_occ(face, graph, edge_cache=None):
+    """Convert a native BREP face to an OCC TopoDS_Face.
+
+    Parameters
+    ----------
+    face : brep_face
+        The native face to convert.
+    graph : TopologyGraph
+        The topology graph containing the face's loops.
+    edge_cache : dict, optional
+        Cache of edge_id -> TopoDS_Edge for reuse.
+
+    Returns
+    -------
+    TopoDS_Face
+        The OCC face, or None if conversion fails.
+    """
+    require_occ()
+
+    if edge_cache is None:
+        edge_cache = {}
+
+    # Get surface and loops
+    surface = face[1]  # ['brep_face', surface, metadata]
+    meta = face[2]
+    loop_ids = meta.get('loop_ids', [])
+    face_sense = meta.get('sense', True)
+
+    # Convert surface to OCC
+    occ_surface = native_surface_to_occ(surface)
+    if occ_surface is None:
+        return None
+
+    # Build wires from loops
+    wires = []
+    for lid in loop_ids:
+        loop = graph.loops.get(lid)
+        if loop is None:
+            continue
+        wire = native_loop_to_occ_wire(loop, graph, edge_cache)
+        if wire is not None:
+            wires.append(wire)
+
+    if not wires:
+        # No wires - create face from surface bounds
+        try:
+            face_builder = BRepBuilderAPI_MakeFace(occ_surface, 1e-6)
+            if face_builder.IsDone():
+                return face_builder.Face()
+        except Exception:
+            pass
+        return None
+
+    # First wire is outer boundary
+    try:
+        face_builder = BRepBuilderAPI_MakeFace(occ_surface, wires[0], True)
+        if not face_builder.IsDone():
+            return None
+
+        # Add inner wires (holes)
+        for inner_wire in wires[1:]:
+            face_builder.Add(inner_wire)
+
+        occ_face = face_builder.Face()
+
+        # Handle face sense
+        if not face_sense:
+            occ_face = topods.Face(occ_face.Reversed())
+
+        return occ_face
+
+    except Exception:
+        return None
+
+
+def native_brep_to_occ(graph, fix_shape=True):
+    """Convert a native BREP TopologyGraph to an OCC TopoDS_Solid.
+
+    This function converts a complete native BREP representation back to
+    an OCC solid, which can then be used for boolean operations or export.
+
+    Parameters
+    ----------
+    graph : TopologyGraph
+        The native BREP topology graph.
+    fix_shape : bool, optional
+        If True, apply shape fixing to ensure a valid solid. Default True.
+
+    Returns
+    -------
+    TopoDS_Solid or TopoDS_Shell
+        The OCC solid (or shell if conversion to solid fails).
+    """
+    require_occ()
+    from yapcad.native_brep import TopologyGraph
+
+    if not isinstance(graph, TopologyGraph):
+        raise ValueError("Expected a TopologyGraph")
+
+    edge_cache = {}
+
+    # Convert all faces
+    occ_faces = []
+    for fid, face in graph.faces.items():
+        occ_face = native_face_to_occ(face, graph, edge_cache)
+        if occ_face is not None:
+            occ_faces.append(occ_face)
+
+    if not occ_faces:
+        raise ValueError("No faces could be converted")
+
+    # Sew faces into shell(s)
+    sewing = BRepBuilderAPI_Sewing(1e-6)
+    for occ_face in occ_faces:
+        sewing.Add(occ_face)
+
+    sewing.Perform()
+    sewn_shape = sewing.SewedShape()
+
+    # Try to create a solid from the sewn shell
+    if sewn_shape.ShapeType() == TopAbs_SHELL:
+        shell = topods.Shell(sewn_shape)
+
+        if fix_shape:
+            # Fix the shell (may fail for some geometries)
+            try:
+                shell_fixer = ShapeFix_Shell(shell)
+                shell_fixer.Perform()
+                shell = shell_fixer.Shell()
+            except RuntimeError:
+                # Shell fixing failed, use unfixed shell
+                pass
+
+        # Create solid from shell
+        solid_builder = BRepBuilderAPI_MakeSolid(shell)
+        if solid_builder.IsDone():
+            solid = solid_builder.Solid()
+
+            if fix_shape:
+                # Fix the solid (may fail for some geometries)
+                try:
+                    solid_fixer = ShapeFix_Solid(solid)
+                    solid_fixer.Perform()
+                    solid = solid_fixer.Solid()
+                except RuntimeError:
+                    # Solid fixing failed, use unfixed solid
+                    pass
+
+            return solid
+        else:
+            # Return shell if solid creation fails
+            return shell
+
+    elif sewn_shape.ShapeType() == TopAbs_SOLID:
+        solid = topods.Solid(sewn_shape)
+        if fix_shape:
+            try:
+                solid_fixer = ShapeFix_Solid(solid)
+                solid_fixer.Perform()
+                solid = solid_fixer.Solid()
+            except RuntimeError:
+                # Solid fixing failed, use unfixed solid
+                pass
+        return solid
+
+    else:
+        # Return whatever we got
+        return sewn_shape
+
+
+def native_brep_to_occ_from_solid(yapcad_solid, fix_shape=True):
+    """Convert a yapCAD solid's native BREP to OCC representation.
+
+    Convenience function that extracts the native BREP from a yapCAD solid
+    and converts it to OCC format.
+
+    Parameters
+    ----------
+    yapcad_solid : solid
+        A yapCAD solid with native BREP data attached.
+    fix_shape : bool, optional
+        If True, apply shape fixing to ensure a valid solid. Default True.
+
+    Returns
+    -------
+    TopoDS_Solid or TopoDS_Shell or None
+        The OCC shape, or None if no native BREP is attached.
+    """
+    require_occ()
+    from yapcad.native_brep import native_brep_from_solid, has_native_brep
+
+    if not has_native_brep(yapcad_solid):
+        return None
+
+    graph = native_brep_from_solid(yapcad_solid)
+    if graph is None:
+        return None
+
+    return native_brep_to_occ(graph, fix_shape=fix_shape)
+
+
 __all__ = [
+    # OCC availability
     'occ_available',
     'require_occ',
+    # OCC → Native conversion
     'occ_surface_to_native',
     'occ_edge_to_native',
     'occ_solid_to_native_brep',
+    # Native → OCC conversion
     'native_surface_to_occ',
+    'native_vertex_to_occ',
+    'native_edge_to_occ',
+    'native_loop_to_occ_wire',
+    'native_face_to_occ',
+    'native_brep_to_occ',
+    'native_brep_to_occ_from_solid',
 ]

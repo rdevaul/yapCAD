@@ -1778,3 +1778,889 @@ class TopologyGraph:
                         details)
 
         return details
+
+
+# -----------------------------------------------------------------------------
+# Serialization and Deserialization
+# -----------------------------------------------------------------------------
+
+def _serialize_point(p):
+    """Convert a point to a JSON-serializable list."""
+    if p is None:
+        return None
+    return [float(p[0]), float(p[1]), float(p[2]), float(p[3]) if len(p) > 3 else 1.0]
+
+
+def _deserialize_point(data):
+    """Reconstruct a point from serialized data."""
+    if data is None:
+        return None
+    return point(data[0], data[1], data[2])
+
+
+def _serialize_vertex(v):
+    """Serialize a BREP vertex to a dict."""
+    if not is_brep_vertex(v):
+        raise ValueError("Not a BREP vertex")
+    return {
+        'type': 'brep_vertex',
+        'location': _serialize_point(v[1]),
+        'id': v[2].get('id'),
+        'tolerance': v[2].get('tolerance', epsilon),
+        'tags': v[2].get('tags', {}),
+    }
+
+
+def _deserialize_vertex(data):
+    """Reconstruct a BREP vertex from serialized data."""
+    loc = _deserialize_point(data['location'])
+    v = brep_vertex(loc, tolerance=data.get('tolerance', epsilon),
+                    tags=data.get('tags', {}))
+    # Restore original ID
+    v[2]['id'] = data['id']
+    return v
+
+
+def _serialize_edge(e):
+    """Serialize a BREP edge to a dict."""
+    if not is_brep_edge(e):
+        raise ValueError("Not a BREP edge")
+    meta = e[2]
+    result = {
+        'type': 'brep_edge',
+        'curve_type': e[1],
+        'id': meta.get('id'),
+        'start_vertex': meta.get('start_vertex_id'),  # Note: key is start_vertex_id in metadata
+        'end_vertex': meta.get('end_vertex_id'),      # Note: key is end_vertex_id in metadata
+        'tags': meta.get('tags', {}),
+    }
+    # Serialize curve parameters
+    if 'curve_params' in meta:
+        params = meta['curve_params']
+        serialized_params = {}
+        for key, value in params.items():
+            if key in ('center', 'axis', 'control_points'):
+                if isinstance(value, list) and value and isinstance(value[0], (list, tuple)):
+                    # List of points
+                    serialized_params[key] = [_serialize_point(p) for p in value]
+                else:
+                    serialized_params[key] = _serialize_point(value)
+            elif key == 'knots':
+                serialized_params[key] = list(value) if value else []
+            elif key == 'weights':
+                serialized_params[key] = list(value) if value else None
+            else:
+                serialized_params[key] = value
+        result['curve_params'] = serialized_params
+    return result
+
+
+def _deserialize_edge(data, vertex_map=None):
+    """Reconstruct a BREP edge from serialized data."""
+    curve_type = data['curve_type']
+    start_id = data['start_vertex']
+    end_id = data['end_vertex']
+
+    # Reconstruct curve parameters
+    curve_params = {}
+    if 'curve_params' in data:
+        params = data['curve_params']
+        for key, value in params.items():
+            if key in ('center', 'axis'):
+                curve_params[key] = _deserialize_point(value) if value else None
+            elif key == 'control_points':
+                if value and isinstance(value[0], list):
+                    curve_params[key] = [_deserialize_point(p) for p in value]
+                else:
+                    curve_params[key] = _deserialize_point(value) if value else None
+            elif key == 'knots':
+                curve_params[key] = list(value) if value else []
+            elif key == 'weights':
+                curve_params[key] = list(value) if value else None
+            else:
+                curve_params[key] = value
+
+    # Create edge with appropriate type
+    start_v = vertex_map.get(start_id) if vertex_map else start_id
+    end_v = vertex_map.get(end_id) if vertex_map else end_id
+
+    if curve_type == 'line':
+        e = line_edge(start_v, end_v, tags=data.get('tags', {}))
+    elif curve_type == 'arc':
+        # arc_edge uses bulge OR (center, orientation), not radius
+        if curve_params.get('bulge') is not None:
+            e = arc_edge(start_v, end_v, bulge=curve_params.get('bulge'),
+                         tags=data.get('tags', {}))
+        else:
+            e = arc_edge(start_v, end_v, center=curve_params.get('center'),
+                         orientation=curve_params.get('orientation', 1),
+                         tags=data.get('tags', {}))
+    elif curve_type == 'circle':
+        e = circle_edge(start_v, end_v, curve_params.get('center'),
+                        curve_params.get('axis'), curve_params.get('radius'),
+                        t_start=curve_params.get('t_start', 0.0),
+                        t_end=curve_params.get('t_end'),
+                        tags=data.get('tags', {}))
+    elif curve_type == 'bspline':
+        e = bspline_edge(start_v, end_v, curve_params.get('control_points'),
+                         curve_params.get('knots'), curve_params.get('degree'),
+                         weights=curve_params.get('weights'),
+                         t_start=curve_params.get('t_start'),
+                         t_end=curve_params.get('t_end'),
+                         tags=data.get('tags', {}))
+    else:
+        # Generic edge
+        e = brep_edge(curve_type, start_v, end_v,
+                      curve_params=curve_params, tags=data.get('tags', {}))
+
+    # Restore original ID
+    e[2]['id'] = data['id']
+    return e
+
+
+def _serialize_trim(t):
+    """Serialize a BREP trim to a dict."""
+    if not is_brep_trim(t):
+        raise ValueError("Not a BREP trim")
+    meta = t[2]
+    return {
+        'type': 'brep_trim',
+        'edge_id': t[1],
+        'id': meta.get('id'),
+        'sense': meta.get('sense', True),
+        'uv_curve': meta.get('uv_curve'),
+        'face_id': meta.get('face_id'),
+        'loop_id': meta.get('loop_id'),
+        'tags': meta.get('tags', {}),
+    }
+
+
+def _deserialize_trim(data, edge_map=None):
+    """Reconstruct a BREP trim from serialized data."""
+    edge_ref = edge_map.get(data['edge_id']) if edge_map else data['edge_id']
+
+    t = brep_trim(edge_ref, sense=data.get('sense', True),
+                  uv_curve=data.get('uv_curve'),
+                  tags=data.get('tags', {}))
+    t[2]['id'] = data['id']
+    if data.get('face_id'):
+        t[2]['face_id'] = data['face_id']
+    if data.get('loop_id'):
+        t[2]['loop_id'] = data['loop_id']
+    return t
+
+
+def _serialize_loop(l):
+    """Serialize a BREP loop to a dict."""
+    if not is_brep_loop(l):
+        raise ValueError("Not a BREP loop")
+    meta = l[2]
+    return {
+        'type': 'brep_loop',
+        'trim_ids': list(l[1]),
+        'id': meta.get('id'),
+        'loop_type': meta.get('loop_type', 'outer'),
+        'face_id': meta.get('face_id'),
+        'tags': meta.get('tags', {}),
+    }
+
+
+def _deserialize_loop(data, trim_map=None):
+    """Reconstruct a BREP loop from serialized data."""
+    trim_refs = [trim_map.get(tid) if trim_map else tid for tid in data['trim_ids']]
+
+    l = brep_loop(trim_refs, loop_type=data.get('loop_type', 'outer'),
+                  tags=data.get('tags', {}))
+    l[2]['id'] = data['id']
+    if data.get('face_id'):
+        l[2]['face_id'] = data['face_id']
+    return l
+
+
+def _serialize_surface(surf):
+    """Serialize an analytic surface to a dict.
+
+    Analytic surfaces are already list-based structures that are mostly
+    JSON-serializable, but we need to handle points properly.
+    """
+    if surf is None:
+        return None
+
+    surf_type = surf[0] if isinstance(surf, list) and surf else None
+    if surf_type is None:
+        return None
+
+    # The surface is stored as ['type', data, metadata]
+    # We need to serialize it properly
+    result = {
+        'surface_type': surf_type,
+    }
+
+    if surf_type == 'plane_surface':
+        result['origin'] = _serialize_point(surf[1])
+        result['metadata'] = _serialize_surface_metadata(surf[2])
+
+    elif surf_type == 'sphere_surface':
+        result['center'] = _serialize_point(surf[1])
+        result['metadata'] = _serialize_surface_metadata(surf[2])
+
+    elif surf_type == 'cylinder_surface':
+        result['origin'] = _serialize_point(surf[1])
+        result['metadata'] = _serialize_surface_metadata(surf[2])
+
+    elif surf_type == 'cone_surface':
+        result['apex'] = _serialize_point(surf[1])
+        result['metadata'] = _serialize_surface_metadata(surf[2])
+
+    elif surf_type == 'torus_surface':
+        result['center'] = _serialize_point(surf[1])
+        result['metadata'] = _serialize_surface_metadata(surf[2])
+
+    elif surf_type == 'bspline_surface':
+        # Control points are nested list of points
+        control_points = surf[1]
+        serialized_cpts = []
+        for row in control_points:
+            serialized_row = [_serialize_point(p) for p in row]
+            serialized_cpts.append(serialized_row)
+        result['control_points'] = serialized_cpts
+        result['metadata'] = _serialize_surface_metadata(surf[2])
+
+    elif surf_type == 'tessellated_surface':
+        # Vertices and normals are lists of points
+        result['vertices'] = [_serialize_point(v) for v in surf[1].get('vertices', [])]
+        result['normals'] = [_serialize_point(n) for n in surf[1].get('normals', [])]
+        result['faces'] = surf[1].get('faces', [])
+        result['metadata'] = _serialize_surface_metadata(surf[2]) if len(surf) > 2 else {}
+
+    else:
+        # Unknown surface type - try generic serialization
+        result['data'] = surf[1] if len(surf) > 1 else None
+        result['metadata'] = surf[2] if len(surf) > 2 else {}
+
+    return result
+
+
+def _serialize_surface_metadata(meta):
+    """Serialize surface metadata, handling vectors/points."""
+    if meta is None:
+        return {}
+    result = {}
+    for key, value in meta.items():
+        if key in ('normal', 'axis', 'u_axis', 'v_axis'):
+            result[key] = list(value) if value else None
+        elif key == 'u_range' or key == 'v_range':
+            result[key] = list(value) if value else None
+        elif key == 'u_knots' or key == 'v_knots':
+            result[key] = list(value) if value else []
+        elif key == 'weights':
+            if value and isinstance(value[0], list):
+                result[key] = [list(row) for row in value]
+            else:
+                result[key] = list(value) if value else None
+        else:
+            result[key] = value
+    return result
+
+
+def _deserialize_surface(data):
+    """Reconstruct an analytic surface from serialized data."""
+    from yapcad.analytic_surfaces import (
+        plane_surface, sphere_surface, cylinder_surface,
+        cone_surface, torus_surface, bspline_surface, tessellated_surface
+    )
+
+    if data is None:
+        return None
+
+    surf_type = data.get('surface_type')
+    if surf_type is None:
+        return None
+
+    meta = data.get('metadata', {})
+
+    if surf_type == 'plane_surface':
+        origin = _deserialize_point(data['origin'])
+        normal = meta.get('normal', [0, 0, 1, 0])
+        return plane_surface(origin, normal,
+                            u_range=tuple(meta.get('u_range', (-1, 1))),
+                            v_range=tuple(meta.get('v_range', (-1, 1))))
+
+    elif surf_type == 'sphere_surface':
+        center = _deserialize_point(data['center'])
+        radius = meta.get('radius', 1.0)
+        return sphere_surface(center, radius,
+                             u_range=tuple(meta.get('u_range', (0, 2*pi))),
+                             v_range=tuple(meta.get('v_range', (-pi/2, pi/2))))
+
+    elif surf_type == 'cylinder_surface':
+        origin = _deserialize_point(data['origin'])
+        axis = meta.get('axis', [0, 0, 1, 0])
+        radius = meta.get('radius', 1.0)
+        return cylinder_surface(origin, axis, radius,
+                               u_range=tuple(meta.get('u_range', (0, 2*pi))),
+                               v_range=tuple(meta.get('v_range', (0, 1))))
+
+    elif surf_type == 'cone_surface':
+        apex = _deserialize_point(data['apex'])
+        axis = meta.get('axis', [0, 0, 1, 0])
+        half_angle = meta.get('half_angle', pi/4)
+        return cone_surface(apex, axis, half_angle,
+                           u_range=tuple(meta.get('u_range', (0, 2*pi))),
+                           v_range=tuple(meta.get('v_range', (0, 1))))
+
+    elif surf_type == 'torus_surface':
+        center = _deserialize_point(data['center'])
+        axis = meta.get('axis', [0, 0, 1, 0])
+        major_radius = meta.get('major_radius', 2.0)
+        minor_radius = meta.get('minor_radius', 0.5)
+        return torus_surface(center, axis, major_radius, minor_radius,
+                            u_range=tuple(meta.get('u_range', (0, 2*pi))),
+                            v_range=tuple(meta.get('v_range', (0, 2*pi))))
+
+    elif surf_type == 'bspline_surface':
+        control_points = [[_deserialize_point(p) for p in row]
+                         for row in data['control_points']]
+        u_knots = meta.get('u_knots', [])
+        v_knots = meta.get('v_knots', [])
+        u_degree = meta.get('u_degree', 3)
+        v_degree = meta.get('v_degree', 3)
+        weights = meta.get('weights')
+        return bspline_surface(control_points, u_knots, v_knots,
+                              u_degree, v_degree, weights=weights,
+                              u_range=tuple(meta.get('u_range', (0, 1))),
+                              v_range=tuple(meta.get('v_range', (0, 1))))
+
+    elif surf_type == 'tessellated_surface':
+        vertices = [_deserialize_point(v) for v in data.get('vertices', [])]
+        normals = [_deserialize_point(n) for n in data.get('normals', [])]
+        faces = data.get('faces', [])
+        return tessellated_surface(vertices, normals, faces,
+                                  u_range=tuple(meta.get('u_range', (0, 1))),
+                                  v_range=tuple(meta.get('v_range', (0, 1))))
+
+    else:
+        # Unknown type - return generic structure
+        return [surf_type, data.get('data'), data.get('metadata', {})]
+
+
+def _serialize_face(f):
+    """Serialize a BREP face to a dict."""
+    if not is_brep_face(f):
+        raise ValueError("Not a BREP face")
+    meta = f[2]
+    return {
+        'type': 'brep_face',
+        'surface': _serialize_surface(f[1]),
+        'id': meta.get('id'),
+        'loop_ids': list(meta.get('loop_ids', [])),
+        'sense': meta.get('sense', True),
+        'shell_id': meta.get('shell_id'),
+        'tags': meta.get('tags', {}),
+    }
+
+
+def _deserialize_face(data, loop_map=None):
+    """Reconstruct a BREP face from serialized data."""
+    surface = _deserialize_surface(data['surface'])
+    loop_refs = [loop_map.get(lid) if loop_map else lid
+                 for lid in data.get('loop_ids', [])]
+
+    f = brep_face(surface, loop_refs, sense=data.get('sense', True),
+                  tags=data.get('tags', {}))
+    f[2]['id'] = data['id']
+    if data.get('shell_id'):
+        f[2]['shell_id'] = data['shell_id']
+    return f
+
+
+def _serialize_shell(s):
+    """Serialize a BREP shell to a dict."""
+    if not is_brep_shell(s):
+        raise ValueError("Not a BREP shell")
+    meta = s[2]
+    return {
+        'type': 'brep_shell',
+        'face_ids': list(s[1]),
+        'id': meta.get('id'),
+        'closed': meta.get('closed'),
+        'solid_id': meta.get('solid_id'),
+        'tags': meta.get('tags', {}),
+    }
+
+
+def _deserialize_shell(data, face_map=None):
+    """Reconstruct a BREP shell from serialized data."""
+    face_refs = [face_map.get(fid) if face_map else fid
+                 for fid in data.get('face_ids', [])]
+
+    s = brep_shell(face_refs, closed=data.get('closed'),
+                   tags=data.get('tags', {}))
+    s[2]['id'] = data['id']
+    if data.get('solid_id'):
+        s[2]['solid_id'] = data['solid_id']
+    return s
+
+
+def _serialize_solid(s):
+    """Serialize a native BREP solid to a dict."""
+    if not is_brep_solid_native(s):
+        raise ValueError("Not a native BREP solid")
+    meta = s[2]
+    return {
+        'type': 'brep_solid',
+        'shell_ids': list(s[1]),
+        'id': meta.get('id'),
+        'tags': meta.get('tags', {}),
+    }
+
+
+def _deserialize_solid(data, shell_map=None):
+    """Reconstruct a native BREP solid from serialized data."""
+    shell_refs = [shell_map.get(sid) if shell_map else sid
+                  for sid in data.get('shell_ids', [])]
+
+    s = brep_solid(shell_refs, tags=data.get('tags', {}))
+    s[2]['id'] = data['id']
+    return s
+
+
+def serialize_topology_graph(graph):
+    """Serialize a TopologyGraph to a JSON-serializable dict.
+
+    Parameters
+    ----------
+    graph : TopologyGraph
+        The topology graph to serialize.
+
+    Returns
+    -------
+    dict
+        JSON-serializable dictionary containing all topology entities.
+    """
+    return {
+        'version': '1.0',
+        'vertices': {vid: _serialize_vertex(v) for vid, v in graph.vertices.items()},
+        'edges': {eid: _serialize_edge(e) for eid, e in graph.edges.items()},
+        'trims': {tid: _serialize_trim(t) for tid, t in graph.trims.items()},
+        'loops': {lid: _serialize_loop(l) for lid, l in graph.loops.items()},
+        'faces': {fid: _serialize_face(f) for fid, f in graph.faces.items()},
+        'shells': {sid: _serialize_shell(s) for sid, s in graph.shells.items()},
+        'solids': {solid_id: _serialize_solid(s) for solid_id, s in graph.solids.items()},
+    }
+
+
+def deserialize_topology_graph(data):
+    """Reconstruct a TopologyGraph from serialized data.
+
+    Parameters
+    ----------
+    data : dict
+        Serialized topology graph data.
+
+    Returns
+    -------
+    TopologyGraph
+        Reconstructed topology graph.
+    """
+    graph = TopologyGraph()
+
+    # Deserialize vertices first (no dependencies)
+    vertex_map = {}  # old_id -> vertex
+    for vid, vdata in data.get('vertices', {}).items():
+        vertex = _deserialize_vertex(vdata)
+        vertex_map[vid] = vertex
+        graph.vertices[vertex[2]['id']] = vertex
+
+    # Deserialize edges (depend on vertices)
+    edge_map = {}
+    for eid, edata in data.get('edges', {}).items():
+        edge = _deserialize_edge(edata, vertex_map=None)  # Use IDs directly
+        edge_map[eid] = edge
+        graph.edges[edge[2]['id']] = edge
+
+    # Deserialize trims (depend on edges)
+    trim_map = {}
+    for tid, tdata in data.get('trims', {}).items():
+        trim = _deserialize_trim(tdata)
+        trim_map[tid] = trim
+        graph.trims[trim[2]['id']] = trim
+
+    # Deserialize loops (depend on trims)
+    loop_map = {}
+    for lid, ldata in data.get('loops', {}).items():
+        loop = _deserialize_loop(ldata)
+        loop_map[lid] = loop
+        graph.loops[loop[2]['id']] = loop
+
+    # Deserialize faces (depend on loops)
+    face_map = {}
+    for fid, fdata in data.get('faces', {}).items():
+        face = _deserialize_face(fdata)
+        face_map[fid] = face
+        graph.faces[face[2]['id']] = face
+
+    # Deserialize shells (depend on faces)
+    shell_map = {}
+    for sid, sdata in data.get('shells', {}).items():
+        shell = _deserialize_shell(sdata)
+        shell_map[sid] = shell
+        graph.shells[shell[2]['id']] = shell
+
+    # Deserialize solids (depend on shells)
+    for solid_id, sdata in data.get('solids', {}).items():
+        solid = _deserialize_solid(sdata)
+        graph.solids[solid[2]['id']] = solid
+
+    return graph
+
+
+# -----------------------------------------------------------------------------
+# Solid Metadata Integration
+# -----------------------------------------------------------------------------
+
+def attach_native_brep_to_solid(yapcad_solid, native_brep_graph):
+    """Attach a native BREP topology graph to a yapCAD solid's metadata.
+
+    Parameters
+    ----------
+    yapcad_solid : list
+        A yapCAD solid (from geom3d).
+    native_brep_graph : TopologyGraph
+        The native BREP topology graph to attach.
+
+    Notes
+    -----
+    This stores the serialized native BREP in the solid's metadata under
+    the 'native_brep' key. The format mirrors the OCC BREP storage pattern
+    used in brep.py.
+    """
+    from yapcad.metadata import get_solid_metadata, ensure_solid_id
+
+    ensure_solid_id(yapcad_solid)
+    meta = get_solid_metadata(yapcad_solid, create=True)
+
+    serialized = serialize_topology_graph(native_brep_graph)
+    meta['native_brep'] = {
+        'encoding': 'topology-graph-json',
+        'version': serialized.get('version', '1.0'),
+        'data': serialized,
+    }
+
+
+def native_brep_from_solid(yapcad_solid):
+    """Retrieve native BREP topology graph from a yapCAD solid's metadata.
+
+    Parameters
+    ----------
+    yapcad_solid : list
+        A yapCAD solid (from geom3d).
+
+    Returns
+    -------
+    TopologyGraph or None
+        The deserialized topology graph, or None if not present.
+    """
+    from yapcad.metadata import get_solid_metadata
+
+    meta = get_solid_metadata(yapcad_solid, create=False)
+    if not meta:
+        return None
+
+    native_brep_info = meta.get('native_brep')
+    if not native_brep_info:
+        return None
+
+    data = native_brep_info.get('data')
+    if not data:
+        return None
+
+    return deserialize_topology_graph(data)
+
+
+def has_native_brep(yapcad_solid):
+    """Check if a yapCAD solid has native BREP data attached.
+
+    Parameters
+    ----------
+    yapcad_solid : list
+        A yapCAD solid (from geom3d).
+
+    Returns
+    -------
+    bool
+        True if native BREP data is present.
+    """
+    from yapcad.metadata import get_solid_metadata
+
+    meta = get_solid_metadata(yapcad_solid, create=False)
+    return bool(meta and meta.get('native_brep'))
+
+
+def clear_native_brep(yapcad_solid):
+    """Remove native BREP data from a yapCAD solid's metadata.
+
+    Parameters
+    ----------
+    yapcad_solid : list
+        A yapCAD solid (from geom3d).
+
+    Notes
+    -----
+    This is useful when the native BREP becomes stale (e.g., after
+    modifications that don't update the BREP).
+    """
+    from yapcad.metadata import get_solid_metadata
+
+    meta = get_solid_metadata(yapcad_solid, create=False)
+    if meta and 'native_brep' in meta:
+        del meta['native_brep']
+
+
+# -----------------------------------------------------------------------------
+# Native BREP Transformations
+# -----------------------------------------------------------------------------
+
+def _transform_point(p, transform_fn):
+    """Apply a transformation function to a point."""
+    if p is None:
+        return None
+    result = transform_fn(p)
+    return point(result[0], result[1], result[2])
+
+
+def _transform_vector(v, transform_fn):
+    """Apply a transformation function to a vector (direction only)."""
+    if v is None:
+        return None
+    # For vectors, transform from origin to get direction only
+    origin = point(0, 0, 0)
+    end = point(v[0], v[1], v[2])
+    t_end = transform_fn(end)
+    # Don't translate vectors, just rotate/scale them
+    # For pure rotation/scale, we can compute by transforming the vector as a point
+    # and subtracting transformed origin
+    t_origin = transform_fn(origin)
+    result = [t_end[0] - t_origin[0], t_end[1] - t_origin[1], t_end[2] - t_origin[2], 0.0]
+    # Normalize
+    mag = sqrt(result[0]**2 + result[1]**2 + result[2]**2)
+    if mag > epsilon:
+        result = [result[0]/mag, result[1]/mag, result[2]/mag, 0.0]
+    return result
+
+
+def transform_topology_graph(graph, transform_fn):
+    """Apply a transformation to all geometry in a TopologyGraph.
+
+    Parameters
+    ----------
+    graph : TopologyGraph
+        The topology graph to transform (modified in-place).
+    transform_fn : callable
+        A function that takes a point and returns a transformed point.
+
+    Notes
+    -----
+    This transforms:
+    - All vertex locations
+    - Edge curve parameters (centers, control points, axes)
+    - Face surface parameters (origins, centers, normals, axes)
+    - Invalidates cached octrees
+    """
+    # Transform all vertices
+    for vid, vertex in graph.vertices.items():
+        loc = vertex[1]
+        vertex[1] = _transform_point(loc, transform_fn)
+
+    # Transform edge curve parameters
+    for eid, edge in graph.edges.items():
+        meta = edge[2]
+        if 'curve_params' in meta:
+            params = meta['curve_params']
+            if 'center' in params:
+                params['center'] = _transform_point(params['center'], transform_fn)
+            if 'axis' in params:
+                params['axis'] = _transform_vector(params['axis'], transform_fn)
+            if 'control_points' in params and params['control_points']:
+                cpts = params['control_points']
+                if isinstance(cpts[0], (list, tuple)) and len(cpts[0]) >= 3:
+                    params['control_points'] = [_transform_point(p, transform_fn) for p in cpts]
+
+    # Transform face surfaces
+    for fid, face in graph.faces.items():
+        surface = face[1]
+        if surface is not None and isinstance(surface, list) and len(surface) >= 3:
+            _transform_surface_inplace(surface, transform_fn)
+
+    # Invalidate all shell octrees
+    for sid, shell in graph.shells.items():
+        shell[2]['_octree_dirty'] = True
+
+
+def _transform_surface_inplace(surface, transform_fn):
+    """Transform a surface's parameters in-place."""
+    surf_type = surface[0]
+    meta = surface[2] if len(surface) > 2 else {}
+
+    if surf_type == 'plane_surface':
+        surface[1] = _transform_point(surface[1], transform_fn)
+        if 'normal' in meta:
+            meta['normal'] = _transform_vector(meta['normal'], transform_fn)
+        if 'u_axis' in meta:
+            meta['u_axis'] = _transform_vector(meta['u_axis'], transform_fn)
+        if 'v_axis' in meta:
+            meta['v_axis'] = _transform_vector(meta['v_axis'], transform_fn)
+
+    elif surf_type == 'sphere_surface':
+        surface[1] = _transform_point(surface[1], transform_fn)
+
+    elif surf_type == 'cylinder_surface':
+        surface[1] = _transform_point(surface[1], transform_fn)
+        if 'axis' in meta:
+            meta['axis'] = _transform_vector(meta['axis'], transform_fn)
+
+    elif surf_type == 'cone_surface':
+        surface[1] = _transform_point(surface[1], transform_fn)
+        if 'axis' in meta:
+            meta['axis'] = _transform_vector(meta['axis'], transform_fn)
+
+    elif surf_type == 'torus_surface':
+        surface[1] = _transform_point(surface[1], transform_fn)
+        if 'axis' in meta:
+            meta['axis'] = _transform_vector(meta['axis'], transform_fn)
+
+    elif surf_type == 'bspline_surface':
+        # Control points are nested list
+        control_points = surface[1]
+        for i, row in enumerate(control_points):
+            for j, pt in enumerate(row):
+                control_points[i][j] = _transform_point(pt, transform_fn)
+
+    elif surf_type == 'tessellated_surface':
+        # Vertices and normals in dict at [1]
+        data = surface[1]
+        if 'vertices' in data:
+            data['vertices'] = [_transform_point(v, transform_fn) for v in data['vertices']]
+        if 'normals' in data:
+            data['normals'] = [_transform_vector(n, transform_fn) for n in data['normals']]
+
+
+def translate_native_brep(yapcad_solid, delta):
+    """Apply a translation to native BREP data in a solid.
+
+    Parameters
+    ----------
+    yapcad_solid : list
+        A yapCAD solid with native BREP data.
+    delta : point/list
+        Translation vector [dx, dy, dz].
+    """
+    graph = native_brep_from_solid(yapcad_solid)
+    if graph is None:
+        return
+
+    dx = float(delta[0]) if len(delta) > 0 else 0.0
+    dy = float(delta[1]) if len(delta) > 1 else 0.0
+    dz = float(delta[2]) if len(delta) > 2 else 0.0
+
+    def translate_point(p):
+        return point(p[0] + dx, p[1] + dy, p[2] + dz)
+
+    transform_topology_graph(graph, translate_point)
+    attach_native_brep_to_solid(yapcad_solid, graph)
+
+
+def rotate_native_brep(yapcad_solid, ang, center, axis):
+    """Apply a rotation to native BREP data in a solid.
+
+    Parameters
+    ----------
+    yapcad_solid : list
+        A yapCAD solid with native BREP data.
+    ang : float
+        Rotation angle in degrees.
+    center : point
+        Center of rotation.
+    axis : point/vector
+        Axis of rotation.
+    """
+    from yapcad.geom import rotate as geom_rotate
+
+    graph = native_brep_from_solid(yapcad_solid)
+    if graph is None:
+        return
+
+    def rotate_point(p):
+        return geom_rotate(p, ang, cent=center, axis=axis)
+
+    transform_topology_graph(graph, rotate_point)
+    attach_native_brep_to_solid(yapcad_solid, graph)
+
+
+def mirror_native_brep(yapcad_solid, plane):
+    """Apply a mirror transformation to native BREP data in a solid.
+
+    Parameters
+    ----------
+    yapcad_solid : list
+        A yapCAD solid with native BREP data.
+    plane : str
+        Mirror plane: 'xy', 'xz', or 'yz'.
+    """
+    from yapcad.geom import mirror as geom_mirror
+
+    graph = native_brep_from_solid(yapcad_solid)
+    if graph is None:
+        return
+
+    def mirror_point(p):
+        return geom_mirror(p, plane)
+
+    transform_topology_graph(graph, mirror_point)
+    attach_native_brep_to_solid(yapcad_solid, graph)
+
+
+def scale_native_brep(yapcad_solid, factor, center=None):
+    """Apply a uniform scale to native BREP data in a solid.
+
+    Parameters
+    ----------
+    yapcad_solid : list
+        A yapCAD solid with native BREP data.
+    factor : float
+        Scale factor.
+    center : point, optional
+        Center of scaling. Defaults to origin.
+    """
+    graph = native_brep_from_solid(yapcad_solid)
+    if graph is None:
+        return
+
+    cx = float(center[0]) if center and len(center) > 0 else 0.0
+    cy = float(center[1]) if center and len(center) > 1 else 0.0
+    cz = float(center[2]) if center and len(center) > 2 else 0.0
+    f = float(factor)
+
+    def scale_point(p):
+        # Scale relative to center
+        return point(
+            cx + (p[0] - cx) * f,
+            cy + (p[1] - cy) * f,
+            cz + (p[2] - cz) * f
+        )
+
+    transform_topology_graph(graph, scale_point)
+
+    # Also update radii in surfaces
+    for fid, face in graph.faces.items():
+        surface = face[1]
+        if surface is not None and isinstance(surface, list) and len(surface) >= 3:
+            meta = surface[2] if len(surface) > 2 else {}
+            if 'radius' in meta:
+                meta['radius'] = meta['radius'] * f
+            if 'major_radius' in meta:
+                meta['major_radius'] = meta['major_radius'] * f
+            if 'minor_radius' in meta:
+                meta['minor_radius'] = meta['minor_radius'] * f
+
+    attach_native_brep_to_solid(yapcad_solid, graph)
