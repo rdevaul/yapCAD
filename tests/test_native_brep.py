@@ -1305,12 +1305,7 @@ class TestOCCNativeConversion:
         assert volume > 900 and volume < 1100
 
     def test_roundtrip_cylinder(self, occ_available):
-        """Test round-trip conversion of a cylinder.
-
-        Note: Cylinder round-trip is challenging due to circular edge reconstruction.
-        This test verifies the conversion completes without error; volume preservation
-        for curved geometry may require additional curve conversion work.
-        """
+        """Test round-trip conversion of a cylinder with volume preservation."""
         if not occ_available:
             pytest.skip("OCC not available")
 
@@ -1318,11 +1313,19 @@ class TestOCCNativeConversion:
             occ_solid_to_native_brep, native_brep_to_occ
         )
         from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeCylinder
+        from OCC.Core.GProp import GProp_GProps
+        from OCC.Core.BRepGProp import brepgprop
         from OCC.Core.TopAbs import TopAbs_SOLID, TopAbs_SHELL
+        from math import pi
 
         # Create an OCC cylinder
         cyl_maker = BRepPrimAPI_MakeCylinder(5, 10)
         occ_cyl = cyl_maker.Solid()
+
+        # Get original volume
+        props1 = GProp_GProps()
+        brepgprop.VolumeProperties(occ_cyl, props1)
+        vol1 = props1.Mass()
 
         # Convert to native BREP
         native_solid, graph = occ_solid_to_native_brep(occ_cyl)
@@ -1330,12 +1333,22 @@ class TestOCCNativeConversion:
         # Verify graph has topology (cylinder: 3 faces - top, bottom, side)
         assert len(graph.faces) == 3
 
-        # Convert back to OCC - just verify it completes without exception
+        # Convert back to OCC
         occ_cyl2 = native_brep_to_occ(graph)
 
-        # Should return some shape (solid or shell)
+        # Should return a solid
         assert occ_cyl2 is not None
         assert occ_cyl2.ShapeType() in (TopAbs_SOLID, TopAbs_SHELL)
+
+        # Verify volume preservation
+        props2 = GProp_GProps()
+        brepgprop.VolumeProperties(occ_cyl2, props2)
+        vol2 = props2.Mass()
+
+        # Expected volume: π * r² * h = π * 25 * 10 ≈ 785
+        expected = pi * 25 * 10
+        assert abs(vol1 - expected) / expected < 0.01  # Original close to expected
+        assert abs(vol2 - vol1) / vol1 < 0.01  # Roundtrip within 1%
 
     def test_native_brep_to_occ_from_solid(self, occ_available):
         """Test converting native BREP from a yapCAD solid via OCC roundtrip."""

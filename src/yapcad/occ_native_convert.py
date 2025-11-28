@@ -204,6 +204,9 @@ def _convert_cone(adaptor, u_min, u_max, v_min, v_max):
     apex_pt = _gp_pnt_to_point(apex)
     axis_dir = _gp_dir_to_vector(axis.Direction())
 
+    # OCC uses negative half_angle for cones pointing downward - use absolute value
+    half_angle = abs(half_angle)
+
     return cone_surface(apex_pt, axis_dir, half_angle,
                        u_range=(u_min, u_max), v_range=(v_min, v_max))
 
@@ -909,19 +912,38 @@ def native_edge_to_occ(edge, graph):
         center = params.get('center', [0, 0, 0])
         axis = params.get('axis', [0, 0, 1])
         radius = params.get('radius', 1.0)
+        t_start = params.get('t_start', 0.0)
+        t_end = params.get('t_end', 2 * 3.141592653589793)
 
         center_pnt = gp_Pnt(center[0], center[1], center[2])
         axis_dir = gp_Dir(axis[0], axis[1], axis[2])
         ax2 = gp_Ax2(center_pnt, axis_dir)
 
-        # Create arc through three points or by angle
+        # Check if this is a full circle (start == end vertex)
+        is_full_circle = (start_vid == end_vid) or (p1.Distance(p2) < 1e-9)
+
         try:
-            arc_maker = GC_MakeArcOfCircle(p1, p2, center_pnt)
-            if arc_maker.IsDone():
-                edge_builder = BRepBuilderAPI_MakeEdge(arc_maker.Value(), p1, p2)
+            from OCC.Core.Geom import Geom_Circle
+            from OCC.Core.gp import gp_Circ
+
+            # Create a circle
+            circ = gp_Circ(ax2, radius)
+            geom_circle = Geom_Circle(circ)
+
+            if is_full_circle:
+                # Full circle - use parameter range
+                edge_builder = BRepBuilderAPI_MakeEdge(geom_circle, t_start, t_end)
             else:
-                # Fallback to line
-                edge_builder = BRepBuilderAPI_MakeEdge(p1, p2)
+                # Arc - use start/end points
+                edge_builder = BRepBuilderAPI_MakeEdge(geom_circle, p1, p2)
+
+            if not edge_builder.IsDone():
+                # Fallback: try arc maker
+                arc_maker = GC_MakeArcOfCircle(p1, p2, center_pnt)
+                if arc_maker.IsDone():
+                    edge_builder = BRepBuilderAPI_MakeEdge(arc_maker.Value())
+                else:
+                    edge_builder = BRepBuilderAPI_MakeEdge(p1, p2)
         except Exception:
             edge_builder = BRepBuilderAPI_MakeEdge(p1, p2)
 
@@ -1112,6 +1134,7 @@ def native_face_to_occ(face, graph, edge_cache=None):
         The OCC face, or None if conversion fails.
     """
     require_occ()
+    from math import pi
 
     if edge_cache is None:
         edge_cache = {}
@@ -1125,6 +1148,35 @@ def native_face_to_occ(face, graph, edge_cache=None):
     # Convert surface to OCC
     occ_surface = native_surface_to_occ(surface)
     if occ_surface is None:
+        return None
+
+    # Check if this is a complete analytic surface that should be created
+    # without wire boundaries (e.g., full sphere, full torus)
+    # These surfaces have singularities (poles) that make wire reconstruction complex
+    surface_type = surface[0] if isinstance(surface, (list, tuple)) else None
+    is_complete_surface = False
+
+    if surface_type == 'sphere_surface':
+        # Check if it's a full sphere (u: 0 to 2π, v: -π/2 to π/2)
+        surf_meta = surface[2] if len(surface) > 2 else {}
+        u_range = surf_meta.get('u_range', (0, 2 * pi))
+        v_range = surf_meta.get('v_range', (-pi / 2, pi / 2))
+        if (abs(u_range[1] - u_range[0] - 2 * pi) < 0.01 and
+                abs(v_range[1] - v_range[0] - pi) < 0.01):
+            is_complete_surface = True
+
+    if is_complete_surface:
+        # Create face from surface natural bounds, ignoring wires
+        # (wires on surfaces with singularities are complex to reconstruct)
+        try:
+            face_builder = BRepBuilderAPI_MakeFace(occ_surface, 1e-6)
+            if face_builder.IsDone():
+                occ_face = face_builder.Face()
+                if not face_sense:
+                    occ_face = topods.Face(occ_face.Reversed())
+                return occ_face
+        except Exception:
+            pass
         return None
 
     # Build wires from loops
