@@ -31,7 +31,7 @@
 - ✅ **Validation Infrastructure**: Comprehensive mesh quality checks
   - `tools/validate_mesh.py` CLI tool
   - Integration with `admesh`, `meshfix`, and slicers
-  - **284 tests passing** including boolean regression suite
+  - **291 tests passing** including boolean regression suite and STL import
 
 - ✅ **Analytic STEP Export**: Full BREP preservation
   - `write_step_analytic()` exports exact geometric definitions (PLANE, CYLINDER, SPHERE, etc.)

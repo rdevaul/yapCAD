@@ -19,13 +19,15 @@ Progress Snapshot (November 2025)
 ---------------------------------
 
 - ``.ycpkg`` packaging, manifest schema, and CLI tooling implemented (validation & export helpers, metadata tracking, analytic sketch primitives).
-- DXF/STEP/STL exports available; viewers operate on packaged geometry; **284 regression tests** cover spline/tessellation/BREP workflows.
+- DXF/STEP/STL import and export available; viewers operate on packaged geometry.
 - DSL, validation framework, and security/signature features remain in design phase (``docs/dsl_spec.rst``, ``docs/ycpkg_spec.rst``).
 - **BREP Integration COMPLETE**: Full native BREP representation with OCC integration (see ``docs/BREP_integration_strategy.md``).
 - **Analytic STEP Export COMPLETE**: ``write_step_analytic()`` preserves exact geometric definitions (PLANE, CYLINDER, SPHERE, CONE, etc.).
 - **STEP Import COMPLETE**: ``import_step()`` loads STEP files with full BREP topology preservation.
+- **STL Import COMPLETE**: ``read_stl()`` / ``import_stl()`` load binary and ASCII STL files with optional vertex deduplication.
 - **Advanced curve types**: Parabola and hyperbola primitives implemented.
-- Upcoming work: DSL compiler, validation execution layer, STL import, automation APIs.
+- **291 regression tests** covering all import/export and BREP workflows.
+- Upcoming work: DSL compiler, validation execution layer, automation APIs.
 
 Functional Requirements
 -----------------------
@@ -84,12 +86,12 @@ Roadmap & Milestones
 - Next steps: prototype DSL compiler, define validation schema, integrate with packaging/metadata.
 - Validation plan schema (``docs/ycpkg_spec.rst``) and analysis metadata updates published; placeholder analyzer CLI records plan execution summaries pending full solver adapters.
 
-**Phase 4 - Export/Import Expansion [Mostly Complete]**
+**Phase 4 - Export/Import Expansion [COMPLETE]**
 - STEP (faceted and analytic), STL, DXF exports implemented; viewer consumes packaged geometry.
 - **STEP import implemented** via ``import_step()`` with full BREP topology preservation.
 - **Analytic STEP export implemented** via ``write_step_analytic()`` - preserves exact surface definitions.
 - Full BREP kernel with OCC integration complete (see ``docs/BREP_integration_strategy.md``).
-- STL import pending (only remaining item).
+- **STL import implemented** via ``read_stl()`` / ``import_stl()`` supporting binary and ASCII formats.
 
 **Phase 5 - Provenance & Security Enhancements [Not Started]**
 - Hashing exists for geometry/assets; signatures/approvals still on backlog.
