@@ -133,4 +133,4 @@ Potential future work includes:
 *   **Partial surface support**: Handle trimmed/partial surfaces in round-trip conversion
 *   **IGES import**: Add support for IGES file format alongside STEP
 *   **Boolean operation result tracking**: Preserve face/edge provenance through boolean operations
-*   **Advanced curve types**: Ellipse, hyperbola, parabola support in edge conversion
+*   ~~**Advanced curve types**: Ellipse, hyperbola, parabola support in edge conversion~~ ✅ **COMPLETE** (November 2025) - Parabola and hyperbola primitives implemented in `native_brep.py`

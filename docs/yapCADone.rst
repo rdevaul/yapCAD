@@ -15,14 +15,17 @@ Guiding Principles
 - Openness: use documented schemas and standard formats (STEP, STL, JSON/YAML manifests) for interoperability.
 - Automation friendly: support LLM-driven design loops and continuous validation pipelines.
 
-Progress Snapshot (October 2025)
---------------------------------
+Progress Snapshot (November 2025)
+---------------------------------
 
 - ``.ycpkg`` packaging, manifest schema, and CLI tooling implemented (validation & export helpers, metadata tracking, analytic sketch primitives).
-- DXF/STEP/STL exports available; viewers operate on packaged geometry; regression tests cover spline/tessellation workflows.
+- DXF/STEP/STL exports available; viewers operate on packaged geometry; **284 regression tests** cover spline/tessellation/BREP workflows.
 - DSL, validation framework, and security/signature features remain in design phase (``docs/dsl_spec.rst``, ``docs/ycpkg_spec.rst``).
-- Analytic BREP roadmap captured in ``docs/yapBREP.rst`` (ellipses/conics, analytic surfaces, topology graph).
-- Upcoming work: DSL compiler, validation execution layer, STEP/STL import, analytic STEP exporter, automation APIs.
+- **BREP Integration COMPLETE**: Full native BREP representation with OCC integration (see ``docs/BREP_integration_strategy.md``).
+- **Analytic STEP Export COMPLETE**: ``write_step_analytic()`` preserves exact geometric definitions (PLANE, CYLINDER, SPHERE, CONE, etc.).
+- **STEP Import COMPLETE**: ``import_step()`` loads STEP files with full BREP topology preservation.
+- **Advanced curve types**: Parabola and hyperbola primitives implemented.
+- Upcoming work: DSL compiler, validation execution layer, STL import, automation APIs.
 
 Functional Requirements
 -----------------------
@@ -81,9 +84,12 @@ Roadmap & Milestones
 - Next steps: prototype DSL compiler, define validation schema, integrate with packaging/metadata.
 - Validation plan schema (``docs/ycpkg_spec.rst``) and analysis metadata updates published; placeholder analyzer CLI records plan execution summaries pending full solver adapters.
 
-**Phase 4 - Export/Import Expansion [Ongoing]**
-- STEP (faceted), STL, DXF exports implemented; viewer consumes packaged geometry.
-- STL import pending; analytic STEP import/export scoped in ``docs/yapBREP.rst`` (requires new BREP kernel work).
+**Phase 4 - Export/Import Expansion [Mostly Complete]**
+- STEP (faceted and analytic), STL, DXF exports implemented; viewer consumes packaged geometry.
+- **STEP import implemented** via ``import_step()`` with full BREP topology preservation.
+- **Analytic STEP export implemented** via ``write_step_analytic()`` - preserves exact surface definitions.
+- Full BREP kernel with OCC integration complete (see ``docs/BREP_integration_strategy.md``).
+- STL import pending (only remaining item).
 
 **Phase 5 - Provenance & Security Enhancements [Not Started]**
 - Hashing exists for geometry/assets; signatures/approvals still on backlog.
@@ -94,10 +100,10 @@ Roadmap & Milestones
 Dependencies & Tooling Considerations
 -------------------------------------
 
-- Potential third-party STEP libraries (e.g. pythonocc-core) for parsing/advanced export—evaluate licensing and integration cost.
+- **pythonocc-core integrated** via conda environment (``environment.yml``) - provides STEP import/export and OCC boolean engine.
 - Hashing/signature libraries (cryptography, nacl) for provenance features.
 - Testing infrastructure to run simulations (container support, job orchestration where required).
-- Analytic BREP implementation plan documented in ``docs/yapBREP.rst``; evaluate whether to leverage OCC kernels or extend native primitives per that roadmap.
+- **BREP implementation complete**: Native BREP topology with bidirectional OCC conversion (see ``docs/BREP_integration_strategy.md``).
 
 Risks & Mitigations
 -------------------
@@ -109,6 +115,6 @@ Risks & Mitigations
 Open Questions
 --------------
 
-- Level of BREP fidelity required for initial STEP release.
+- ~~Level of BREP fidelity required for initial STEP release.~~ **RESOLVED**: Full analytic BREP with native topology graph and OCC integration implemented.
 - Signature trust model (self-signed vs. PKI integration).
 - Integration story for non-visual viewers and headless pipelines.
