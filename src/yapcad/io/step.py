@@ -4,12 +4,171 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Dict, List, Sequence, TextIO, Tuple
+from typing import Dict, List, Optional, Sequence, TextIO, Tuple, Union
+import os
+import tempfile
 
 from yapcad.geometry_utils import triangles_from_mesh
 from yapcad.mesh import mesh_view
 
 Vec3 = Tuple[float, float, float]
+
+# Check OCC availability
+_OCC_AVAILABLE = False
+try:
+    from OCC.Core.STEPControl import STEPControl_Writer, STEPControl_AsIs
+    from OCC.Core.IFSelect import IFSelect_RetDone
+    from OCC.Core.Interface import Interface_Static
+    _OCC_AVAILABLE = True
+except ImportError:
+    pass
+
+
+def write_step_analytic(obj: Sequence,
+                        path: str,
+                        *,
+                        name: str = 'yapCAD',
+                        fallback_to_faceted: bool = True) -> bool:
+    """Export ``obj`` to a STEP file using analytic BREP if available.
+
+    This function attempts to export the object using its native BREP
+    representation (with analytic surfaces like planes, cylinders, spheres).
+    If native BREP data is not available or OCC is not installed, it can
+    fall back to faceted BREP export.
+
+    Parameters
+    ----------
+    obj : Sequence
+        A yapCAD solid or surface to export.
+    path : str
+        The output file path.
+    name : str, optional
+        The product name in the STEP file. Default 'yapCAD'.
+    fallback_to_faceted : bool, optional
+        If True and analytic export fails, fall back to faceted export.
+        Default True.
+
+    Returns
+    -------
+    bool
+        True if analytic export succeeded, False if fell back to faceted.
+
+    Raises
+    ------
+    RuntimeError
+        If OCC is not available and fallback_to_faceted is False.
+    ValueError
+        If native BREP is not available and fallback_to_faceted is False.
+    """
+    if not _OCC_AVAILABLE:
+        if fallback_to_faceted:
+            write_step(obj, path, name=name)
+            return False
+        raise RuntimeError('pythonocc-core is required for analytic STEP export')
+
+    # Try to get native BREP and convert to OCC
+    occ_shape = _get_occ_shape_from_obj(obj)
+
+    if occ_shape is None:
+        if fallback_to_faceted:
+            write_step(obj, path, name=name)
+            return False
+        raise ValueError('Object has no native BREP data for analytic export')
+
+    # Export using OCC's STEPControl_Writer
+    writer = STEPControl_Writer()
+
+    # Set author/organization info
+    Interface_Static.SetCVal("write.step.product.name", name)
+
+    # Transfer the shape
+    status = writer.Transfer(occ_shape, STEPControl_AsIs)
+    if status != IFSelect_RetDone:
+        if fallback_to_faceted:
+            write_step(obj, path, name=name)
+            return False
+        raise RuntimeError(f'Failed to transfer shape to STEP writer: {status}')
+
+    # Write to file
+    status = writer.Write(path)
+    if status != IFSelect_RetDone:
+        if fallback_to_faceted:
+            write_step(obj, path, name=name)
+            return False
+        raise RuntimeError(f'Failed to write STEP file: {status}')
+
+    return True
+
+
+def _get_occ_shape_from_obj(obj):
+    """Extract or convert an OCC shape from a yapCAD object.
+
+    Parameters
+    ----------
+    obj : Sequence
+        A yapCAD solid, surface, or geometry object.
+
+    Returns
+    -------
+    TopoDS_Shape or None
+        The OCC shape if available, None otherwise.
+    """
+    # Check for direct BrepSolid first (OCC-backed)
+    try:
+        from yapcad.brep import BrepSolid
+        if isinstance(obj, BrepSolid):
+            return obj.shape
+    except ImportError:
+        pass
+
+    # Check if obj is wrapped in a Geometry object
+    try:
+        from yapcad.geometry import Geometry
+        if isinstance(obj, Geometry):
+            elem = obj._Geometry__elem
+            # Check for BrepSolid from brep.py (OCC-backed)
+            try:
+                from yapcad.brep import BrepSolid
+                if isinstance(elem, BrepSolid):
+                    return elem.shape
+            except ImportError:
+                pass
+
+            # Check for native BREP in wrapped solid
+            try:
+                from yapcad.native_brep import has_native_brep, native_brep_from_solid
+                from yapcad.occ_native_convert import native_brep_to_occ
+                if has_native_brep(elem):
+                    graph = native_brep_from_solid(elem)
+                    if graph is not None:
+                        return native_brep_to_occ(graph)
+            except (ImportError, Exception):
+                pass
+    except ImportError:
+        pass
+
+    # Check if this is a solid with native BREP (direct solid, not wrapped)
+    try:
+        from yapcad.native_brep import has_native_brep, native_brep_from_solid
+        from yapcad.occ_native_convert import native_brep_to_occ
+        if has_native_brep(obj):
+            graph = native_brep_from_solid(obj)
+            if graph is not None:
+                return native_brep_to_occ(graph)
+    except (ImportError, Exception):
+        pass
+
+    # Check for embedded BrepSolid in solid metadata (via attach_brep_to_solid)
+    try:
+        from yapcad.brep import brep_from_solid, has_brep_data
+        if has_brep_data(obj):
+            brep = brep_from_solid(obj)
+            if brep is not None:
+                return brep.shape
+    except (ImportError, Exception):
+        pass
+
+    return None
 
 
 @dataclass(frozen=True)
@@ -320,4 +479,4 @@ def _format_id_list(ids: Sequence[int], *, indent: str = '    ', per_line: int =
     return "\n".join(lines)
 
 
-__all__ = ['write_step']
+__all__ = ['write_step', 'write_step_analytic']

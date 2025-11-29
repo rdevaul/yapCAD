@@ -799,6 +799,566 @@ def ellipse_bbox(e, segments=36):
     return [point(min_x, min_y, min_z), point(max_x, max_y, max_z)]
 
 
+# ============================================================================
+# Parabola primitives
+# ============================================================================
+
+
+def parabola(vertex, focal_length, *, rotation=0.0, start=-10.0, end=10.0, normal=None):
+    """Return a parabola curve definition.
+
+    Parameters
+    ----------
+    vertex : point
+        Vertex point of the parabola (the point closest to the focus).
+    focal_length : float
+        Distance from vertex to focus (must be positive). The parabola
+        opens in the positive x-direction (before rotation).
+    rotation : float, optional
+        Rotation of the parabola axis from the x-axis in degrees (default 0).
+    start : float, optional
+        Start parameter value (default -10.0).
+    end : float, optional
+        End parameter value (default 10.0).
+    normal : point, optional
+        Normal vector for 3D orientation (default [0,0,1,0]).
+
+    Returns
+    -------
+    list
+        Parabola definition: ``['parabola', vertex, metadata_dict]``
+
+    Notes
+    -----
+    The parabola is defined as: x = t²/(4p), y = t, where p is the focal length.
+    The parameter t ranges from start to end. At t=0, the point is at the vertex.
+    Positive t values move in the positive y-direction, negative in the negative.
+    """
+    from copy import deepcopy
+
+    if not (isinstance(focal_length, (int, float)) and focal_length > 0):
+        raise ValueError('focal_length must be a positive number')
+
+    # Convert vertex to a proper point
+    if ispoint(vertex):
+        vtx = deepcopy(vertex)
+    elif isinstance(vertex, (list, tuple)) and len(vertex) >= 3:
+        vtx = point(vertex[0], vertex[1], vertex[2])
+    else:
+        vtx = point(vertex)
+
+    if normal is None:
+        norm = [0.0, 0.0, 1.0, 0.0]  # Default to XY plane
+    else:
+        norm = [float(normal[0]), float(normal[1]), float(normal[2]), 0.0]
+        mag_n = (norm[0]**2 + norm[1]**2 + norm[2]**2)**0.5
+        if mag_n < 1e-10:
+            raise ValueError('normal vector cannot be zero')
+        norm = [norm[0]/mag_n, norm[1]/mag_n, norm[2]/mag_n, 0.0]
+
+    meta = {
+        'focal_length': float(focal_length),
+        'rotation': float(rotation),
+        'start': float(start),
+        'end': float(end),
+        'normal': norm,
+    }
+
+    return ['parabola', vtx, meta]
+
+
+def isparabola(obj):
+    """Return ``True`` if *obj* is a parabola curve."""
+
+    return (
+        isinstance(obj, list)
+        and len(obj) == 3
+        and obj[0] == 'parabola'
+        and ispoint(obj[1])
+        and isinstance(obj[2], dict)
+        and 'focal_length' in obj[2]
+    )
+
+
+def parabola_sample(p, u):
+    """Evaluate a point on a parabola at parameter u in [0, 1].
+
+    Parameters
+    ----------
+    p : parabola
+        The parabola to sample.
+    u : float
+        Parameter value in [0, 1].
+
+    Returns
+    -------
+    point
+        The point on the parabola at parameter u.
+    """
+    if not isparabola(p):
+        raise ValueError('argument is not a parabola')
+
+    from math import cos, sin, radians
+
+    vertex = p[1]
+    meta = p[2]
+    f = meta['focal_length']
+    rot = radians(meta['rotation'])
+    start = meta['start']
+    end = meta['end']
+    normal = meta['normal']
+
+    # Map u from [0, 1] to [start, end]
+    t = start + u * (end - start)
+
+    # Point on parabola in local coords: x = t²/(4f), y = t
+    x_local = t * t / (4.0 * f)
+    y_local = t
+
+    # Apply rotation
+    cos_rot = cos(rot)
+    sin_rot = sin(rot)
+    x_rot = x_local * cos_rot - y_local * sin_rot
+    y_rot = x_local * sin_rot + y_local * cos_rot
+
+    # Transform to 3D if needed
+    if abs(normal[2] - 1.0) < 1e-10:
+        # XY plane
+        return point(vertex[0] + x_rot, vertex[1] + y_rot, vertex[2])
+    else:
+        # General 3D case - use Rodrigues' rotation
+        from math import acos
+        z_axis = [0.0, 0.0, 1.0]
+        n = [normal[0], normal[1], normal[2]]
+
+        cross = [
+            z_axis[1]*n[2] - z_axis[2]*n[1],
+            z_axis[2]*n[0] - z_axis[0]*n[2],
+            z_axis[0]*n[1] - z_axis[1]*n[0]
+        ]
+        cross_mag = (cross[0]**2 + cross[1]**2 + cross[2]**2)**0.5
+
+        if cross_mag < 1e-10:
+            if n[2] > 0:
+                return point(vertex[0] + x_rot, vertex[1] + y_rot, vertex[2])
+            else:
+                return point(vertex[0] + x_rot, vertex[1] - y_rot, vertex[2])
+
+        k = [cross[0]/cross_mag, cross[1]/cross_mag, cross[2]/cross_mag]
+        dot_val = z_axis[0]*n[0] + z_axis[1]*n[1] + z_axis[2]*n[2]
+        angle = acos(max(-1.0, min(1.0, dot_val)))
+
+        c_a = cos(angle)
+        s_a = sin(angle)
+        pt = [x_rot, y_rot, 0.0]
+
+        kxp = [k[1]*pt[2] - k[2]*pt[1], k[2]*pt[0] - k[0]*pt[2], k[0]*pt[1] - k[1]*pt[0]]
+        kdp = k[0]*pt[0] + k[1]*pt[1] + k[2]*pt[2]
+
+        x_3d = pt[0]*c_a + kxp[0]*s_a + k[0]*kdp*(1-c_a)
+        y_3d = pt[1]*c_a + kxp[1]*s_a + k[1]*kdp*(1-c_a)
+        z_3d = pt[2]*c_a + kxp[2]*s_a + k[2]*kdp*(1-c_a)
+
+        return point(vertex[0] + x_3d, vertex[1] + y_3d, vertex[2] + z_3d)
+
+
+def parabola_tangent(p, u):
+    """Return the tangent vector at parameter u on a parabola.
+
+    Parameters
+    ----------
+    p : parabola
+        The parabola.
+    u : float
+        Parameter value in [0, 1].
+
+    Returns
+    -------
+    list
+        Unit tangent vector (direction, w=0).
+    """
+    if not isparabola(p):
+        raise ValueError('argument is not a parabola')
+
+    from math import cos, sin, radians
+
+    meta = p[2]
+    f = meta['focal_length']
+    rot = radians(meta['rotation'])
+    start = meta['start']
+    end = meta['end']
+
+    # Map u from [0, 1] to [start, end]
+    t = start + u * (end - start)
+
+    # Derivative of parabola parametric equation: dx/dt = t/(2f), dy/dt = 1
+    dx_local = t / (2.0 * f)
+    dy_local = 1.0
+
+    # Apply rotation
+    cos_rot = cos(rot)
+    sin_rot = sin(rot)
+    dx_rot = dx_local * cos_rot - dy_local * sin_rot
+    dy_rot = dx_local * sin_rot + dy_local * cos_rot
+
+    # Normalize
+    mag = (dx_rot**2 + dy_rot**2)**0.5
+    if mag < 1e-10:
+        return [1.0, 0.0, 0.0, 0.0]
+
+    return [dx_rot/mag, dy_rot/mag, 0.0, 0.0]
+
+
+def parabola_length(p, segments=100):
+    """Approximate the arc length of a parabola segment using numerical integration.
+
+    Parameters
+    ----------
+    p : parabola
+        The parabola.
+    segments : int, optional
+        Number of segments for approximation (default 100).
+
+    Returns
+    -------
+    float
+        Approximate arc length.
+    """
+    if not isparabola(p):
+        raise ValueError('argument is not a parabola')
+
+    total = 0.0
+    prev_pt = parabola_sample(p, 0.0)
+    for i in range(1, segments + 1):
+        u = i / segments
+        curr_pt = parabola_sample(p, u)
+        dx = curr_pt[0] - prev_pt[0]
+        dy = curr_pt[1] - prev_pt[1]
+        dz = curr_pt[2] - prev_pt[2]
+        total += (dx**2 + dy**2 + dz**2)**0.5
+        prev_pt = curr_pt
+
+    return total
+
+
+def parabola_bbox(p, segments=50):
+    """Compute the bounding box of a parabola segment.
+
+    Parameters
+    ----------
+    p : parabola
+        The parabola.
+    segments : int, optional
+        Number of sample points (default 50).
+
+    Returns
+    -------
+    list
+        Bounding box as [min_point, max_point].
+    """
+    if not isparabola(p):
+        raise ValueError('argument is not a parabola')
+
+    pts = [parabola_sample(p, i / segments) for i in range(segments + 1)]
+
+    min_x = min(pt[0] for pt in pts)
+    min_y = min(pt[1] for pt in pts)
+    min_z = min(pt[2] for pt in pts)
+    max_x = max(pt[0] for pt in pts)
+    max_y = max(pt[1] for pt in pts)
+    max_z = max(pt[2] for pt in pts)
+
+    return [point(min_x, min_y, min_z), point(max_x, max_y, max_z)]
+
+
+# ============================================================================
+# Hyperbola primitives
+# ============================================================================
+
+
+def hyperbola(center, semi_major, semi_minor, *, rotation=0.0, start=-2.0, end=2.0,
+              branch=1, normal=None):
+    """Return a hyperbola curve definition.
+
+    Parameters
+    ----------
+    center : point
+        Center point of the hyperbola.
+    semi_major : float
+        Semi-major axis length (a), the distance from center to vertex.
+    semi_minor : float
+        Semi-minor axis length (b), determines the opening angle.
+    rotation : float, optional
+        Rotation of the major axis from the x-axis in degrees (default 0).
+    start : float, optional
+        Start parameter value (default -2.0).
+    end : float, optional
+        End parameter value (default 2.0).
+    branch : int, optional
+        Which branch to use: 1 for right branch (+x), -1 for left branch (-x).
+        Default is 1.
+    normal : point, optional
+        Normal vector for 3D orientation (default [0,0,1,0]).
+
+    Returns
+    -------
+    list
+        Hyperbola definition: ``['hyperbola', center, metadata_dict]``
+
+    Notes
+    -----
+    The hyperbola is defined as: x² / a² - y² / b² = 1
+    Parametric form: x = a * cosh(t), y = b * sinh(t)
+    The parameter t ranges from start to end. At t=0, the point is at (a, 0).
+    """
+    from copy import deepcopy
+
+    if not (isinstance(semi_major, (int, float)) and semi_major > 0):
+        raise ValueError('semi_major must be a positive number')
+    if not (isinstance(semi_minor, (int, float)) and semi_minor > 0):
+        raise ValueError('semi_minor must be a positive number')
+    if branch not in (1, -1):
+        raise ValueError('branch must be 1 or -1')
+
+    # Convert center to a proper point
+    if ispoint(center):
+        cen = deepcopy(center)
+    elif isinstance(center, (list, tuple)) and len(center) >= 3:
+        cen = point(center[0], center[1], center[2])
+    else:
+        cen = point(center)
+
+    if normal is None:
+        norm = [0.0, 0.0, 1.0, 0.0]  # Default to XY plane
+    else:
+        norm = [float(normal[0]), float(normal[1]), float(normal[2]), 0.0]
+        mag_n = (norm[0]**2 + norm[1]**2 + norm[2]**2)**0.5
+        if mag_n < 1e-10:
+            raise ValueError('normal vector cannot be zero')
+        norm = [norm[0]/mag_n, norm[1]/mag_n, norm[2]/mag_n, 0.0]
+
+    meta = {
+        'semi_major': float(semi_major),
+        'semi_minor': float(semi_minor),
+        'rotation': float(rotation),
+        'start': float(start),
+        'end': float(end),
+        'branch': int(branch),
+        'normal': norm,
+    }
+
+    return ['hyperbola', cen, meta]
+
+
+def ishyperbola(obj):
+    """Return ``True`` if *obj* is a hyperbola curve."""
+
+    return (
+        isinstance(obj, list)
+        and len(obj) == 3
+        and obj[0] == 'hyperbola'
+        and ispoint(obj[1])
+        and isinstance(obj[2], dict)
+        and 'semi_major' in obj[2]
+        and 'semi_minor' in obj[2]
+    )
+
+
+def hyperbola_sample(h, u):
+    """Evaluate a point on a hyperbola at parameter u in [0, 1].
+
+    Parameters
+    ----------
+    h : hyperbola
+        The hyperbola to sample.
+    u : float
+        Parameter value in [0, 1].
+
+    Returns
+    -------
+    point
+        The point on the hyperbola at parameter u.
+    """
+    if not ishyperbola(h):
+        raise ValueError('argument is not a hyperbola')
+
+    from math import cos, sin, radians, cosh, sinh
+
+    center = h[1]
+    meta = h[2]
+    a = meta['semi_major']
+    b = meta['semi_minor']
+    rot = radians(meta['rotation'])
+    start = meta['start']
+    end = meta['end']
+    branch = meta['branch']
+    normal = meta['normal']
+
+    # Map u from [0, 1] to [start, end]
+    t = start + u * (end - start)
+
+    # Point on hyperbola in local coords: x = a*cosh(t), y = b*sinh(t)
+    x_local = branch * a * cosh(t)
+    y_local = b * sinh(t)
+
+    # Apply rotation
+    cos_rot = cos(rot)
+    sin_rot = sin(rot)
+    x_rot = x_local * cos_rot - y_local * sin_rot
+    y_rot = x_local * sin_rot + y_local * cos_rot
+
+    # Transform to 3D if needed
+    if abs(normal[2] - 1.0) < 1e-10:
+        # XY plane
+        return point(center[0] + x_rot, center[1] + y_rot, center[2])
+    else:
+        # General 3D case - use Rodrigues' rotation
+        from math import acos
+        z_axis = [0.0, 0.0, 1.0]
+        n = [normal[0], normal[1], normal[2]]
+
+        cross = [
+            z_axis[1]*n[2] - z_axis[2]*n[1],
+            z_axis[2]*n[0] - z_axis[0]*n[2],
+            z_axis[0]*n[1] - z_axis[1]*n[0]
+        ]
+        cross_mag = (cross[0]**2 + cross[1]**2 + cross[2]**2)**0.5
+
+        if cross_mag < 1e-10:
+            if n[2] > 0:
+                return point(center[0] + x_rot, center[1] + y_rot, center[2])
+            else:
+                return point(center[0] + x_rot, center[1] - y_rot, center[2])
+
+        k = [cross[0]/cross_mag, cross[1]/cross_mag, cross[2]/cross_mag]
+        dot_val = z_axis[0]*n[0] + z_axis[1]*n[1] + z_axis[2]*n[2]
+        angle = acos(max(-1.0, min(1.0, dot_val)))
+
+        c_a = cos(angle)
+        s_a = sin(angle)
+        pt = [x_rot, y_rot, 0.0]
+
+        kxp = [k[1]*pt[2] - k[2]*pt[1], k[2]*pt[0] - k[0]*pt[2], k[0]*pt[1] - k[1]*pt[0]]
+        kdp = k[0]*pt[0] + k[1]*pt[1] + k[2]*pt[2]
+
+        x_3d = pt[0]*c_a + kxp[0]*s_a + k[0]*kdp*(1-c_a)
+        y_3d = pt[1]*c_a + kxp[1]*s_a + k[1]*kdp*(1-c_a)
+        z_3d = pt[2]*c_a + kxp[2]*s_a + k[2]*kdp*(1-c_a)
+
+        return point(center[0] + x_3d, center[1] + y_3d, center[2] + z_3d)
+
+
+def hyperbola_tangent(h, u):
+    """Return the tangent vector at parameter u on a hyperbola.
+
+    Parameters
+    ----------
+    h : hyperbola
+        The hyperbola.
+    u : float
+        Parameter value in [0, 1].
+
+    Returns
+    -------
+    list
+        Unit tangent vector (direction, w=0).
+    """
+    if not ishyperbola(h):
+        raise ValueError('argument is not a hyperbola')
+
+    from math import cos, sin, radians, sinh, cosh
+
+    meta = h[2]
+    a = meta['semi_major']
+    b = meta['semi_minor']
+    rot = radians(meta['rotation'])
+    start = meta['start']
+    end = meta['end']
+    branch = meta['branch']
+
+    # Map u from [0, 1] to [start, end]
+    t = start + u * (end - start)
+
+    # Derivative: dx/dt = a*sinh(t), dy/dt = b*cosh(t)
+    dx_local = branch * a * sinh(t)
+    dy_local = b * cosh(t)
+
+    # Apply rotation
+    cos_rot = cos(rot)
+    sin_rot = sin(rot)
+    dx_rot = dx_local * cos_rot - dy_local * sin_rot
+    dy_rot = dx_local * sin_rot + dy_local * cos_rot
+
+    # Normalize
+    mag = (dx_rot**2 + dy_rot**2)**0.5
+    if mag < 1e-10:
+        return [1.0, 0.0, 0.0, 0.0]
+
+    return [dx_rot/mag, dy_rot/mag, 0.0, 0.0]
+
+
+def hyperbola_length(h, segments=100):
+    """Approximate the arc length of a hyperbola segment using numerical integration.
+
+    Parameters
+    ----------
+    h : hyperbola
+        The hyperbola.
+    segments : int, optional
+        Number of segments for approximation (default 100).
+
+    Returns
+    -------
+    float
+        Approximate arc length.
+    """
+    if not ishyperbola(h):
+        raise ValueError('argument is not a hyperbola')
+
+    total = 0.0
+    prev_pt = hyperbola_sample(h, 0.0)
+    for i in range(1, segments + 1):
+        u = i / segments
+        curr_pt = hyperbola_sample(h, u)
+        dx = curr_pt[0] - prev_pt[0]
+        dy = curr_pt[1] - prev_pt[1]
+        dz = curr_pt[2] - prev_pt[2]
+        total += (dx**2 + dy**2 + dz**2)**0.5
+        prev_pt = curr_pt
+
+    return total
+
+
+def hyperbola_bbox(h, segments=50):
+    """Compute the bounding box of a hyperbola segment.
+
+    Parameters
+    ----------
+    h : hyperbola
+        The hyperbola.
+    segments : int, optional
+        Number of sample points (default 50).
+
+    Returns
+    -------
+    list
+        Bounding box as [min_point, max_point].
+    """
+    if not ishyperbola(h):
+        raise ValueError('argument is not a hyperbola')
+
+    pts = [hyperbola_sample(h, i / segments) for i in range(segments + 1)]
+
+    min_x = min(pt[0] for pt in pts)
+    min_y = min(pt[1] for pt in pts)
+    min_z = min(pt[2] for pt in pts)
+    max_x = max(pt[0] for pt in pts)
+    max_y = max(pt[1] for pt in pts)
+    max_z = max(pt[2] for pt in pts)
+
+    return [point(min_x, min_y, min_z), point(max_x, max_y, max_z)]
+
+
 def _open_uniform_knot_vector(count, degree):
     """Generate an open-uniform knot vector of length ``count + degree + 1``."""
 
@@ -3070,6 +3630,10 @@ def length(x):
         return arclength(x)
     elif isellipse(x):
         return ellipse_length(x)
+    elif isparabola(x):
+        return parabola_length(x)
+    elif ishyperbola(x):
+        return hyperbola_length(x)
     elif ispoly(x):
         return polylength(x)
     elif isgeomlist(x):
@@ -3093,6 +3657,10 @@ def center(x):
         return arccenter(x)
     elif isellipse(x):
         return point(x[1])  # Return the center point of the ellipse
+    elif isparabola(x):
+        return point(x[1])  # Return the vertex of the parabola
+    elif ishyperbola(x):
+        return point(x[1])  # Return the center of the hyperbola
     elif ispoly(x):
         return polycenter(x)
     elif isgeomlist(x):
@@ -3117,6 +3685,10 @@ def bbox(x):
         return arcbbox(x)
     elif isellipse(x):
         return ellipse_bbox(x)
+    elif isparabola(x):
+        return parabola_bbox(x)
+    elif ishyperbola(x):
+        return hyperbola_bbox(x)
     elif ispoly(x):
         return polybbox(x)
     elif isgeomlist(x):
@@ -3140,6 +3712,10 @@ def sample(x,u):
         return samplearc(x,u)
     elif isellipse(x):
         return ellipse_sample(x, u)
+    elif isparabola(x):
+        return parabola_sample(x, u)
+    elif ishyperbola(x):
+        return hyperbola_sample(x, u)
     elif ispoly(x):
         return samplepoly(x,u)
     elif iscatmullrom(x):
@@ -3171,6 +3747,10 @@ def unsample(x,p):
         return unsamplearc(x,p)
     elif isellipse(x):
         return _unsample_curve(x, p, ellipse_sample)
+    elif isparabola(x):
+        return _unsample_curve(x, p, parabola_sample)
+    elif ishyperbola(x):
+        return _unsample_curve(x, p, hyperbola_sample)
     elif ispoly(x):
         return unsamplepoly(x,p)
     elif iscatmullrom(x):
