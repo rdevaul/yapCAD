@@ -6,6 +6,7 @@ from yapcad.geom import *
 from yapcad.geom_util import *
 from yapcad.xform import *
 from functools import reduce
+from itertools import chain
 import os
 from yapcad.octtree import NTree
 
@@ -604,7 +605,8 @@ def issurface(s,fast=True):
         l = len(verts)
         if (len(list(filter(lambda x: not len(x) == 3, faces))) > 0):
             return False
-        if not filterInds(reduce( (lambda x,y: x + y),faces),verts):
+        # Use chain.from_iterable instead of reduce for O(n) performance
+        if not filterInds(chain.from_iterable(faces), verts):
             return False
         if not filterInds(boundary,verts):
             return False
@@ -668,6 +670,61 @@ def reversesurface(s):
     s2 = deepcopy(s)
     s2[2] = list(map(lambda x: scale4(x,-1.0),s2[2]))
     s2[3] = list(map(lambda x: [x[0],x[2],x[1]],s2[3]))
+    return s2
+
+def scalesurface(s, sx=1.0, sy=False, sz=False, cent=point(0,0,0)):
+    """Return a scaled copy of the surface.
+
+    Parameters
+    ----------
+    s : surface
+        The surface to scale.
+    sx : float
+        Scale factor for x-axis, or uniform scale if sy and sz are False.
+    sy : float or False
+        Scale factor for y-axis, or False for uniform scaling.
+    sz : float or False
+        Scale factor for z-axis, or False for uniform scaling.
+    cent : point
+        Center point for scaling. Default is origin.
+
+    Returns
+    -------
+    surface
+        A scaled copy of the input surface.
+    """
+    if sy is False and sz is False:
+        sy = sz = sx
+    if vclose(point(sx, sy, sz), point(1.0, 1.0, 1.0)):
+        return deepcopy(s)
+
+    # Build transformation matrix
+    if vclose(cent, point(0,0,0)):
+        mat = xform.Scale(sx, sy, sz)
+    else:
+        mat = xform.Translation(cent, inverse=True)
+        mat = mat.mul(xform.Scale(sx, sy, sz))
+        mat = mat.mul(xform.Translation(cent))
+
+    s2 = deepcopy(s)
+    # Transform vertices
+    for i in range(len(s2[1])):
+        s2[1][i] = mat.mul(s2[1][i])
+    # Normals need special handling for non-uniform scaling
+    # For non-uniform scale, normals transform by inverse-transpose
+    # For uniform scale, normals stay the same (just need normalization)
+    if not close(sx, sy) or not close(sy, sz):
+        # Non-uniform scaling - normals need inverse transpose
+        # Normal transform matrix is inverse-transpose of vertex transform
+        inv_scale = xform.Scale(1.0/sx, 1.0/sy, 1.0/sz)
+        for i in range(len(s2[2])):
+            n = s2[2][i]
+            # Apply inverse scale (transpose of inverse = inverse for diagonal)
+            n_scaled = inv_scale.mul(point(n[0], n[1], n[2]))
+            # Normalize
+            length = (n_scaled[0]**2 + n_scaled[1]**2 + n_scaled[2]**2)**0.5
+            if length > 1e-10:
+                s2[2][i] = vect(n_scaled[0]/length, n_scaled[1]/length, n_scaled[2]/length, 0)
     return s2
 
 def solid(*args):
@@ -826,6 +883,61 @@ def mirrorsolid(x,plane,preserveNormal=True):
         mirror_native_brep(s2, plane)
     except ImportError:
         pass
+    return s2
+
+def scalesolid(x, sx=1.0, sy=False, sz=False, cent=point(0,0,0)):
+    """Return a scaled copy of the solid.
+
+    Parameters
+    ----------
+    x : solid
+        The solid to scale.
+    sx : float
+        Scale factor for x-axis, or uniform scale if sy and sz are False.
+    sy : float or False
+        Scale factor for y-axis, or False for uniform scaling.
+    sz : float or False
+        Scale factor for z-axis, or False for uniform scaling.
+    cent : point
+        Center point for scaling. Default is origin.
+
+    Returns
+    -------
+    solid
+        A scaled copy of the input solid.
+
+    Notes
+    -----
+    BREP data is only scaled for uniform scaling (sx == sy == sz).
+    Non-uniform scaling will preserve the mesh but not the BREP representation.
+    """
+    if not issolid(x):
+        raise ValueError('bad solid passed to scalesolid')
+    if sy is False and sz is False:
+        sy = sz = sx
+    if vclose(point(sx, sy, sz), point(1.0, 1.0, 1.0)):
+        return deepcopy(x)
+
+    s2 = deepcopy(x)
+    surfs = []
+    for s in x[1]:
+        surfs.append(scalesurface(s, sx, sy, sz, cent))
+    s2[1] = surfs
+
+    # BREP scaling only supports uniform scale
+    is_uniform = close(sx, sy) and close(sy, sz)
+    if is_uniform:
+        try:
+            from yapcad.brep import scale_brep_solid
+            scale_brep_solid(s2, sx, cent)
+        except ImportError:
+            pass
+        try:
+            from yapcad.native_brep import scale_native_brep
+            scale_native_brep(s2, sx, cent)
+        except ImportError:
+            pass
+
     return s2
 
 def _point_to_key(p):
@@ -1280,5 +1392,33 @@ def mirror(x,plane):
         return mirrorsurface(x,plane)
     else:
         return geom_mirror(x,plane)
-  
-                     
+
+def scale(x, sx=1.0, sy=False, sz=False, cent=point(0,0,0)):
+    """Return a scaled version of the surface, solid, or figure.
+
+    Parameters
+    ----------
+    x : solid, surface, or figure
+        The geometry to scale.
+    sx : float
+        Scale factor for x-axis, or uniform scale if sy and sz are False.
+    sy : float or False
+        Scale factor for y-axis, or False for uniform scaling.
+    sz : float or False
+        Scale factor for z-axis, or False for uniform scaling.
+    cent : point
+        Center point for scaling. Default is origin.
+
+    Returns
+    -------
+    geometry
+        A scaled copy of the input geometry.
+    """
+    if issolid(x):
+        return scalesolid(x, sx, sy, sz, cent)
+    elif issurface(x):
+        return scalesurface(x, sx, sy, sz, cent)
+    else:
+        return geom_scale(x, sx, sy, sz, cent)
+
+

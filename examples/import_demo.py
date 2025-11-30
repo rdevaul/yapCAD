@@ -90,28 +90,33 @@ def _scale_and_center_geoms(geoms, target_size: float) -> Tuple[float, point]:
 
 def _scale_and_center_solid(sld, target_size: float) -> Tuple[object, float, point]:
     """Scale and center a yapCAD solid (STL import)."""
-    from yapcad.geom3d import scale as scale_solid, translate as translate_solid
-
+    from yapcad.geom3d import scale as scalesolid, translate as translatesolid
+    print("computing bounding box")
     bbox_min, bbox_max = _combined_bbox_from_solid(sld)
     dims = [bbox_max[i] - bbox_min[i] for i in range(3)]
     largest = max(dims)
     if largest <= 0:
         raise ValueError("unable to determine bounding box size for scaling")
-    factor = target_size / largest
     bbox_center = point((bbox_min[0] + bbox_max[0]) / 2.0,
                         (bbox_min[1] + bbox_max[1]) / 2.0,
                         (bbox_min[2] + bbox_max[2]) / 2.0)
+    if target_size > 0.0:
+        print("rescaling solid")
+        factor = target_size / largest
 
-    # Scale around bbox center
-    sld = scale_solid(sld, factor, cent=bbox_center)
+        # Scale uniformly around bbox center
+        sld = scalesolid(sld, factor, cent=bbox_center)
+    else:
+        factor = 1.0
 
     # Recenter around origin
+    print("recentering")
     scaled_min, scaled_max = _combined_bbox_from_solid(sld)
     scaled_center = point((scaled_min[0] + scaled_max[0]) / 2.0,
                           (scaled_min[1] + scaled_max[1]) / 2.0,
                           (scaled_min[2] + scaled_max[2]) / 2.0)
     delta = point(-scaled_center[0], -scaled_center[1], -scaled_center[2])
-    sld = translate_solid(sld, delta)
+    sld = translatesolid(sld, delta)
 
     return sld, factor, point(0.0, 0.0, 0.0)
 
@@ -223,7 +228,7 @@ def main():
                 "--engine to a working backend (see trimesh.boolean.engines_available) "
                 "or use --engine native."
             ) from exc
-
+    print("rendering scene")
     _render_scene(base_solid, boolean_result)
 
 
