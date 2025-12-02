@@ -16,7 +16,12 @@ sphinx:
 
 python:
   install:
+    # Install Sphinx and theme first
     - requirements: docs/requirements.txt
+    # Install yapCAD package itself for autodoc/apidoc to generate API documentation
+    # This is critical for generating submodule documentation from docstrings
+    - method: pip
+      path: .
 
 # Optionally build your docs in additional formats such as PDF
 formats:

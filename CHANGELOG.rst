@@ -2,6 +2,37 @@
 Changelog
 =========
 
+Version 0.6.2 (2025-12-01)
+==========================
+
+what's new:
+-----------
+
+  - **OCC BREP Kernel Complete**: Full bidirectional conversion between native
+    yapCAD BREP representation and OpenCascade shapes. Box, cylinder, sphere,
+    and cone primitives achieve 100% volume fidelity in round-trip testing.
+    All seven development phases documented in ``docs/BREP_integration_strategy.md``
+    are now complete.
+  - **Materials & Fasteners**: Added material property schema (``docs/material_schema_spec.md``)
+    supporting density, color, finish, and physical properties. Complete metric and
+    unified fastener catalogs with proper thread geometry, including hex-cap screws,
+    nuts, and washers. Thread sampler supports internal/external, multi-start, and
+    handedness-aware configurations.
+  - **STEP/STL Import**: New unified ``import_demo.py`` example (renamed from
+    ``step_import_demo.py``) demonstrates both STEP and STL import workflows.
+  - **Phase 3 Roadmap**: Comprehensive DSL design document (``docs/phase3_implementation_roadmap.md``)
+    covering type system, boolean operations, transforms, hole annotations,
+    validation backends (FEniCSx, SU2, Gmsh), and module system.
+  - **Documentation Updates**: README now includes conda environment setup
+    instructions for OCC BREP features, PyPI image links fixed to use absolute
+    GitHub raw URLs.
+
+Known problems
+--------------
+
+- Analytic STEP export preserves BREP data but complex surfaces may tessellate.
+- DSL compiler/validator tooling tracked in ``docs/dsl_spec.rst`` remains under development.
+
 Version 0.6.1 (2025-10-30)
 ==========================
 

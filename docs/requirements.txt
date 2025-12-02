@@ -1,2 +1,6 @@
+# Sphinx documentation requirements
 sphinx>=6
 sphinx_rtd_theme
+
+# Note: yapCAD package is installed via .readthedocs.yml (method: pip, path: .)
+# to enable autodoc/apidoc generation of submodule API documentation
