@@ -15,6 +15,13 @@ yapCAD
    Internal layout from ``examples/rocket_cutaway_internal.py`` rendered from
    the exported STEP file in FreeCAD.
 
+.. figure:: images/yapCadM10pair2.png
+   :width: 400px
+   :alt: M10 fastener pair with material properties
+
+   M10 hex-cap screw and nut pair demonstrating **yapCAD**'s material properties
+   support, rendered with zinc (left) and brass (right) finishes.
+
 Welcome to **yapCAD**, yet another procedural CAD and computational
 geometry system, written in Python_.  The project is in active development,
 with the 0.6.x series delivering reusable `.ycpkg` package workflows, an
