@@ -9,9 +9,18 @@ except Exception:  # optional dependency
 else:
     __all__.append('trimesh')
 
+try:
+    from . import occ_engine as occ
+except Exception:  # optional dependency
+    occ = None
+else:
+    __all__.append('occ')
+
 ENGINE_REGISTRY = {'native': native}
 if trimesh is not None:
     ENGINE_REGISTRY['trimesh'] = trimesh
+if occ is not None:
+    ENGINE_REGISTRY['occ'] = occ
 
 
 def get_engine(name: str):

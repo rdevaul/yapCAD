@@ -50,6 +50,7 @@ MANIFEST
 .venv*/
 venv/
 v_*/
+gemini_venv/
 
 #cached python version for pyenv
 .python-version

@@ -52,6 +52,24 @@ def _collect_tags(entities: Iterable[list]) -> List[str]:
     return tags
 
 
+def _collect_material_refs(entities: Iterable[list]) -> List[str]:
+    """Collect unique material references from entities."""
+    refs: List[str] = []
+    seen = set()
+    for entity in entities:
+        if issolid(entity):
+            meta = get_solid_metadata(entity, create=False) or {}
+        elif issurface(entity):
+            meta = get_surface_metadata(entity, create=False) or {}
+        else:
+            continue
+        mat_ref = meta.get("material")
+        if mat_ref and mat_ref not in seen:
+            refs.append(mat_ref)
+            seen.add(mat_ref)
+    return refs
+
+
 def _ensure_subdirs(root: Path) -> None:
     for sub in ("geometry", "metadata", "validation/plans", "validation/results", "exports", "attachments"):
         (root / sub).mkdir(parents=True, exist_ok=True)
@@ -132,6 +150,14 @@ class PackageManifest:
             raise ValueError("manifest missing geometry.primary section")
         return self.root / geom["path"]
 
+    def get_materials(self) -> Dict[str, Any]:
+        """Return the materials dictionary from the manifest."""
+        return self.data.get("materials", {})
+
+    def get_material(self, material_id: str) -> Optional[Dict[str, Any]]:
+        """Get a specific material definition by ID."""
+        return self.data.get("materials", {}).get(material_id)
+
 
 def create_package_from_entities(
     entities: Sequence[list],
@@ -142,6 +168,7 @@ def create_package_from_entities(
     description: Optional[str] = None,
     author: Optional[str] = None,
     units: Optional[str] = None,
+    materials: Optional[Dict[str, Dict[str, Any]]] = None,
     generator: Optional[Dict[str, Any]] = None,
     overwrite: bool = False,
     hash_algorithm: str = "sha256",
@@ -162,6 +189,7 @@ def create_package_from_entities(
     geometry_info["hash"] = _compute_hash(primary_path, hash_algorithm)
 
     tags = _collect_tags(entities)
+    material_refs = _collect_material_refs(entities)
     manifest_data: Dict[str, Any] = {
         "schema": PACKAGE_SCHEMA,
         "id": str(uuid.uuid4()),
@@ -184,6 +212,18 @@ def create_package_from_entities(
     }
     if author:
         manifest_data["created"]["author"] = author
+    # Add materials section if provided or if entities reference materials
+    if materials:
+        manifest_data["materials"] = materials
+    elif material_refs:
+        # Entity references materials but none provided - create placeholder entries
+        manifest_data["materials"] = {
+            ref: {
+                "source": {"type": "custom", "custom": {"notes": "Placeholder - define material properties"}},
+                "visual": {"color": [0.6, 0.85, 1.0], "metallic": 0.0, "roughness": 0.5},
+            }
+            for ref in material_refs
+        }
     manifest = PackageManifest(root=root, data=manifest_data)
     manifest.save()
     return manifest

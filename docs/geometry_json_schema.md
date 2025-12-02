@@ -72,6 +72,25 @@ Each entity's `metadata` block MUST include the root fields from `metadata_names
 }
 ```
 
+When a solid originates from an analytic OCC BREP, the serializer stores a
+base64-encoded `.brep` payload inside `metadata.brep`:
+
+```json5
+"metadata": {
+  "entityId": "...",
+  "layer": "default",
+  "brep": {
+    "encoding": "brep-ascii-base64",
+    "data": "R0hJTy4uLg=="
+  }
+}
+```
+
+Importers should decode this blob and cache the resulting `TopoDS_Shape` so OCC
+booleans can operate without tessellation loss. Consumers that do not understand
+the `brep` block may safely ignore it—the faceted shell/void surfaces remain
+present for backwards compatibility.
+
 ### 2.2 Surfaces (`type: "surface"`)
 
 ```json5

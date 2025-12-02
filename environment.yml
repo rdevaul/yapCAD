@@ -1,0 +1,11 @@
+name: yapcad-brep
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pythonocc-core=7.7.2
+  - trimesh
+  - pip
+  - pip:
+    - -e .[test]
+    - manifold3d

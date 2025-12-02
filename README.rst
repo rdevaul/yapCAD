@@ -2,9 +2,10 @@
 ==========
 
 yet another procedural CAD and computational geometry system written in
-python 3, now with a growing focus on 3D generative design and STL export
+python 3, now with a growing focus on 3D generative design, BREP modeling,
+and STL/STEP export
 
-.. figure:: images/RocketDemoScreenshot.png
+.. figure:: https://raw.githubusercontent.com/rdevaul/yapCAD/main/images/RocketDemoScreenshot.png
    :alt: **yapCAD** rocket example
 
    **yapCAD** rocket example
@@ -15,11 +16,17 @@ python 3, now with a growing focus on 3D generative design and STL export
    automation-friendly workflows, but the code lives in the repository and can
    be customised directly or via upcoming DSL tooling.
 
-.. figure:: images/RocketCutawaySTEP.png
+.. figure:: https://raw.githubusercontent.com/rdevaul/yapCAD/main/images/RocketCutawaySTEP.png
    :alt: **yapCAD** rocket cutaway STEP export
 
    Internal layout generated with ``examples/rocket_cutaway_internal.py`` and
    rendered from the exported STEP file in FreeCAD.
+
+.. figure:: https://raw.githubusercontent.com/rdevaul/yapCAD/main/images/yapCadM10pair2.png
+   :alt: **yapCAD** M10 fastener pair with material properties
+
+   M10 hex-cap screw and nut pair demonstrating **yapCAD**'s material properties
+   support, rendered with zinc (left) and brass (right) finishes.
 
 what’s **yapCAD** for?
 ----------------------
@@ -33,19 +40,26 @@ systems. Starting with the 0.5 release, the emphasis has shifted toward
 simulation, while retaining support for DXF generation and computational
 geometry experiments.
 
-software status (October 2025)
-------------------------------
+software status (December 2025)
+-------------------------------
 
 **yapCAD** is in **active development** and already powers production design
-pipelines. Highlights from the 0.5.x cycle include:
+pipelines. Highlights from the 0.6.x cycle include:
 
+* **OCC BREP Kernel**: Full OpenCascade Technology integration via ``pythonocc-core``
+  for analytic solid modeling, STEP import/export, and exact boolean operations.
+* **Materials & Fasteners**: Material property schema with visual rendering support
+  (density, color, finish) and complete metric/unified fastener catalogs with
+  proper threading geometry.
 * ``.ycpkg`` project packaging with manifest, geometry JSON, exports, and metadata.
 * CLI helpers (``tools/ycpkg_validate.py``, ``tools/ycpkg_export.py``) for validation and DXF/STEP/STL export.
-* Robust 3D boolean operations with validated tessellation and mesh diagnostics.
+* Native OCC-backed boolean operations preserving analytic BREP data through round-trips.
 * Native sketch primitives (lines, arcs, splines) preserved through package round-trips and exported to DXF as analytic entities.
-* Regression-tested spline extrusion flow (``tests/test_splines.py``) covering STEP/STL/DXF export.
+* Bidirectional OCC↔Native BREP conversion with 100% volume fidelity for primitives.
 
-Upcoming work (tracked in ``docs/yapCADone.rst`` and ``docs/yapBREP.rst``) focuses on the parametric DSL/compiler, validation execution layer, provenance signatures, STEP/STL import, and analytic BREP/STEP support.
+Upcoming work (tracked in ``docs/yapCADone.rst``, ``docs/yapBREP.rst``, and
+``docs/phase3_implementation_roadmap.md``) focuses on the parametric DSL/compiler,
+FEA/CFD validation backends (FEniCSx, SU2), and mesh generation (Gmsh).
 
 If you are using **yapCAD** in interesting ways, feel free to let us know in the
 `yapCAD discussions <https://github.com/rdevaul/yapCAD/discussions>`__ forum
@@ -57,21 +71,45 @@ installation
 ~~~~~~~~~~~~
 
 **yapCAD** is a pure python library, so no special steps are required
-for installation. You can install it a variety of ways, but the
+for basic installation. You can install it a variety of ways, but the
 recommended method is to use pip to install it into your local
-``site-packages`` directory, as follows:
-
-::
+``site-packages`` directory, as follows::
 
    pip install yapCAD --user
 
-You can also clone the github repository and install from source:
-
-::
+You can also clone the github repository and install from source::
 
    git clone https://github.com/rdevaul/yapCAD.git
    cd yapCAD
    python setup.py install --user
+
+OCC BREP Environment (Recommended)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. important::
+
+   For full BREP kernel support, including STEP import/export, OCC-backed
+   boolean operations, and analytic solid modeling, you need to set up the
+   **conda-based virtual environment**. This is required because ``pythonocc-core``
+   has complex binary dependencies that are best managed through conda.
+
+To set up the OCC BREP environment::
+
+   # Create and activate the yapcad-brep environment
+   conda env create -f environment.yml
+   conda activate yapcad-brep
+
+   # Verify OCC is available
+   python -c "from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeBox; print('OCC available')"
+
+Once activated, all BREP features are available:
+
+* ``--engine occ`` for exact boolean operations on analytic solids
+* STEP import via ``yapcad.io.step_importer.import_step()``
+* Round-trip BREP serialization in ``.ycpkg`` geometry JSON
+* Bidirectional Native↔OCC BREP conversion
+
+See ``docs/BREP_integration_strategy.md`` for detailed architecture documentation
 
 examples
 ~~~~~~~~
@@ -83,6 +121,9 @@ top-level ``src`` directory. Example entry points:
 * ``examples/rocket_demo.py`` – generative multi-stage rocket with viewer + STL export.
 * ``examples/rocket_cutaway_internal.py`` – subsystem layout/cutaway demo exporting STEP.
 * ``examples/involute_gear_package`` – canonical gear library packaged as ``.ycpkg`` and reused by assemblies.
+* ``examples/threaded_fastener_package.py`` – generates ``.ycpkg`` packages for metric/unified
+  screws, nuts, and washers with proper thread geometry, material properties, and paired assemblies.
+* ``examples/import_demo.py`` – STEP/STL import demo showcasing the OCC BREP integration.
 
 documentation
 ~~~~~~~~~~~~~

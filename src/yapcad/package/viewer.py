@@ -75,28 +75,62 @@ def _load_geometry_doc(package_root: Path, manifest_data: Dict[str, any]) -> Dic
         return json.load(fp)
 
 
-def _collect_triangles(doc: Dict[str, any]) -> Tuple[Dict[str, List[Tuple[Tuple[float, float, float], Tuple[float, float, float]]]], Tuple[float, float, float, float, float, float]]:
-    layer_tris: Dict[str, List[Tuple[Tuple[float, float, float], Tuple[float, float, float]]]] = {}
+def _collect_triangles(doc: Dict[str, any], materials: Dict[str, any] = None) -> Tuple[Dict[str, List[Tuple[Tuple[float, float, float], Tuple[float, float, float]]]], Dict[str, Tuple[float, float, float]], Tuple[float, float, float, float, float, float]]:
+    """Collect triangles organized by material (or layer if no material).
+
+    Returns:
+        - Dictionary mapping material/layer ID to list of (vertex, normal) tuples
+        - Dictionary mapping material/layer ID to RGB color tuple
+        - Bounding box tuple (xmin, ymin, zmin, xmax, ymax, zmax)
+    """
+    materials = materials or {}
+    # Use material ID as bucket key when available, otherwise layer
+    bucket_tris: Dict[str, List[Tuple[Tuple[float, float, float], Tuple[float, float, float]]]] = {}
+    bucket_colors: Dict[str, Tuple[float, float, float]] = {}
+
+    # Default color (yapCAD blue)
+    default_color = (0.6, 0.85, 1.0)
+
     surfaces: Dict[str, Dict[str, any]] = {}
     for entry in doc.get("entities", []):
         if entry.get("type") == "surface":
             surfaces[entry["id"]] = entry
+
     for entry in doc.get("entities", []):
         if entry.get("type") not in {"solid", "surface"}:
             continue
+        meta = entry.get("metadata", {})
+        material_id = meta.get("material")
+        layer = meta.get("layer", "default")
+
+        # Determine bucket key and color
+        if material_id and material_id in materials:
+            bucket_key = f"mat:{material_id}"
+            mat_def = materials[material_id]
+            visual = mat_def.get("visual", {})
+            color = visual.get("color", default_color)
+            if isinstance(color, list) and len(color) >= 3:
+                bucket_colors[bucket_key] = (float(color[0]), float(color[1]), float(color[2]))
+            else:
+                bucket_colors[bucket_key] = default_color
+        else:
+            bucket_key = f"layer:{layer}"
+            if bucket_key not in bucket_colors:
+                bucket_colors[bucket_key] = default_color
+
         if entry.get("type") == "surface":
             surf_entry = entry
             verts = surf_entry.get("vertices", [])
             norms = surf_entry.get("normals", [])
             faces = surf_entry.get("faces", [])
-            layer = surf_entry.get("metadata", {}).get("layer", "default")
-            bucket = layer_tris.setdefault(layer, [])
+            bucket = bucket_tris.setdefault(bucket_key, [])
             for tri in faces:
                 for idx in tri:
                     pt = verts[idx]
                     normal = norms[idx] if idx < len(norms) else [0.0, 0.0, 1.0, 0.0]
                     bucket.append(((float(pt[0]), float(pt[1]), float(pt[2])), (float(normal[0]), float(normal[1]), float(normal[2]))))
             continue
+
         for sid in entry.get("shell", []):
             surf_entry = surfaces.get(sid)
             if not surf_entry:
@@ -104,19 +138,21 @@ def _collect_triangles(doc: Dict[str, any]) -> Tuple[Dict[str, List[Tuple[Tuple[
             verts = surf_entry.get("vertices", [])
             norms = surf_entry.get("normals", [])
             faces = surf_entry.get("faces", [])
-            layer = surf_entry.get("metadata", {}).get("layer", entry.get("metadata", {}).get("layer", "default"))
-            bucket = layer_tris.setdefault(layer, [])
+            bucket = bucket_tris.setdefault(bucket_key, [])
             for tri in faces:
                 for idx in tri:
                     pt = verts[idx]
                     normal = norms[idx] if idx < len(norms) else [0.0, 0.0, 1.0, 0.0]
                     bucket.append(((float(pt[0]), float(pt[1]), float(pt[2])), (float(normal[0]), float(normal[1]), float(normal[2]))))
-    if not layer_tris:
-        return layer_tris, (0, 0, 0, 0, 0, 0)
-    xs = [v[0][0] for tris in layer_tris.values() for v in tris]
-    ys = [v[0][1] for tris in layer_tris.values() for v in tris]
-    zs = [v[0][2] for tris in layer_tris.values() for v in tris]
-    return layer_tris, (min(xs), min(ys), min(zs), max(xs), max(ys), max(zs))
+
+    if not bucket_tris:
+        return bucket_tris, bucket_colors, (0, 0, 0, 0, 0, 0)
+    # List comprehensions + min/max are faster than explicit loops in Python
+    # due to C-level optimization of built-ins
+    xs = [v[0][0] for tris in bucket_tris.values() for v in tris]
+    ys = [v[0][1] for tris in bucket_tris.values() for v in tris]
+    zs = [v[0][2] for tris in bucket_tris.values() for v in tris]
+    return bucket_tris, bucket_colors, (min(xs), min(ys), min(zs), max(xs), max(ys), max(zs))
 
 
 def _collect_polylines(doc: Dict[str, any]) -> Tuple[Dict[str, List[List[List[float]]]], Tuple[float, float, float, float]]:
@@ -159,11 +195,15 @@ def _compute_grid_step(span: float) -> float:
 class FourViewWindow(pyglet.window.Window):
     """Four-view 3D window with perspective + orthographic panels."""
 
-    def __init__(self, layer_triangles: Dict[str, List[Tuple[Tuple[float, float, float], Tuple[float, float, float]]]], bbox: Tuple[float, float, float, float, float, float], units: str = ""):
+    def __init__(self, bucket_triangles: Dict[str, List[Tuple[Tuple[float, float, float], Tuple[float, float, float]]]], bucket_colors: Dict[str, Tuple[float, float, float]], bbox: Tuple[float, float, float, float, float, float], units: str = ""):
         super().__init__(width=1200, height=800, caption="yapCAD Package Viewer")
-        self.layer_triangles = layer_triangles
-        self.layer_names = sorted(layer_triangles.keys()) or ["default"]
-        self.visible_layers = {layer: True for layer in self.layer_names}
+        self.bucket_triangles = bucket_triangles
+        self.bucket_colors = bucket_colors
+        self.bucket_names = sorted(bucket_triangles.keys()) or ["default"]
+        self.visible_buckets = {bucket: True for bucket in self.bucket_names}
+        # For display, extract human-readable names
+        self.layer_names = [name.split(":", 1)[1] if ":" in name else name for name in self.bucket_names]
+        self.visible_layers = {self.layer_names[i]: self.visible_buckets[self.bucket_names[i]] for i in range(len(self.bucket_names))}
         self.bbox = bbox
         self.units = units
         self.show_help = False
@@ -175,7 +215,9 @@ class FourViewWindow(pyglet.window.Window):
         self._dragging = False
         self._last = (0, 0)
         self.render_mode = 0  # 0 = solid, 1 = solid+mesh, 2 = mesh only
-        self._layer_vertex_lists: Dict[str, graphics.vertexdomain.VertexList] = {}
+        self.view_mode = 0  # 0 = quad, 1 = perspective, 2 = front, 3 = top, 4 = side
+        self._view_mode_names = ["Quad", "Perspective", "Front", "Top", "Side"]
+        self._bucket_vertex_lists: Dict[str, graphics.vertexdomain.VertexList] = {}
         glEnable(GL_DEPTH_TEST)
         glEnable(GL_LIGHTING)
         glEnable(GL_LIGHT0)
@@ -191,11 +233,11 @@ class FourViewWindow(pyglet.window.Window):
         self._build_triangle_cache()
 
     def _build_triangle_cache(self) -> None:
-        for vlist in self._layer_vertex_lists.values():
+        for vlist in self._bucket_vertex_lists.values():
             vlist.delete()
-        self._layer_vertex_lists = {}
-        for layer in self.layer_names:
-            tris = self.layer_triangles.get(layer, [])
+        self._bucket_vertex_lists = {}
+        for bucket in self.bucket_names:
+            tris = self.bucket_triangles.get(bucket, [])
             if not tris:
                 continue
             coords: List[float] = []
@@ -204,7 +246,7 @@ class FourViewWindow(pyglet.window.Window):
                 coords.extend((vertex[0], vertex[1], vertex[2]))
                 normals.extend((normal[0], normal[1], normal[2]))
             if coords:
-                self._layer_vertex_lists[layer] = graphics.vertex_list(
+                self._bucket_vertex_lists[bucket] = graphics.vertex_list(
                     len(tris),
                     ('v3f/static', coords),
                     ('n3f/static', normals),
@@ -214,12 +256,23 @@ class FourViewWindow(pyglet.window.Window):
         self.clear()
         fb_width, fb_height = self.get_framebuffer_size()
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
-        w2 = fb_width // 2
-        h2 = fb_height // 2
-        self._draw_viewport(0, h2, w2, h2, "Perspective", perspective=True, fb_dims=(fb_width, fb_height))
-        self._draw_viewport(w2, h2, w2, h2, "Front", orientation="front", fb_dims=(fb_width, fb_height))
-        self._draw_viewport(0, 0, w2, h2, "Top", orientation="top", fb_dims=(fb_width, fb_height))
-        self._draw_viewport(w2, 0, w2, h2, "Side", orientation="side", fb_dims=(fb_width, fb_height))
+
+        if self.view_mode == 0:  # Quad view
+            w2 = fb_width // 2
+            h2 = fb_height // 2
+            self._draw_viewport(0, h2, w2, h2, "Perspective", perspective=True, fb_dims=(fb_width, fb_height))
+            self._draw_viewport(w2, h2, w2, h2, "Front", orientation="front", fb_dims=(fb_width, fb_height))
+            self._draw_viewport(0, 0, w2, h2, "Top", orientation="top", fb_dims=(fb_width, fb_height))
+            self._draw_viewport(w2, 0, w2, h2, "Side", orientation="side", fb_dims=(fb_width, fb_height))
+        elif self.view_mode == 1:  # Perspective only
+            self._draw_viewport(0, 0, fb_width, fb_height, "Perspective", perspective=True, fb_dims=(fb_width, fb_height))
+        elif self.view_mode == 2:  # Front only
+            self._draw_viewport(0, 0, fb_width, fb_height, "Front", orientation="front", fb_dims=(fb_width, fb_height))
+        elif self.view_mode == 3:  # Top only
+            self._draw_viewport(0, 0, fb_width, fb_height, "Top", orientation="top", fb_dims=(fb_width, fb_height))
+        elif self.view_mode == 4:  # Side only
+            self._draw_viewport(0, 0, fb_width, fb_height, "Side", orientation="side", fb_dims=(fb_width, fb_height))
+
         self._draw_help_overlay(fb_width, fb_height)
 
     def _apply_camera(self, orientation: str | None, width: int, height: int, perspective: bool):
@@ -260,12 +313,14 @@ class FourViewWindow(pyglet.window.Window):
         if mode in (0, 1):
             glEnable(GL_LIGHTING)
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
-            glColor4f(0.6, 0.85, 1.0, 1.0)
-            for layer in self.layer_names:
-                if not self.visible_layers.get(layer, True):
+            for bucket in self.bucket_names:
+                if not self.visible_buckets.get(bucket, True):
                     continue
-                vlist = self._layer_vertex_lists.get(layer)
+                vlist = self._bucket_vertex_lists.get(bucket)
                 if vlist:
+                    # Set color based on material
+                    color = self.bucket_colors.get(bucket, (0.6, 0.85, 1.0))
+                    glColor4f(color[0], color[1], color[2], 1.0)
                     vlist.draw(GL_TRIANGLES)
 
         if mode in (1, 2):
@@ -275,10 +330,10 @@ class FourViewWindow(pyglet.window.Window):
             glPolygonOffset(-1.0, 1.0)
             glColor4f(1.0, 1.0, 1.0, 1.0)
             glLineWidth(1.0)
-            for layer in self.layer_names:
-                if not self.visible_layers.get(layer, True):
+            for bucket in self.bucket_names:
+                if not self.visible_buckets.get(bucket, True):
                     continue
-                vlist = self._layer_vertex_lists.get(layer)
+                vlist = self._bucket_vertex_lists.get(bucket)
                 if vlist:
                     vlist.draw(GL_TRIANGLES)
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
@@ -484,20 +539,22 @@ class FourViewWindow(pyglet.window.Window):
             )
 
             active_layers = ", ".join(layer for layer, vis in self.visible_layers.items() if vis) or "none"
+            view_name = self._view_mode_names[self.view_mode]
             help_lines = [
                 "Viewer Controls",
-                "Perspective View (top-left):",
-                "  Left drag within panel – rotate",
+                f"Current view: {view_name}",
+                "Navigation:",
+                "  Left drag – rotate (perspective views)",
                 "  Right drag – pan",
                 "  Scroll/Swipe up – zoom out, down – zoom in",
-                "Front/Top/Side Views:",
-                "  Right drag – pan (axes specific)",
+                "View Modes:",
+                "  V – cycle views (Quad → Perspective → Front → Top → Side)",
+                "  Tab – cycle single views only",
                 "Layers:",
                 "  Number keys 1-9 toggle layers, 0 resets",
-                f"  Active layers: {active_layers}",
+                f"  Active: {active_layers}",
                 "General:",
-                "  H or F1 – toggle help, ESC – close window",
-                "  L – cycle shading (solid → mesh overlay → mesh only)",
+                "  H or F1 – help, ESC – close, L – cycle shading",
             ]
 
 #            title_font = max(28, min(fb_width, fb_height) // 13)
@@ -529,7 +586,9 @@ class FourViewWindow(pyglet.window.Window):
 
     def on_mouse_drag(self, x, y, dx, dy, buttons, modifiers):
         if buttons & pyglet.window.mouse.LEFT:
-            if x < self.width // 2 and y > self.height // 2:
+            # In quad mode, only rotate when in perspective quadrant (top-left)
+            # In single perspective mode, rotate anywhere
+            if self.view_mode == 1 or (self.view_mode == 0 and x < self.width // 2 and y > self.height // 2):
                 self.azimuth += dx * 0.5
                 self.elevation = max(-89.0, min(89.0, self.elevation - dy * 0.5))
         elif buttons & pyglet.window.mouse.RIGHT:
@@ -547,21 +606,33 @@ class FourViewWindow(pyglet.window.Window):
             self.close()
         elif key._1 <= symbol <= key._9:
             idx = symbol - key._1
-            if idx < len(self.layer_names):
-                layer = self.layer_names[idx]
-                self.visible_layers[layer] = not self.visible_layers.get(layer, True)
+            if idx < len(self.bucket_names):
+                bucket = self.bucket_names[idx]
+                self.visible_buckets[bucket] = not self.visible_buckets.get(bucket, True)
+                # Keep display names in sync
+                self.visible_layers[self.layer_names[idx]] = self.visible_buckets[bucket]
         elif symbol == key._0:
+            for bucket in self.bucket_names:
+                self.visible_buckets[bucket] = True
             for layer in self.layer_names:
                 self.visible_layers[layer] = True
         elif symbol in (key.H, key.F1):
             self.show_help = not self.show_help
         elif symbol == key.L:
             self.render_mode = (self.render_mode + 1) % 3
+        elif symbol == key.V:
+            self.view_mode = (self.view_mode + 1) % 5
+        elif symbol == key.TAB:
+            # Tab cycles through single views only (1-4), skipping quad
+            if self.view_mode == 0:
+                self.view_mode = 1
+            else:
+                self.view_mode = (self.view_mode % 4) + 1
 
     def on_close(self):
-        for vlist in self._layer_vertex_lists.values():
+        for vlist in self._bucket_vertex_lists.values():
             vlist.delete()
-        self._layer_vertex_lists.clear()
+        self._bucket_vertex_lists.clear()
         super().on_close()
 #        else:
 #            print(f"Key pressed: {key.symbol_string(symbol)}")
@@ -795,10 +866,11 @@ def view_package(package_path: Path | str, *, strict: bool = False) -> bool:
         return False
 
     units = manifest.data.get("units", "")
-    layer_tris, bbox = _collect_triangles(doc)
+    materials = manifest.get_materials()
+    bucket_tris, bucket_colors, bbox = _collect_triangles(doc, materials)
     print(f"bounding box: {bbox}")
-    if layer_tris:
-        window = FourViewWindow(layer_tris, bbox, units=units)
+    if bucket_tris:
+        window = FourViewWindow(bucket_tris, bucket_colors, bbox, units=units)
     else:
         layer_polys, bounds = _collect_polylines(doc)
         if not layer_polys:

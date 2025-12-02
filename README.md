@@ -24,6 +24,7 @@ pipelines. Highlights from the 0.5.x cycle include:
 - `.ycpkg` project packaging with manifest, geometry JSON, exports, and metadata.
 - CLI helpers (`tools/ycpkg_validate.py`, `tools/ycpkg_export.py`) for validation and DXF/STEP/STL export.
 - Robust 3D boolean operations with validated tessellation and mesh diagnostics.
+- Native OCC/BREP workflow: import STEP, run `--engine occ` booleans on analytic solids, and round-trip BREP data inside `.ycpkg` geometry JSON.
 - Native sketch primitives (lines, arcs, splines) preserved through package round-trips and exported to DXF as analytic entities.
 - Regression-tested spline extrusion flow (`tests/test_splines.py`) covering STEP/STL/DXF export.
 
@@ -121,6 +122,33 @@ python tools/ycpkg_export.py path/to/design.ycpkg --format step --format stl --o
 ```
 
 See [`docs/ycpkg_spec.rst`](docs/ycpkg_spec.rst) for the manifest schema and workflow details.
+
+## Import STEP geometry (experimental)
+
+BREP-backed STEP import relies on `pythonocc-core`, so activate the conda
+environment described in `docs/BREP_integration_strategy.md` before running the
+importer:
+
+```bash
+conda activate yapcad-brep
+# Inspect bounding boxes via the importer API
+PYTHONPATH=src python - <<'PY'
+from yapcad.io.step_importer import import_step
+parts = import_step("examples/rocket_grid_demo.step")
+for geom in parts:
+    print(geom.bbox)
+PY
+
+# Launch the interactive scaling/boolean demo
+PYTHONPATH=src python examples/step_import_demo.py examples/rocket_grid_demo.step
+```
+
+The importer currently extracts solids and wraps them as `Geometry(BrepSolid)`
+instances, preserving the OCC BREP data inside `.ycpkg` serialization so future
+loads can run exact booleans via `--engine occ`. When both operands carry BREP
+metadata, the demo selects the OCC engine; otherwise it falls back to the
+first `trimesh` backend available (install the `manifold3d` pip package inside
+the conda env to enable `trimesh:manifold`) or to the native kernel.
 
 ### running tests
 

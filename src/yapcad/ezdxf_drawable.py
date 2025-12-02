@@ -122,6 +122,62 @@ class ezdxfDraw(drawable.Drawable):
                                       'color': color,
                                       'linetype': linetype})
 
+    def draw_ellipse(self, center, semi_major, semi_minor, rotation, start, end):
+        """Draw an ellipse or elliptical arc to DXF.
+
+        DXF ellipse is defined by:
+        - center point
+        - major axis endpoint relative to center
+        - ratio of minor to major axis
+        - start/end parameters (0 to 2*pi)
+        """
+        import math
+
+        layer = self.layer
+        if layer == False:
+            layer = '0'
+        color = self.linecolor
+        if color:
+            color = self.thing2color(self.linecolor, 'i')
+        else:
+            color = 256  # bylayer
+        linetype = self.linetype
+        if linetype == False:
+            linetype = 'Continuous'
+
+        # Convert rotation from degrees to radians
+        rot_rad = math.radians(rotation)
+
+        # Major axis endpoint relative to center
+        major_axis = (semi_major * math.cos(rot_rad),
+                      semi_major * math.sin(rot_rad),
+                      0)
+
+        # Ratio of minor to major
+        ratio = semi_minor / semi_major
+
+        # Convert start/end angles from degrees to radians
+        # DXF ellipse uses parametric angles (0 to 2*pi)
+        if start == 0 and end == 360:
+            start_param = 0.0
+            end_param = math.tau
+        else:
+            start_param = math.radians(start)
+            end_param = math.radians(end)
+            if end_param < start_param:
+                end_param += math.tau
+
+        self.__msp.add_ellipse(
+            center=(center[0], center[1]),
+            major_axis=major_axis,
+            ratio=ratio,
+            start_param=start_param,
+            end_param=end_param,
+            dxfattribs={'layer': layer,
+                        'color': color,
+                        'linetype': linetype}
+        )
+
     def draw_text(self,text,location,
                   align=TextEntityAlignment.LEFT,
                   attr={'style': 'LiberationMono',

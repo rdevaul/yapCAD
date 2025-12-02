@@ -1118,10 +1118,13 @@ def solid_boolean(a, b, operation, tol=_DEFAULT_RAY_TOL, *, stitch=False):
         if not result_tris:
             result_tris = overlap_a + overlap_b
     else:  # difference
+        # Filter outside_a to remove triangles that are actually inside B
+        # (the clipping process may have missed these due to mesh approximation)
+        filtered_outside_a = _filter_triangles_against_other(outside_a, b, tol)
         reversed_inside_b = [[tri[0], tri[2], tri[1]] for tri in inside_b]
         if not reversed_inside_b and overlap_b:
             reversed_inside_b = [[tri[0], tri[2], tri[1]] for tri in overlap_b]
-        result_tris = outside_a + reversed_inside_b
+        result_tris = filtered_outside_a + reversed_inside_b
 
     if stitch:
         result_tris = stitch_open_edges(result_tris, tol)
