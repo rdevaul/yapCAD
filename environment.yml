@@ -5,7 +5,12 @@ dependencies:
   - python=3.12
   - pythonocc-core=7.7.2
   - trimesh
+  - gmsh>=4.12
   - pip
   - pip:
     - -e .[test]
     - manifold3d
+
+# FEniCSx environment (separate due to complex dependencies)
+# Install via: conda create -n yapcad-fenics -c conda-forge fenics-dolfinx gmsh pythonocc-core
+# See docs/phase3_implementation_roadmap.md for setup instructions
