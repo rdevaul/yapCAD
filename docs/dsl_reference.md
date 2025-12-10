@@ -402,6 +402,94 @@ solid_funcs = list_functions(category="solid")
 3. **Vector polymorphism**: `vector2d` and `vector3d` are subtypes of `vector`
 4. **List covariance**: `list<int>` is assignable to `list<float>` (elements coerced)
 
+## Module System and Namespaces
+
+### Import Syntax
+
+```python
+module my_design
+
+# Import entire module
+use other_module
+
+# Import with alias
+use package.submodule as alias
+
+# Import from standard library
+use yapcad.stdlib.gears
+use yapcad.stdlib.fasteners as fasteners
+```
+
+### Namespace Conventions
+
+yapCAD DSL organizes functions into three tiers:
+
+1. **Core Builtins** (no import required)
+   - Primitives: `point()`, `vector()`, `box()`, `cylinder()`, `sphere()`
+   - Operations: `union()`, `difference()`, `intersection()`
+   - Transforms: `translate()`, `rotate()`, `scale()`
+   - Math: `sin()`, `cos()`, `sqrt()`, etc.
+   - Queries: `volume()`, `area()`, `perimeter()`
+
+2. **Standard Library** (`yapcad.stdlib.*`)
+   - `yapcad.stdlib.gears` - Parametric gear generation
+     - `involute_spur(teeth, module_mm, pressure_angle, face_width)`
+     - `involute_helical(teeth, module_mm, helix_angle, face_width)`
+     - `bevel_gear(teeth, module_mm, pitch_angle)`
+   - `yapcad.stdlib.fasteners` - Standard fasteners and holes
+     - `hex_bolt(standard, size, length)` - ISO/ANSI hex bolts
+     - `hex_nut(standard, size)` - Hex nuts
+     - `washer(standard, size)` - Flat washers
+     - `threaded_hole(standard, size, depth, tapped?)` - Threaded holes
+   - `yapcad.stdlib.profiles` - Common 2D profiles
+     - `channel(width, height, flange, web)`
+     - `angle(leg1, leg2, thickness)`
+     - `i_beam(width, height, flange, web)`
+
+3. **User Packages** (project-specific)
+   - Custom DSL modules in `.ycpkg` packages
+   - Imported via `use package_name.module`
+
+### Example: Using Standard Library
+
+```python
+module assembly
+
+use yapcad.stdlib.gears
+use yapcad.stdlib.fasteners as f
+
+command GEAR_ASSEMBLY(teeth: int, bolt_count: int) -> solid:
+    # Create gear using stdlib
+    gear: solid = gears.involute_spur(teeth, 2.0, 20.0, 10.0)
+
+    # Add mounting holes using fasteners stdlib
+    bolt_circle_radius: float = (teeth * 2.0) / 4.0
+
+    # Create bolt holes
+    holes: list<solid> = []
+    for i in range(bolt_count):
+        angle: float = 360.0 * i / bolt_count
+        x: float = bolt_circle_radius * cos(radians(angle))
+        y: float = bolt_circle_radius * sin(radians(angle))
+        hole: solid = f.threaded_hole("ISO", "M6", 15.0, true)
+        positioned: solid = translate(hole, x, y, 0.0)
+        holes = concat(holes, [positioned])
+
+    # Subtract all holes
+    result: solid = difference(gear, union(holes))
+    emit result
+```
+
+### Future: Package Registry
+
+A package registry will allow sharing and discovering DSL modules:
+
+```python
+# Future syntax for external packages
+use external:gears-advanced.planetary
+use external:aerospace-fasteners.an_series
+```
+
 ## Error Handling
 
 The DSL provides detailed error messages with source locations:

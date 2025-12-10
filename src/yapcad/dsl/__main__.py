@@ -7,6 +7,14 @@ Usage:
     python -m yapcad.dsl check FILE.dsl
     python -m yapcad.dsl list FILE.dsl
 
+TODO: Support 2D region export
+  Currently the CLI assumes solid (3D) output and exports to STEP/STL/DXF
+  as 3D geometry. Commands that return region2d should be exportable as:
+  - DXF: Native 2D entities (LINE, ARC, CIRCLE, ELLIPSE, SPLINE)
+  - SVG: For web/documentation use
+  Detection: Check if result type is region2d and route to 2D exporter.
+  See: yapcad.ezdxf_exporter for existing 2D DXF support
+
 Examples:
     # Check syntax and types
     python -m yapcad.dsl check examples/spur_gears.dsl

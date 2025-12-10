@@ -2,6 +2,27 @@
 Built-in function registry for DSL interpreter.
 
 Maps DSL function names to yapCAD implementations.
+
+TODO: Add missing 2D curve primitives:
+  - ellipse(center, major, minor, rotation?) -> ellipse
+  - parabola(vertex, focus) -> parabola
+  - hyperbola(center, a, b) -> hyperbola
+  Types are defined in types.py but constructors not yet implemented.
+  See yapCAD core: yapcad.geom.Ellipse, yapcad.geom.conic_arc
+
+TODO: Move involute_gear to yapcad.stdlib.gears package
+  High-level parametric constructions (gears, fasteners) should be
+  DSL modules in a standard library, not hardcoded builtins. This allows:
+  - Multiple implementations (figgear vs other algorithms)
+  - User customization and extension
+  - Proper namespace management (use gears.involute)
+
+TODO: Add fastener primitives via yapcad.stdlib.fasteners package
+  - hex_bolt(standard, size, length) using existing fastener catalog
+  - hex_nut(standard, size)
+  - washer(standard, size)
+  - threaded_hole(standard, size, depth, tapped?)
+  See: yapcad.contrib.fasteners for existing implementation
 """
 
 from dataclasses import dataclass
