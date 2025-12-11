@@ -192,9 +192,10 @@ class FenicsxAdapter(AnalysisAdapter):
 
             # 5. Export results
             if "displacement_field" in fea_results:
-                vtu_path = workspace / "displacement.vtu"
                 # VTU export happens in _run_fea
-                artifacts.append({"kind": "vtu", "path": "displacement.vtu"})
+                artifacts.append({"kind": "vtu", "path": "displacement.vtu", "description": "Displacement field"})
+            if "stress_field" in fea_results:
+                artifacts.append({"kind": "vtu", "path": "stress.vtu", "description": "Von Mises stress field"})
 
             # 6. Evaluate acceptance criteria
             status = self._evaluate_acceptance(metrics, plan.acceptance)
@@ -402,16 +403,23 @@ class FenicsxAdapter(AnalysisAdapter):
         results["metrics"]["displacement.max"] = max_disp
         results["metrics"]["displacement.max_mm"] = max_disp * 1000  # Assuming SI units
 
-        # Von Mises stress
-        vm_stress = self._compute_von_mises(domain, uh, material)
-        results["metrics"]["stress.von_mises.max"] = vm_stress
+        # Von Mises stress - compute field and max value
+        vm_func, vm_max = self._compute_von_mises_field(domain, uh, material)
+        results["metrics"]["stress.von_mises.max"] = vm_max
+        results["metrics"]["stress.von_mises.max_mpa"] = vm_max / 1e6  # Convert Pa to MPa
 
         # Export displacement field
         vtu_path = workspace / "displacement.vtu"
         with io.VTXWriter(MPI.COMM_WORLD, str(vtu_path), [uh]) as vtx:
             vtx.write(0.0)
 
+        # Export von Mises stress field for visualization
+        stress_vtu_path = workspace / "stress.vtu"
+        with io.VTXWriter(MPI.COMM_WORLD, str(stress_vtu_path), [vm_func]) as vtx:
+            vtx.write(0.0)
+
         results["displacement_field"] = uh
+        results["stress_field"] = vm_func
 
         return results
 
@@ -460,8 +468,12 @@ class FenicsxAdapter(AnalysisAdapter):
 
         return bcs
 
-    def _compute_von_mises(self, domain, uh, material: MaterialProperties) -> float:
-        """Compute maximum von Mises stress."""
+    def _compute_von_mises_field(self, domain, uh, material: MaterialProperties) -> Tuple[Any, float]:
+        """Compute von Mises stress field and maximum value.
+
+        Returns:
+            Tuple of (stress_function, max_stress_pa)
+        """
         # Define stress tensor
         def epsilon(u):
             return ufl.sym(ufl.grad(u))
@@ -471,18 +483,20 @@ class FenicsxAdapter(AnalysisAdapter):
             mu = material.lame_mu
             return lmbda * ufl.nabla_div(u) * ufl.Identity(len(u)) + 2 * mu * epsilon(u)
 
-        # Von Mises stress
+        # Von Mises stress: sqrt(3/2 * s:s) where s is deviatoric stress
         s = sigma(uh) - (1/3) * ufl.tr(sigma(uh)) * ufl.Identity(len(uh))
         von_mises = ufl.sqrt((3/2) * ufl.inner(s, s))
 
-        # Project to DG space for evaluation
+        # Project to DG space for evaluation and export
         V_vm = fem.functionspace(domain, ("DG", 0))
         vm_expr = fem.Expression(von_mises, V_vm.element.interpolation_points())
-        vm_func = fem.Function(V_vm)
+        vm_func = fem.Function(V_vm, name="von_mises_stress")
         vm_func.interpolate(vm_expr)
 
         with vm_func.vector.localForm() as loc:
-            return float(np.max(np.abs(loc.array)))
+            max_stress = float(np.max(np.abs(loc.array)))
+
+        return vm_func, max_stress
 
     def _evaluate_acceptance(self, metrics: Dict[str, float], acceptance: Dict[str, Any]) -> str:
         """Evaluate acceptance criteria."""
