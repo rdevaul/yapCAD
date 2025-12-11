@@ -76,6 +76,7 @@ class Interpreter:
         """
         self.transforms = transforms or []
         self.native_functions: Dict[str, Callable] = {}  # Functions from native blocks
+        self.current_module: Optional[Module] = None  # Current module being executed
 
     def execute(
         self,
@@ -100,6 +101,9 @@ class Interpreter:
         transformed_module = module
         for transform in self.transforms:
             transformed_module = transform(transformed_module)
+
+        # Store the module for command lookups during execution
+        self.current_module = transformed_module
 
         # Execute native blocks to register their exported functions
         for native_block in transformed_module.native_blocks:
@@ -179,6 +183,11 @@ class Interpreter:
     def _wrap_parameters(self, command: Command, parameters: Dict[str, Any]) -> Dict[str, Value]:
         """Wrap raw parameter values as DSL Values."""
         wrapped = {}
+
+        # Create a temporary context for evaluating default values
+        from .context import ExecutionContext
+        temp_ctx = ExecutionContext()
+
         for param in command.parameters:
             if param.name in parameters:
                 raw_value = parameters[param.name]
@@ -198,10 +207,10 @@ class Interpreter:
                     else:
                         param_type = FLOAT  # Default fallback
                 wrapped[param.name] = wrap_value(raw_value, param_type)
-            elif param.default is not None:
-                # Use default value - we'd need to evaluate it
-                # For now, this is a limitation
-                pass
+            elif param.default_value is not None:
+                # Evaluate default value expression using temporary context
+                default_val = self._evaluate(param.default_value, temp_ctx)
+                wrapped[param.name] = default_val
         return wrapped
 
     def _execute_command(self, command: Command, ctx: ExecutionContext) -> None:
@@ -598,8 +607,38 @@ class Interpreter:
         if func_name in self.native_functions:
             return self._call_native_function(func_name, args)
 
+        # Check for commands in the current module
+        if self.current_module is not None:
+            for cmd in self.current_module.commands:
+                if cmd.name == func_name:
+                    return self._call_command(cmd, args, ctx)
+
         # Call the built-in function
         return call_builtin(func_name, args)
+
+    def _call_command(self, command: Command, args: List[Value], parent_ctx: ExecutionContext) -> Value:
+        """Call a command as a function from within another command."""
+        # Build parameters dict from args
+        param_dict = {}
+        if len(args) != len(command.parameters):
+            raise RuntimeError(
+                f"Command '{command.name}' expects {len(command.parameters)} arguments, got {len(args)}"
+            )
+        for param, arg in zip(command.parameters, args):
+            param_dict[param.name] = arg
+
+        # Create a new context for the command execution
+        module_name = self.current_module.name if self.current_module else "unknown"
+        cmd_ctx = create_context(module_name, command.name, param_dict, "")
+
+        # Execute the command body
+        self._execute_command(command, cmd_ctx)
+
+        # Return the emitted value
+        if cmd_ctx.emit_result is not None:
+            return cmd_ctx.emit_result
+        else:
+            raise RuntimeError(f"Command '{command.name}' did not emit a value")
 
     def _call_native_function(self, func_name: str, args: List[Value]) -> Value:
         """Call a native function with the given arguments."""

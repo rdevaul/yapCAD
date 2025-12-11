@@ -1,0 +1,144 @@
+# Thrust Structure FEA Analysis Plan
+# ===================================
+#
+# Static structural analysis of rocket motor thrust plate under
+# maximum thrust loading condition.
+#
+# Analysis validates the design meets the 10mm deflection limit
+# when subjected to 1500 lbf (6672 N) thrust load.
+
+id: thrust-fea
+kind: structural
+backend: fenics
+name: "Thrust Plate Static Analysis - Max Thrust"
+description: |
+  Linear elastic static analysis of the thrust structure under
+  maximum motor thrust. The thrust load is applied as pressure
+  on the motor mount inner surface, and the plate is constrained
+  at the stringer attachment notches.
+
+# Geometry reference
+geometry:
+  source: geometry/primary.json
+  entities: []  # All entities
+
+# Material properties: 6061-T6 Aluminum
+materials:
+  default:
+    name: "6061-T6 Aluminum"
+    youngs_modulus_pa: 68.9e9      # 68.9 GPa
+    poisson_ratio: 0.33
+    density_kgm3: 2700
+    yield_strength_pa: 276e6       # 276 MPa (for reference)
+    ultimate_strength_pa: 310e6   # 310 MPa (for reference)
+
+# Loading conditions
+loads:
+  - id: thrust_pressure
+    type: pressure
+    description: "Motor thrust applied to mount inner surface"
+    surfaces:
+      - motor_mount_inner     # Face selector name
+    # Thrust: 1500 lbf = 6672 N
+    # Motor mount: 4" (101.6mm) diameter, 8mm height
+    # Inner surface area ≈ π × 101.6 × 8 = 2553 mm² = 2.553e-3 m²
+    # Pressure = 6672 / 2.553e-3 ≈ 2.61 MPa
+    magnitude_pa: 2.61e6
+
+# Boundary conditions
+boundaryConditions:
+  - id: stringer_fixed
+    type: fixed
+    description: "Stringer attachment points fixed (simulating welded stringers)"
+    surfaces:
+      - stringer_notch_1
+      - stringer_notch_2
+      - stringer_notch_3
+
+# Acceptance criteria
+acceptance:
+  displacement.max_mm:
+    limit: 10.0
+    comparison: "<="
+    description: "Maximum displacement must not exceed 10mm"
+
+  # Optional: stress check against yield with safety factor
+  # stress.von_mises.max:
+  #   limit: 184e6    # 276 MPa / 1.5 safety factor
+  #   comparison: "<="
+  #   description: "Von Mises stress with 1.5x safety factor"
+
+# Backend-specific options
+backendOptions:
+  mesh:
+    element_size: 5.0        # mm - target element size
+    min_element_size: 2.0    # mm - near holes and notches
+    max_element_size: 10.0   # mm - in less critical regions
+    element_order: 1         # Linear elements (2 for quadratic)
+    algorithm_2d: 6          # Frontal-Delaunay
+    algorithm_3d: 1          # Delaunay
+    optimize: true
+    optimize_netgen: false
+
+  solver:
+    type: linear
+    preconditioner: lu       # Direct solver for robustness
+
+# Face naming strategy for automatic BC assignment
+faceNaming:
+  strategy: geometric
+  rules:
+    # Motor mount inner cylindrical surface
+    - name: motor_mount_inner
+      selector:
+        type: cylindrical
+        axis: [0, 0, 1]
+        radius: 50.8          # mm (4"/2)
+        tolerance: 1.0
+
+    # Stringer notches - rectangular cutouts at edge
+    - name: stringer_notch_1
+      selector:
+        type: planar
+        normal: [1, 0, 0]     # Notch at 0° - faces +X
+        position_constraint:
+          axis: x
+          at_max: true
+
+    - name: stringer_notch_2
+      selector:
+        type: planar
+        normal: [-0.5, 0.866, 0]  # Notch at 120°
+        position_constraint:
+          axis: y
+          at_max: true
+
+    - name: stringer_notch_3
+      selector:
+        type: planar
+        normal: [-0.5, -0.866, 0]  # Notch at 240°
+        position_constraint:
+          axis: y
+          at_min: true
+
+# Execution configuration
+execution:
+  mode: local
+  command: null              # Use default (fenics or ccx)
+  workdir: null              # Use default workspace
+
+# Metadata for tracking
+metadata:
+  author: "yapCAD Thrust Structure Demo"
+  created: "2025-12-10"
+  revision: 1
+  tags:
+    - aerospace
+    - structural
+    - optimization-candidate
+  design_parameters:
+    outer_diameter_mm: 304.8
+    thickness_mm: 8.0
+    motor_mount_diameter_mm: 101.6
+    thrust_lbf: 1500
+    thrust_n: 6672
