@@ -49,19 +49,41 @@ def check_dependencies():
     """Check if required dependencies are available."""
     missing = []
 
+    # Direct import test first
+    try:
+        import gmsh
+        gmsh_direct = True
+    except ImportError as e:
+        gmsh_direct = False
+        print(f"DEBUG: Direct gmsh import failed: {e}")
+
+    try:
+        import dolfinx
+        dolfinx_direct = True
+    except ImportError as e:
+        dolfinx_direct = False
+        print(f"DEBUG: Direct dolfinx import failed: {e}")
+
+    # Now test via yapCAD wrappers
     try:
         from yapcad.package.analysis.gmsh_mesher import gmsh_available
-        if not gmsh_available():
+        gmsh_wrapper = gmsh_available()
+        if not gmsh_wrapper:
             missing.append("gmsh")
-    except ImportError:
+            print(f"DEBUG: gmsh_available() returned False (direct import: {gmsh_direct})")
+    except ImportError as e:
         missing.append("gmsh")
+        print(f"DEBUG: Failed to import gmsh_mesher: {e}")
 
     try:
         from yapcad.package.analysis.fenics import fenics_available
-        if not fenics_available():
+        fenics_wrapper = fenics_available()
+        if not fenics_wrapper:
             missing.append("fenics-dolfinx")
-    except ImportError:
+            print(f"DEBUG: fenics_available() returned False (direct import: {dolfinx_direct})")
+    except ImportError as e:
         missing.append("fenics-dolfinx")
+        print(f"DEBUG: Failed to import fenics: {e}")
 
     if missing:
         print("Missing dependencies:", ", ".join(missing))
@@ -92,7 +114,11 @@ def create_package(design: str, output_path: Path) -> bool:
         return False
 
     solid = result.geometry
-    print(f"   Generated solid with volume {result.volume:.0f} mm³")
+
+    # Calculate volume
+    from yapcad.geom3d import volumeof
+    volume = volumeof(solid)
+    print(f"   Generated solid with volume {volume:.0f} mm³")
 
     # Create package
     print(f"\n2. Creating package at {output_path}...")
@@ -131,14 +157,14 @@ def create_package(design: str, output_path: Path) -> bool:
 def run_fea(package_path: Path) -> dict:
     """Run FEA analysis on the package."""
     from yapcad.package import PackageManifest
-    from yapcad.package.analysis import load_analysis_plan
+    from yapcad.package.analysis import load_plan
     from yapcad.package.analysis.fenics import FenicsxAdapter
 
     print("\n3. Running FEA analysis...")
 
     manifest = PackageManifest.load(package_path)
     plan_path = package_path / "validation" / "plans" / "thrust-fea.yaml"
-    plan = load_analysis_plan(plan_path)
+    plan = load_plan(plan_path)
 
     workspace = package_path / "validation" / "results" / "thrust-fea"
     workspace.mkdir(parents=True, exist_ok=True)
@@ -146,10 +172,20 @@ def run_fea(package_path: Path) -> dict:
     adapter = FenicsxAdapter()
     result = adapter.run(manifest, plan, workspace)
 
+    # Check for error details
+    if result.status == "error":
+        # Error info is in the summary dict
+        error_msg = result.summary.get("error", "Unknown error")
+        status_detail = result.summary.get("statusDetail", "")
+        print(f"\n   Analysis error: {error_msg}")
+        if status_detail:
+            print(f"   Details: {status_detail}")
+
     return {
         "status": result.status,
         "metrics": result.metrics,
         "artifacts": result.artifacts,
+        "error": result.summary.get("error"),
     }
 
 
@@ -176,9 +212,9 @@ def print_results(results: dict):
         desc = artifact.get("description", artifact.get("kind", ""))
         print(f"  - {artifact['path']}: {desc}")
 
-    print("\nVisualization:")
-    print("  paraview validation/results/thrust-fea/displacement.vtu")
-    print("  paraview validation/results/thrust-fea/stress.vtu")
+    print("\nVisualization (open in ParaView):")
+    print("  paraview thrust_structure.ycpkg/validation/results/thrust-fea/displacement.xdmf")
+    print("  paraview thrust_structure.ycpkg/validation/results/thrust-fea/stress.xdmf")
 
 
 def main():

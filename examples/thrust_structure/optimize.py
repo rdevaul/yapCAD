@@ -5,19 +5,19 @@ Optimization driver for thrust structure design.
 This script compares different hole configurations to find
 the minimum-mass design that meets deflection requirements.
 
-Since the DSL currently supports fixed hole counts (0, 3, 4 per sector),
-we evaluate these configurations and use analytical approximation
-for deflection estimation.
+Uses actual FEA (FEniCSx) for deflection calculations when available,
+falling back to analytical approximation otherwise.
 
 Usage:
-    python optimize.py [--output DIR]
+    python optimize.py [--output DIR] [--use-fea] [--skip-fea]
 """
 
 import argparse
 import json
 import math
+import shutil
 import sys
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -36,7 +36,7 @@ class DesignConfig:
     hole_radial_fraction: float
 
     def config_id(self) -> str:
-        return self.name.lower().replace(" ", "_")
+        return self.name.lower().replace(" ", "_").replace("(", "").replace(")", "").replace(",", "")
 
 
 @dataclass
@@ -46,7 +46,9 @@ class EvaluationResult:
     mass_kg: float
     volume_mm3: float
     max_displacement_mm: float
+    max_stress_mpa: float
     passed: bool
+    method: str  # "fea" or "analytical"
     notes: str = ""
 
 
@@ -84,6 +86,16 @@ def get_configurations() -> List[DesignConfig]:
     ]
 
 
+def check_fea_available() -> bool:
+    """Check if FEA dependencies are available."""
+    try:
+        from yapcad.package.analysis.gmsh_mesher import gmsh_available
+        from yapcad.package.analysis.fenics import fenics_available
+        return gmsh_available() and fenics_available()
+    except ImportError:
+        return False
+
+
 def generate_geometry(config: DesignConfig) -> Tuple[Any, float]:
     """Generate geometry for a configuration and return (solid, volume_mm3)."""
     from yapcad.dsl import compile_and_run
@@ -99,14 +111,69 @@ def generate_geometry(config: DesignConfig) -> Tuple[Any, float]:
         raise RuntimeError(f"DSL execution failed: {result.error_message}")
 
     solid = result.geometry
-    volume = result.volume if hasattr(result, 'volume') else None
 
-    # Get volume from the solid if not provided
-    if volume is None:
-        from yapcad.geom3d import volumeof
-        volume = volumeof(solid)
+    # Get volume from the solid
+    from yapcad.geom3d import volumeof
+    volume = volumeof(solid)
 
     return solid, volume
+
+
+def run_fea_analysis(
+    solid: Any,
+    config: DesignConfig,
+    work_dir: Path
+) -> Tuple[float, float]:
+    """
+    Run actual FEA analysis on the solid.
+
+    Returns (max_displacement_mm, max_stress_mpa)
+    """
+    from yapcad.package import create_package_from_entities
+    from yapcad.package.core import PackageManifest
+    from yapcad.package.analysis import load_plan
+    from yapcad.package.analysis.fenics import FenicsxAdapter
+
+    # Create a temporary package for this design
+    pkg_path = work_dir / f"{config.config_id()}.ycpkg"
+    if pkg_path.exists():
+        shutil.rmtree(pkg_path)
+
+    create_package_from_entities(
+        [solid],
+        pkg_path,
+        name=config.name,
+        version="1.0.0",
+        units="mm"
+    )
+
+    # Copy the analysis plan
+    plan_src = Path(__file__).parent / "validation" / "plans" / "thrust-fea.yaml"
+    plan_dst = pkg_path / "validation" / "plans"
+    plan_dst.mkdir(parents=True, exist_ok=True)
+    shutil.copy(plan_src, plan_dst / "thrust-fea.yaml")
+
+    # Load manifest and plan
+    manifest = PackageManifest.load(pkg_path)
+    plan = load_plan(plan_dst / "thrust-fea.yaml")
+
+    # Create workspace for results
+    workspace = pkg_path / "validation" / "results" / "thrust-fea"
+    workspace.mkdir(parents=True, exist_ok=True)
+
+    # Run FEA
+    adapter = FenicsxAdapter()
+    result = adapter.run(manifest, plan, workspace)
+
+    if result.status == "error":
+        error_msg = result.summary.get("error", "Unknown error")
+        raise RuntimeError(f"FEA failed: {error_msg}")
+
+    # Extract results
+    max_disp = result.metrics.get("displacement.max_mm", 0.0)
+    max_stress = result.metrics.get("stress.von_mises.max_mpa", 0.0)
+
+    return max_disp, max_stress
 
 
 def analytical_deflection(
@@ -167,7 +234,9 @@ def analytical_deflection(
 
 def evaluate_config(
     config: DesignConfig,
-    deflection_limit_mm: float = 10.0
+    deflection_limit_mm: float = 10.0,
+    use_fea: bool = True,
+    work_dir: Optional[Path] = None
 ) -> EvaluationResult:
     """Evaluate a single configuration."""
     print(f"\n  Evaluating: {config.name}")
@@ -180,53 +249,96 @@ def evaluate_config(
         volume_m3 = volume_mm3 / 1e9
         mass_kg = volume_m3 * 2700
 
-        # Estimate deflection
-        max_disp, max_stress = analytical_deflection(
-            volume_mm3,
-            config.num_holes_total,
-            config.hole_radius_mm
-        )
+        print(f"    Volume: {volume_mm3:.0f} mm³")
+        print(f"    Mass: {mass_kg:.3f} kg ({mass_kg*2.205:.3f} lbs)")
+
+        # Get deflection - FEA or analytical
+        if use_fea and work_dir is not None:
+            try:
+                print(f"    Running FEA analysis...")
+                max_disp, max_stress = run_fea_analysis(solid, config, work_dir)
+                method = "fea"
+            except Exception as e:
+                print(f"    FEA failed ({e}), falling back to analytical")
+                max_disp, max_stress = analytical_deflection(
+                    volume_mm3, config.num_holes_total, config.hole_radius_mm
+                )
+                method = "analytical"
+        else:
+            max_disp, max_stress = analytical_deflection(
+                volume_mm3, config.num_holes_total, config.hole_radius_mm
+            )
+            method = "analytical"
 
         passed = max_disp <= deflection_limit_mm
         status = "PASS" if passed else "FAIL"
-        print(f"    Volume: {volume_mm3:.0f} mm³")
-        print(f"    Mass: {mass_kg:.3f} kg ({mass_kg*2.205:.3f} lbs)")
-        print(f"    Est. Deflection: {max_disp:.2f} mm [{status}]")
+        print(f"    Deflection: {max_disp:.3f} mm [{status}] ({method})")
+        print(f"    Max Stress: {max_stress:.1f} MPa")
 
         return EvaluationResult(
             config=config,
             mass_kg=mass_kg,
             volume_mm3=volume_mm3,
             max_displacement_mm=max_disp,
+            max_stress_mpa=max_stress,
             passed=passed,
+            method=method,
         )
 
     except Exception as e:
         print(f"    Error: {e}")
+        import traceback
+        traceback.print_exc()
         return EvaluationResult(
             config=config,
             mass_kg=0.0,
             volume_mm3=0.0,
             max_displacement_mm=float('inf'),
+            max_stress_mpa=0.0,
             passed=False,
+            method="error",
             notes=str(e),
         )
 
 
-def run_optimization(output_dir: Path, deflection_limit_mm: float = 10.0) -> Dict[str, Any]:
+def run_optimization(
+    output_dir: Path,
+    deflection_limit_mm: float = 10.0,
+    use_fea: bool = True
+) -> Dict[str, Any]:
     """Run the optimization comparison."""
     print("=" * 60)
-    print("Thrust Structure Design Comparison")
+    print("Thrust Structure Design Optimization")
     print("=" * 60)
     print(f"\nDeflection limit: {deflection_limit_mm} mm")
     print(f"Material: 6061-T6 Aluminum")
     print(f"Thrust load: 1500 lbf (6672 N)")
 
+    # Check FEA availability
+    fea_available = check_fea_available()
+    if use_fea and not fea_available:
+        print("\nWARNING: FEA not available (missing gmsh or dolfinx)")
+        print("         Using analytical approximation instead")
+        use_fea = False
+    elif use_fea:
+        print(f"\nUsing FEA (FEniCSx) for deflection analysis")
+    else:
+        print(f"\nUsing analytical approximation for deflection")
+
     configs = get_configurations()
     results: List[EvaluationResult] = []
 
+    # Create work directory for FEA packages
+    work_dir = output_dir / "fea_work"
+    work_dir.mkdir(parents=True, exist_ok=True)
+
     for config in configs:
-        result = evaluate_config(config, deflection_limit_mm)
+        result = evaluate_config(
+            config,
+            deflection_limit_mm,
+            use_fea=use_fea,
+            work_dir=work_dir
+        )
         results.append(result)
 
     # Find best passing design
@@ -243,12 +355,14 @@ def run_optimization(output_dir: Path, deflection_limit_mm: float = 10.0) -> Dic
     print("RESULTS SUMMARY")
     print("=" * 60)
 
-    print(f"\n{'Design':<25} {'Mass (kg)':<12} {'Deflection':<15} {'Status'}")
-    print("-" * 60)
+    print(f"\n{'Design':<28} {'Mass (kg)':<10} {'Deflection':<12} {'Stress':<10} {'Status'}")
+    print("-" * 75)
     for r in results:
         status = "PASS" if r.passed else "FAIL"
-        print(f"{r.config.name:<25} {r.mass_kg:>8.3f}    {r.max_displacement_mm:>8.2f} mm     {status}")
+        method_tag = f"[{r.method[:3]}]" if r.method else ""
+        print(f"{r.config.name:<28} {r.mass_kg:>7.3f}    {r.max_displacement_mm:>7.3f} mm   {r.max_stress_mpa:>6.1f} MPa  {status} {method_tag}")
 
+    mass_reduction = 0.0
     if best:
         mass_reduction = (baseline.mass_kg - best.mass_kg) / baseline.mass_kg * 100
         print(f"\nBest design: {best.config.name}")
@@ -260,20 +374,25 @@ def run_optimization(output_dir: Path, deflection_limit_mm: float = 10.0) -> Dic
     result_data = {
         "timestamp": datetime.now().isoformat(),
         "deflection_limit_mm": deflection_limit_mm,
+        "analysis_method": "fea" if use_fea else "analytical",
+        "fea_available": fea_available,
         "designs": [
             {
                 "name": r.config.name,
                 "command": r.config.command,
                 "num_holes": r.config.num_holes_total,
+                "hole_radius_mm": r.config.hole_radius_mm,
                 "mass_kg": r.mass_kg,
                 "volume_mm3": r.volume_mm3,
                 "max_displacement_mm": r.max_displacement_mm,
+                "max_stress_mpa": r.max_stress_mpa,
                 "passed": r.passed,
+                "method": r.method,
             }
             for r in results
         ],
         "best_design": best.config.name if best else None,
-        "mass_reduction_pct": mass_reduction if best else 0,
+        "mass_reduction_pct": mass_reduction,
     }
 
     return result_data
@@ -316,7 +435,7 @@ def export_best_design(results: Dict[str, Any], output_dir: Path) -> None:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Compare thrust structure designs for minimum mass"
+        description="Compare thrust structure designs for minimum mass using FEA"
     )
     parser.add_argument(
         "--output", type=Path, default=Path("./output/optimization"),
@@ -326,12 +445,22 @@ def main():
         "--deflection-limit", type=float, default=10.0,
         help="Maximum allowable deflection in mm (default: 10)"
     )
+    parser.add_argument(
+        "--use-fea", action="store_true", default=True,
+        help="Use FEA for deflection analysis (default: True)"
+    )
+    parser.add_argument(
+        "--skip-fea", action="store_true",
+        help="Skip FEA, use analytical approximation only"
+    )
 
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
 
+    use_fea = args.use_fea and not args.skip_fea
+
     # Run comparison
-    results = run_optimization(args.output, args.deflection_limit)
+    results = run_optimization(args.output, args.deflection_limit, use_fea=use_fea)
 
     # Save results
     results_path = args.output / "comparison_results.json"

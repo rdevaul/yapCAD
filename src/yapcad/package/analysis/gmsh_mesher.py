@@ -176,7 +176,7 @@ class GmshMesher:
 
         try:
             # Write OCC shape to BREP file
-            breptools.Write_s(occ_shape, str(tmp_path))
+            breptools.Write(occ_shape, str(tmp_path))
 
             # Import into Gmsh via OCC kernel
             entities = gmsh.model.occ.importShapes(str(tmp_path))
@@ -329,9 +329,13 @@ class GmshMesher:
 
         # Optimize if requested
         if hints.optimize:
-            gmsh.model.mesh.optimize("Laplace2D")
+            gmsh.model.mesh.optimize("Relocate2D")
             if dim == 3:
-                gmsh.model.mesh.optimize("Netgen" if hints.optimize_netgen else "Laplace3D")
+                # Use Netgen if requested, otherwise basic 3D relocation
+                if hints.optimize_netgen:
+                    gmsh.model.mesh.optimize("Netgen")
+                else:
+                    gmsh.model.mesh.optimize("Relocate3D")
 
     def _apply_refinement_field(self, field_id: int, spec: Dict[str, Any]) -> None:
         """Apply a mesh refinement field."""
@@ -423,20 +427,28 @@ class GmshMesher:
         if hasattr(solid, '_occ_shape'):
             return solid._occ_shape
 
-        # Try to get from BREP cache
-        from yapcad.brep import BrepSolid, occ_available
+        # Try to get from BREP cache or directly if it's a BrepSolid
+        from yapcad.brep import BrepSolid, occ_available, brep_from_solid
         if occ_available():
             if isinstance(solid, BrepSolid):
                 return solid.shape
+            # For list-based solids, try to get cached BrepSolid
+            # This handles deserialized geometry that has BREP data in metadata
+            brep = brep_from_solid(solid)
+            if brep is not None:
+                return brep.shape
 
-        # Convert via native BREP
+        # Convert via native BREP (TopologyGraph)
         from yapcad.occ_native_convert import native_brep_to_occ, occ_available as occ_convert_available
+        from yapcad.native_brep import TopologyGraph, has_native_brep
         if occ_convert_available():
-            # yapCAD solid is typically a list of surfaces
-            # Need to build OCC solid from it
-            occ_shape = native_brep_to_occ(solid)
-            if occ_shape is not None:
-                return occ_shape
+            # Check if solid has native BREP attached (TopologyGraph)
+            if has_native_brep(solid):
+                from yapcad.native_brep import native_brep_from_solid
+                graph = native_brep_from_solid(solid)
+                occ_shape = native_brep_to_occ(graph)
+                if occ_shape is not None:
+                    return occ_shape
 
         raise ValueError(
             "Cannot extract OCC shape from solid. Ensure the solid has "

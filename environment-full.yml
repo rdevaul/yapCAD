@@ -1,0 +1,61 @@
+# Full yapCAD environment with BREP + FEA support
+#
+# This environment combines:
+# - pythonocc-core for OCC BREP geometry
+# - FEniCSx/DOLFINx for FEA analysis
+# - Gmsh for meshing
+# - All visualization and export dependencies
+#
+# Installation:
+#   conda env create -f environment-full.yml
+#   conda activate yapcad-full
+#
+# Or to update an existing environment:
+#   conda env update -f environment-full.yml
+
+name: yapcad-full
+channels:
+  - conda-forge
+dependencies:
+  # Python version - use 3.11 for best FEniCSx compatibility
+  - python=3.11
+
+  # === BREP / Geometry ===
+  - pythonocc-core>=7.7
+  - trimesh
+
+  # === FEA / Analysis ===
+  - fenics-dolfinx
+  - gmsh>=4.12
+  - python-gmsh  # Python bindings for Gmsh
+  - meshio
+  - pyvista  # For visualization of VTU files
+
+  # === Scientific computing ===
+  - numpy
+  - scipy
+  - mpmath
+
+  # === Visualization ===
+  - pyglet>=1.5,<2
+  - matplotlib
+
+  # === File I/O ===
+  - pyyaml
+  - ezdxf>=1.1
+
+  # === Testing ===
+  - pytest
+  - pytest-cov
+
+  # === pip-only packages ===
+  - pip
+  - pip:
+    - manifold3d
+    - mapbox-earcut>=1.0.3
+    # macOS-specific GUI support
+    - pyobjc-core; platform_system == "Darwin"
+    - pyobjc-framework-Cocoa; platform_system == "Darwin"
+    - pyobjc-framework-Quartz; platform_system == "Darwin"
+    # Install yapCAD in editable mode
+    - -e .[test]

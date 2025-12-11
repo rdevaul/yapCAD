@@ -192,10 +192,10 @@ class FenicsxAdapter(AnalysisAdapter):
 
             # 5. Export results
             if "displacement_field" in fea_results:
-                # VTU export happens in _run_fea
-                artifacts.append({"kind": "vtu", "path": "displacement.vtu", "description": "Displacement field"})
+                # XDMF export happens in _run_fea
+                artifacts.append({"kind": "xdmf", "path": "displacement.xdmf", "description": "Displacement field"})
             if "stress_field" in fea_results:
-                artifacts.append({"kind": "vtu", "path": "stress.vtu", "description": "Von Mises stress field"})
+                artifacts.append({"kind": "xdmf", "path": "stress.xdmf", "description": "Von Mises stress field"})
 
             # 6. Evaluate acceptance criteria
             status = self._evaluate_acceptance(metrics, plan.acceptance)
@@ -228,21 +228,36 @@ class FenicsxAdapter(AnalysisAdapter):
         )
 
     def _load_geometry(self, manifest: Any, plan: AnalysisPlan) -> Any:
-        """Load geometry from the package."""
+        """Load geometry from the package.
+
+        Returns the first solid from the package geometry.
+        """
         from yapcad.package.core import load_geometry
+        from yapcad.geom3d import issolid
 
         # Get geometry source from plan
         geom_spec = plan.geometry
         source = geom_spec.get("source", "geometry/primary.json")
         entities = geom_spec.get("entities", [])
 
-        # Load geometry from package
+        # Load geometry from package - returns List[list] of entities
         geometry = load_geometry(manifest)
 
         if entities:
             # Filter to specified entities
             # TODO: Implement entity filtering
             pass
+
+        # Extract the first solid from the geometry list
+        # load_geometry returns a list of entities (solids, surfaces, etc.)
+        if isinstance(geometry, list):
+            for entity in geometry:
+                if issolid(entity):
+                    return entity
+            # If no solid found, maybe the geometry itself is a solid
+            if geometry and issolid(geometry[0] if len(geometry) == 1 else geometry):
+                return geometry[0] if len(geometry) == 1 else geometry
+            raise ValueError("No solid geometry found in package")
 
         return geometry
 
@@ -260,7 +275,11 @@ class FenicsxAdapter(AnalysisAdapter):
         )
 
     def _get_physical_groups(self, plan: AnalysisPlan) -> Dict[str, List[int]]:
-        """Extract physical groups from plan."""
+        """Extract physical groups from plan.
+
+        Note: Currently only supports integer face indices, not named face selectors.
+        Named selectors (like 'motor_mount_inner') are skipped with a warning.
+        """
         groups: Dict[str, List[int]] = {}
 
         # From boundary conditions
@@ -268,14 +287,28 @@ class FenicsxAdapter(AnalysisAdapter):
             surfaces = bc.get("surfaces", [])
             bc_id = bc.get("id", "bc")
             if surfaces:
-                groups[bc_id] = surfaces if isinstance(surfaces, list) else [surfaces]
+                # Filter to only integer indices, skip string names
+                int_surfaces = []
+                for s in (surfaces if isinstance(surfaces, list) else [surfaces]):
+                    if isinstance(s, int):
+                        int_surfaces.append(s)
+                    # Skip string names - face naming via selectors not yet implemented
+                if int_surfaces:
+                    groups[bc_id] = int_surfaces
 
         # From loads
         for load in plan.loads:
             surfaces = load.get("surfaces", [])
             load_id = load.get("id", "load")
             if surfaces:
-                groups[load_id] = surfaces if isinstance(surfaces, list) else [surfaces]
+                # Filter to only integer indices, skip string names
+                int_surfaces = []
+                for s in (surfaces if isinstance(surfaces, list) else [surfaces]):
+                    if isinstance(s, int):
+                        int_surfaces.append(s)
+                    # Skip string names - face naming via selectors not yet implemented
+                if int_surfaces:
+                    groups[load_id] = int_surfaces
 
         return groups
 
@@ -302,10 +335,12 @@ class FenicsxAdapter(AnalysisAdapter):
             if physical_groups:
                 mesher.set_physical_groups(physical_groups, dim=2)
 
-            # Also set up volume group
-            volumes = [(3, t) for _, t in mesher._get_all_volumes()]
-            if volumes:
-                mesher.set_physical_groups({"volume": [v[1] for v in volumes]}, dim=3)
+            # Also set up volume group for the entire solid
+            import gmsh
+            volume_entities = gmsh.model.getEntities(dim=3)
+            if volume_entities:
+                volume_tags = [tag for dim, tag in volume_entities]
+                mesher.set_physical_groups({"volume": volume_tags}, dim=3)
 
             mesher.generate_mesh(hints, dim=3)
             mesher.export_mesh(mesh_path)
@@ -364,9 +399,18 @@ class FenicsxAdapter(AnalysisAdapter):
         V = fem.functionspace(domain, ("Lagrange", 1, (domain.geometry.dim,)))
 
         # Get material properties
+        # Note: Geometry is in mm, so we use mm-N-MPa unit system
+        # E in MPa = E in Pa / 1e6, pressure in MPa = pressure in Pa / 1e6
+        # This gives displacement in mm directly
         material = self._get_material(plan)
-        lmbda = fem.Constant(domain, default_scalar_type(material.lame_lambda))
-        mu = fem.Constant(domain, default_scalar_type(material.lame_mu))
+
+        # Scale from Pa to MPa for mm-based geometry
+        SCALE_PA_TO_MPA = 1e-6
+        lmbda_mpa = material.lame_lambda * SCALE_PA_TO_MPA
+        mu_mpa = material.lame_mu * SCALE_PA_TO_MPA
+
+        lmbda = fem.Constant(domain, default_scalar_type(lmbda_mpa))
+        mu = fem.Constant(domain, default_scalar_type(mu_mpa))
 
         # Define strain and stress
         def epsilon(u):
@@ -386,37 +430,54 @@ class FenicsxAdapter(AnalysisAdapter):
         f = self._build_load_vector(domain, V, plan)
         L = ufl.inner(f, v) * ufl.dx
 
+        # Add surface loads (pressure on top surface)
+        surface_load = self._get_surface_load_form(domain, v, plan)
+        if surface_load is not None:
+            L = L + surface_load
+
         # Boundary conditions
         bcs = self._apply_boundary_conditions(domain, V, plan)
 
         # Solve
-        problem = LinearProblem(a, L, bcs=bcs, petsc_options={"ksp_type": "preonly", "pc_type": "lu"})
+        problem = LinearProblem(
+            a, L, bcs=bcs,
+            petsc_options={"ksp_type": "preonly", "pc_type": "lu"},
+            petsc_options_prefix="yapCAD_"
+        )
         uh = problem.solve()
 
         # Compute metrics
         # Maximum displacement
-        with uh.vector.localForm() as loc:
-            u_array = loc.array.reshape(-1, domain.geometry.dim)
-            u_mag = np.sqrt(np.sum(u_array**2, axis=1))
-            max_disp = float(np.max(u_mag))
+        # In newer DOLFINx, use .x.array instead of .vector.localForm()
+        u_array = uh.x.array.reshape(-1, domain.geometry.dim)
+        u_mag = np.sqrt(np.sum(u_array**2, axis=1))
+        max_disp = float(np.max(u_mag))
 
+        # With mm-based geometry and MPa material properties:
+        # - displacement is already in mm
+        # - stress is already in MPa
         results["metrics"]["displacement.max"] = max_disp
-        results["metrics"]["displacement.max_mm"] = max_disp * 1000  # Assuming SI units
+        results["metrics"]["displacement.max_mm"] = max_disp  # Already in mm
 
         # Von Mises stress - compute field and max value
-        vm_func, vm_max = self._compute_von_mises_field(domain, uh, material)
-        results["metrics"]["stress.von_mises.max"] = vm_max
-        results["metrics"]["stress.von_mises.max_mpa"] = vm_max / 1e6  # Convert Pa to MPa
+        # Note: Using scaled material properties (MPa), stress is directly in MPa
+        vm_func, vm_max = self._compute_von_mises_field(domain, uh, material, scale_to_mpa=True)
+        results["metrics"]["stress.von_mises.max"] = vm_max * 1e6  # Store in Pa for consistency
+        results["metrics"]["stress.von_mises.max_mpa"] = vm_max  # Already in MPa
 
-        # Export displacement field
-        vtu_path = workspace / "displacement.vtu"
-        with io.VTXWriter(MPI.COMM_WORLD, str(vtu_path), [uh]) as vtx:
-            vtx.write(0.0)
+        # Export displacement field using XDMF (more compatible with ParaView)
+        disp_xdmf_path = workspace / "displacement.xdmf"
+        with io.XDMFFile(MPI.COMM_WORLD, str(disp_xdmf_path), "w") as xdmf:
+            xdmf.write_mesh(domain)
+            uh.name = "displacement"
+            xdmf.write_function(uh)
 
         # Export von Mises stress field for visualization
-        stress_vtu_path = workspace / "stress.vtu"
-        with io.VTXWriter(MPI.COMM_WORLD, str(stress_vtu_path), [vm_func]) as vtx:
-            vtx.write(0.0)
+        stress_xdmf_path = workspace / "stress.xdmf"
+        with io.XDMFFile(MPI.COMM_WORLD, str(stress_xdmf_path), "w") as xdmf:
+            xdmf.write_mesh(domain)
+            vm_func.name = "von_mises_stress"
+            xdmf.write_function(vm_func)
 
         results["displacement_field"] = uh
         results["stress_field"] = vm_func
@@ -439,48 +500,164 @@ class FenicsxAdapter(AnalysisAdapter):
         )
 
     def _build_load_vector(self, domain, V, plan: AnalysisPlan):
-        """Build the load vector from plan specification."""
-        # Default: gravity in -Z (if density specified)
-        # For now, return zero body force
+        """Build the body force vector from plan specification."""
+        # Default: zero body force
+        # Surface loads (pressure, traction) are handled in the weak form
         return fem.Constant(domain, default_scalar_type((0, 0, 0)))
 
+    def _get_surface_load_form(self, domain, v, plan: AnalysisPlan):
+        """Build surface load contribution to weak form.
+
+        For thrust structure: applies pressure to inner motor mount region
+        (center of plate, r < motor_mount_radius) on top surface.
+        """
+        coords = domain.geometry.x
+        z_min = float(np.min(coords[:, 2]))
+        z_max = float(np.max(coords[:, 2]))
+        z_tol = (z_max - z_min) * 0.05  # 5% tolerance for thickness
+
+        # Get geometry parameters from plan metadata
+        metadata = plan.metadata or {}
+        design_params = metadata.get("design_parameters", {})
+        motor_mount_diameter = float(design_params.get("motor_mount_diameter_mm", 101.6))
+        motor_mount_radius = motor_mount_diameter / 2.0  # 50.8 mm
+
+        tdim = domain.topology.dim
+        fdim = tdim - 1
+        domain.topology.create_connectivity(fdim, tdim)
+
+        # Find facets on top surface within motor mount radius
+        # These are the facets where thrust load is applied
+        def motor_mount_top(x):
+            r = np.sqrt(x[0]**2 + x[1]**2)
+            on_top = np.isclose(x[2], z_max, atol=z_tol)
+            in_motor_region = r <= motor_mount_radius * 1.1  # 10% tolerance
+            return on_top & in_motor_region
+
+        load_facet_indices = dfx_mesh.locate_entities_boundary(domain, fdim, motor_mount_top)
+
+        # Get pressure magnitude from plan loads
+        pressure_pa = 0.0
+        for load in plan.loads:
+            if load.get("type") == "pressure":
+                pressure_pa = float(load.get("magnitude_pa", 0.0))
+                break
+
+        if pressure_pa == 0.0 or len(load_facet_indices) == 0:
+            return None
+
+        # Convert pressure from Pa to MPa for mm-based geometry
+        # (consistent with material property scaling)
+        SCALE_PA_TO_MPA = 1e-6
+        pressure_mpa = pressure_pa * SCALE_PA_TO_MPA
+
+        # Create facet tags for the load surface
+        num_facets = domain.topology.index_map(fdim).size_local
+        facet_values = np.zeros(num_facets, dtype=np.int32)
+        facet_values[load_facet_indices] = 1
+
+        facet_tags = dfx_mesh.meshtags(domain, fdim, np.arange(num_facets, dtype=np.int32), facet_values)
+        ds = ufl.Measure("ds", domain=domain, subdomain_data=facet_tags)
+
+        # Thrust acts in -Z direction (motor pushes down on mount)
+        # Using traction vector in MPa (N/mm²)
+        traction = fem.Constant(domain, default_scalar_type((0, 0, -pressure_mpa)))
+
+        return ufl.dot(traction, v) * ds(1)
+
     def _apply_boundary_conditions(self, domain, V, plan: AnalysisPlan) -> List:
-        """Apply boundary conditions from plan."""
+        """Apply boundary conditions from plan.
+
+        For thrust structure: fixes the three stringer notch locations
+        at the outer edge (rectangular cutouts at 0°, 120°, 240°).
+        """
         bcs = []
+
+        coords = domain.geometry.x
+        z_min = float(np.min(coords[:, 2]))
+        z_max = float(np.max(coords[:, 2]))
+
+        # Get geometry parameters from plan metadata
+        metadata = plan.metadata or {}
+        design_params = metadata.get("design_parameters", {})
+        outer_diameter = float(design_params.get("outer_diameter_mm", 304.8))
+        outer_radius = outer_diameter / 2.0  # 152.4 mm
+
+        # Stringer notch parameters (from DSL: stringer_width=25.4, stringer_depth=12.7)
+        stringer_width = 25.4  # mm
+        stringer_depth = 12.7  # mm
+
+        # Notches are at 0°, 120°, 240° from +X axis
+        notch_angles_deg = [0.0, 120.0, 240.0]
+
+        tdim = domain.topology.dim
+        fdim = tdim - 1
 
         for bc_spec in plan.boundary_conditions:
             bc_type = bc_spec.get("type", "fixed")
 
             if bc_type == "fixed":
-                # Fixed BC: u = 0 on specified surfaces
-                # For now, fix bottom face (z = min)
-                def bottom_boundary(x):
-                    return np.isclose(x[2], np.min(x[2]))
+                # Fixed BC: u = 0 at stringer notch locations
+                # Notches are rectangular cutouts at the outer edge
+
+                def stringer_notches(x):
+                    r = np.sqrt(x[0]**2 + x[1]**2)
+                    theta = np.arctan2(x[1], x[0])  # radians
+
+                    # Check if point is near outer edge (in notch depth region)
+                    near_outer = r >= (outer_radius - stringer_depth * 1.5)
+
+                    # Check if point is within angular range of any notch
+                    # Each notch spans approximately ±(stringer_width/2) / outer_radius radians
+                    half_angle = (stringer_width / 2.0) / outer_radius * 1.5  # radians, with tolerance
+
+                    in_notch = np.zeros_like(r, dtype=bool)
+                    for angle_deg in notch_angles_deg:
+                        angle_rad = np.radians(angle_deg)
+                        # Handle angle wrapping
+                        angle_diff = np.abs(np.arctan2(np.sin(theta - angle_rad), np.cos(theta - angle_rad)))
+                        in_notch = in_notch | (angle_diff <= half_angle)
+
+                    return near_outer & in_notch
 
                 boundary_facets = dfx_mesh.locate_entities_boundary(
-                    domain, domain.topology.dim - 1, bottom_boundary
+                    domain, fdim, stringer_notches
                 )
-                boundary_dofs = locate_dofs_topological(V, domain.topology.dim - 1, boundary_facets)
 
-                u_bc = np.array([0, 0, 0], dtype=default_scalar_type)
-                bc = dirichletbc(u_bc, boundary_dofs, V)
-                bcs.append(bc)
+                if len(boundary_facets) > 0:
+                    boundary_dofs = locate_dofs_topological(V, fdim, boundary_facets)
+                    u_bc = np.array([0, 0, 0], dtype=default_scalar_type)
+                    bc = dirichletbc(u_bc, boundary_dofs, V)
+                    bcs.append(bc)
 
         return bcs
 
-    def _compute_von_mises_field(self, domain, uh, material: MaterialProperties) -> Tuple[Any, float]:
+    def _compute_von_mises_field(self, domain, uh, material: MaterialProperties, scale_to_mpa: bool = False) -> Tuple[Any, float]:
         """Compute von Mises stress field and maximum value.
 
+        Args:
+            domain: The mesh domain
+            uh: Displacement solution
+            material: Material properties
+            scale_to_mpa: If True, use MPa-scaled material properties (for mm geometry)
+
         Returns:
-            Tuple of (stress_function, max_stress_pa)
+            Tuple of (stress_function, max_stress_value)
         """
         # Define stress tensor
         def epsilon(u):
             return ufl.sym(ufl.grad(u))
 
-        def sigma(u):
+        # Use scaled properties if geometry is in mm
+        if scale_to_mpa:
+            SCALE_PA_TO_MPA = 1e-6
+            lmbda = material.lame_lambda * SCALE_PA_TO_MPA
+            mu = material.lame_mu * SCALE_PA_TO_MPA
+        else:
             lmbda = material.lame_lambda
             mu = material.lame_mu
+
+        def sigma(u):
             return lmbda * ufl.nabla_div(u) * ufl.Identity(len(u)) + 2 * mu * epsilon(u)
 
         # Von Mises stress: sqrt(3/2 * s:s) where s is deviatoric stress
@@ -489,12 +666,13 @@ class FenicsxAdapter(AnalysisAdapter):
 
         # Project to DG space for evaluation and export
         V_vm = fem.functionspace(domain, ("DG", 0))
-        vm_expr = fem.Expression(von_mises, V_vm.element.interpolation_points())
+        # In newer DOLFINx, interpolation_points is a property, not a method
+        vm_expr = fem.Expression(von_mises, V_vm.element.interpolation_points)
         vm_func = fem.Function(V_vm, name="von_mises_stress")
         vm_func.interpolate(vm_expr)
 
-        with vm_func.vector.localForm() as loc:
-            max_stress = float(np.max(np.abs(loc.array)))
+        # In newer DOLFINx, use .x.array instead of .vector.localForm()
+        max_stress = float(np.max(np.abs(vm_func.x.array)))
 
         return vm_func, max_stress
 

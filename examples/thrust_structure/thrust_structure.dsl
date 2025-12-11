@@ -204,9 +204,12 @@ command make_notch(
     thickness_mm: float,
     angle_deg: float
 ) -> solid:
-    notch_box: solid = box(width_mm, depth_mm, thickness_mm + 2.0)
+    # Box centered at origin, then translated along +X to outer edge
+    notch_box: solid = box(depth_mm, width_mm, thickness_mm + 2.0)
     radial_offset: float = outer_radius - depth_mm / 2.0
-    notch_at_edge: solid = translate(notch_box, 0.0, radial_offset, -1.0)
+    # Translate along X axis (radial direction at 0°)
+    notch_at_edge: solid = translate(notch_box, radial_offset, 0.0, -1.0)
+    # Then rotate around Z to desired angle
     notch_final: solid = rotate(notch_at_edge, 0.0, 0.0, angle_deg)
     emit notch_final
 
