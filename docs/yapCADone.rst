@@ -15,19 +15,22 @@ Guiding Principles
 - Openness: use documented schemas and standard formats (STEP, STL, JSON/YAML manifests) for interoperability.
 - Automation friendly: support LLM-driven design loops and continuous validation pipelines.
 
-Progress Snapshot (November 2025)
+Progress Snapshot (December 2025)
 ---------------------------------
 
 - ``.ycpkg`` packaging, manifest schema, and CLI tooling implemented (validation & export helpers, metadata tracking, analytic sketch primitives).
 - DXF/STEP/STL import and export available; viewers operate on packaged geometry.
-- DSL, validation framework, and security/signature features remain in design phase (``docs/dsl_spec.rst``, ``docs/ycpkg_spec.rst``).
+- **DSL COMPLETE**: Full parametric DSL with lexer, parser, type checker, and runtime interpreter implemented. CLI supports ``check``, ``run``, ``list`` commands with package export integration.
 - **BREP Integration COMPLETE**: Full native BREP representation with OCC integration (see ``docs/BREP_integration_strategy.md``).
-- **Analytic STEP Export COMPLETE**: ``write_step_analytic()`` preserves exact geometric definitions (PLANE, CYLINDER, SPHERE, CONE, etc.).
+- **Analytic STEP Export COMPLETE**: ``write_step_analytic()`` preserves exact geometric definitions (PLANE, CYLINDER, SPHERE, CONE, etc.). Enable via ``YAPCAD_STEP_FORMAT=analytic`` environment variable.
 - **STEP Import COMPLETE**: ``import_step()`` loads STEP files with full BREP topology preservation.
 - **STL Import COMPLETE**: ``read_stl()`` / ``import_stl()`` load binary and ASCII STL files with optional vertex deduplication.
 - **Advanced curve types**: Parabola and hyperbola primitives implemented.
-- **291 regression tests** covering all import/export and BREP workflows.
-- Upcoming work: DSL compiler, validation execution layer, automation APIs.
+- **Adaptive sweep operations**: ``sweep_adaptive()`` and ``sweep_adaptive_hollow()`` with tangent-tracking profile orientation and ruled lofting for straight segment preservation.
+- **OCC boolean fixes**: Union of disconnected solids now correctly produces compounds; package viewer tessellates BREP-only geometry.
+- **521 regression tests** covering DSL, import/export, BREP workflows, and packaging.
+- **Validation framework**: Basic package validation and FEA integration demo (``examples/thrust_structure/``).
+- Upcoming work: Validation test definition language, solver adapters, provenance/signature features.
 
 Functional Requirements
 -----------------------
@@ -81,10 +84,13 @@ Roadmap & Milestones
 - Manifest schema, ``.ycpkg`` layout, CLIs (``ycpkg_validate``, ``ycpkg_export``), external asset support (``add_geometry_file``) in place.
 - Regression tests cover packaging round-trips; migration tooling still TBD for legacy 0.x projects.
 
-**Phase 3 - Parametric DSL & Validation Layer [In Progress]**
-- Specifications drafted (``docs/dsl_spec.rst``), but compiler/runtime and validation execution manager not yet implemented.
-- Next steps: prototype DSL compiler, define validation schema, integrate with packaging/metadata.
-- Validation plan schema (``docs/ycpkg_spec.rst``) and analysis metadata updates published; placeholder analyzer CLI records plan execution summaries pending full solver adapters.
+**Phase 3 - Parametric DSL & Validation Layer [Largely Complete]**
+- **DSL COMPLETE**: Full implementation including lexer, parser, AST, type checker, symbol table, and runtime interpreter.
+- DSL CLI (``python -m yapcad.dsl``) supports ``check``, ``run``, ``list`` commands with ``--output`` and ``--package`` export options.
+- Extensive builtins library: primitives (box, cylinder, sphere, cone), booleans (union, difference, intersection), transforms, sweeps (including ``sweep_adaptive``, ``sweep_adaptive_hollow``), region constructors, path3d operations, and more.
+- DSL packaging integration for ``.ycpkg`` export with provenance tracking.
+- **Validation partial**: Basic package validation implemented; FEA integration demonstrated in ``examples/thrust_structure/``.
+- Remaining: Formalize validation test definition language, implement full solver adapter framework.
 
 **Phase 4 - Export/Import Expansion [COMPLETE]**
 - STEP (faceted and analytic), STL, DXF exports implemented; viewer consumes packaged geometry.
@@ -98,6 +104,7 @@ Roadmap & Milestones
 
 **Phase 6 - Release yapCAD 1.0 [Not Started]**
 - Depends on completing Phases 3–5 plus documentation and migration tooling.
+- Phase 3 DSL work largely complete; remaining items are validation formalization and Phase 5 security features.
 
 Dependencies & Tooling Considerations
 -------------------------------------
@@ -118,5 +125,34 @@ Open Questions
 --------------
 
 - ~~Level of BREP fidelity required for initial STEP release.~~ **RESOLVED**: Full analytic BREP with native topology graph and OCC integration implemented.
+- ~~DSL compiler/runtime implementation.~~ **RESOLVED**: Full DSL with lexer, parser, type checker, and interpreter implemented.
 - Signature trust model (self-signed vs. PKI integration).
 - Integration story for non-visual viewers and headless pipelines.
+- Validation test definition language specification.
+
+Priorities for 1.0 Release
+--------------------------
+
+**High Priority (Required for 1.0):**
+
+1. **Validation Test Definition Language** - Formalize schema for defining validation tests that can be stored in packages and executed reproducibly.
+
+2. **Documentation Updates** - Update user documentation to cover DSL syntax, builtins reference, and workflow examples.
+
+3. **Migration Tooling** - Scripts/utilities to convert legacy 0.x projects to 1.0 package format.
+
+**Medium Priority (Recommended for 1.0):**
+
+4. **Solver Adapter Framework** - Generalize FEA demo into pluggable adapter pattern for different solvers (FEniCSx, CalculiX, etc.).
+
+5. **DSL Enhancements** - Add missing features identified during use: conditional expressions, point/vector accessors, list operations.
+
+6. **Package Viewer Improvements** - Better handling of large assemblies, measurement tools, cross-section views.
+
+**Lower Priority (Can defer to 1.1):**
+
+7. **Phase 5 Security** - Cryptographic signatures and approval workflows.
+
+8. **Advanced Automation APIs** - Full LLM agent interfaces beyond current CLI.
+
+9. **Additional Import Formats** - IGES, OBJ, 3MF support.
