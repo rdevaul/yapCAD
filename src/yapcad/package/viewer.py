@@ -69,6 +69,83 @@ from .core import PackageManifest
 from .validator import validate_package
 
 
+def _tessellate_brep(brep_base64: str) -> List[Tuple[Tuple[float, float, float], Tuple[float, float, float]]]:
+    """Tessellate BREP data to triangles for display.
+
+    Args:
+        brep_base64: Base64-encoded BREP ASCII string
+
+    Returns:
+        List of (vertex, normal) tuples for OpenGL rendering
+    """
+    import base64
+    try:
+        from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
+        from OCC.Core.TopExp import TopExp_Explorer
+        from OCC.Core.TopAbs import TopAbs_FACE
+        from OCC.Core.TopLoc import TopLoc_Location
+        from OCC.Core.BRep import BRep_Tool
+        from OCC.Core.TopoDS import topods
+        from OCC.Core.BRepTools import breptools
+    except ImportError:
+        print("Warning: pythonocc-core not available for BREP tessellation")
+        return []
+
+    # Decode BREP
+    brep_ascii = base64.b64decode(brep_base64).decode('utf-8')
+
+    # Restore shape from BREP string
+    shape = breptools.ReadFromString(brep_ascii)
+    if shape is None or shape.IsNull():
+        return []
+
+    # Mesh the shape
+    mesh = BRepMesh_IncrementalMesh(shape, 0.5)  # 0.5mm linear deflection
+    mesh.Perform()
+
+    # Extract triangles from all faces
+    triangles = []
+    explorer = TopExp_Explorer(shape, TopAbs_FACE)
+    while explorer.More():
+        face = topods.Face(explorer.Current())
+        location = TopLoc_Location()
+        triangulation = BRep_Tool.Triangulation(face, location)
+
+        if triangulation is not None:
+            transform = location.Transformation()
+
+            for i in range(1, triangulation.NbTriangles() + 1):
+                tri = triangulation.Triangle(i)
+                n1, n2, n3 = tri.Get()
+
+                # Get vertices and transform
+                pts = []
+                for n in [n1, n2, n3]:
+                    p = triangulation.Node(n)
+                    p.Transform(transform)
+                    pts.append((p.X(), p.Y(), p.Z()))
+
+                # Compute face normal from triangle
+                v1 = (pts[1][0] - pts[0][0], pts[1][1] - pts[0][1], pts[1][2] - pts[0][2])
+                v2 = (pts[2][0] - pts[0][0], pts[2][1] - pts[0][1], pts[2][2] - pts[0][2])
+                nx = v1[1]*v2[2] - v1[2]*v2[1]
+                ny = v1[2]*v2[0] - v1[0]*v2[2]
+                nz = v1[0]*v2[1] - v1[1]*v2[0]
+                mag = (nx*nx + ny*ny + nz*nz) ** 0.5
+                if mag > 1e-10:
+                    nx, ny, nz = nx/mag, ny/mag, nz/mag
+                else:
+                    nx, ny, nz = 0, 0, 1
+
+                normal = (nx, ny, nz)
+                for pt in pts:
+                    triangles.append((pt, normal))
+
+        explorer.Next()
+
+    return triangles
+
+
 def _load_geometry_doc(package_root: Path, manifest_data: Dict[str, any]) -> Dict[str, any]:
     primary_path = package_root / manifest_data["geometry"]["primary"]["path"]
     with primary_path.open("r", encoding="utf-8") as fp:
@@ -131,7 +208,22 @@ def _collect_triangles(doc: Dict[str, any], materials: Dict[str, any] = None) ->
                     bucket.append(((float(pt[0]), float(pt[1]), float(pt[2])), (float(normal[0]), float(normal[1]), float(normal[2]))))
             continue
 
-        for sid in entry.get("shell", []):
+        shell_ids = entry.get("shell", [])
+
+        # If shell is empty but BREP data exists, tessellate the BREP
+        if not shell_ids and meta.get("brep"):
+            brep_data = meta.get("brep", {})
+            if brep_data.get("encoding") == "brep-ascii-base64" and brep_data.get("data"):
+                try:
+                    tris = _tessellate_brep(brep_data["data"])
+                    if tris:
+                        bucket = bucket_tris.setdefault(bucket_key, [])
+                        bucket.extend(tris)
+                except Exception as e:
+                    print(f"Warning: BREP tessellation failed: {e}")
+            continue
+
+        for sid in shell_ids:
             surf_entry = surfaces.get(sid)
             if not surf_entry:
                 continue

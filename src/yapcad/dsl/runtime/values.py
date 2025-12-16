@@ -121,6 +121,12 @@ def shell_val(shell_data: Any) -> Value:
     return Value(shell_data, SHELL)
 
 
+def path3d_val(path_data: Any) -> Value:
+    """Create a path3d value (3D curve/spine for sweeps)."""
+    from ..types import PATH3D
+    return Value(path_data, PATH3D)
+
+
 # Type checking utilities
 
 def unwrap_value(v: Value) -> Any:

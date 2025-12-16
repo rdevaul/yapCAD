@@ -32,7 +32,7 @@ import math
 from .values import (
     Value, int_val, float_val, bool_val, string_val, list_val,
     point_val, vector_val, transform_val, solid_val, region2d_val,
-    surface_val, shell_val, wrap_value, unwrap_value, unwrap_values,
+    surface_val, shell_val, path3d_val, wrap_value, unwrap_value, unwrap_values,
 )
 from ..types import (
     Type, ListType,
@@ -498,6 +498,73 @@ class BuiltinRegistry:
             _circle,
         ))
 
+        # Path3D constructors for sweep operations
+        def _make_path3d(*segments: Value) -> Value:
+            """Create a path3d from segment dicts.
+
+            Each segment should be a dict with 'type' and coordinates.
+            """
+            seg_list = []
+            for seg in segments:
+                if isinstance(seg.type, ListType):
+                    # List of segments
+                    seg_list.extend(seg.data)
+                else:
+                    seg_list.append(seg.data)
+            return path3d_val({'type': 'path3d', 'segments': seg_list})
+
+        def _path3d_line(start: Value, end: Value) -> Value:
+            """Create a line segment for path3d.
+
+            Args:
+                start: Start point [x, y, z]
+                end: End point [x, y, z]
+            """
+            s = start.data
+            e = end.data
+            return wrap_value({
+                'type': 'line',
+                'start': [s[0], s[1], s[2] if len(s) > 2 else 0],
+                'end': [e[0], e[1], e[2] if len(e) > 2 else 0]
+            }, PATH3D)
+
+        def _path3d_arc(center: Value, start: Value, end: Value, normal: Value) -> Value:
+            """Create an arc segment for path3d.
+
+            Args:
+                center: Arc center point [x, y, z]
+                start: Arc start point [x, y, z]
+                end: Arc end point [x, y, z]
+                normal: Arc plane normal [nx, ny, nz]
+            """
+            c = center.data
+            s = start.data
+            e = end.data
+            n = normal.data
+            return wrap_value({
+                'type': 'arc',
+                'center': [c[0], c[1], c[2] if len(c) > 2 else 0],
+                'start': [s[0], s[1], s[2] if len(s) > 2 else 0],
+                'end': [e[0], e[1], e[2] if len(e) > 2 else 0],
+                'normal': [n[0], n[1], n[2] if len(n) > 2 else 0]
+            }, PATH3D)
+
+        self.register(BuiltinFunction(
+            "make_path3d",
+            _make_sig("make_path3d", [], PATH3D, is_variadic=True),
+            _make_path3d,
+        ))
+        self.register(BuiltinFunction(
+            "path3d_line",
+            _make_sig("path3d_line", [POINT3D, POINT3D], PATH3D),
+            _path3d_line,
+        ))
+        self.register(BuiltinFunction(
+            "path3d_arc",
+            _make_sig("path3d_arc", [POINT3D, POINT3D, POINT3D, VECTOR3D], PATH3D),
+            _path3d_arc,
+        ))
+
     # --- Region Functions ---
 
     def _register_region_functions(self) -> None:
@@ -505,7 +572,6 @@ class BuiltinRegistry:
 
         def _rectangle(width: Value, height: Value, *args: Value) -> Value:
             """Create a rectangle region2d."""
-            from yapcad.geom import geom_util
             w, h = width.data, height.data
             # Optional center point
             cx, cy = 0.0, 0.0
@@ -605,6 +671,38 @@ class BuiltinRegistry:
             from yapcad.geom3d_util import makeRevolutionSolid
             return solid_val(makeRevolutionSolid(profile.data, axis.data, angle.data))
 
+        def _sweep(profile: Value, spine: Value) -> Value:
+            """Sweep a 2D profile along a 3D path to create a solid.
+
+            Args:
+                profile: A region2d (closed 2D shape) to sweep
+                spine: A path3d (3D wire/curve) defining the sweep path
+
+            Returns:
+                A solid created by sweeping the profile along the spine
+            """
+            from yapcad.geom3d_util import sweep_profile_along_path
+            return solid_val(sweep_profile_along_path(profile.data, spine.data))
+
+        def _sweep_hollow(outer_profile: Value, inner_profile: Value, spine: Value) -> Value:
+            """Sweep a hollow 2D profile along a 3D path to create a solid.
+
+            Creates a hollow tube-like solid by sweeping a profile with a hole.
+            The outer_profile defines the outer boundary, inner_profile the hole.
+
+            Args:
+                outer_profile: A region2d for the outer boundary
+                inner_profile: A region2d for the inner boundary (hole)
+                spine: A path3d (3D wire/curve) defining the sweep path
+
+            Returns:
+                A hollow solid created by sweeping the profile along the spine
+            """
+            from yapcad.geom3d_util import sweep_profile_along_path
+            return solid_val(sweep_profile_along_path(
+                outer_profile.data, spine.data, inner_profile=inner_profile.data
+            ))
+
         # Solid constructors
         self.register(BuiltinFunction(
             "box",
@@ -635,6 +733,71 @@ class BuiltinRegistry:
             "revolve",
             _make_sig("revolve", [REGION2D, VECTOR3D, FLOAT], SOLID),
             _revolve,
+        ))
+        self.register(BuiltinFunction(
+            "sweep",
+            _make_sig("sweep", [REGION2D, PATH3D], SOLID),
+            _sweep,
+        ))
+        self.register(BuiltinFunction(
+            "sweep_hollow",
+            _make_sig("sweep_hollow", [REGION2D, REGION2D, PATH3D], SOLID),
+            _sweep_hollow,
+        ))
+
+        def _sweep_adaptive(profile: Value, spine: Value,
+                            threshold: Value) -> Value:
+            """Sweep a profile along a path with adaptive tangent tracking.
+
+            The profile normal tracks the path tangent. New profile sections
+            are generated whenever the tangent direction changes by more than
+            the threshold angle.
+
+            Args:
+                profile: A region2d (closed 2D shape) to sweep
+                spine: A path3d (3D wire/curve) defining the sweep path
+                threshold: Angle in degrees that triggers new section (e.g., 5.0)
+
+            Returns:
+                A solid created by lofting between adapted sections
+            """
+            from yapcad.geom3d_util import sweep_adaptive
+            return solid_val(sweep_adaptive(
+                profile.data, spine.data,
+                angle_threshold_deg=threshold.data
+            ))
+
+        def _sweep_adaptive_hollow(outer_profile: Value, inner_profiles: Value,
+                                   spine: Value, threshold: Value) -> Value:
+            """Sweep a hollow profile along a path with adaptive tangent tracking.
+
+            Args:
+                outer_profile: A region2d for the outer boundary
+                inner_profiles: A region2d or list of region2d for inner void(s)
+                spine: A path3d defining the sweep path
+                threshold: Angle in degrees that triggers new section
+
+            Returns:
+                A hollow solid created by lofting between adapted sections
+            """
+            from yapcad.geom3d_util import sweep_adaptive
+            # Handle single region2d or list
+            inners = inner_profiles.data
+            return solid_val(sweep_adaptive(
+                outer_profile.data, spine.data,
+                inner_profiles=inners,
+                angle_threshold_deg=threshold.data
+            ))
+
+        self.register(BuiltinFunction(
+            "sweep_adaptive",
+            _make_sig("sweep_adaptive", [REGION2D, PATH3D, FLOAT], SOLID),
+            _sweep_adaptive,
+        ))
+        self.register(BuiltinFunction(
+            "sweep_adaptive_hollow",
+            _make_sig("sweep_adaptive_hollow", [REGION2D, REGION2D, PATH3D, FLOAT], SOLID),
+            _sweep_adaptive_hollow,
         ))
 
         def _involute_gear(teeth: Value, module_mm: Value, pressure_angle: Value,

@@ -1557,3 +1557,734 @@ def stack_solids(solids, *, axis='z', start=0.0, gap=0.0, align='center'):
         cursor += length + gap
 
     return placed
+
+
+# ============================================================================
+# Path3D Sampling and Adaptive Sweep Functions
+# ============================================================================
+
+def _normalize_vector(v):
+    """Normalize a 3D vector to unit length."""
+    import math
+    mag = math.sqrt(v[0]**2 + v[1]**2 + v[2]**2)
+    if mag < 1e-10:
+        return [0, 0, 1]  # Default to Z-up for degenerate case
+    return [v[0]/mag, v[1]/mag, v[2]/mag]
+
+
+def _cross_product(a, b):
+    """Compute cross product of two 3D vectors."""
+    return [
+        a[1]*b[2] - a[2]*b[1],
+        a[2]*b[0] - a[0]*b[2],
+        a[0]*b[1] - a[1]*b[0]
+    ]
+
+
+def _dot_product(a, b):
+    """Compute dot product of two 3D vectors."""
+    return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]
+
+
+def _vector_subtract(a, b):
+    """Subtract two 3D vectors."""
+    return [a[0]-b[0], a[1]-b[1], a[2]-b[2]]
+
+
+def _vector_add(a, b):
+    """Add two 3D vectors."""
+    return [a[0]+b[0], a[1]+b[1], a[2]+b[2]]
+
+
+def _vector_scale(v, s):
+    """Scale a 3D vector."""
+    return [v[0]*s, v[1]*s, v[2]*s]
+
+
+def _lerp_point(p1, p2, t):
+    """Linear interpolation between two points."""
+    return [
+        p1[0] + t*(p2[0]-p1[0]),
+        p1[1] + t*(p2[1]-p1[1]),
+        p1[2] + t*(p2[2]-p1[2])
+    ]
+
+
+def _angle_between_vectors(v1, v2):
+    """Compute angle in degrees between two unit vectors."""
+    import math
+    dot = _dot_product(v1, v2)
+    dot = max(-1.0, min(1.0, dot))  # Clamp for numerical stability
+    return math.degrees(math.acos(dot))
+
+
+def _compute_line_tangent(start, end):
+    """Compute unit tangent for a line segment."""
+    direction = _vector_subtract(end, start)
+    return _normalize_vector(direction)
+
+
+def _compute_arc_tangent(center, point, normal):
+    """Compute unit tangent for an arc at a given point.
+
+    The tangent is perpendicular to the radius and lies in the arc plane.
+    """
+    # Radius vector from center to point
+    radius_vec = _vector_subtract(point, center)
+    # Tangent is perpendicular to radius, in the plane defined by normal
+    # tangent = normal × radius (gives direction along arc)
+    tangent = _cross_product(normal, radius_vec)
+    return _normalize_vector(tangent)
+
+
+def _sample_line_segment(start, end, num_samples):
+    """Sample a line segment uniformly.
+
+    Returns list of (point, tangent, parameter) tuples.
+    """
+    tangent = _compute_line_tangent(start, end)
+    samples = []
+    for i in range(num_samples + 1):
+        t = i / num_samples
+        point = _lerp_point(start, end, t)
+        samples.append((point, tangent, t))
+    return samples
+
+
+def _sample_arc_segment(center, start, end, normal, num_samples):
+    """Sample an arc segment uniformly.
+
+    Returns list of (point, tangent, parameter) tuples.
+    """
+    import math
+
+    # Compute arc angle
+    r_start = _vector_subtract(start, center)
+    r_end = _vector_subtract(end, center)
+    radius = math.sqrt(_dot_product(r_start, r_start))
+
+    # Normalize radius vectors
+    r_start_n = _normalize_vector(r_start)
+    r_end_n = _normalize_vector(r_end)
+
+    # Compute angle between start and end
+    dot = _dot_product(r_start_n, r_end_n)
+    dot = max(-1.0, min(1.0, dot))
+    arc_angle = math.acos(dot)
+
+    # Determine rotation direction using cross product with normal
+    cross = _cross_product(r_start_n, r_end_n)
+    if _dot_product(cross, normal) < 0:
+        arc_angle = 2*math.pi - arc_angle
+
+    samples = []
+    for i in range(num_samples + 1):
+        t = i / num_samples
+        angle = t * arc_angle
+
+        # Rotate r_start around normal by angle using Rodrigues' formula
+        cos_a = math.cos(angle)
+        sin_a = math.sin(angle)
+        r_rot = _vector_add(
+            _vector_scale(r_start_n, cos_a),
+            _vector_add(
+                _vector_scale(_cross_product(normal, r_start_n), sin_a),
+                _vector_scale(normal, _dot_product(normal, r_start_n) * (1 - cos_a))
+            )
+        )
+
+        point = _vector_add(center, _vector_scale(r_rot, radius))
+        tangent = _compute_arc_tangent(center, point, normal)
+        samples.append((point, tangent, t))
+
+    return samples
+
+
+def _sample_path3d(path3d, samples_per_segment=20):
+    """Sample a path3d at regular intervals.
+
+    Args:
+        path3d: Dict with 'segments' list of line/arc segments
+        samples_per_segment: Number of samples per segment
+
+    Returns:
+        List of (point, tangent, global_param) tuples where global_param
+        is in [0, 1] across the entire path.
+    """
+    segments = path3d.get('segments', [])
+    if not segments:
+        return []
+
+    all_samples = []
+    total_segments = len(segments)
+
+    for seg_idx, seg in enumerate(segments):
+        seg_type = seg.get('type', 'line')
+
+        if seg_type == 'line':
+            start = seg['start']
+            end = seg['end']
+            seg_samples = _sample_line_segment(start, end, samples_per_segment)
+        elif seg_type == 'arc':
+            center = seg['center']
+            start = seg['start']
+            end = seg['end']
+            normal = seg.get('normal', [0, 0, 1])
+            seg_samples = _sample_arc_segment(center, start, end, normal, samples_per_segment)
+        else:
+            continue
+
+        # Adjust parameters to global range
+        for point, tangent, local_t in seg_samples:
+            # Skip first point of non-first segments to avoid duplicates
+            if seg_idx > 0 and local_t == 0:
+                continue
+            global_t = (seg_idx + local_t) / total_segments
+            all_samples.append((point, tangent, global_t))
+
+    return all_samples
+
+
+def _adaptive_sample_path3d(path3d, angle_threshold_deg=5.0, samples_per_segment=50):
+    """Sample path adaptively, emitting samples when tangent changes exceed threshold.
+
+    Args:
+        path3d: Dict with 'segments' list
+        angle_threshold_deg: Angle change in degrees that triggers new sample
+        samples_per_segment: Dense sampling rate for angle detection
+
+    Returns:
+        List of (point, tangent, global_param) tuples at profile locations.
+    """
+    # Get dense samples
+    dense_samples = _sample_path3d(path3d, samples_per_segment)
+    if len(dense_samples) < 2:
+        return dense_samples
+
+    # Always include start
+    result = [dense_samples[0]]
+    last_emitted_tangent = dense_samples[0][1]
+
+    for i in range(1, len(dense_samples) - 1):
+        point, tangent, param = dense_samples[i]
+        angle = _angle_between_vectors(last_emitted_tangent, tangent)
+
+        if angle >= angle_threshold_deg:
+            result.append((point, tangent, param))
+            last_emitted_tangent = tangent
+
+    # Always include end
+    result.append(dense_samples[-1])
+
+    return result
+
+
+def _slerp(v1, v2, t):
+    """Spherical linear interpolation between two unit vectors."""
+    import math
+
+    dot = _dot_product(v1, v2)
+    dot = max(-1.0, min(1.0, dot))
+
+    # If vectors are very close, use linear interpolation
+    if dot > 0.9995:
+        result = _vector_add(
+            _vector_scale(v1, 1 - t),
+            _vector_scale(v2, t)
+        )
+        return _normalize_vector(result)
+
+    theta = math.acos(dot)
+    sin_theta = math.sin(theta)
+
+    s1 = math.sin((1 - t) * theta) / sin_theta
+    s2 = math.sin(t * theta) / sin_theta
+
+    return _vector_add(
+        _vector_scale(v1, s1),
+        _vector_scale(v2, s2)
+    )
+
+
+def _interpolate_up_samples(up_samples, param):
+    """Interpolate user-provided up vectors at a given parameter.
+
+    Args:
+        up_samples: List of [t, [ux, uy, uz]] pairs, sorted by t
+        param: Parameter in [0, 1] to interpolate at
+
+    Returns:
+        Normalized up vector at param
+    """
+    if not up_samples:
+        return [0, 0, 1]  # Default Z-up
+
+    # Sort by parameter
+    sorted_samples = sorted(up_samples, key=lambda x: x[0])
+
+    # Find bracketing samples
+    for i, (t, v) in enumerate(sorted_samples):
+        if t >= param:
+            if i == 0:
+                return _normalize_vector(v)
+            # Interpolate between i-1 and i
+            t0, v0 = sorted_samples[i-1]
+            t1, v1 = sorted_samples[i]
+            if abs(t1 - t0) < 1e-10:
+                return _normalize_vector(v0)
+            local_t = (param - t0) / (t1 - t0)
+            return _slerp(_normalize_vector(v0), _normalize_vector(v1), local_t)
+
+    # Past end, use last sample
+    return _normalize_vector(sorted_samples[-1][1])
+
+
+def _compute_minimal_twist_frame(tangent, prev_up):
+    """Compute a coordinate frame that minimizes twist from previous frame.
+
+    Args:
+        tangent: Unit tangent vector (profile normal direction)
+        prev_up: Previous frame's up vector
+
+    Returns:
+        (right, up) unit vectors forming a frame with tangent
+    """
+    # Project prev_up onto plane perpendicular to tangent
+    dot = _dot_product(prev_up, tangent)
+    up = _vector_subtract(prev_up, _vector_scale(tangent, dot))
+
+    # Handle degenerate case (prev_up parallel to tangent)
+    mag = (_dot_product(up, up)) ** 0.5
+    if mag < 1e-10:
+        # Pick arbitrary perpendicular
+        if abs(tangent[2]) < 0.9:
+            up = _cross_product(tangent, [0, 0, 1])
+        else:
+            up = _cross_product(tangent, [1, 0, 0])
+        up = _normalize_vector(up)
+    else:
+        up = _vector_scale(up, 1.0/mag)
+
+    right = _cross_product(tangent, up)
+    return right, up
+
+
+def _compute_frenet_frame(tangent, tangent_derivative):
+    """Compute Frenet frame from tangent and its derivative.
+
+    Args:
+        tangent: Unit tangent vector
+        tangent_derivative: Rate of change of tangent (curvature direction)
+
+    Returns:
+        (right, up) unit vectors, or None if degenerate
+    """
+    # Binormal = T × T'
+    binormal = _cross_product(tangent, tangent_derivative)
+    mag = (_dot_product(binormal, binormal)) ** 0.5
+
+    if mag < 1e-10:
+        return None  # Degenerate (straight segment)
+
+    binormal = _vector_scale(binormal, 1.0/mag)
+    # Normal = B × T
+    normal = _cross_product(binormal, tangent)
+
+    return binormal, normal
+
+
+def sweep_adaptive(profile, spine, *, inner_profiles=None,
+                   angle_threshold_deg=5.0,
+                   frame_mode='minimal_twist',
+                   up_samples=None,
+                   ruled=True,
+                   metadata=None):
+    """Sweep a profile along a path with adaptive tangent tracking.
+
+    The profile normal tracks the path tangent. New profile sections are
+    generated whenever the tangent direction changes by more than the
+    threshold angle. Uses BRepOffsetAPI_ThruSections to loft between sections.
+
+    Args:
+        profile: yapCAD region2d for outer boundary (in XY plane, centered at origin)
+        spine: path3d dict with line/arc segments
+        inner_profiles: Optional region2d or list of region2d for inner voids.
+                        Supports multiple voids (e.g., split pipe for heat exchanger).
+                        Creates hollow solids by boolean subtraction.
+        angle_threshold_deg: Angle change (degrees) that triggers new section (default 5.0)
+        frame_mode: One of:
+            - 'minimal_twist': Profile 'up' stays consistent (default)
+            - 'frenet': Natural Frenet frame (may twist at inflections)
+            - 'custom': Use up_samples for interpolated orientation
+        up_samples: For frame_mode='custom', list of [t, [ux, uy, uz]] pairs
+                    where t in [0,1] is path parameter and [ux,uy,uz] is up vector.
+                    Vectors are normalized automatically.
+        ruled: If True (default), use ruled surfaces that preserve straight edges.
+               If False, use smooth interpolation between sections.
+        metadata: Optional metadata dict
+
+    Returns:
+        yapCAD solid created by lofting between adapted sections
+    """
+    if not occ_available():
+        raise RuntimeError("sweep_adaptive requires pythonocc-core")
+
+    from OCC.Core.gp import gp_Pnt, gp_Dir, gp_Vec, gp_Ax2, gp_Trsf, gp_Circ
+    from OCC.Core.BRepBuilderAPI import (
+        BRepBuilderAPI_MakeWire, BRepBuilderAPI_MakeEdge,
+        BRepBuilderAPI_MakeFace, BRepBuilderAPI_Transform
+    )
+    from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_ThruSections
+    from OCC.Core.GC import GC_MakeArcOfCircle
+    from OCC.Core.GProp import GProp_GProps
+    from OCC.Core.BRepGProp import brepgprop
+    from OCC.Core.TopoDS import topods
+    import math
+
+    def _build_wire_from_region2d(region, reverse=False):
+        """Build an OCC wire from a yapCAD region2d in the XZ plane."""
+        wire_builder = BRepBuilderAPI_MakeWire()
+        segments = list(region)
+        if reverse:
+            segments = segments[::-1]
+
+        for seg in segments:
+            if isline(seg):
+                p1 = seg[0]
+                p2 = seg[1]
+                if reverse:
+                    p1, p2 = p2, p1
+                # Profile in XZ plane (Y=0)
+                start = gp_Pnt(p1[0], 0, p1[1] if len(p1) > 1 else 0)
+                end = gp_Pnt(p2[0], 0, p2[1] if len(p2) > 1 else 0)
+                edge = BRepBuilderAPI_MakeEdge(start, end).Edge()
+                wire_builder.Add(edge)
+            elif isarc(seg):
+                center = seg[0]
+                params = seg[1]
+                radius = params[0]
+                start_ang = math.radians(params[1])
+                end_ang = math.radians(params[2])
+                if reverse:
+                    start_ang, end_ang = end_ang, start_ang
+                cx, cy = center[0], center[1] if len(center) > 1 else 0
+                start_pt = gp_Pnt(cx + radius * math.cos(start_ang), 0, cy + radius * math.sin(start_ang))
+                end_pt = gp_Pnt(cx + radius * math.cos(end_ang), 0, cy + radius * math.sin(end_ang))
+                arc_center = gp_Pnt(cx, 0, cy)
+                circ = gp_Circ(gp_Ax2(arc_center, gp_Dir(0, 1, 0)), radius)
+                arc_maker = GC_MakeArcOfCircle(circ, start_pt, end_pt, True)
+                if arc_maker.IsDone():
+                    edge = BRepBuilderAPI_MakeEdge(arc_maker.Value()).Edge()
+                    wire_builder.Add(edge)
+        return wire_builder.Wire()
+
+    def _transform_wire_to_frame(wire, position, tangent, right, up):
+        """Transform wire from XZ plane to specified coordinate frame.
+
+        Wire is built in XZ plane with:
+        - X axis = profile X (will become 'right')
+        - Z axis = profile Y (will become 'up')
+        - Y axis = profile normal (will become 'tangent'/forward)
+        """
+        from OCC.Core.gp import gp_Ax3
+
+        # Build transformation matrix
+        # From: X=(1,0,0), Y=(0,1,0), Z=(0,0,1)
+        # To: X=right, Y=tangent, Z=up
+        trsf = gp_Trsf()
+
+        # Set rotation part using Ax3 (SetDisplacement requires Ax3)
+        ax_from = gp_Ax3(gp_Pnt(0, 0, 0), gp_Dir(0, 1, 0), gp_Dir(1, 0, 0))  # Y forward, X right
+        ax_to = gp_Ax3(
+            gp_Pnt(position[0], position[1], position[2]),
+            gp_Dir(tangent[0], tangent[1], tangent[2]),
+            gp_Dir(right[0], right[1], right[2])
+        )
+        trsf.SetDisplacement(ax_from, ax_to)
+
+        transformer = BRepBuilderAPI_Transform(wire, trsf, True)
+        return topods.Wire(transformer.Shape())
+
+    # Normalize inner_profiles to list
+    if inner_profiles is None:
+        inner_profiles_list = []
+    elif isinstance(inner_profiles, list) and inner_profiles and isinstance(inner_profiles[0], list):
+        # Check if it's a list of regions (each region is a list of segments)
+        # A segment is also a list, so check deeper
+        if inner_profiles and inner_profiles[0] and isline(inner_profiles[0][0]):
+            # It's a list of region2d's
+            inner_profiles_list = inner_profiles
+        else:
+            # Single region2d
+            inner_profiles_list = [inner_profiles]
+    else:
+        # Single region2d
+        inner_profiles_list = [inner_profiles]
+
+    # Build profile wires in XZ plane
+    outer_wire_template = _build_wire_from_region2d(profile)
+    inner_wire_templates = [_build_wire_from_region2d(inner, reverse=True)
+                           for inner in inner_profiles_list]
+
+    # Get adaptive samples
+    samples = _adaptive_sample_path3d(spine, angle_threshold_deg)
+    if len(samples) < 2:
+        raise ValueError("Path too short for adaptive sweep")
+
+    # Initialize frame tracking
+    if frame_mode == 'custom' and up_samples:
+        initial_up = _interpolate_up_samples(up_samples, 0)
+    else:
+        initial_up = [0, 0, 1]  # Default Z-up
+
+    # Helper to build a lofted solid from wires at sample locations
+    def _build_loft_from_wire_template(wire_template, samples_list, ruled_mode):
+        """Build lofted solid from wire template at sample locations."""
+        from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_ThruSections
+
+        loft = BRepOffsetAPI_ThruSections(True, ruled_mode, 1.0e-6)
+
+        prev_up_local = initial_up
+        for i, (point, tangent, param) in enumerate(samples_list):
+            # Compute frame based on mode
+            if frame_mode == 'frenet' and i > 0:
+                # Approximate derivative from previous/next tangent
+                if i < len(samples_list) - 1:
+                    _, next_tangent, _ = samples_list[i + 1]
+                    tangent_deriv = _vector_subtract(next_tangent, tangent)
+                else:
+                    _, prev_tangent, _ = samples_list[i - 1]
+                    tangent_deriv = _vector_subtract(tangent, prev_tangent)
+
+                frame = _compute_frenet_frame(tangent, tangent_deriv)
+                if frame is None:
+                    right, up_local = _compute_minimal_twist_frame(tangent, prev_up_local)
+                else:
+                    right, up_local = frame
+            elif frame_mode == 'custom' and up_samples:
+                target_up = _interpolate_up_samples(up_samples, param)
+                right, up_local = _compute_minimal_twist_frame(tangent, target_up)
+            else:
+                right, up_local = _compute_minimal_twist_frame(tangent, prev_up_local)
+
+            prev_up_local = up_local
+
+            # Transform wire to frame
+            wire_transformed = _transform_wire_to_frame(wire_template, point, tangent, right, up_local)
+            loft.AddWire(wire_transformed)
+
+        loft.Build()
+        if not loft.IsDone():
+            raise RuntimeError("Adaptive sweep loft failed")
+
+        return loft.Shape()
+
+    # Build outer loft
+    outer_shape = _build_loft_from_wire_template(outer_wire_template, samples, ruled)
+
+    # If we have inner profiles, build inner lofts and subtract
+    if inner_wire_templates:
+        from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut
+
+        shape = outer_shape
+        for inner_template in inner_wire_templates:
+            inner_shape = _build_loft_from_wire_template(inner_template, samples, ruled)
+            cut_op = BRepAlgoAPI_Cut(shape, inner_shape)
+            cut_op.Build()
+            if not cut_op.IsDone():
+                raise RuntimeError("Boolean cut for hollow profile failed")
+            shape = cut_op.Shape()
+    else:
+        shape = outer_shape
+
+    # Compute volume for verification
+    props = GProp_GProps()
+    brepgprop.VolumeProperties(shape, props)
+    volume = abs(props.Mass())
+
+    # Create yapCAD solid with BREP
+    construction = ['procedure', 'sweep_adaptive']
+    sld = solid([], [], construction)
+
+    # Attach BREP
+    from yapcad.brep import attach_brep_to_solid, BrepSolid
+    brep_solid = BrepSolid(shape)
+    attach_brep_to_solid(sld, brep_solid)
+
+    # Attach metadata if provided
+    if metadata:
+        from yapcad.metadata import get_solid_metadata
+        meta = get_solid_metadata(sld, create=True)
+        meta.update(metadata)
+
+    return sld
+
+
+def sweep_profile_along_path(profile, spine, *, inner_profile=None, metadata=None):
+    """
+    Sweep a 2D profile along a 3D path (spine) to create a solid.
+
+    This uses OCC's BRepOffsetAPI_MakePipe to create the swept solid.
+    The profile should be a closed 2D region (list of line/arc segments in XZ plane).
+    The spine is a path3d dict containing line and arc segments.
+
+    Args:
+        profile: A yapCAD region2d (list of 2D curve segments forming a closed loop)
+                 This is the OUTER boundary of the profile.
+        spine: A path3d dict with format:
+            {
+                'type': 'path3d',
+                'segments': [
+                    {'type': 'line', 'start': [x,y,z], 'end': [x,y,z]},
+                    {'type': 'arc', 'center': [x,y,z], 'start': [x,y,z], 'end': [x,y,z], 'normal': [nx,ny,nz]},
+                    ...
+                ]
+            }
+        inner_profile: Optional yapCAD region2d for the inner boundary (hole).
+                       If provided, creates a hollow profile (like a box girder).
+        metadata: Optional dict of metadata to attach
+
+    Returns:
+        A yapCAD solid representing the swept shape
+    """
+    if not occ_available():
+        raise RuntimeError("sweep_profile_along_path requires pythonocc-core")
+
+    from OCC.Core.gp import gp_Pnt, gp_Dir, gp_Ax2, gp_Circ, gp_Vec
+    from OCC.Core.BRepBuilderAPI import (
+        BRepBuilderAPI_MakeWire, BRepBuilderAPI_MakeEdge, BRepBuilderAPI_MakeFace
+    )
+    from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_MakePipe
+    from OCC.Core.GC import GC_MakeArcOfCircle
+    from OCC.Core.GProp import GProp_GProps
+    from OCC.Core.BRepGProp import brepgprop
+    import math
+
+    def _build_wire_from_region2d(region, reverse=False):
+        """Build an OCC wire from a yapCAD region2d in the XZ plane.
+
+        Args:
+            region: List of line/arc segments forming a closed loop
+            reverse: If True, reverse the winding order (for inner holes)
+        """
+        wire_builder = BRepBuilderAPI_MakeWire()
+        segments = list(region)
+        if reverse:
+            # Reverse the segment order and swap start/end of each segment
+            segments = segments[::-1]
+
+        for seg in segments:
+            if isline(seg):
+                p1 = seg[0]
+                p2 = seg[1]
+                if reverse:
+                    p1, p2 = p2, p1  # Swap endpoints
+                # Convert to XZ plane (Y=0, 2D Y -> 3D Z)
+                start = gp_Pnt(p1[0], 0, p1[1] if len(p1) > 1 else 0)
+                end = gp_Pnt(p2[0], 0, p2[1] if len(p2) > 1 else 0)
+                edge = BRepBuilderAPI_MakeEdge(start, end).Edge()
+                wire_builder.Add(edge)
+            elif isarc(seg):
+                center = seg[0]
+                params = seg[1]
+                radius = params[0]
+                start_ang = math.radians(params[1])
+                end_ang = math.radians(params[2])
+                if reverse:
+                    start_ang, end_ang = end_ang, start_ang  # Swap angles
+                cx, cy = center[0], center[1] if len(center) > 1 else 0
+                start_pt = gp_Pnt(cx + radius * math.cos(start_ang), 0, cy + radius * math.sin(start_ang))
+                end_pt = gp_Pnt(cx + radius * math.cos(end_ang), 0, cy + radius * math.sin(end_ang))
+                arc_center = gp_Pnt(cx, 0, cy)
+                circ = gp_Circ(gp_Ax2(arc_center, gp_Dir(0, 1, 0)), radius)
+                arc_maker = GC_MakeArcOfCircle(circ, start_pt, end_pt, True)
+                if arc_maker.IsDone():
+                    edge = BRepBuilderAPI_MakeEdge(arc_maker.Value()).Edge()
+                    wire_builder.Add(edge)
+        return wire_builder.Wire()
+
+    # Build outer profile wire
+    outer_wire = _build_wire_from_region2d(profile)
+
+    # Create face from outer wire
+    face_maker = BRepBuilderAPI_MakeFace(outer_wire, True)
+
+    # If inner profile provided, add it as a hole (reversed winding)
+    if inner_profile is not None:
+        inner_wire = _build_wire_from_region2d(inner_profile, reverse=True)
+        face_maker.Add(inner_wire)
+
+    profile_face = face_maker.Face()
+
+    # Build spine wire from path3d
+    spine_wire = BRepBuilderAPI_MakeWire()
+    segments = spine.get('segments', [])
+
+    for seg in segments:
+        seg_type = seg.get('type', 'line')
+        if seg_type == 'line':
+            start = seg['start']
+            end = seg['end']
+            p1 = gp_Pnt(start[0], start[1], start[2])
+            p2 = gp_Pnt(end[0], end[1], end[2])
+            edge = BRepBuilderAPI_MakeEdge(p1, p2).Edge()
+            spine_wire.Add(edge)
+        elif seg_type == 'arc':
+            center = seg['center']
+            start = seg['start']
+            end = seg['end']
+            normal = seg.get('normal', [0, 0, 1])
+            radius = seg.get('radius')
+
+            if radius is None:
+                # Calculate radius from center to start
+                dx = start[0] - center[0]
+                dy = start[1] - center[1]
+                dz = start[2] - center[2]
+                radius = math.sqrt(dx*dx + dy*dy + dz*dz)
+
+            arc_center = gp_Pnt(center[0], center[1], center[2])
+            arc_start = gp_Pnt(start[0], start[1], start[2])
+            arc_end = gp_Pnt(end[0], end[1], end[2])
+            arc_normal = gp_Dir(normal[0], normal[1], normal[2])
+
+            circ = gp_Circ(gp_Ax2(arc_center, arc_normal), radius)
+            arc_maker = GC_MakeArcOfCircle(circ, arc_start, arc_end, True)
+            if arc_maker.IsDone():
+                edge = BRepBuilderAPI_MakeEdge(arc_maker.Value()).Edge()
+                spine_wire.Add(edge)
+
+    spine = spine_wire.Wire()
+
+    # Create pipe (sweep)
+    pipe = BRepOffsetAPI_MakePipe(spine, profile_face)
+    pipe.Build()
+
+    if not pipe.IsDone():
+        raise RuntimeError("OCC pipe sweep failed")
+
+    shape = pipe.Shape()
+
+    # Get volume for verification
+    props = GProp_GProps()
+    brepgprop.VolumeProperties(shape, props)
+    volume = abs(props.Mass())
+
+    # Create yapCAD solid with BREP attachment
+    # For now, create a minimal solid structure and attach BREP
+    from yapcad.geom3d import solid
+    call = f"yapcad.geom3d_util.sweep_profile_along_path(profile, spine)"
+    construction = ['procedure', call]
+
+    if metadata is not None and isinstance(metadata, dict):
+        sld = solid([], [], construction, metadata)
+    else:
+        sld = solid([], [], construction)
+
+    # Attach BREP
+    try:
+        attach_brep_to_solid(sld, BrepSolid(shape))
+    except Exception:
+        pass
+
+    return sld

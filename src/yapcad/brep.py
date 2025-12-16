@@ -165,7 +165,9 @@ def brep_from_solid(solid: list) -> Optional["BrepSolid"]:
         shape = _shape_from_bytes(decoded)
     except Exception:
         return None
-    brep = BrepSolid(topods.Solid(shape) if topods is not None else shape)
+    # Don't force-cast to Solid - shape may be a Compound (from disconnected unions)
+    # BrepSolid.tessellate() uses TopExp_Explorer which handles both
+    brep = BrepSolid(shape)
     _BREP_SOLID_CACHE[solid_id] = brep
     return brep
 
@@ -301,8 +303,8 @@ class BrepFace:
         return self._shape
 
 class BrepSolid:
-    """A wrapper for a TopoDS_Solid."""
-    def __init__(self, shape: TopoDS_Solid):
+    """A wrapper for a TopoDS_Shape (Solid or Compound of Solids)."""
+    def __init__(self, shape):
         require_occ()
         self._shape = shape
 

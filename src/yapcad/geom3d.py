@@ -820,6 +820,25 @@ def solidbbox(sld):
                          max(box[1][1], sb[1][1]),
                          max(box[1][2], sb[1][2]))]
 
+    # BREP fallback when surfaces list is empty (e.g., sweep-generated solids)
+    if not box:
+        try:
+            from yapcad.brep import brep_from_solid
+            from OCC.Core.Bnd import Bnd_Box
+            from OCC.Core.BRepBndLib import brepbndlib
+
+            brep = brep_from_solid(sld)
+            if brep is not None and brep.shape is not None:
+                bbox = Bnd_Box()
+                brepbndlib.Add(brep.shape, bbox)
+                xmin, ymin, zmin, xmax, ymax, zmax = bbox.Get()
+                box = [
+                    point(xmin, ymin, zmin),
+                    point(xmax, ymax, zmax)
+                ]
+        except Exception:
+            pass  # Return empty list if BREP extraction fails
+
     return box
 
 def translatesolid(x,delta):
@@ -1070,8 +1089,20 @@ def volumeof(x):
 
     surfaces = x[1]
 
-    # Handle empty solid
+    # Handle empty solid - check for BREP data first
     if not surfaces:
+        try:
+            from yapcad.brep import brep_from_solid, occ_available
+            if occ_available():
+                brep = brep_from_solid(x)
+                if brep:
+                    from OCC.Core.GProp import GProp_GProps
+                    from OCC.Core.BRepGProp import brepgprop
+                    props = GProp_GProps()
+                    brepgprop.VolumeProperties(brep.shape, props)
+                    return abs(props.Mass())
+        except ImportError:
+            pass
         return 0.0
 
     total_volume = 0.0

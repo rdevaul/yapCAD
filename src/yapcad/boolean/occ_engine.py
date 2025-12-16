@@ -10,14 +10,17 @@ try:  # pragma: no cover - optional dependency
         BRepAlgoAPI_Cut,
         BRepAlgoAPI_Fuse,
     )
+    from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeSolid
     from OCC.Core.TopExp import TopExp_Explorer
-    from OCC.Core.TopAbs import TopAbs_SOLID
-    from OCC.Core.TopoDS import topods
+    from OCC.Core.TopAbs import TopAbs_SOLID, TopAbs_SHELL
+    from OCC.Core.TopoDS import topods, TopoDS_Compound, TopoDS_Builder
+    from OCC.Core.BRep import BRep_Builder
 except ImportError:  # pragma: no cover
     BRepAlgoAPI_Common = BRepAlgoAPI_Cut = BRepAlgoAPI_Fuse = None
+    BRepBuilderAPI_MakeSolid = None
     TopExp_Explorer = None
-    TopAbs_SOLID = None
-    topods = None
+    TopAbs_SOLID = TopAbs_SHELL = None
+    topods = TopoDS_Compound = TopoDS_Builder = BRep_Builder = None
 
 from yapcad.brep import (
     BrepSolid,
@@ -46,7 +49,11 @@ def _make_builder(op: str, a: BrepSolid, b: BrepSolid):
 
 
 def solid_boolean(a, b, operation: str):
-    """Perform an OCC boolean; requires both solids to carry BREP metadata."""
+    """Perform an OCC boolean; requires both solids to carry BREP metadata.
+
+    Handles both single-solid results and compound results (e.g., union of
+    disconnected solids produces a compound containing multiple solids).
+    """
     if not is_available():
         raise RuntimeError("OCC booleans unavailable; activate yapcad-brep environment")
     brep_a = brep_from_solid(a)
@@ -58,12 +65,32 @@ def solid_boolean(a, b, operation: str):
     if not builder.IsDone():
         raise RuntimeError("OCC boolean operation failed")
     result_shape = builder.Shape()
+
+    # Collect all solids from the result (may be compound for disconnected unions)
+    solids = []
     exp = TopExp_Explorer(result_shape, TopAbs_SOLID)
-    if not exp.More():
+    while exp.More():
+        solid = exp.Current()
+        if topods is not None:
+            solid = topods.Solid(solid)
+        solids.append(solid)
+        exp.Next()
+
+    if not solids:
         raise RuntimeError("OCC boolean produced no solids")
-    result_solid = exp.Current()
-    if topods is not None:
-        result_solid = topods.Solid(result_solid)
+
+    # If single solid, use it directly
+    if len(solids) == 1:
+        result_solid = solids[0]
+    else:
+        # Multiple solids: create a compound to hold them all
+        compound = TopoDS_Compound()
+        builder_compound = BRep_Builder()
+        builder_compound.MakeCompound(compound)
+        for solid in solids:
+            builder_compound.Add(compound, solid)
+        result_solid = compound
+
     result_brep = BrepSolid(result_solid)
     surface = result_brep.tessellate()
     from yapcad.geom3d import solid as geom3d_solid  # circular-safe import

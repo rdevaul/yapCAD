@@ -210,6 +210,23 @@ class SymbolTable:
             ("p2", PATH2D, None),
         ], PATH2D)
 
+        # Path3D constructors for sweep operations
+        self._register_builtin("make_path3d", [
+            ("segments", make_list_type(PATH3D), None),
+        ], PATH3D)
+
+        self._register_builtin("path3d_line", [
+            ("start", POINT3D, None),
+            ("end", POINT3D, None),
+        ], PATH3D)
+
+        self._register_builtin("path3d_arc", [
+            ("center", POINT3D, None),
+            ("start", POINT3D, None),
+            ("end", POINT3D, None),
+            ("normal", VECTOR3D, None),
+        ], PATH3D)
+
         self._register_builtin("close", [("p", PROFILE2D, None)], REGION2D)
         self._register_builtin("closeC0", [("p", PROFILE2D, None)], REGION2D)
         self._register_builtin("closeC1", [("p", PROFILE2D, None)], REGION2D)
@@ -261,6 +278,25 @@ class SymbolTable:
         self._register_builtin("sweep", [
             ("profile", REGION2D, None),
             ("spine", PATH3D, None),
+        ], SOLID)
+
+        self._register_builtin("sweep_hollow", [
+            ("outer_profile", REGION2D, None),
+            ("inner_profile", REGION2D, None),
+            ("spine", PATH3D, None),
+        ], SOLID)
+
+        self._register_builtin("sweep_adaptive", [
+            ("profile", REGION2D, None),
+            ("spine", PATH3D, None),
+            ("threshold", FLOAT, None),  # Angle in degrees
+        ], SOLID)
+
+        self._register_builtin("sweep_adaptive_hollow", [
+            ("outer_profile", REGION2D, None),
+            ("inner_profiles", REGION2D, None),  # Single region2d or list
+            ("spine", PATH3D, None),
+            ("threshold", FLOAT, None),
         ], SOLID)
 
         self._register_builtin("loft", [
