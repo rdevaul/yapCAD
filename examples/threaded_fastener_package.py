@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import  replace
 import argparse
 import shutil
 import sys
@@ -69,6 +70,8 @@ def _select_catalog_entry(args: argparse.Namespace, kind: str | None = None):
         catalog = metric_hex_cap_catalog() if args.standard == "metric" else unified_hex_cap_catalog()
     else:
         catalog = metric_hex_nut_catalog() if args.standard == "metric" else unified_hex_nut_catalog()
+    if args.size.upper() == "CUSTOM":
+        return None
     key = args.size.upper() if args.standard == "metric" else args.size.lower()
     return catalog.get(key)
 
@@ -88,6 +91,7 @@ def _build_screw(args: argparse.Namespace, catalog_entry: dict | None):
         diameter = args.diameter or (catalog_entry["diameter"] if catalog_entry else 8.0)
         pitch = args.pitch or (catalog_entry["pitch"] if catalog_entry else 1.25)
         profile = metric_profile(diameter, pitch)
+        profile = replace(profile, starts=args.starts)
         length_mm = length
         thread_length_mm = thread_length_value
     else:
@@ -102,6 +106,7 @@ def _build_screw(args: argparse.Namespace, catalog_entry: dict | None):
         tpi = args.tpi or (catalog_entry["tpi"] if catalog_entry else 20.0)
         pitch = 25.4 / tpi
         profile = unified_profile(diameter / 25.4, tpi)
+        profile = replace(profile, starts=args.starts)
         length_mm = length * 25.4
         thread_length_mm = thread_length_value * 25.4
     spec = HexCapScrewSpec(
@@ -129,6 +134,7 @@ def _build_nut(args: argparse.Namespace, catalog_entry: dict | None):
         diameter = args.diameter or (catalog_entry["diameter"] if catalog_entry else 8.0)
         pitch = args.pitch or (catalog_entry["pitch"] if catalog_entry else 1.25)
         profile = metric_profile(diameter, pitch, internal=True)
+        profile = replace(profile, starts=args.starts)
     else:
         if catalog_entry and not any(args.__dict__.get(k) for k in ("diameter", "tpi", "width_flat", "thickness")):
             return unified_hex_nut(
@@ -140,13 +146,14 @@ def _build_nut(args: argparse.Namespace, catalog_entry: dict | None):
         tpi = args.tpi or (catalog_entry["tpi"] if catalog_entry else 20.0)
         pitch = 25.4 / tpi
         profile = unified_profile(diameter / 25.4, tpi, internal=True)
+        profile = replace(profile, starts=args.starts)
     spec = HexNutSpec(
         diameter=diameter,
         pitch=pitch,
         width_flat=args.width_flat or (catalog_entry["width_flat"] if catalog_entry else diameter * 1.6),
         thickness=args.thickness or (catalog_entry["thickness"] if catalog_entry else diameter * 0.8),
-        starts=args.starts,
         handedness=args.handedness,
+        starts=args.starts
     )
     return build_hex_nut(profile, spec)
 
