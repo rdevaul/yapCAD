@@ -1,6 +1,6 @@
 [project]
 name = "yapCAD"
-version = "0.6.1"
+version = "0.6.3"
 authors = [
   { name="Richard DeVaul", email="richard.devaul@gmail.com" },
 ]

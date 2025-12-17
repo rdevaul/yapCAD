@@ -549,3 +549,422 @@ class TestDSLPackaging:
 
         assert not result.success
         assert "Type error" in result.error_message or "DSL execution failed" in result.error_message
+
+
+class TestNew2DFeatures:
+    """Test new 2D geometry DSL features."""
+
+    def test_ellipse_constructor(self):
+        """Test ellipse curve construction."""
+        source = """
+        module test_ellipse;
+
+        command MAKE_ELLIPSE() -> ellipse {
+            let center: point = point(0.0, 0.0);
+            let e: ellipse = ellipse(center, 50.0, 30.0);
+            emit e;
+        }
+        """
+        tokens = tokenize(textwrap.dedent(source))
+        module = parse(tokens)
+        result = check(module)
+        assert not result.has_errors
+
+        interpreter = Interpreter()
+        exec_result = interpreter.execute(module, "MAKE_ELLIPSE", {}, source=source)
+        assert exec_result.success
+        # Ellipse is ['ellipse', center, metadata]
+        assert exec_result.geometry[0] == 'ellipse'
+
+    def test_catmullrom_constructor(self):
+        """Test Catmull-Rom spline construction."""
+        source = """
+        module test_spline;
+
+        command MAKE_SPLINE() -> catmullrom {
+            let p1: point = point(0.0, 0.0);
+            let p2: point = point(10.0, 5.0);
+            let p3: point = point(20.0, -3.0);
+            let p4: point = point(30.0, 0.0);
+            let pts: list<point> = [p1, p2, p3, p4];
+            let spline: catmullrom = catmullrom(pts);
+            emit spline;
+        }
+        """
+        tokens = tokenize(textwrap.dedent(source))
+        module = parse(tokens)
+        result = check(module)
+        assert not result.has_errors
+
+        interpreter = Interpreter()
+        exec_result = interpreter.execute(module, "MAKE_SPLINE", {}, source=source)
+        assert exec_result.success
+        # Catmullrom is ['catmullrom', points, metadata]
+        assert exec_result.geometry[0] == 'catmullrom'
+        assert len(exec_result.geometry[1]) == 4  # 4 control points
+
+    def test_curve_sampling(self):
+        """Test curve sampling functions."""
+        source = """
+        module test_sample;
+
+        command SAMPLE_LINE() -> point {
+            let start: point = point(0.0, 0.0);
+            let end: point = point(10.0, 0.0);
+            let l: line_segment = line(start, end);
+            let mid: point = sample_curve(l, 0.5);
+            emit mid;
+        }
+        """
+        tokens = tokenize(textwrap.dedent(source))
+        module = parse(tokens)
+        result = check(module)
+        assert not result.has_errors
+
+        interpreter = Interpreter()
+        exec_result = interpreter.execute(module, "SAMPLE_LINE", {}, source=source)
+        assert exec_result.success
+        # Midpoint should be at (5, 0)
+        assert abs(exec_result.geometry[0] - 5.0) < 0.01
+        assert abs(exec_result.geometry[1] - 0.0) < 0.01
+
+    def test_curve_length(self):
+        """Test curve length computation."""
+        source = """
+        module test_length;
+
+        command LINE_LENGTH() -> float {
+            let start: point = point(0.0, 0.0);
+            let end: point = point(10.0, 0.0);
+            let l: line_segment = line(start, end);
+            let len: float = curve_length(l);
+            emit len;
+        }
+        """
+        tokens = tokenize(textwrap.dedent(source))
+        module = parse(tokens)
+        result = check(module)
+        assert not result.has_errors
+
+        interpreter = Interpreter()
+        exec_result = interpreter.execute(module, "LINE_LENGTH", {}, source=source)
+        assert exec_result.success
+        assert abs(exec_result.geometry - 10.0) < 0.01
+
+    def test_polygon_from_points(self):
+        """Test polygon region construction from points."""
+        source = """
+        module test_polygon;
+
+        command MAKE_TRIANGLE() -> region2d {
+            let p1: point = point(0.0, 0.0);
+            let p2: point = point(10.0, 0.0);
+            let p3: point = point(5.0, 8.66);
+            let pts: list<point> = [p1, p2, p3];
+            let tri: region2d = polygon(pts);
+            emit tri;
+        }
+        """
+        tokens = tokenize(textwrap.dedent(source))
+        module = parse(tokens)
+        result = check(module)
+        assert not result.has_errors
+
+        interpreter = Interpreter()
+        exec_result = interpreter.execute(module, "MAKE_TRIANGLE", {}, source=source)
+        assert exec_result.success
+        # Triangle region should have 3 line segments
+        assert len(exec_result.geometry) == 3
+
+    def test_disk_region(self):
+        """Test disk (filled circle) region construction."""
+        source = """
+        module test_disk;
+
+        command MAKE_DISK() -> region2d {
+            let center: point = point(0.0, 0.0);
+            let d: region2d = disk(center, 10.0, 32);
+            emit d;
+        }
+        """
+        tokens = tokenize(textwrap.dedent(source))
+        module = parse(tokens)
+        result = check(module)
+        assert not result.has_errors
+
+        interpreter = Interpreter()
+        exec_result = interpreter.execute(module, "MAKE_DISK", {}, source=source)
+        assert exec_result.success
+        # Disk with 32 segments should have 32 line segments
+        assert len(exec_result.geometry) == 32
+
+    def test_2d_boolean_difference(self):
+        """Test 2D boolean difference operation."""
+        source = """
+        module test_bool2d;
+
+        command MAKE_PLATE_WITH_HOLE() -> region2d {
+            let plate: region2d = rectangle(100.0, 50.0);
+            let hole: region2d = disk(point(0.0, 0.0), 15.0, 32);
+            let result: region2d = difference2d(plate, hole);
+            emit result;
+        }
+        """
+        tokens = tokenize(textwrap.dedent(source))
+        module = parse(tokens)
+        result = check(module)
+        assert not result.has_errors
+
+        interpreter = Interpreter()
+        exec_result = interpreter.execute(module, "MAKE_PLATE_WITH_HOLE", {}, source=source)
+        assert exec_result.success
+        # Result should be a non-empty geometry list
+        assert len(exec_result.geometry) > 0
+
+    def test_2d_boolean_union(self):
+        """Test 2D boolean union operation."""
+        source = """
+        module test_union2d;
+
+        command UNION_RECTS() -> region2d {
+            let r1: region2d = rectangle(20.0, 10.0, point(-5.0, 0.0));
+            let r2: region2d = rectangle(20.0, 10.0, point(5.0, 0.0));
+            let result: region2d = union2d(r1, r2);
+            emit result;
+        }
+        """
+        tokens = tokenize(textwrap.dedent(source))
+        module = parse(tokens)
+        result = check(module)
+        assert not result.has_errors
+
+        interpreter = Interpreter()
+        exec_result = interpreter.execute(module, "UNION_RECTS", {}, source=source)
+        assert exec_result.success
+        # Result should be a non-empty geometry list
+        assert len(exec_result.geometry) > 0
+
+    def test_make_path2d_and_close(self):
+        """Test path2d construction and closing."""
+        source = """
+        module test_path2d;
+
+        command MAKE_PATH() -> region2d {
+            let l1: line_segment = line(point(0.0, 0.0), point(10.0, 0.0));
+            let l2: line_segment = line(point(10.0, 0.0), point(10.0, 10.0));
+            let l3: line_segment = line(point(10.0, 10.0), point(0.0, 10.0));
+            let path: path2d = make_path2d([l1, l2, l3]);
+            let region: region2d = close_path(path);
+            emit region;
+        }
+        """
+        tokens = tokenize(textwrap.dedent(source))
+        module = parse(tokens)
+        result = check(module)
+        assert not result.has_errors
+
+        interpreter = Interpreter()
+        exec_result = interpreter.execute(module, "MAKE_PATH", {}, source=source)
+        assert exec_result.success
+        # Closed path should have 4 segments (3 + closing)
+        assert len(exec_result.geometry) == 4
+
+    def test_nurbs_constructor(self):
+        """Test NURBS curve construction."""
+        source = """
+        module test_nurbs;
+
+        command MAKE_NURBS() -> nurbs {
+            let p1: point = point(0.0, 0.0);
+            let p2: point = point(5.0, 10.0);
+            let p3: point = point(15.0, 10.0);
+            let p4: point = point(20.0, 0.0);
+            let pts: list<point> = [p1, p2, p3, p4];
+            let curve: nurbs = nurbs(pts);
+            emit curve;
+        }
+        """
+        tokens = tokenize(textwrap.dedent(source))
+        module = parse(tokens)
+        result = check(module)
+        assert not result.has_errors
+
+        interpreter = Interpreter()
+        exec_result = interpreter.execute(module, "MAKE_NURBS", {}, source=source)
+        assert exec_result.success
+        # NURBS is ['nurbs', points, metadata]
+        assert exec_result.geometry[0] == 'nurbs'
+        assert len(exec_result.geometry[1]) == 4
+
+    def test_spline_sampling(self):
+        """Test sampling a catmullrom spline for multiple points."""
+        source = """
+        module test_spline_sample;
+
+        command SAMPLE_SPLINE() -> list<point> {
+            let p1: point = point(0.0, 0.0);
+            let p2: point = point(10.0, 5.0);
+            let p3: point = point(20.0, -3.0);
+            let p4: point = point(30.0, 0.0);
+            let pts: list<point> = [p1, p2, p3, p4];
+            let spline: catmullrom = catmullrom(pts);
+            let samples: list<point> = sample_curve_n(spline, 10);
+            emit samples;
+        }
+        """
+        tokens = tokenize(textwrap.dedent(source))
+        module = parse(tokens)
+        result = check(module)
+        assert not result.has_errors
+
+        interpreter = Interpreter()
+        exec_result = interpreter.execute(module, "SAMPLE_SPLINE", {}, source=source)
+        assert exec_result.success
+        # Should return 10 sample points
+        assert len(exec_result.geometry) == 10
+        # First point should be close to p1 (0,0)
+        assert abs(exec_result.geometry[0][0] - 0.0) < 1.0
+        # Last point should be close to p4 (30,0)
+        assert abs(exec_result.geometry[-1][0] - 30.0) < 1.0
+
+    def test_ellipse_sampling(self):
+        """Test sampling an ellipse curve."""
+        source = """
+        module test_ellipse_sample;
+
+        command SAMPLE_ELLIPSE() -> point {
+            let center: point = point(0.0, 0.0);
+            let e: ellipse = ellipse(center, 50.0, 30.0);
+            let top: point = sample_curve(e, 0.25);
+            emit top;
+        }
+        """
+        tokens = tokenize(textwrap.dedent(source))
+        module = parse(tokens)
+        result = check(module)
+        assert not result.has_errors
+
+        interpreter = Interpreter()
+        exec_result = interpreter.execute(module, "SAMPLE_ELLIPSE", {}, source=source)
+        assert exec_result.success
+        # At t=0.25 (quarter turn), should be at top of ellipse: (0, semi_minor)
+        # For ellipse with semi_major=50, semi_minor=30, top is at (0, 30)
+        assert abs(exec_result.geometry[0]) < 1.0  # x near 0
+        assert abs(exec_result.geometry[1] - 30.0) < 1.0  # y near 30
+
+    def test_chained_difference2d(self):
+        """Test chained 2D difference operations preserve all holes."""
+        source = """
+        module test_chained_diff;
+
+        command PLATE_WITH_THREE_HOLES() -> region2d {
+            let plate: region2d = rectangle(100.0, 60.0);
+            let hole1: region2d = disk(point(0.0, 0.0), 10.0, 16);
+            let hole2: region2d = disk(point(-30.0, 0.0), 5.0, 12);
+            let hole3: region2d = disk(point(30.0, 0.0), 5.0, 12);
+
+            let step1: region2d = difference2d(plate, hole1);
+            let step2: region2d = difference2d(step1, hole2);
+            let result: region2d = difference2d(step2, hole3);
+            emit result;
+        }
+        """
+        tokens = tokenize(textwrap.dedent(source))
+        module = parse(tokens)
+        result = check(module)
+        assert not result.has_errors
+
+        interpreter = Interpreter()
+        exec_result = interpreter.execute(module, "PLATE_WITH_THREE_HOLES", {}, source=source)
+        assert exec_result.success
+        # Result should be a nested list: [outer, hole1, hole2, hole3]
+        # 4 geometry lists total
+        assert isinstance(exec_result.geometry, list)
+        assert len(exec_result.geometry) == 4  # outer + 3 holes
+        # Each element should be a geomlist (list of lines)
+        from yapcad.geom import isline
+        for poly in exec_result.geometry:
+            assert isinstance(poly, list)
+            assert len(poly) > 0
+            assert isline(poly[0])
+
+
+class TestDXFExport:
+    """Test DXF export functionality."""
+
+    def test_dxf_export_basic(self):
+        """Test basic DXF export of 2D geometry."""
+        import tempfile
+        import os
+
+        source = """
+        module test_dxf;
+
+        command MAKE_RECT() -> region2d {
+            let r: region2d = rectangle(50.0, 30.0);
+            emit r;
+        }
+        """
+        tokens = tokenize(textwrap.dedent(source))
+        module = parse(tokens)
+        result = check(module)
+        assert not result.has_errors
+
+        interpreter = Interpreter()
+        exec_result = interpreter.execute(module, "MAKE_RECT", {}, source=source)
+        assert exec_result.success
+
+        # Export to DXF
+        from yapcad.ezdxf_exporter import write_dxf, is_2d_geometry
+
+        assert is_2d_geometry(exec_result.geometry)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dxf_path = os.path.join(tmpdir, "test.dxf")
+            success = write_dxf(exec_result.geometry, dxf_path)
+            assert success
+            assert os.path.exists(dxf_path)
+
+            # Verify file content
+            with open(dxf_path, 'r') as f:
+                content = f.read()
+                assert 'LINE' in content  # Should contain LINE entities
+                assert 'SOLID' not in content.split('\n')  # No SOLID entities
+
+    def test_dxf_export_with_holes(self):
+        """Test DXF export of region with holes."""
+        import tempfile
+        import os
+
+        source = """
+        module test_dxf_holes;
+
+        command PLATE_WITH_HOLE() -> region2d {
+            let plate: region2d = rectangle(80.0, 50.0);
+            let hole: region2d = disk(point(0.0, 0.0), 15.0, 24);
+            let result: region2d = difference2d(plate, hole);
+            emit result;
+        }
+        """
+        tokens = tokenize(textwrap.dedent(source))
+        module = parse(tokens)
+        result = check(module)
+        assert not result.has_errors
+
+        interpreter = Interpreter()
+        exec_result = interpreter.execute(module, "PLATE_WITH_HOLE", {}, source=source)
+        assert exec_result.success
+
+        from yapcad.ezdxf_exporter import write_dxf
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dxf_path = os.path.join(tmpdir, "plate_hole.dxf")
+            success = write_dxf(exec_result.geometry, dxf_path)
+            assert success
+
+            # Count LINE entities - should have 4 (rect) + 24 (hole) = 28
+            import ezdxf
+            doc = ezdxf.readfile(dxf_path)
+            msp = doc.modelspace()
+            line_count = len(list(msp.query('LINE')))
+            assert line_count == 28  # 4 + 24

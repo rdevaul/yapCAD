@@ -35,7 +35,9 @@ class ezdxfDraw(drawable.Drawable):
     def __init__(self):
         super().__init__()
         
-        self.__doc = ezdxf.new(dxfversion='R2010',setup=True)
+        # setup=False avoids creating default blocks (like _CLOSEDFILLED) that
+        # contain SOLID entities unsupported by some CAD programs (e.g., FreeCAD)
+        self.__doc = ezdxf.new(dxfversion='R2010', setup=False)
         self.__doc.header['$MEASUREMENT'] = 1 # metric
         self.__doc.header['$INSUNITS'] = 4 # millimeters
         self.__doc.layers.new('PATHS',  dxfattribs={'color': 7}) #white

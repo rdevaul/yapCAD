@@ -32,11 +32,15 @@ from pyglet.gl import (
     GL_FILL,
     GL_FRONT_AND_BACK,
     GL_POLYGON_OFFSET_LINE,
+    GL_CLIP_PLANE0,
+    GL_CLIP_PLANE1,
+    GL_CLIP_PLANE2,
     glPolygonOffset,
     glBegin,
     glBlendFunc,
     glClear,
     glClearColor,
+    glClipPlane,
     glColorMaterial,
     glDisable,
     glEnable,
@@ -62,6 +66,7 @@ from pyglet.gl import (
     glPolygonMode,
     glLineWidth,
     GLfloat,
+    GLdouble,
 )
 
 from yapcad.io.geometry_json import geometry_from_json
@@ -310,6 +315,11 @@ class FourViewWindow(pyglet.window.Window):
         self.view_mode = 0  # 0 = quad, 1 = perspective, 2 = front, 3 = top, 4 = side
         self._view_mode_names = ["Quad", "Perspective", "Front", "Top", "Side"]
         self._bucket_vertex_lists: Dict[str, graphics.vertexdomain.VertexList] = {}
+        # Clipping plane state: 0 = off, 1 = positive half, 2 = negative half
+        self.clip_x = 0  # X clipping plane (YZ plane)
+        self.clip_y = 0  # Y clipping plane (XZ plane)
+        self.clip_z = 0  # Z clipping plane (XY plane)
+        self._clip_state_names = ["off", "+", "-"]
         glEnable(GL_DEPTH_TEST)
         glEnable(GL_LIGHTING)
         glEnable(GL_LIGHT0)
@@ -399,8 +409,61 @@ class FourViewWindow(pyglet.window.Window):
         else:
             gluLookAt(cx, cy, cz + self.distance, cx, cy, cz, 0, 1, 0)
 
+    def _setup_clipping_planes(self) -> None:
+        """Configure OpenGL clipping planes based on current clip state."""
+        # Compute center of bounding box for clip plane positioning
+        cx = (self.bbox[0] + self.bbox[3]) / 2.0
+        cy = (self.bbox[1] + self.bbox[4]) / 2.0
+        cz = (self.bbox[2] + self.bbox[5]) / 2.0
+
+        # X clipping plane (clips in X direction, plane is YZ)
+        if self.clip_x == 0:
+            glDisable(GL_CLIP_PLANE0)
+        else:
+            # Plane equation: Ax + By + Cz + D = 0
+            # For X clipping at center: x - cx = 0, or x + (-cx) = 0
+            # Positive half (x > cx): keep where x - cx > 0, so plane is (1, 0, 0, -cx)
+            # Negative half (x < cx): keep where x - cx < 0, so plane is (-1, 0, 0, cx)
+            if self.clip_x == 1:  # Keep positive X half
+                plane = (GLdouble * 4)(1.0, 0.0, 0.0, -cx)
+            else:  # Keep negative X half
+                plane = (GLdouble * 4)(-1.0, 0.0, 0.0, cx)
+            glClipPlane(GL_CLIP_PLANE0, plane)
+            glEnable(GL_CLIP_PLANE0)
+
+        # Y clipping plane (clips in Y direction, plane is XZ)
+        if self.clip_y == 0:
+            glDisable(GL_CLIP_PLANE1)
+        else:
+            if self.clip_y == 1:  # Keep positive Y half
+                plane = (GLdouble * 4)(0.0, 1.0, 0.0, -cy)
+            else:  # Keep negative Y half
+                plane = (GLdouble * 4)(0.0, -1.0, 0.0, cy)
+            glClipPlane(GL_CLIP_PLANE1, plane)
+            glEnable(GL_CLIP_PLANE1)
+
+        # Z clipping plane (clips in Z direction, plane is XY)
+        if self.clip_z == 0:
+            glDisable(GL_CLIP_PLANE2)
+        else:
+            if self.clip_z == 1:  # Keep positive Z half
+                plane = (GLdouble * 4)(0.0, 0.0, 1.0, -cz)
+            else:  # Keep negative Z half
+                plane = (GLdouble * 4)(0.0, 0.0, -1.0, cz)
+            glClipPlane(GL_CLIP_PLANE2, plane)
+            glEnable(GL_CLIP_PLANE2)
+
+    def _disable_clipping_planes(self) -> None:
+        """Disable all clipping planes."""
+        glDisable(GL_CLIP_PLANE0)
+        glDisable(GL_CLIP_PLANE1)
+        glDisable(GL_CLIP_PLANE2)
+
     def _draw_triangles(self):
         mode = self.render_mode
+
+        # Set up clipping planes before drawing geometry
+        self._setup_clipping_planes()
 
         if mode in (0, 1):
             glEnable(GL_LIGHTING)
@@ -431,6 +494,9 @@ class FourViewWindow(pyglet.window.Window):
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
             glDisable(GL_POLYGON_OFFSET_LINE)
             glEnable(GL_LIGHTING)
+
+        # Disable clipping planes after drawing
+        self._disable_clipping_planes()
 
     def _draw_grid(self, orientation: str | None, perspective: bool):
         xmin, ymin, zmin, xmax, ymax, zmax = self.bbox
@@ -567,6 +633,17 @@ class FourViewWindow(pyglet.window.Window):
         elif orientation == "side":
             axis_lines.append("+Y →, +Z ↑")
 
+        # Show clipping plane status if any are active
+        clip_parts = []
+        if self.clip_x != 0:
+            clip_parts.append(f"X:{self._clip_state_names[self.clip_x]}")
+        if self.clip_y != 0:
+            clip_parts.append(f"Y:{self._clip_state_names[self.clip_y]}")
+        if self.clip_z != 0:
+            clip_parts.append(f"Z:{self._clip_state_names[self.clip_z]}")
+        if clip_parts:
+            axis_lines.append("Clip: " + ", ".join(clip_parts))
+
         if len(self.layer_names) > 1:
             layer_display = []
             for idx, layer in enumerate(self.layer_names, start=1):
@@ -632,6 +709,15 @@ class FourViewWindow(pyglet.window.Window):
 
             active_layers = ", ".join(layer for layer, vis in self.visible_layers.items() if vis) or "none"
             view_name = self._view_mode_names[self.view_mode]
+            # Build clipping plane status string
+            clip_status = []
+            if self.clip_x != 0:
+                clip_status.append(f"X:{self._clip_state_names[self.clip_x]}")
+            if self.clip_y != 0:
+                clip_status.append(f"Y:{self._clip_state_names[self.clip_y]}")
+            if self.clip_z != 0:
+                clip_status.append(f"Z:{self._clip_state_names[self.clip_z]}")
+            clip_str = ", ".join(clip_status) if clip_status else "none"
             help_lines = [
                 "Viewer Controls",
                 f"Current view: {view_name}",
@@ -642,6 +728,10 @@ class FourViewWindow(pyglet.window.Window):
                 "View Modes:",
                 "  V – cycle views (Quad → Perspective → Front → Top → Side)",
                 "  Tab – cycle single views only",
+                "Clipping Planes (for inspecting interior geometry):",
+                "  X – cycle X clip (off → + → −), Y – Y clip, Z – Z clip",
+                "  C – clear all clipping planes",
+                f"  Active: {clip_str}",
                 "Layers:",
                 "  Number keys 1-9 toggle layers, 0 resets",
                 f"  Active: {active_layers}",
@@ -720,6 +810,18 @@ class FourViewWindow(pyglet.window.Window):
                 self.view_mode = 1
             else:
                 self.view_mode = (self.view_mode % 4) + 1
+        # Clipping plane toggles: X, Y, Z cycle through off -> + -> -
+        elif symbol == key.X:
+            self.clip_x = (self.clip_x + 1) % 3
+        elif symbol == key.Y:
+            self.clip_y = (self.clip_y + 1) % 3
+        elif symbol == key.Z:
+            self.clip_z = (self.clip_z + 1) % 3
+        elif symbol == key.C:
+            # C resets all clipping planes to off
+            self.clip_x = 0
+            self.clip_y = 0
+            self.clip_z = 0
 
     def on_close(self):
         for vlist in self._bucket_vertex_lists.values():

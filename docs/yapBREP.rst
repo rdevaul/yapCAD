@@ -1,228 +1,215 @@
-yapCAD BREP Roadmap
-===================
+yapCAD BREP Implementation
+==========================
 
 
-This note captures a concrete plan for extending yapCAD’s native data structures so
-we can ingest/export analytic STEP models without collapsing them to triangle meshes.
-The intent is to evolve yapCAD into a lightweight BREP kernel while keeping today’s
-list-based API backwards compatible.
+This document describes yapCAD's BREP (Boundary Representation) implementation,
+which provides native solid modeling through integration with OpenCascade (OCC).
 
-
-
-1. Current State
-----------------
-
-
-* **Curves (2D)** – first-class line, arc, circle, Catmull–Rom, NURBS primitives; polygons
-  and polylines are stored as lists of points. There is no explicit ellipse/conic type yet.
-* **Surfaces (3D)** – planes, spheres, cones, cylinders, prisms etc. exist as "generators"
-  that produce tessellated surfaces (``['surface', verts, normals, faces, …]``). Once
-  tessellated, the analytic definition is lost; the solid stores metadata about the
-  procedure that produced it.
-* **Solids** – list-based shells referencing surfaces, plus metadata. No explicit vertex/edge
-  topology is stored; the mesh is the only representation.
-* **Serialization** – geometry JSON stores solids/surfaces as triangle soup, and sketches as
-  polylines + primitives. STEP export is faceted only.
-
-1.1 Recent Progress (November 2025)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-* **STEP import** – implemented via pythonocc-core; ``import_step()`` returns yapCAD
-  ``Geometry`` objects with attached BREP metadata.
-* **OCC BREP wrapper** – ``BrepSolid``, ``BrepFace``, ``BrepEdge``, ``BrepVertex`` classes
-  in ``yapcad.brep`` wrap OCC TopoDS objects with lazy tessellation.
-* **BREP-aware primitives** – ``sphere()``, ``prism()``, ``extrude()``, ``tube()``, ``conic()``,
-  ``makeRevolutionSolid()``, ``makeLoftSolid()``, and ``spherical_shell()`` now attach OCC
-  BREP data to generated solids when pythonocc-core is available.
-* **Transformations** – ``translatesolid()``, ``rotatesolid()``, ``mirrorsolid()``, and
-  ``scalealikesolid()`` propagate transformations to attached BREP data.
-* **OCC boolean operations** – ``solid_boolean()`` now auto-selects the OCC BREP engine
-  when both operands have BREP metadata, falling back to mesh-based engines otherwise.
-
-  Environment variables for boolean engine control:
-
-  * ``YAPCAD_BOOLEAN_ENGINE`` – explicit override (``native``, ``trimesh``, ``occ``)
-  * ``YAPCAD_MESH_BOOLEAN_ENGINE`` – fallback mesh engine when OCC unavailable (default: ``native``)
-  * ``YAPCAD_TRIMESH_BACKEND`` – backend for trimesh engine (``manifold``, ``blender``, etc.)
-
-
-
-2. Goals
+Overview
 --------
 
+yapCAD supports two modes of solid geometry:
 
-1. **Retain analytic fidelity** – curves and surfaces imported from STEP should remain
-   parametric (no forced tessellation), with tessellation performed lazily when required.
-2. **Explicit topology** – introduce vertices, edges, trims, loops, faces, shells so we can
-   mirror STEP-style BREPs.
-3. **Backwards compatibility** – existing list-based APIs (``geom*``, ``geometry_json``, DSP
-   packages) should continue to work; new structures should integrate without breaking them.
-4. **Extensible serialization** – ``.ycpkg`` geometry JSON must round-trip analytic curves and
-   surfaces; tessellations become derived assets.
-5. **Interoperable export** – STEP export should regenerate analytic entities instead of
-   only meshed facets; DXF export for sketches already does this for curves.
+1. **Tessellated Mode** (default, no dependencies) - Solids are represented as
+   triangle meshes. Suitable for visualization and STL export.
 
+2. **BREP Mode** (requires pythonocc-core) - Solids carry native OCC BREP data
+   with exact geometric definitions. Required for STEP import/export and
+   high-fidelity boolean operations.
 
+Implementation Status
+---------------------
 
-3. Core Data Structure Extensions
----------------------------------
+**Complete:**
 
+* Full OCC BREP wrapper classes (``BrepSolid``, ``BrepFace``, ``BrepEdge``, ``BrepVertex``)
+* BREP-aware primitives: ``box()``, ``sphere()``, ``cylinder()``, ``cone()``, ``prism()``
+* Solid operations: ``extrude()``, ``tube()``, ``makeRevolutionSolid()``, ``makeLoftSolid()``
+* Adaptive sweep: ``sweep_adaptive()``, ``sweep_adaptive_hollow()``
+* Boolean operations via OCC when BREP data present
+* STEP import with topology preservation
+* STEP export (tessellated and analytic modes)
+* STL import/export
+* Transform propagation to BREP data
 
-3.1 Curves (2D/3D)
+**Curves (2D/3D):**
+
+* Line, arc, circle, ellipse (full and partial arcs)
+* Catmull-Rom splines (open and closed)
+* NURBS curves
+* Parabola, hyperbola primitives
+
+**Surfaces:**
+
+* Planar, cylindrical, conical, spherical surfaces via OCC
+* Tessellation on demand with quality controls
+* Surface evaluation and normal computation
+
+Installation
+------------
+
+BREP functionality requires pythonocc-core, installed via conda::
+
+    conda env create -f environment.yml
+    conda activate yapcad-brep
+
+Without OCC, yapCAD operates in tessellation-only mode with reduced functionality:
+
+* No STEP import/export
+* Boolean operations use mesh-based algorithms (lower fidelity)
+* Sweep operations produce tessellated results only
+
+Architecture
+------------
+
+BREP Wrapper Classes
+~~~~~~~~~~~~~~~~~~~~
+
+Located in ``yapcad/brep.py``:
+
+* ``BrepSolid`` - Wraps OCC TopoDS_Solid with lazy tessellation
+* ``BrepFace`` - Surface face with trim curves
+* ``BrepEdge`` - Edge with curve geometry
+* ``BrepVertex`` - Vertex with tolerance
+
+These classes provide bidirectional conversion::
+
+    # yapCAD solid -> OCC shape
+    from yapcad.brep import brep_from_solid
+    occ_shape = brep_from_solid(solid).shape
+
+    # OCC shape -> yapCAD solid
+    from yapcad.brep import solid_from_brep
+    solid = solid_from_brep(occ_shape)
+
+BREP Attachment
+~~~~~~~~~~~~~~~
+
+Solids store BREP data in metadata under ``'brep'`` key::
+
+    solid = box(10, 20, 30)
+    brep = solid[5].get('brep')  # BrepSolid instance if OCC available
+
+Boolean Operations
 ~~~~~~~~~~~~~~~~~~
 
+Environment variables control engine selection:
 
-* **New curve primitives**
-  * ``ellipse(center, major, minor, axis, span)`` / ``isellipse``.
-  * ``conic`` for generic quadrics (parabola, hyperbola) – store focal parameters + orientation.
-  * 3D curves mirror 2D definitions but with explicit plane/axis metadata, matching STEP
-    ``CIRCLE``, ``ELLIPSE``, ``B_SPLINE_CURVE``, ``CONIC`` etc.
-* **Parameter ranges** – store ``[u0, u1]`` on curve instances when they are used as edges.
-* **Tolerance metadata** – attach ``curve_meta`` with modeling precision, so downstream ops can
-  compare within a consistent epsilon.
+* ``YAPCAD_BOOLEAN_ENGINE`` - Force engine: ``native``, ``trimesh``, ``occ``
+* ``YAPCAD_MESH_BOOLEAN_ENGINE`` - Mesh fallback when OCC unavailable
 
-3.2 Surfaces
-~~~~~~~~~~~~
+Auto-selection logic:
 
+1. If both operands have BREP data → use OCC
+2. Otherwise → use mesh-based engine
 
-* Create first-class ``planesurface``, ``cylindersurface``, ``conesurface``, ``spheresurface``,
-  ``tori surface``, and generic ``nurbs_surface``. Each stores its parameter domain (``u,v``
-  bounds), local axis, and control net (for splines).
-* Maintain a tessellation cache per surface (e.g., ``surface[TRI_CACHE]``) plus refinement
-  options.
-* Provide evaluation utilities (``evaluate_surface``, ``surface_normal``, ``surface_uv_project``)
-  to support trimming, intersections, etc.
+STEP Import/Export
+------------------
 
-3.3 Topology Graph
-~~~~~~~~~~~~~~~~~~
+Import
+~~~~~~
 
+::
 
-Introduce new list-based constructs (or light classes) layered above the existing surface/
-solid representation:
+    from yapcad.brep import import_step
 
-| Entity  | Responsibilities                                                            |
-|---------|------------------------------------------------------------------------------|
-| ``brep_vertex`` | world-space point + tolerance + incident edges references                |
-| ``brep_edge``   | references a curve primitive + parameter range + start/end vertices;    |
-|               | stores sense (forward/reverse).                                         |
-| ``brep_trim``   | oriented edge with UV parameterisation for a specific face              |
-| ``brep_loop``   | ordered list of trims forming outer/inner boundary of a face            |
-| ``brep_face``   | references a surface primitive + loops + natural orientation            |
-| ``brep_shell``  | set of faces forming a closed shell (outer or inner)                    |
-| ``brep_solid``  | collection of shells (outer + optional inner voids)                     |
+    # Returns yapCAD Geometry with attached BREP
+    geometry = import_step("model.step")
 
-Each object keeps metadata (``layer``, ``tags``, creation history) just like current solids.
-Tessellations are derived on demand from these definitions.
+    # Access the underlying solid
+    solid = geometry.geom
 
+Export
+~~~~~~
 
+Two modes available:
 
-4. Lazy Tessellation Strategy
------------------------------
+**Tessellated (default)**::
 
+    from yapcad.geom3d import write_solid_step
+    write_solid_step(solid, "output.step")
 
-* Provide a ``tessellate(surface, quality)`` API that converts analytic surfaces to the
-  current triangle format.
-* Modify ``geometry_to_json`` so solids with analytic faces are serialized as analytic
-  definitions + optional tessellation cache.
-* The viewer/exporters can request tessellation when needed (e.g., to render meshes or
-  export STL). For STEP export we use the analytic definitions directly.
+**Analytic** (preserves exact geometry)::
 
+    # Via environment variable
+    import os
+    os.environ['YAPCAD_STEP_FORMAT'] = 'analytic'
+    write_solid_step(solid, "output.step")
 
+    # Or via write_step_analytic directly
+    from yapcad.brep import write_step_analytic
+    write_step_analytic(solid, "output.step")
 
-5. Serialization (geometry JSON & STEP)
----------------------------------------
+Adaptive Sweep Operations
+-------------------------
 
+The ``sweep_adaptive()`` function creates solids by sweeping a profile along
+a path with tangent-tracking orientation::
 
-1. **JSON schema updates**
-   * Extend sketch ``primitives`` to include ellipse/conic entries (already storing lines,
-     arcs, splines).
-   * Introduce new entity types:
-     * ``"curve"`` (analytic definition + parameters).
-     * ``"surface"`` (existing tessellated surfaces) + ``"analyticSurface"`` (parametric).
-     * ``"brep"`` object that carries vertices/edges/trims/faces/shells with references.
-   * Keep backwards-compatible ``polylines`` and tessellated surfaces for consumers that
-     still expect meshes.
-2. **STEP export**
-   * Refactor exporter to walk the new BREP structure and emit STEP analytic entities
-     (plane, cylinder, B-spline surface, etc.) and topological relationships.
-   * For solids that only have tessellations, fall back to faceted BREP (current behaviour).
-3. **STEP import**
-   * Parse analytic geometry into the new primitives; tessellate lazily for visualization.
-   * Support at least the common STEP AP203/AP214 entities used in CAD: planes, cylinders,
-     cones, spheres, torus, b-spline surfaces, trimmed surfaces, edges with analytic curves.
+    from yapcad.geom3d_util import sweep_adaptive
 
+    solid = sweep_adaptive(
+        profile,           # region2d for cross-section
+        spine,             # path3d with line/arc segments
+        angle_threshold_deg=5.0,  # threshold for new section
+        frame_mode='minimal_twist'  # or 'frenet', 'custom'
+    )
 
+For hollow profiles (pipes)::
 
-6. API & Package Touch Points
------------------------------
+    solid = sweep_adaptive(
+        outer_profile,
+        spine,
+        inner_profiles=[inner_profile],  # one or more voids
+        angle_threshold_deg=5.0
+    )
 
-
-* ``geom.py`` – add ellipse/conic primitives; extend sampling, length, bbox, intersection
-  utilities to understand them.
-* ``geom3d.py`` – new surface constructors; evaluation/tessellation helpers; solids now hold
-  ``brep_solid`` references in metadata.
-* ``geom3d_util.py`` – extrusion/loft/tube functions should emit both analytic surfaces and
-  BREP topology (edges, trims) in addition to tessellated surfaces.
-* ``geometry_json.py`` – encode/decode new primitive types; maintain compatibility with
-  existing consumers.
-* ``package/viewer.py`` – when given analytic surfaces, tessellate on the fly for display.
-* ``tools/ycpkg_export.py`` – allow exporting either analytic STEP or derived STL/STP meshes.
-
-
-
-7. Implementation Phases
-------------------------
-
-
-1. **Foundations**
-   * Add ellipse/conic primitives (+ tests).
-   * Add analytic surface structures & evaluation utilities.
-   * Introduce BREP topology containers linked to existing solids.
-2. **Serialization**
-   * Update geometry JSON reader/writer to store primitives & BREP graph.
-   * Ensure ``.ycpkg`` round-tripping covers new entity types (unit tests).
-3. **Tessellation refactor**
-   * Centralize tessellation (quality settings, caching).
-   * Viewer/export updates to request tessellations lazily.
-4. **STEP import/export**
-   * Build analytic STEP export pipeline (faces -> trimmed surfaces -> topology).
-   * Implement STEP reader that populates the new structures.
-5. **Tooling & validation**
-   * Extend ``ycpkg_export.py`` to offer ``--formats step-analytic``, ``--formats stl``.
-   * Add diagnostic tools for watertightness, trimming, topology consistency.
-
-
-
-8. Risks & Mitigations
-----------------------
-
-
-* **Tolerance management** – adopt a consistent global modeling tolerance, propagate to
-  curves/surfaces/vertices. Provide helpers for fuzzy comparisons.
-* **Performance** – analytic evaluation and tessellation must be efficient; consider
-  caching compiled spline representations (e.g., via NumPy) or delegating to OCC in the
-  future.
-* **Complex STEP entities** – initial scope should focus on the 80/20 set (planes,
-  cylinders, cones, spheres, torus, NURBS). More exotic surfaces (offsets, swept,
-  intersection curves) can be mapped via approximation or deferred.
-* **Backwards compatibility** – ensure old packages with only tessellated data still load,
-  and new packages degrade gracefully when primitives are missing.
-
-
-
-9. Next Steps
+API Reference
 -------------
 
+Key Functions
+~~~~~~~~~~~~~
 
-1. Prototype ellipse/conic primitives in ``geom.py`` + tests.
-2. Draft analytic surface objects (plane/cylinder/cone) and wire them into extrusion/
-   revolution helpers.
-3. Define minimal BREP data structures (vertex, edge, face) in a new module (e.g.,
-   ``yapcad.brep``) and start storing them alongside solids.
-4. Update geometry JSON to carry ``primitives`` and BREP topology; add regression tests.
-5. Build a simple STEP analytic exporter to validate the data model.
+``yapcad.brep``:
 
-This staged approach lets us evolve yapCAD incrementally: first by capturing analytic
-information during geometry creation, then by enhancing serialization and finally by
-supporting full STEP import/export. Once in place, STL import can coexist (as tessellated
-geometry), while STEP models benefit from a richer, faithful representation.
+* ``import_step(path)`` - Import STEP file
+* ``write_step_analytic(solid, path)`` - Export analytic STEP
+* ``brep_from_solid(solid)`` - Extract BREP wrapper
+* ``solid_from_brep(shape)`` - Create solid from OCC shape
+
+``yapcad.geom3d``:
+
+* ``box(l, w, h)`` - Rectangular prism with BREP
+* ``sphere(center, radius)`` - Sphere with BREP
+* ``cylinder(center, axis, radius, height)`` - Cylinder with BREP
+* ``cone(center, axis, radius1, radius2, height)`` - Cone/frustum with BREP
+
+``yapcad.geom3d_util``:
+
+* ``extrude(profile, direction, height)`` - Linear extrusion
+* ``makeRevolutionSolid(profile, axis, angle)`` - Revolution
+* ``makeLoftSolid(profiles)`` - Loft through profiles
+* ``sweep_adaptive(profile, spine, ...)`` - Adaptive sweep
+
+Testing
+-------
+
+BREP tests are in ``tests/test_brep.py`` and ``tests/test_step_import.py``.
+Run with::
+
+    PYTHONPATH=./src pytest tests/test_brep.py -v
+
+Limitations
+-----------
+
+* Complex surfaces (NURBS, offset) may tessellate during operations
+* Boolean operations on complex geometry may fail; check results
+* Performance depends on OCC installation quality
+
+Future Work
+-----------
+
+* Improved NURBS surface support
+* Direct BREP editing operations
+* Better error reporting for failed operations
+* Integration with DSL for BREP-specific operations

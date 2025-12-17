@@ -104,7 +104,7 @@ class SymbolTable:
         self._register_builtin("point", [
             ("x", FLOAT, None),
             ("y", FLOAT, None),
-            ("z", FLOAT, None),  # Optional - presence determines 2D/3D
+            ("z", FLOAT, "optional"),  # Optional - presence determines 2D/3D, default 0.0
         ], POINT)
 
         # Convenience constructor for 2D points (z=0)
@@ -179,9 +179,11 @@ class SymbolTable:
 
         self._register_builtin("ellipse", [
             ("center", POINT, None),
-            ("major", FLOAT, None),
-            ("minor", FLOAT, None),
-            ("rotation", FLOAT, 0.0),
+            ("semi_major", FLOAT, None),
+            ("semi_minor", FLOAT, None),
+            ("rotation", FLOAT, "optional"),
+            ("start", FLOAT, "optional"),
+            ("end", FLOAT, "optional"),
         ], ELLIPSE)
 
         self._register_builtin("bezier", [
@@ -189,16 +191,31 @@ class SymbolTable:
         ], BEZIER)
 
         self._register_builtin("catmullrom", [
-            ("control_points", make_list_type(POINT), None),
-            ("tension", FLOAT, 0.5),
+            ("points", make_list_type(POINT), None),
+            ("closed", BOOL, "optional"),  # default false
+            ("alpha", FLOAT, "optional"),  # default 0.5
         ], CATMULLROM)
 
         self._register_builtin("nurbs", [
-            ("control_points", make_list_type(POINT), None),
-            ("weights", make_list_type(FLOAT), None),
-            ("knots", make_list_type(FLOAT), None),
-            ("degree", INT, None),
+            ("points", make_list_type(POINT), None),
+            ("weights", make_list_type(FLOAT), "optional"),  # default all 1.0
+            ("degree", INT, "optional"),  # default 3
         ], NURBS)
+
+        # Curve sampling functions
+        self._register_builtin("sample_curve", [
+            ("curve", UNKNOWN, None),  # Any curve type
+            ("t", FLOAT, None),
+        ], POINT)
+
+        self._register_builtin("sample_curve_n", [
+            ("curve", UNKNOWN, None),
+            ("n", INT, None),
+        ], make_list_type(POINT))
+
+        self._register_builtin("curve_length", [
+            ("curve", UNKNOWN, None),
+        ], FLOAT)
 
         # Tier 3: Path/Region operations
         self._register_builtin("path", [
@@ -234,13 +251,56 @@ class SymbolTable:
         self._register_builtin("rectangle", [
             ("width", FLOAT, None),
             ("height", FLOAT, None),
-            ("center", POINT2D, None),
+            ("center", POINT2D, "optional"),
         ], REGION2D)
 
         self._register_builtin("regular_polygon", [
             ("n", INT, None),
             ("radius", FLOAT, None),
-            ("center", POINT2D, None),
+            ("center", POINT2D, "optional"),
+        ], REGION2D)
+
+        # Polygon from points
+        self._register_builtin("polygon", [
+            ("points", make_list_type(POINT), None),
+        ], REGION2D)
+
+        # Disk (filled circle as polygon)
+        self._register_builtin("disk", [
+            ("center", POINT, None),
+            ("radius", FLOAT, None),
+            ("segments", INT, "optional"),  # default 64
+        ], REGION2D)
+
+        # 2D Boolean operations
+        self._register_builtin("union2d", [
+            ("a", REGION2D, None),
+            ("b", REGION2D, None),
+        ], REGION2D)
+
+        self._register_builtin("difference2d", [
+            ("a", REGION2D, None),
+            ("b", REGION2D, None),
+        ], REGION2D)
+
+        self._register_builtin("intersection2d", [
+            ("a", REGION2D, None),
+            ("b", REGION2D, None),
+        ], REGION2D)
+
+        # Path2D construction
+        self._register_builtin("make_path2d", [
+            ("curves", make_list_type(UNKNOWN), None),
+        ], PATH2D)
+
+        self._register_builtin("close_path", [
+            ("path", PATH2D, None),
+        ], REGION2D)
+
+        # Region from spline
+        self._register_builtin("region_from_spline", [
+            ("spline", UNKNOWN, None),
+            ("segments", INT, "optional"),
         ], REGION2D)
 
         # Tier 4: Surface operations
@@ -266,7 +326,7 @@ class SymbolTable:
         self._register_builtin("extrude", [
             ("profile", REGION2D, None),
             ("height", FLOAT, None),
-            ("direction", VECTOR3D, None),
+            ("direction", VECTOR3D, "optional"),
         ], SOLID)
 
         self._register_builtin("revolve", [

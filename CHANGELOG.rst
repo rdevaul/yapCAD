@@ -2,36 +2,54 @@
 Changelog
 =========
 
-Version 0.6.2 (2025-12-01)
+Version 0.6.3 (2025-12-17)
 ==========================
 
 what's new:
 -----------
 
+  - **DSL 2D Geometry Features**: New curve types (ellipse, catmull-rom splines,
+    NURBS), 2D regions (polygon, disk), and 2D boolean operations (union2d,
+    difference2d, intersection2d) with proper hole accumulation for chained
+    operations.
+  - **DXF Export**: 2D geometry can now be exported to DXF format via
+    ``--output foo.dxf`` for visualization in CAD programs. Supports lines,
+    arcs, ellipses, splines, polylines, and regions.
+  - **Curve Operations**: New ``sample_curve()`` and ``curve_length()`` builtins
+    for sampling points along curves and measuring arc length.
   - **OCC BREP Kernel Complete**: Full bidirectional conversion between native
     yapCAD BREP representation and OpenCascade shapes. Box, cylinder, sphere,
     and cone primitives achieve 100% volume fidelity in round-trip testing.
     All seven development phases documented in ``docs/BREP_integration_strategy.md``
     are now complete.
+  - **Adaptive Sweep Operations**: ``sweep_adaptive()`` and ``sweep_adaptive_hollow()``
+    with tangent-tracking profile orientation and ruled lofting.
   - **Materials & Fasteners**: Added material property schema (``docs/material_schema_spec.md``)
     supporting density, color, finish, and physical properties. Complete metric and
-    unified fastener catalogs with proper thread geometry, including hex-cap screws,
-    nuts, and washers. Thread sampler supports internal/external, multi-start, and
-    handedness-aware configurations.
-  - **STEP/STL Import**: New unified ``import_demo.py`` example (renamed from
-    ``step_import_demo.py``) demonstrates both STEP and STL import workflows.
-  - **Phase 3 Roadmap**: Comprehensive DSL design document (``docs/phase3_implementation_roadmap.md``)
-    covering type system, boolean operations, transforms, hole annotations,
-    validation backends (FEniCSx, SU2, Gmsh), and module system.
-  - **Documentation Updates**: README now includes conda environment setup
-    instructions for OCC BREP features, PyPI image links fixed to use absolute
-    GitHub raw URLs.
+    unified fastener catalogs with proper thread geometry.
+  - **Documentation Accuracy**: Updated ``docs/yapCADone.rst`` roadmap to clearly
+    separate implemented features from planned work.
+  - **Viewer Clipping Planes**: Added X/Y/Z clipping plane toggles to the package
+    viewer for inspecting interior geometry. Press X, Y, or Z to cycle through
+    off/+/- states; press C to clear all planes. Essential for examining screw/nut
+    fit and internal features.
+
+bug fixes:
+----------
+
+  - Fixed ``difference2d`` to properly accumulate holes in chained operations.
+    Previously, subtracting multiple holes would lose earlier holes due to
+    structure flattening.
+  - Fixed ``isinsideXY`` corner case workaround in 2D booleans where test rays
+    passing through polygon vertices caused incorrect inside/outside detection.
+  - Removed unsupported SOLID entities from DXF output by using ``setup=False``
+    in ezdxf initialization, improving FreeCAD compatibility.
 
 Known problems
 --------------
 
 - Analytic STEP export preserves BREP data but complex surfaces may tessellate.
-- DSL compiler/validator tooling tracked in ``docs/dsl_spec.rst`` remains under development.
+- DSL validation test definition language not yet implemented.
 
 Version 0.6.1 (2025-10-30)
 ==========================

@@ -7,13 +7,12 @@ Usage:
     python -m yapcad.dsl check FILE.dsl
     python -m yapcad.dsl list FILE.dsl
 
-TODO: Support 2D region export
-  Currently the CLI assumes solid (3D) output and exports to STEP/STL/DXF
-  as 3D geometry. Commands that return region2d should be exportable as:
-  - DXF: Native 2D entities (LINE, ARC, CIRCLE, ELLIPSE, SPLINE)
-  - SVG: For web/documentation use
-  Detection: Check if result type is region2d and route to 2D exporter.
-  See: yapcad.ezdxf_exporter for existing 2D DXF support
+2D Export Support:
+  Commands returning 2D geometry (region2d, curves, polylines) can be exported
+  to DXF format with native entities (LINE, ARC, CIRCLE, ELLIPSE).
+  See: yapcad.ezdxf_exporter for the DXF export implementation.
+
+TODO: Add SVG export support for web/documentation use
 
 Examples:
     # Check syntax and types
@@ -215,22 +214,31 @@ def cmd_run(args):
 
     print("Execution successful!")
 
-    # Check geometry type
+    # Check geometry type and determine if 2D or 3D
     from yapcad.geom3d import issolid, volumeof
+    from yapcad.ezdxf_exporter import is_2d_geometry
 
     geometry = result.geometry
+    is_solid = False
+    is_2d = False
+
     if issolid(geometry):
+        is_solid = True
         try:
             vol = volumeof(geometry)
             print(f"Result: solid with volume {vol:.2f}")
         except ValueError:
             print("Result: solid (volume calculation not available)")
     elif isinstance(geometry, list) and geometry and issolid(geometry[0]):
+        is_solid = True
         try:
             total_vol = sum(volumeof(g) for g in geometry if issolid(g))
             print(f"Result: {len(geometry)} solid(s) with total volume {total_vol:.2f}")
         except ValueError:
             print(f"Result: {len(geometry)} solid(s)")
+    elif is_2d_geometry(geometry):
+        is_2d = True
+        print(f"Result: 2D geometry ({type(geometry).__name__})")
     else:
         print(f"Result: {type(geometry).__name__}")
 
@@ -239,43 +247,57 @@ def cmd_run(args):
         output_path = Path(args.output)
         suffix = output_path.suffix.lower()
 
-        # Ensure we have a solid to export
-        if issolid(geometry):
-            solid = geometry
-        elif isinstance(geometry, list) and geometry and issolid(geometry[0]):
-            # For multiple solids, union them together
-            if len(geometry) == 1:
-                solid = geometry[0]
-            else:
-                from yapcad.geom3d import solid_boolean
-                solid = geometry[0]
-                for i in range(1, len(geometry)):
-                    solid = solid_boolean(solid, geometry[i], 'union')
-        else:
-            print(f"Warning: Cannot export non-solid geometry", file=sys.stderr)
-            return 0
-
-        if suffix == '.step' or suffix == '.stp':
-            step_format = os.environ.get('YAPCAD_STEP_FORMAT', 'faceted').lower()
-            if step_format == 'analytic':
-                from yapcad.io.step import write_step_analytic
-                analytic_ok = write_step_analytic(solid, str(output_path))
-                if analytic_ok:
-                    print(f"Exported to: {output_path} (analytic BREP)")
-                else:
-                    print(f"Exported to: {output_path} (faceted fallback)")
-            else:
-                from yapcad.io import write_step
-                write_step(solid, str(output_path))
-                print(f"Exported to: {output_path}")
-        elif suffix == '.stl':
-            from yapcad.io import write_stl
-            write_stl(solid, str(output_path))
-            print(f"Exported to: {output_path}")
-        elif suffix == '.dxf':
+        # Handle DXF export - supports both 2D and 3D geometry
+        if suffix == '.dxf':
             from yapcad.ezdxf_exporter import write_dxf
-            write_dxf(solid, str(output_path))
-            print(f"Exported to: {output_path}")
+            if is_2d or is_solid:
+                success = write_dxf(geometry, str(output_path))
+                if success:
+                    print(f"Exported to: {output_path}")
+                else:
+                    print(f"Error: DXF export failed", file=sys.stderr)
+                    return 1
+            else:
+                print(f"Warning: Cannot export geometry to DXF", file=sys.stderr)
+                return 0
+
+        # 3D-only formats (STEP, STL) require solid geometry
+        elif suffix in ('.step', '.stp', '.stl'):
+            if not is_solid:
+                print(f"Warning: {suffix.upper()} export requires solid geometry", file=sys.stderr)
+                return 0
+
+            # Prepare solid for export
+            if issolid(geometry):
+                solid = geometry
+            else:
+                # For multiple solids, union them together
+                if len(geometry) == 1:
+                    solid = geometry[0]
+                else:
+                    from yapcad.geom3d import solid_boolean
+                    solid = geometry[0]
+                    for i in range(1, len(geometry)):
+                        solid = solid_boolean(solid, geometry[i], 'union')
+
+            if suffix == '.step' or suffix == '.stp':
+                step_format = os.environ.get('YAPCAD_STEP_FORMAT', 'faceted').lower()
+                if step_format == 'analytic':
+                    from yapcad.io.step import write_step_analytic
+                    analytic_ok = write_step_analytic(solid, str(output_path))
+                    if analytic_ok:
+                        print(f"Exported to: {output_path} (analytic BREP)")
+                    else:
+                        print(f"Exported to: {output_path} (faceted fallback)")
+                else:
+                    from yapcad.io import write_step
+                    write_step(solid, str(output_path))
+                    print(f"Exported to: {output_path}")
+            elif suffix == '.stl':
+                from yapcad.io import write_stl
+                write_stl(solid, str(output_path))
+                print(f"Exported to: {output_path}")
+
         else:
             print(f"Warning: Unknown output format: {suffix}", file=sys.stderr)
 

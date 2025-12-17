@@ -2,19 +2,21 @@
 ==========
 
 yet another procedural CAD and computational geometry system written in
-python 3, now with a growing focus on 3D generative design, BREP modeling,
-and STL/STEP export
+python 3, featuring a parametric DSL, BREP modeling via OpenCascade,
+and comprehensive STL/STEP/DXF export
 
-.. figure:: https://raw.githubusercontent.com/rdevaul/yapCAD/main/images/RocketDemoScreenshot.png
-   :alt: **yapCAD** rocket example
+.. figure:: https://raw.githubusercontent.com/rdevaul/yapCAD/main/images/yapCadM10pair2.png
+   :alt: **yapCAD** M10 fastener pair with material properties
 
-   **yapCAD** rocket example
+   M10 hex-cap screw and nut pair demonstrating **yapCAD**'s threaded fastener
+   generation and material properties support, rendered with zinc (left) and
+   brass (right) finishes.
 
 .. note::
 
    Many examples were authored with LLM assistance to illustrate
-   automation-friendly workflows, but the code lives in the repository and can
-   be customised directly or via upcoming DSL tooling.
+   automation-friendly workflows. The code lives in the repository and can
+   be customized directly or via the included DSL (Domain Specific Language).
 
 .. figure:: https://raw.githubusercontent.com/rdevaul/yapCAD/main/images/RocketCutawaySTEP.png
    :alt: **yapCAD** rocket cutaway STEP export
@@ -22,13 +24,12 @@ and STL/STEP export
    Internal layout generated with ``examples/rocket_cutaway_internal.py`` and
    rendered from the exported STEP file in FreeCAD.
 
-.. figure:: https://raw.githubusercontent.com/rdevaul/yapCAD/main/images/yapCadM10pair2.png
-   :alt: **yapCAD** M10 fastener pair with material properties
+.. figure:: https://raw.githubusercontent.com/rdevaul/yapCAD/main/images/RocketDemoScreenshot.png
+   :alt: **yapCAD** rocket example
 
-   M10 hex-cap screw and nut pair demonstrating **yapCAD**'s material properties
-   support, rendered with zinc (left) and brass (right) finishes.
+   Multi-stage rocket assembly generated with ``examples/rocket_demo.py``.
 
-what’s **yapCAD** for?
+what's **yapCAD** for?
 ----------------------
 
 First and foremost, **yapCAD** is a framework for creating
@@ -40,26 +41,29 @@ systems. Starting with the 0.5 release, the emphasis has shifted toward
 simulation, while retaining support for DXF generation and computational
 geometry experiments.
 
-software status (December 2025)
--------------------------------
+software status (version 0.6.3, December 2025)
+----------------------------------------------
 
 **yapCAD** is in **active development** and already powers production design
 pipelines. Highlights from the 0.6.x cycle include:
 
+* **Parametric DSL**: Full domain-specific language with lexer, parser, type checker,
+  and runtime interpreter. CLI supports ``check``, ``run``, ``list`` commands with
+  DXF/STEP/STL export via ``--output`` and package creation via ``--package``.
 * **OCC BREP Kernel**: Full OpenCascade Technology integration via ``pythonocc-core``
   for analytic solid modeling, STEP import/export, and exact boolean operations.
+* **2D Geometry**: Ellipses, Catmull-Rom splines, NURBS curves, 2D boolean operations
+  (union, difference, intersection) with DXF export for visualization.
 * **Materials & Fasteners**: Material property schema with visual rendering support
   (density, color, finish) and complete metric/unified fastener catalogs with
   proper threading geometry.
+* **Adaptive Sweeps**: ``sweep_adaptive()`` with tangent-tracking profile orientation
+  for complex path sweeps.
 * ``.ycpkg`` project packaging with manifest, geometry JSON, exports, and metadata.
-* CLI helpers (``tools/ycpkg_validate.py``, ``tools/ycpkg_export.py``) for validation and DXF/STEP/STL export.
-* Native OCC-backed boolean operations preserving analytic BREP data through round-trips.
-* Native sketch primitives (lines, arcs, splines) preserved through package round-trips and exported to DXF as analytic entities.
-* Bidirectional OCC↔Native BREP conversion with 100% volume fidelity for primitives.
+* 533 regression tests covering geometry, DSL, import/export, and packaging.
 
-Upcoming work (tracked in ``docs/yapCADone.rst``, ``docs/yapBREP.rst``, and
-``docs/phase3_implementation_roadmap.md``) focuses on the parametric DSL/compiler,
-FEA/CFD validation backends (FEniCSx, SU2), and mesh generation (Gmsh).
+Upcoming work (tracked in ``docs/yapCADone.rst``) focuses on validation test
+definition language, solver adapter framework, and provenance/security features.
 
 If you are using **yapCAD** in interesting ways, feel free to let us know in the
 `yapCAD discussions <https://github.com/rdevaul/yapCAD/discussions>`__ forum
@@ -109,7 +113,31 @@ Once activated, all BREP features are available:
 * Round-trip BREP serialization in ``.ycpkg`` geometry JSON
 * Bidirectional Native↔OCC BREP conversion
 
-See ``docs/BREP_integration_strategy.md`` for detailed architecture documentation
+See ``docs/yapBREP.rst`` for detailed architecture documentation.
+
+Without OCC (pip-only install)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Without pythonocc-core, yapCAD operates in **reduced functionality mode**:
+
+**Available:**
+
+* 2D geometry (lines, arcs, ellipses, splines, polygons)
+* DXF export for 2D geometry
+* STL export (tessellated solids)
+* Tessellated solid primitives
+* Mesh-based boolean operations (lower fidelity)
+* DSL interpreter (2D features, tessellated 3D)
+* Package creation and validation
+
+**Not available:**
+
+* STEP import/export
+* OCC-backed boolean operations
+* Adaptive sweep operations
+* Analytic solid modeling
+
+For solid modeling workflows, the OCC environment is strongly recommended
 
 examples
 ~~~~~~~~
@@ -117,28 +145,48 @@ examples
 Clone the repository (or install the package) and ensure ``PYTHONPATH`` includes the
 top-level ``src`` directory. Example entry points:
 
-* ``examples/boxcut`` – parametric 2D joinery workflow (DXF output).
-* ``examples/rocket_demo.py`` – generative multi-stage rocket with viewer + STL export.
-* ``examples/rocket_cutaway_internal.py`` – subsystem layout/cutaway demo exporting STEP.
-* ``examples/involute_gear_package`` – canonical gear library packaged as ``.ycpkg`` and reused by assemblies.
-* ``examples/threaded_fastener_package.py`` – generates ``.ycpkg`` packages for metric/unified
-  screws, nuts, and washers with proper thread geometry, material properties, and paired assemblies.
-* ``examples/import_demo.py`` – STEP/STL import demo showcasing the OCC BREP integration.
+**DSL Examples** (run with ``python -m yapcad.dsl run <file> <command>``):
+
+* ``examples/new_2d_features.dsl`` - 2D curves, splines, ellipses, and boolean operations.
+* ``examples/spur_gears.dsl`` - parametric spur gear generation.
+* ``examples/figgear.dsl`` - involute gear profiles using figgear integration.
+
+**Python Examples**:
+
+* ``examples/boxcut`` - parametric 2D joinery workflow (DXF output).
+* ``examples/rocket_demo.py`` - generative multi-stage rocket with viewer + STL export.
+* ``examples/rocket_cutaway_internal.py`` - subsystem layout/cutaway demo exporting STEP.
+* ``examples/involute_gear_package`` - canonical gear library packaged as ``.ycpkg``.
+* ``examples/threaded_fastener_package.py`` - generates ``.ycpkg`` packages for metric/unified
+  screws, nuts, and washers with proper thread geometry and material properties.
+* ``examples/import_demo.py`` - STEP/STL import demo showcasing the OCC BREP integration.
 
 documentation
 ~~~~~~~~~~~~~
 
-Online **yapCAD** documentation is available at https://yapcad.readthedocs.io/en/latest/ — key references:
+Online **yapCAD** documentation is available at https://yapcad.readthedocs.io/en/latest/ - key references:
 
-* ``docs/ycpkg_spec.rst`` – ``.ycpkg`` manifest schema, packaging workflow, CLI usage.
-* ``docs/metadata_namespace.rst`` – standard metadata blocks for materials, manufacturing, and analysis annotations.
-* ``docs/yapBREP.rst`` – analytic STEP/BREP roadmap.
-* ``docs/dsl_spec.rst`` – parametric DSL and validation plans.
-* Example analysis plans live under ``examples/`` (e.g. ``examples/bulkhead_calculix.yaml``) and can be staged with ``python tools/ycpkg_analyze.py <package> --plan validation/plans/...``. The bundled CalculiX adapter approximates the bulkhead as an axisymmetric plate and will run ``ccx`` when installed (otherwise the plan is marked ``skipped``).
-* ``examples/bulkhead_sweep.py`` sweeps bulkhead thicknesses (default 5–12 mm), regenerates the plan per case, runs CalculiX, and prints the resulting deflection table.
-* ``examples/thread_profiles.py`` preview/export thread surfaces using the new thread sampler and theta-based revolution utility.
-* Module references for ``yapcad.io``, ``yapcad.geom3d_util``, ``yapcad.geometry_utils``, and ``yapcad.metadata``.
+* ``docs/dsl_reference.md`` - DSL language reference: syntax, types, builtins, and CLI usage.
+* ``docs/dsl_spec.rst`` - DSL design specification and architecture.
+* ``docs/yapBREP.rst`` - OCC BREP implementation guide (installation, API, examples).
+* ``docs/ycpkg_spec.rst`` - ``.ycpkg`` manifest schema, packaging workflow, CLI usage.
+* ``docs/metadata_namespace.rst`` - standard metadata blocks for materials, manufacturing, and analysis annotations.
+* Module references for ``yapcad.geom``, ``yapcad.geom3d``, ``yapcad.geom3d_util``, ``yapcad.brep``, and ``yapcad.dsl``.
 * Mesh validation workflow (``docs/mesh_validation.md``, ``tools/validate_mesh.py``).
+
+**DSL Quick Start**::
+
+   # examples/spur_gears.dsl - parametric spur gear
+   module = 2.0
+   teeth = 20
+   pressure_angle = 20.0
+   thickness = 8.0
+
+   profile = involute_gear_profile(module, teeth, pressure_angle)
+   gear = extrude(profile, thickness)
+   export gear
+
+Run with: ``python -m yapcad.dsl run examples/spur_gears.dsl --output gear.step``
 
 To build the HTML **yapCAD** documentation locally, install the
 documentation dependencies and run Sphinx from the project root::
@@ -232,45 +280,40 @@ display and user interaction::
 **yapCAD** goals
 ----------------
 
-The purpose of **yapCAD** is to support 2D and 3D computational geometry
-and parametric, procedural, and generative design projects in python3.
-**yapCAD** is designed to support multiple rendering back-ends, such that
-only a small amount of code is necessary to add support for a CAD or
-drawing file format. At present, **yapCAD** supports:
+**yapCAD** provides a comprehensive framework for computational geometry and
+CAD operations in Python, supporting both 2D and 3D workflows:
 
-* AutoCAD DXF output for two-dimensional drawings (via
-  `ezdxf <https://github.com/mozman/ezdxf>`__).
-* STL and STEP export for 3D solids (via ``yapcad.io.stl`` and
-  ``yapcad.io.step`` modules).
-* OpenGL visualisation for 2D/3D geometries using
-  `pyglet <https://github.com/pyglet/pyglet>`__.
-* Modular 3D boolean operations supporting both native and external engines
-  (trimesh with Manifold/Blender backends).
+**Output Formats:**
 
-The 0.5.x series delivers robust 3D boolean operations, validated primitive
-generation (sphere, cylinder, cone, tube, etc.), comprehensive mesh validation
-tools, and production-ready export capabilities. These foundations pave the way
-toward enhanced STEP support and a packaged, provenance-aware project model
-targeted for the forthcoming 1.0 release.
+* AutoCAD DXF for 2D drawings (via `ezdxf <https://github.com/mozman/ezdxf>`__)
+* STL export for 3D printing and mesh workflows
+* STEP export for CAD interchange (requires OCC environment)
+* OpenGL visualization for interactive 2D/3D preview (via `pyglet <https://github.com/pyglet/pyglet>`__)
 
-The foundations of **yapCAD** are grounded in decades of the author’s
-experience with graphics system programming, 3D CAD and simulation.
-**yapCAD** has an underlying framework and architecture designed to
-support sophisticated computational geometry and procedural CAD
-applications. At the same time, the design of **yapCAD** should make
-easy stuff relatively easy, and the more advanced stuff possible.
+**Geometry Engine:**
 
-The initial implementation of **yapCAD** provides DXF file creation
-support through the awesome `ezdxf <https://github.com/mozman/ezdxf>`__
-package, and interactive OpenGL visualization using the amazing
-`pyglet <https://github.com/pyglet/pyglet>`__ package.
+* Native 2D geometry: lines, arcs, ellipses, splines, NURBS curves
+* Parametric DSL for declarative geometry definition
+* Projective (homogeneous) coordinate representation enabling affine transforms
+* Boolean operations: native engine plus optional trimesh backends (Manifold/Blender)
+
+**BREP Modeling (with OCC):**
+
+* Full OpenCascade Technology integration for exact solid modeling
+* Primitive solids: box, sphere, cylinder, cone with analytic representation
+* Sweep operations: extrude, revolve, adaptive sweep with tangent tracking
+* STEP import/export with topology preservation
+
+The architecture is designed to make simple 2D drawings easy while enabling
+advanced computational geometry and GPU-accelerated systems. See
+``docs/yapCADone.rst`` for the current implementation status and roadmap.
 
 **yapCAD** examples
 -------------------
 
 (for a more complete list, see the `examples folder <./examples/>`__)
 
-It’s pretty easy to make a DXF drawing or a 3D model with **yapCAD**. Here
+It's pretty easy to make a DXF drawing or a 3D model with **yapCAD**. Here
 is a DXF example:
 
 ::
@@ -319,7 +362,7 @@ STL and STEP::
 
 There is also an advanced ``rocket_grid_demo.py`` example featuring grid fins, a linear exploded view, and simultaneous STL/STEP export.
 
-The **yapCAD** system isn’t just about rendering, of course, it’s about
+The **yapCAD** system isn't just about rendering, of course, it's about
 computational geometry. For example, if you want to calculate the
 intersection of lines and arcs in a plane, we have you covered:
 
@@ -361,7 +404,7 @@ capabilities of **yapCAD**, including 3D geometry and OpenGL rendering.
 **yapCAD** geometry
 -------------------
 
-**yapCAD** distinguishes between “pure” geometric elements, such as
+**yapCAD** distinguishes between "pure" geometric elements, such as
 lines, arcs, **etc.**, and drawn representations of those things, which
 might have attributes like line color, line weight, drawing layer,
 **etc.** This distinction is important, because the pure geometry exists
@@ -369,9 +412,9 @@ independent of these attributes, which are themselves rendering-system
 dependent.
 
 More importantly, for every geometric element you decide to draw, there
-will typically be many more — perhaps dozens — that should not be in the
-final rendering. By separating these two elements — computation and
-rendering — **yapCAD** makes them both more intentional and reduces the
+will typically be many more - perhaps dozens - that should not be in the
+final rendering. By separating these two elements - computation and
+rendering - **yapCAD** makes them both more intentional and reduces the
 likelihood of certain type of drawing-quality issues, such as redundant
 or spurious drawing elements, that can cause confusion problems for
 computer-aided manufacturing (CAM).
@@ -382,11 +425,11 @@ follow a complex, geometrically constrained pattern. This pattern is
 itself the result of numerous computational geometry operations, perhaps
 driven by parameters relating to the size and shape of other parts.
 
-In a program like Autodesk’s Fusion360, you would typically use
+In a program like Autodesk's Fusion360, you would typically use
 construction lines and constraints to create the underlying geometric
 pattern. These additional construction elements would have to be removed
 in order to make a clean DXF export of your drawing. On more than one
-occasion **yapCAD**\ ’s author has created headaches by failing to
+occasion **yapCAD**'s author has created headaches by failing to
 remove some of these elements, confusing CAM technicians, causing
 delays, and sometimes resulting in expensive part fabrication errors.
 
@@ -411,7 +454,7 @@ below) However, most of the time you will work with them as though they
 are 3-vectors or 2-vectors.
 
 It would be annoying to have to specify the redundant coordinates you
-aren’t using every time you specify a vector, so **yapCAD** provides you
+aren't using every time you specify a vector, so **yapCAD** provides you
 with the ``vect`` function. It fills in defaults for the z and w
 parameters you may not want to specify. **e.g.**
 
@@ -431,12 +474,12 @@ in ``0, 1]`` when you are doing 2D stuff, **yapCAD** provides a
 convenience function ``vstr`` that intelligently converts **yapCAD**
 vectors (and lists that contain vectors, such as lines, triangles, and
 polygons) to strings, assuming that as long as z = 0 and w = 1, you
-don’t need to see those coordinates.
+don't need to see those coordinates.
 
 ::
 
    >>> from yapcad.geom import *
-   >>> a = sub(vect(10,4),vect(10,9)) ## subtract a couple of vectors 
+   >>> a = sub(vect(10,4),vect(10,9)) ## subtract a couple of vectors
    >>> a
    [0, -5, 0, 1.0]
    >>> print(vstr(a)) ## pretty printing, elide the z and w coordinates
@@ -447,12 +490,12 @@ pure geometry
 
 Pure geometric elements in **yapCAD** form the basis for computational
 geometry operations, including intersection and inside-outside testing.
-Pure geometry can also be drawn, of course — see **drawable geometry**
+Pure geometry can also be drawn, of course - see **drawable geometry**
 below.
 
 In general, **yapCAD** pure geometry supports the operations of
 parametric sampling, intersection calculation, inside-outside testing
-(for closed figures), “unsampling” (going from a point on the figure to
+(for closed figures), "unsampling" (going from a point on the figure to
 the sampling parameter that would produce it), and bounding box
 calculation. **yapCAD** geometry is based on projective or homogeneous
 coordinates, thus supporting generalized affine transformations; See the
@@ -498,7 +541,7 @@ in an XY plane with C0 continuity. They differ from the point-list-based
 need not be contiguous, as successive elements will be automatically
 joined by straight lines. ``Polygons`` are special in that they are
 always closed, and that any full circle elements are interpreted as
-“rounded corners,” with the actual span of the arc calculated after
+"rounded corners," with the actual span of the arc calculated after
 tangent lines are drawn.
 
 The ``Polygon`` class supports boolean operations, as described below,
@@ -523,7 +566,7 @@ example of boolean operations, and `Example
 
 **yapCAD** employs the convention that closed figures with right-handed
 geometry (increasing the sampling parameter corresponds to points that
-trace a counter-clockwise path) represent “positive” area, and that
+trace a counter-clockwise path) represent "positive" area, and that
 closed figures with left-handed geometry represent holes. This
 distinction is currently not operational, but will be important for
 future development such as turning polygons into rendered surfaces and
@@ -541,7 +584,7 @@ provide the basis for **yapCAD** rendering.
 drawable geometry
 ~~~~~~~~~~~~~~~~~
 
-The idea is that you will do your computational geometry with “pure”
+The idea is that you will do your computational geometry with "pure"
 geometry, and then generate rendered previews or output with one or more
 ``Drawable`` instances.
 
@@ -554,7 +597,7 @@ To setup a drawing environment, you create an instance of the
 ``Drawable`` base class corresponding to the rendering system you want
 to use.
 
-To draw, create the pure geometry and then pass that to the drawbles’s
+To draw, create the pure geometry and then pass that to the drawbles's
 ``draw()`` method. To display or write out the results you will invoke
 the ``display`` method of the drawable instance.
 
@@ -589,7 +632,7 @@ rendering systems use, and should allow for a wide range of
 computational geometry systems, possibly hardware-accelerated, to be
 built on top of it.
 
-The good news is that you don’t need to know about homogeneous
+The good news is that you don't need to know about homogeneous
 coordinates, affine transforms, etc., to use **yapCAD**. And most of the
 time you can pretend that your vectors are just two-dimensional if
 everything you are doing happens to lie in the x-y plane.

@@ -399,9 +399,25 @@ Viewer & Validation Quick Reference
 
 - ``tools/ycpkg_validate.py <package>`` – verifies hashes and geometry JSON.
 - ``tools/ycpkg_viewer.py <package>`` – launches the interactive viewer.
-  * 3D mode shows perspective/front/top/side quadrants, supports layer toggles (``1-9`` to toggle, ``0`` reset) and a help overlay (``H``/``F1``).
-  * 2D sketches receive the same layer toggles, pan/zoom controls, and help overlay.
-│   ├── register/…            # signatures, approvals, etc. (optional)
+
+**3D Viewer Controls:**
+
+- **Navigation**: Left-drag to rotate (perspective view), right-drag to pan, scroll to zoom
+- **View modes**: ``V`` cycles through Quad/Perspective/Front/Top/Side; ``Tab`` cycles single views
+- **Layers**: ``1-9`` toggle individual layers, ``0`` resets all to visible
+- **Shading**: ``L`` cycles solid → solid+wireframe → wireframe
+- **Clipping planes**: ``X``/``Y``/``Z`` cycle each axis through off → + → − (clips at bbox center); ``C`` clears all clips
+- **Help**: ``H`` or ``F1`` toggles help overlay; ``ESC`` closes viewer
+
+Clipping planes are essential for inspecting interior geometry such as threaded fastener fit,
+internal features, and assembly clearances. The positive (+) setting keeps geometry where the
+coordinate exceeds the bounding box center; negative (−) keeps geometry below center.
+
+**2D Sketch Viewer:**
+
+- Same layer toggles (``1-9``, ``0``), pan/zoom, and help overlay (``H``/``F1``)
+
+
 4.5 DSL Compilation & Canonical Entities
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

@@ -39,7 +39,7 @@ from ..types import (
     INT, FLOAT, BOOL, STRING, UNKNOWN,
     POINT, POINT2D, POINT3D, VECTOR, VECTOR2D, VECTOR3D, TRANSFORM,
     SOLID, REGION2D, SURFACE, SHELL,
-    LINE_SEGMENT, ARC, CIRCLE, ELLIPSE, BEZIER, NURBS,
+    LINE_SEGMENT, ARC, CIRCLE, ELLIPSE, BEZIER, NURBS, CATMULLROM,
     PATH2D, PATH3D, PROFILE2D,
 )
 from ..symbols import FunctionSignature
@@ -498,6 +498,253 @@ class BuiltinRegistry:
             _circle,
         ))
 
+        # Ellipse constructor
+        def _ellipse(center: Value, semi_major: Value, semi_minor: Value,
+                     *args: Value) -> Value:
+            """Create an ellipse curve.
+
+            Args:
+                center: Center point
+                semi_major: Semi-major axis length
+                semi_minor: Semi-minor axis length
+                rotation: (optional) Rotation of major axis in degrees
+                start: (optional) Start angle in degrees
+                end: (optional) End angle in degrees
+
+            Returns:
+                An ellipse curve
+            """
+            from yapcad.geom import ellipse
+            c = center.data
+            a = semi_major.data
+            b = semi_minor.data
+            # Optional parameters
+            rotation = args[0].data if len(args) > 0 else 0.0
+            start = args[1].data if len(args) > 1 else 0.0
+            end = args[2].data if len(args) > 2 else 360.0
+            return wrap_value(
+                ellipse(c, a, b, rotation=rotation, start=start, end=end),
+                ELLIPSE
+            )
+
+        self.register(BuiltinFunction(
+            "ellipse",
+            _make_sig("ellipse", [POINT, FLOAT, FLOAT], ELLIPSE, is_variadic=True),
+            _ellipse,
+        ))
+
+        # Catmull-Rom spline constructor
+        def _catmullrom(points: Value, *args: Value) -> Value:
+            """Create a Catmull-Rom spline curve.
+
+            Args:
+                points: List of control points
+                closed: (optional) Whether the spline is closed (default false)
+                alpha: (optional) Parameterization factor 0-1 (default 0.5 centripetal)
+
+            Returns:
+                A Catmull-Rom spline curve
+            """
+            # Extract control points as proper 4-element points [x, y, z, 1]
+            pts = []
+            for p in points.data:
+                if hasattr(p, 'data'):
+                    coords = list(p.data)
+                else:
+                    coords = list(p)
+                # Ensure 4-element point with w=1
+                if len(coords) == 3:
+                    coords.append(1)
+                elif len(coords) < 3:
+                    coords.extend([0] * (3 - len(coords)))
+                    coords.append(1)
+                pts.append(coords[:4])
+
+            # Optional parameters
+            closed = args[0].data if len(args) > 0 else False
+            alpha = args[1].data if len(args) > 1 else 0.5
+
+            # Create Catmull-Rom spline structure
+            curve = ['catmullrom', pts, {'closed': closed, 'alpha': alpha}]
+            return wrap_value(curve, CATMULLROM)
+
+        self.register(BuiltinFunction(
+            "catmullrom",
+            _make_sig("catmullrom", [ListType(POINT)], CATMULLROM, is_variadic=True),
+            _catmullrom,
+        ))
+
+        # NURBS curve constructor
+        def _nurbs(points: Value, *args: Value) -> Value:
+            """Create a NURBS curve.
+
+            Args:
+                points: List of control points
+                weights: (optional) List of weights (default all 1.0)
+                degree: (optional) Curve degree (default 3)
+
+            Returns:
+                A NURBS curve
+            """
+            # Extract control points as proper 4-element points [x, y, z, 1]
+            pts = []
+            for p in points.data:
+                if hasattr(p, 'data'):
+                    coords = list(p.data)
+                else:
+                    coords = list(p)
+                # Ensure 4-element point with w=1
+                if len(coords) == 3:
+                    coords.append(1)
+                elif len(coords) < 3:
+                    coords.extend([0] * (3 - len(coords)))
+                    coords.append(1)
+                pts.append(coords[:4])
+
+            n = len(pts)
+
+            # Optional parameters
+            if len(args) > 0 and args[0].data is not None:
+                weights = list(args[0].data)
+            else:
+                weights = [1.0] * n
+
+            degree = int(args[1].data) if len(args) > 1 else 3
+
+            # Generate open uniform knot vector
+            # For n control points and degree p, we need n + p + 1 knots
+            num_knots = n + degree + 1
+            knots = []
+            for i in range(num_knots):
+                if i <= degree:
+                    knots.append(0.0)
+                elif i >= num_knots - degree - 1:
+                    knots.append(1.0)
+                else:
+                    knots.append((i - degree) / (n - degree))
+
+            # Create NURBS structure
+            curve = ['nurbs', pts, {'degree': degree, 'weights': weights, 'knots': knots}]
+            return wrap_value(curve, NURBS)
+
+        self.register(BuiltinFunction(
+            "nurbs",
+            _make_sig("nurbs", [ListType(POINT)], NURBS, is_variadic=True),
+            _nurbs,
+        ))
+
+        # Curve sampling functions
+        def _sample_curve(curve: Value, t: Value) -> Value:
+            """Sample a curve at parameter t in [0, 1].
+
+            Works with line, arc, ellipse, catmullrom, and nurbs curves.
+            """
+            from yapcad.geom import point, isline, isarc, isellipse
+            from yapcad.geom import sample as geom_sample, ellipse_sample
+            from yapcad.spline import is_catmullrom, evaluate_catmullrom
+            from yapcad.spline import is_nurbs, evaluate_nurbs
+
+            data = curve.data
+            u = t.data
+
+            if is_catmullrom(data):
+                pt = evaluate_catmullrom(data, u)
+                return point_val(pt, is_2d=False)
+            elif is_nurbs(data):
+                pt = evaluate_nurbs(data, u)
+                return point_val(pt, is_2d=False)
+            elif isellipse(data):
+                pt = ellipse_sample(data, u)
+                return point_val(pt, is_2d=False)
+            elif isline(data) or isarc(data):
+                pt = geom_sample(data, u)
+                return point_val(pt, is_2d=False)
+            else:
+                raise ValueError(f"Cannot sample curve of type {type(data)}")
+
+        def _sample_curve_n(curve: Value, n: Value) -> Value:
+            """Sample a curve at n evenly spaced points.
+
+            Returns a list of points along the curve.
+            """
+            from yapcad.geom import point, isline, isarc, isellipse
+            from yapcad.geom import sample as geom_sample, ellipse_sample
+            from yapcad.spline import is_catmullrom, evaluate_catmullrom
+            from yapcad.spline import is_nurbs, evaluate_nurbs
+
+            data = curve.data
+            num = int(n.data)
+            if num < 2:
+                raise ValueError("n must be at least 2")
+
+            pts = []
+            for i in range(num):
+                u = i / (num - 1)
+                if is_catmullrom(data):
+                    pt = evaluate_catmullrom(data, u)
+                elif is_nurbs(data):
+                    pt = evaluate_nurbs(data, u)
+                elif isellipse(data):
+                    pt = ellipse_sample(data, u)
+                elif isline(data) or isarc(data):
+                    pt = geom_sample(data, u)
+                else:
+                    raise ValueError(f"Cannot sample curve of type {type(data)}")
+                pts.append(point_val(pt, is_2d=False))
+
+            return list_val(pts, POINT)
+
+        def _curve_length(curve: Value) -> Value:
+            """Compute the approximate length of a curve."""
+            from yapcad.geom import length as geom_length, isline, isarc, isellipse
+            from yapcad.geom import ellipse_length
+            from yapcad.spline import is_catmullrom, sample_catmullrom
+            from yapcad.spline import is_nurbs, sample_nurbs
+
+            data = curve.data
+
+            if is_catmullrom(data):
+                # Sample and compute polyline length
+                pts = sample_catmullrom(data, segments_per_span=20)
+                total = 0.0
+                for i in range(1, len(pts)):
+                    dx = pts[i][0] - pts[i-1][0]
+                    dy = pts[i][1] - pts[i-1][1]
+                    dz = pts[i][2] - pts[i-1][2]
+                    total += math.sqrt(dx*dx + dy*dy + dz*dz)
+                return float_val(total)
+            elif is_nurbs(data):
+                pts = sample_nurbs(data, samples=100)
+                total = 0.0
+                for i in range(1, len(pts)):
+                    dx = pts[i][0] - pts[i-1][0]
+                    dy = pts[i][1] - pts[i-1][1]
+                    dz = pts[i][2] - pts[i-1][2]
+                    total += math.sqrt(dx*dx + dy*dy + dz*dz)
+                return float_val(total)
+            elif isellipse(data):
+                return float_val(ellipse_length(data))
+            elif isline(data) or isarc(data):
+                return float_val(geom_length(data))
+            else:
+                raise ValueError(f"Cannot compute length for curve of type {type(data)}")
+
+        self.register(BuiltinFunction(
+            "sample_curve",
+            _make_sig("sample_curve", [UNKNOWN, FLOAT], POINT),
+            _sample_curve,
+        ))
+        self.register(BuiltinFunction(
+            "sample_curve_n",
+            _make_sig("sample_curve_n", [UNKNOWN, INT], ListType(POINT)),
+            _sample_curve_n,
+        ))
+        self.register(BuiltinFunction(
+            "curve_length",
+            _make_sig("curve_length", [UNKNOWN], FLOAT),
+            _curve_length,
+        ))
+
         # Path3D constructors for sweep operations
         def _make_path3d(*segments: Value) -> Value:
             """Create a path3d from segment dicts.
@@ -628,6 +875,330 @@ class BuiltinRegistry:
             "regular_polygon",
             _make_sig("regular_polygon", [INT, FLOAT], REGION2D),
             _regular_polygon,
+        ))
+
+        # Polygon from points
+        def _polygon(points: Value) -> Value:
+            """Create a closed polygon region from a list of points.
+
+            Args:
+                points: List of 2D points defining the polygon vertices
+
+            Returns:
+                A closed region2d
+            """
+            from yapcad.geom import point, line
+
+            pts = []
+            for p in points.data:
+                if hasattr(p, 'data'):
+                    pts.append(point(p.data[0], p.data[1]))
+                else:
+                    pts.append(point(p[0], p[1]))
+
+            if len(pts) < 3:
+                raise ValueError("polygon requires at least 3 points")
+
+            # Create closed polygon from line segments
+            region = []
+            for i in range(len(pts)):
+                region.append(line(pts[i], pts[(i + 1) % len(pts)]))
+            return region2d_val(region)
+
+        self.register(BuiltinFunction(
+            "polygon",
+            _make_sig("polygon", [ListType(POINT)], REGION2D),
+            _polygon,
+        ))
+
+        # Disk (filled circle) region
+        def _disk(center: Value, radius: Value, *args: Value) -> Value:
+            """Create a filled circular region (disk).
+
+            Args:
+                center: Center point
+                radius: Radius of the disk
+                segments: (optional) Number of sides for polygon approximation (default 64)
+
+            Returns:
+                A region2d approximating a disk
+            """
+            from yapcad.geom import point, line
+
+            c = center.data
+            r = radius.data
+            cx, cy = c[0], c[1]
+            segments = int(args[0].data) if args else 64
+
+            pts = []
+            for i in range(segments):
+                angle = 2 * math.pi * i / segments
+                pts.append(point(cx + r * math.cos(angle), cy + r * math.sin(angle)))
+
+            region = []
+            for i in range(segments):
+                region.append(line(pts[i], pts[(i + 1) % segments]))
+            return region2d_val(region)
+
+        self.register(BuiltinFunction(
+            "disk",
+            _make_sig("disk", [POINT, FLOAT], REGION2D, is_variadic=True),
+            _disk,
+        ))
+
+        # 2D Boolean operations
+        def _union2d(a: Value, b: Value) -> Value:
+            """Boolean union of two 2D regions.
+
+            Args:
+                a: First region2d
+                b: Second region2d
+
+            Returns:
+                Union of the two regions as a region2d
+            """
+            from yapcad.geom_util import combineglist
+            result = combineglist(a.data, b.data, "union")
+            return region2d_val(result)
+
+        def _difference2d(a: Value, b: Value) -> Value:
+            """Boolean difference of two 2D regions (a minus b).
+
+            Handles chained difference operations where a may already contain holes
+            from a previous difference operation. Also works around a known issue
+            in combineglist where isinsideXY can fail for points near corners.
+
+            Args:
+                a: Region to subtract from (may be region with existing holes)
+                b: Region to subtract
+
+            Returns:
+                Difference (a - b) as a region2d
+            """
+            from yapcad.geom import (isgeomlist, isline, isarc, bbox, isinsidebbox,
+                                     sample, intersectXY)
+            from yapcad.geom_util import combineglist
+
+            a_data = a.data
+            b_data = b.data
+
+            # Detect if a_data is a "region with holes" structure:
+            # [outer_boundary, hole1, hole2, ...]
+            # where each element is itself a geomlist of primitives
+            def is_region_with_holes(data):
+                """Check if data is a list of geomlists (region with holes)."""
+                if not isinstance(data, list) or len(data) < 2:
+                    return False
+                first = data[0]
+                if not isinstance(first, list) or len(first) == 0:
+                    return False
+                first_elem = first[0]
+                if isline(first_elem) or isarc(first_elem):
+                    return True
+                return False
+
+            def is_b_inside_a(outer, inner):
+                """Check if inner is completely inside outer using robust method.
+
+                Uses bounding box check + intersection check to avoid isinsideXY
+                corner issues.
+                """
+                bbox_outer = bbox(outer)
+                bbox_inner = bbox(inner)
+                if not bbox_outer or not bbox_inner:
+                    return False
+                # Inner bbox must be inside outer bbox
+                if not (isinsidebbox(bbox_outer, bbox_inner[0]) and
+                        isinsidebbox(bbox_outer, bbox_inner[1])):
+                    return False
+                # Check for intersections - if none, inner is either fully inside or outside
+                inter = intersectXY(outer, inner, params=True)
+                if inter is False or (inter[0] == [] and inter[1] == []):
+                    # No intersections - inner is fully inside (already passed bbox check)
+                    return True
+                return False
+
+            def do_difference(outer, hole):
+                """Perform difference, handling the case where hole is inside outer."""
+                result = combineglist(outer, hole, "difference")
+                # Check if combineglist returned outer unchanged (missed the hole)
+                if isgeomlist(result) and not is_region_with_holes(result):
+                    # Result is flat geomlist - check if hole was missed
+                    if is_b_inside_a(outer, hole):
+                        # Hole should have created [outer, hole] but didn't
+                        return [outer, hole]
+                return result
+
+            if is_region_with_holes(a_data):
+                # a_data is [outer, hole1, hole2, ...]
+                outer = a_data[0]
+                existing_holes = a_data[1:]
+
+                result = do_difference(outer, b_data)
+
+                if is_region_with_holes(result):
+                    new_outer = result[0]
+                    new_holes = result[1:]
+                    return region2d_val([new_outer] + existing_holes + new_holes)
+                else:
+                    if result:
+                        return region2d_val([result] + existing_holes)
+                    else:
+                        return region2d_val([])
+            else:
+                result = do_difference(a_data, b_data)
+                return region2d_val(result)
+
+        def _intersection2d(a: Value, b: Value) -> Value:
+            """Boolean intersection of two 2D regions.
+
+            Args:
+                a: First region2d
+                b: Second region2d
+
+            Returns:
+                Intersection of the two regions as a region2d
+            """
+            from yapcad.geom_util import combineglist
+            result = combineglist(a.data, b.data, "intersection")
+            return region2d_val(result)
+
+        self.register(BuiltinFunction(
+            "union2d",
+            _make_sig("union2d", [REGION2D, REGION2D], REGION2D),
+            _union2d,
+        ))
+        self.register(BuiltinFunction(
+            "difference2d",
+            _make_sig("difference2d", [REGION2D, REGION2D], REGION2D),
+            _difference2d,
+        ))
+        self.register(BuiltinFunction(
+            "intersection2d",
+            _make_sig("intersection2d", [REGION2D, REGION2D], REGION2D),
+            _intersection2d,
+        ))
+
+        # Path2D and region from curves
+        def _make_path2d(curves: Value) -> Value:
+            """Create a 2D path from a list of curves.
+
+            Args:
+                curves: List of curves (line, arc, etc.)
+
+            Returns:
+                A path2d (open path of curves)
+            """
+            # Path2D is just a geometry list
+            curve_list = []
+            for c in curves.data:
+                if hasattr(c, 'data'):
+                    curve_list.append(c.data)
+                else:
+                    curve_list.append(c)
+            return wrap_value(curve_list, PATH2D)
+
+        def _close_path(path: Value) -> Value:
+            """Close an open path to create a region.
+
+            Args:
+                path: An open path2d
+
+            Returns:
+                A closed region2d
+            """
+            from yapcad.geom import line, point
+
+            curves = path.data if isinstance(path.data, list) else [path.data]
+
+            if len(curves) == 0:
+                raise ValueError("Cannot close empty path")
+
+            # Check if already closed
+            first_curve = curves[0]
+            last_curve = curves[-1]
+
+            # Get start of first curve and end of last curve
+            from yapcad.geom import isline, isarc
+
+            def get_endpoints(curve):
+                if isline(curve):
+                    return curve[0], curve[1]
+                elif isarc(curve):
+                    from yapcad.geom import sample
+                    return sample(curve, 0), sample(curve, 1)
+                else:
+                    # For other curves, sample endpoints
+                    from yapcad.geom import sample
+                    return sample(curve, 0), sample(curve, 1)
+
+            first_start, _ = get_endpoints(first_curve)
+            _, last_end = get_endpoints(last_curve)
+
+            # Check if endpoints are close enough
+            from yapcad.geom import dist
+            if dist(first_start, last_end) > 1e-6:
+                # Add closing segment
+                closing_line = line(last_end, first_start)
+                curves = list(curves) + [closing_line]
+
+            return region2d_val(curves)
+
+        self.register(BuiltinFunction(
+            "make_path2d",
+            _make_sig("make_path2d", [ListType(UNKNOWN)], PATH2D),
+            _make_path2d,
+        ))
+        self.register(BuiltinFunction(
+            "close_path",
+            _make_sig("close_path", [PATH2D], REGION2D),
+            _close_path,
+        ))
+
+        # Region from sampled spline
+        def _region_from_spline(spline: Value, *args: Value) -> Value:
+            """Convert a spline curve to a closed polygon region.
+
+            Samples the spline and creates a polygon from the sample points.
+            Useful for creating regions from Catmull-Rom or NURBS curves.
+
+            Args:
+                spline: A catmullrom or nurbs curve (must be closed or will be auto-closed)
+                segments: (optional) Number of sample points (default 64)
+
+            Returns:
+                A region2d polygon approximating the spline
+            """
+            from yapcad.geom import point, line
+            from yapcad.spline import is_catmullrom, sample_catmullrom
+            from yapcad.spline import is_nurbs, sample_nurbs
+
+            data = spline.data
+            segments = int(args[0].data) if args else 64
+
+            if is_catmullrom(data):
+                pts = sample_catmullrom(data, segments_per_span=segments // max(1, len(data[1]) - 1))
+            elif is_nurbs(data):
+                pts = sample_nurbs(data, samples=segments)
+            else:
+                raise ValueError("region_from_spline requires a catmullrom or nurbs curve")
+
+            if len(pts) < 3:
+                raise ValueError("Spline produced too few sample points")
+
+            # Create polygon from sample points
+            region = []
+            for i in range(len(pts)):
+                p1 = point(pts[i][0], pts[i][1])
+                p2 = point(pts[(i + 1) % len(pts)][0], pts[(i + 1) % len(pts)][1])
+                region.append(line(p1, p2))
+
+            return region2d_val(region)
+
+        self.register(BuiltinFunction(
+            "region_from_spline",
+            _make_sig("region_from_spline", [UNKNOWN], REGION2D, is_variadic=True),
+            _region_from_spline,
         ))
 
     # --- Solid Functions ---
@@ -924,14 +1495,62 @@ class BuiltinRegistry:
             return float_val(surface_area(s.data))
 
         def _area(r: Value) -> Value:
-            """Calculate area of a region2d."""
-            from yapcad.geom import area
-            return float_val(area(r.data))
+            """Calculate area of a region2d using shoelace formula."""
+            from yapcad.geom import isgeomlist, isline, ispoint
+
+            data = r.data
+            if not isgeomlist(data):
+                return float_val(0.0)
+
+            # Sample all segments into points
+            points = []
+            for seg in data:
+                if isline(seg):
+                    p = seg[0]  # Start point of line segment
+                    if ispoint(p):
+                        points.append(p)
+                elif ispoint(seg):
+                    points.append(seg)
+
+            if len(points) < 3:
+                return float_val(0.0)
+
+            # Shoelace formula for polygon area
+            n = len(points)
+            area = 0.0
+            for i in range(n):
+                j = (i + 1) % n
+                area += points[i][0] * points[j][1]
+                area -= points[j][0] * points[i][1]
+            area = abs(area) / 2.0
+
+            return float_val(area)
 
         def _perimeter(r: Value) -> Value:
-            """Calculate perimeter of a region2d."""
-            from yapcad.geom import perimeter
-            return float_val(perimeter(r.data))
+            """Calculate perimeter of a region2d as sum of segment lengths."""
+            from yapcad.geom import isgeomlist, isline, ispoint, length
+            import math
+
+            data = r.data
+            if not isgeomlist(data):
+                return float_val(0.0)
+
+            total_length = 0.0
+            for seg in data:
+                if isline(seg):
+                    # Line segment - compute length directly
+                    p1, p2 = seg[0], seg[1]
+                    dx = p2[0] - p1[0]
+                    dy = p2[1] - p1[1]
+                    total_length += math.sqrt(dx*dx + dy*dy)
+                else:
+                    # For arcs or other curves, use the length function
+                    try:
+                        total_length += length(seg)
+                    except:
+                        pass
+
+            return float_val(total_length)
 
         # Query functions
         self.register(BuiltinFunction(
