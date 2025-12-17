@@ -11,8 +11,10 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple, Sequence
 from yapcad.geom import (
     arc,
     catmullrom,
+    ellipse,
     isnurbs,
     iscatmullrom,
+    isellipse,
     nurbs,
     point,
     vect,
@@ -264,6 +266,21 @@ def _serialize_sketch(geomlist: list, metadata_override: Optional[Dict[str, Any]
                 primitive["normal"] = _point_components(element[2])
             primitives.append(primitive)
             poly_vectors.append(_sample_geometry_element(element))
+        elif isellipse(element):
+            center = _point_components(element[1])
+            meta = element[2]
+            primitive = {
+                "kind": "ellipse",
+                "center": center,
+                "semi_major": float(meta['semi_major']),
+                "semi_minor": float(meta['semi_minor']),
+                "rotation": float(meta['rotation']),
+                "start": float(meta['start']) if meta['start'] != 0 else 0,
+                "end": float(meta['end']) if meta['end'] != 360 else 360,
+                "normal": _float_vec(meta['normal']),
+            }
+            primitives.append(primitive)
+            poly_vectors.append(_sample_geometry_element(element))
         elif iscatmullrom(element):
             control_points = [_point_components(pt) for pt in element[1]]
             params = dict(element[2])
@@ -487,6 +504,25 @@ def geometry_from_json(doc: Dict[str, Any]) -> List[list]:
                         elements.append(arc(center, vect_data, _point_from_components(normal)))
                     else:
                         elements.append(arc(center, vect_data))
+                elif kind == "ellipse":
+                    center = _point_from_components(prim.get("center", [0.0, 0.0, 0.0, 1.0]))
+                    semi_major = float(prim.get("semi_major", 1.0))
+                    semi_minor = float(prim.get("semi_minor", 1.0))
+                    rotation = float(prim.get("rotation", 0.0))
+                    start = prim.get("start", 0)
+                    end = prim.get("end", 360)
+                    normal = prim.get("normal")
+                    elements.append(
+                        ellipse(
+                            center,
+                            semi_major,
+                            semi_minor,
+                            rotation=rotation,
+                            start=start,
+                            end=end,
+                            normal=normal,
+                        )
+                    )
                 elif kind == "polyline":
                     coords = prim.get("points", [])
                     pts = [point(float(pt[0]), float(pt[1])) for pt in coords if len(pt) >= 2]

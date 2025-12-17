@@ -23,6 +23,7 @@ from yapcad.geom import (
 from yapcad.geom3d import issolid, issurface
 from yapcad.geom_util import geomlist2poly_components, geomlist2poly_with_holes
 from yapcad.io import write_step, write_stl
+from yapcad.io.step import write_step_analytic
 from yapcad.io.geometry_json import geometry_from_json, SCHEMA_ID
 from yapcad.package import PackageManifest, load_geometry
 
@@ -34,6 +35,27 @@ def _export_step(solids: Iterable[Sequence], out_dir: Path) -> List[Path]:
         write_step(solid, target)
         paths.append(target)
     return paths
+
+
+def _export_step_analytic(solids: Iterable[Sequence], out_dir: Path) -> tuple[List[Path], int]:
+    """Export solids using analytic BREP when available.
+
+    Returns a tuple of (paths, analytic_count) where analytic_count is
+    the number of solids successfully exported with analytic geometry.
+    """
+    paths: List[Path] = []
+    analytic_count = 0
+    for idx, solid in enumerate(solids, 1):
+        target = out_dir / f"solid_{idx:02d}.step"
+        try:
+            result = write_step_analytic(solid, str(target), fallback_to_faceted=True)
+            if result:
+                analytic_count += 1
+        except Exception:
+            # Fall back to faceted export on any error
+            write_step(solid, target)
+        paths.append(target)
+    return paths, analytic_count
 
 
 def _export_stl(solids: Iterable[Sequence], out_dir: Path) -> List[Path]:
@@ -158,9 +180,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--format",
-        choices=["step", "stl", "dxf", "all"],
+        choices=["step", "step-analytic", "stl", "dxf", "all"],
         action="append",
-        help="Export format(s) to generate. Repeat this flag for multiple outputs.",
+        help="Export format(s) to generate. 'step-analytic' uses native BREP "
+             "data for analytic surfaces (planes, cylinders, spheres, etc.) "
+             "when available. Repeat this flag for multiple outputs.",
     )
     parser.add_argument(
         "--overwrite",
@@ -213,7 +237,15 @@ def main(argv: list[str] | None = None) -> int:
             raise FileExistsError(f"export target already exists: {path}")
 
     if solids:
-        if "step" in requested:
+        if "step-analytic" in requested:
+            targets = [out_dir / f"solid_{idx:02d}.step" for idx in range(1, len(solids) + 1)]
+            for target in targets:
+                _check_target(target)
+            paths, analytic_count = _export_step_analytic(solids, out_dir)
+            written.extend(paths)
+            if analytic_count > 0:
+                print(f"Exported {analytic_count}/{len(solids)} solid(s) with analytic BREP", file=sys.stderr)
+        elif "step" in requested:
             targets = [out_dir / f"solid_{idx:02d}.step" for idx in range(1, len(solids) + 1)]
             for target in targets:
                 _check_target(target)
@@ -223,7 +255,7 @@ def main(argv: list[str] | None = None) -> int:
             for target in targets:
                 _check_target(target)
             written.extend(_export_stl(solids, out_dir))
-    if surfaces and "step" in requested:
+    if surfaces and ("step" in requested or "step-analytic" in requested):
         targets = [out_dir / f"surface_{idx:02d}.step" for idx in range(1, len(surfaces) + 1)]
         for target in targets:
             _check_target(target)

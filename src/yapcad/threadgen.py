@@ -41,7 +41,7 @@ def metric_profile(d_nominal_mm: float, pitch_mm: float, *, strts: int = 1, inte
         P_pitch=pitch_mm,
         crest_flat_ratio=crest,
         root_flat_ratio=root,
-        thread_depth_ratio=0.54127,
+        thread_depth_ratio= 0.57, # based on metric g6 estimate
         starts=strts,
         internal=internal,
     )
@@ -181,8 +181,10 @@ def _radius_at(profile: ThreadProfile, x_actual: float, x_effective: float) -> f
     depth = profile.thread_depth_ratio * pitch
 
     if profile.internal:
-        root = base_major
-        crest = base_major + depth
+#        root = base_major
+#        crest = base_major + depth
+        root = base_major - depth
+        crest = base_major
     else:
         crest = base_major
         root = max(crest - depth, 0.0)

@@ -15,14 +15,35 @@ list-based API backwards compatible.
 
 * **Curves (2D)** – first-class line, arc, circle, Catmull–Rom, NURBS primitives; polygons
   and polylines are stored as lists of points. There is no explicit ellipse/conic type yet.
-* **Surfaces (3D)** – planes, spheres, cones, cylinders, prisms etc. exist as “generators”
+* **Surfaces (3D)** – planes, spheres, cones, cylinders, prisms etc. exist as "generators"
   that produce tessellated surfaces (``['surface', verts, normals, faces, …]``). Once
   tessellated, the analytic definition is lost; the solid stores metadata about the
   procedure that produced it.
 * **Solids** – list-based shells referencing surfaces, plus metadata. No explicit vertex/edge
   topology is stored; the mesh is the only representation.
 * **Serialization** – geometry JSON stores solids/surfaces as triangle soup, and sketches as
-  polylines + primitives. STEP export is faceted only; STEP import is not implemented.
+  polylines + primitives. STEP export is faceted only.
+
+1.1 Recent Progress (November 2025)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+* **STEP import** – implemented via pythonocc-core; ``import_step()`` returns yapCAD
+  ``Geometry`` objects with attached BREP metadata.
+* **OCC BREP wrapper** – ``BrepSolid``, ``BrepFace``, ``BrepEdge``, ``BrepVertex`` classes
+  in ``yapcad.brep`` wrap OCC TopoDS objects with lazy tessellation.
+* **BREP-aware primitives** – ``sphere()``, ``prism()``, ``extrude()``, ``tube()``, ``conic()``,
+  ``makeRevolutionSolid()``, ``makeLoftSolid()``, and ``spherical_shell()`` now attach OCC
+  BREP data to generated solids when pythonocc-core is available.
+* **Transformations** – ``translatesolid()``, ``rotatesolid()``, ``mirrorsolid()``, and
+  ``scalealikesolid()`` propagate transformations to attached BREP data.
+* **OCC boolean operations** – ``solid_boolean()`` now auto-selects the OCC BREP engine
+  when both operands have BREP metadata, falling back to mesh-based engines otherwise.
+
+  Environment variables for boolean engine control:
+
+  * ``YAPCAD_BOOLEAN_ENGINE`` – explicit override (``native``, ``trimesh``, ``occ``)
+  * ``YAPCAD_MESH_BOOLEAN_ENGINE`` – fallback mesh engine when OCC unavailable (default: ``native``)
+  * ``YAPCAD_TRIMESH_BACKEND`` – backend for trimesh engine (``manifold``, ``blender``, etc.)
 
 
 

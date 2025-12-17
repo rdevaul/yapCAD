@@ -24,6 +24,9 @@ from yapcad.fasteners import (
     unified_hex_nut,
     unified_hex_nut_catalog,
 )
+from yapcad.geom import point
+from yapcad.geom3d import translate
+from yapcad.metadata import get_solid_metadata
 from yapcad.geom3d_util import conic
 from yapcad.package import create_package_from_entities
 from yapcad.threadgen import metric_profile, unified_profile
@@ -54,14 +57,16 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--starts", type=int, default=1, help="Thread starts.")
     parser.add_argument("--handedness", choices=["right", "left"], default="right", help="Thread handedness.")
     parser.add_argument("--output", type=Path, default=Path("threaded_fastener"), help="Base output path.")
+    parser.add_argument("--with-nut", action="store_true", help="When generating a screw, include a mated nut positioned mid-thread.")
     parser.add_argument("--name", default=None, help="Package name override.")
     parser.add_argument("--version", default="0.1.0", help="Package version.")
     parser.add_argument("--description", default="Threaded fastener generated via yapCAD", help="Package description.")
     return parser.parse_args()
 
 
-def _select_catalog_entry(args: argparse.Namespace):
-    if args.fastener == "screw":
+def _select_catalog_entry(args: argparse.Namespace, kind: str | None = None):
+    fastener_kind = kind or args.fastener
+    if fastener_kind == "screw":
         catalog = metric_hex_cap_catalog() if args.standard == "metric" else unified_hex_cap_catalog()
     else:
         catalog = metric_hex_nut_catalog() if args.standard == "metric" else unified_hex_nut_catalog()
@@ -168,22 +173,34 @@ def _build_washer(args: argparse.Namespace, catalog_entry: dict | None):
 def _build_fastener(args: argparse.Namespace):
     catalog_entry = _select_catalog_entry(args)
     if args.fastener == "screw":
-        return _build_screw(args, catalog_entry)
+        screw = _build_screw(args, catalog_entry)
+        if args.with_nut:
+            nut = _build_nut(args, _select_catalog_entry(args, kind="nut"))
+            nut_meta = get_solid_metadata(nut, create=False)
+            screw_meta = get_solid_metadata(screw, create=False)
+            thread_length = screw_meta["hex_cap_screw"]["thread_length"]
+            nut_thickness = nut_meta["hex_nut"]["thickness"]
+            offset = thread_length / 2.0 - nut_thickness / 2.0
+            nut = translate(nut, point(0, 0, offset))
+            return [screw, nut]
+        return [screw]
     if args.fastener == "nut":
-        return _build_nut(args, catalog_entry)
-    return _build_washer(args, catalog_entry)
+        return [_build_nut(args, catalog_entry)]
+    return [_build_washer(args, catalog_entry)]
 
 
 def main():
     args = _parse_args()
-    fastener = _build_fastener(args)
+    if args.with_nut and args.fastener != "screw":
+        raise ValueError("--with-nut can only be used when --fastener screw")
+    fasteners = _build_fastener(args)
     pkg_root = args.output.with_suffix(".ycpkg")
     if pkg_root.exists():
         shutil.rmtree(pkg_root)
     kind = args.fastener
     name = args.name or f"{args.standard}-{args.size}-{kind}".replace("/", "_")
     manifest = create_package_from_entities(
-        [fastener],
+        fasteners,
         pkg_root,
         name=name,
         version=args.version,

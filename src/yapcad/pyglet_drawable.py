@@ -493,7 +493,7 @@ class pygletDraw(drawable.Drawable):
             assert s[0] == 'surface'
             vert = s[1]
             ind = s[3]
-            drawn = []
+            drawn = set()  # Use set for O(1) lookup instead of O(n) list
             for j in range(0,len(ind),3):
                 i = ind[j:(j+3)]
                 l1 = i[0],i[1]
@@ -505,21 +505,21 @@ class pygletDraw(drawable.Drawable):
                 l3 = i[2],i[0]
                 if l3[0] > l3[1]:
                     l3 = i[0],i[2]
-                if not l1 in drawn:
+                if l1 not in drawn:
                     self.draw_line(vert[l1[0]*3:l1[0]*3+3],
                                    vert[l1[1]*3:l1[1]*3+3],
                                    entity=obj)
-                    drawn.append(l1)
-                if not l2 in drawn:
+                    drawn.add(l1)
+                if l2 not in drawn:
                     self.draw_line(vert[l2[0]*3:l2[0]*3+3],
                                    vert[l2[1]*3:l2[1]*3+3],
                                    entity=obj)
-                    drawn.append(l2)
-                if not l3 in drawn:
+                    drawn.add(l2)
+                if l3 not in drawn:
                     self.draw_line(vert[l3[0]*3:l3[0]*3+3],
                                    vert[l3[1]*3:l3[1]*3+3],
                                    entity=obj)
-                    drawn.append(l3)
+                    drawn.add(l3)
             for l in obj.lines:
                 ll = l[0]
                 lc = l[1]

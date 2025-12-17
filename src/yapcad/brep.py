@@ -56,9 +56,7 @@ try:  # pragma: no cover - exercised indirectly in environments with OCC
     from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
     from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
     from OCC.Core.gp import gp_Trsf, gp_Vec, gp_Dir, gp_Pnt, gp_Ax1, gp_Ax2
-    from OCC.Core import BRepTools as _BRepTools
-    BRepTools_Write = _BRepTools.breptools_Write  # type: ignore[attr-defined]
-    BRepTools_Read = _BRepTools.breptools_Read    # type: ignore[attr-defined]
+    from OCC.Core.BRepTools import breptools
     from OCC.Core.TopoDS import topods
 
     _OCC_IMPORT_ERROR: Optional[Exception] = None
@@ -69,8 +67,7 @@ except ImportError as exc:  # pragma: no cover - handled during runtime detectio
     TopAbs_FACE = 0
     TopAbs_REVERSED = -1
     BRep_Builder = Any
-    BRepTools_Write = None
-    BRepTools_Read = None
+    breptools = None
     gp_Trsf = gp_Vec = gp_Dir = gp_Pnt = gp_Ax1 = gp_Ax2 = None
     topods = None
     _OCC_IMPORT_ERROR = exc
@@ -102,11 +99,11 @@ def require_occ() -> None:
 
 def _shape_to_bytes(shape) -> bytes:
     require_occ()
-    if BRepTools_Write is None:
+    if breptools is None:
         raise RuntimeError("BRepTools write support is unavailable")
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".brep")
     tmp.close()
-    BRepTools_Write(shape, tmp.name)
+    breptools.Write(shape, tmp.name)
     with open(tmp.name, "rb") as handle:
         data = handle.read()
     os.remove(tmp.name)
@@ -115,7 +112,7 @@ def _shape_to_bytes(shape) -> bytes:
 
 def _shape_from_bytes(data: bytes) -> TopoDS_Shape:
     require_occ()
-    if BRepTools_Read is None:
+    if breptools is None:
         raise RuntimeError("BRepTools read support is unavailable")
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".brep")
     tmp.close()
@@ -123,7 +120,7 @@ def _shape_from_bytes(data: bytes) -> TopoDS_Shape:
         handle.write(data)
     builder = BRep_Builder()
     shape = TopoDS_Shape()
-    BRepTools_Read(shape, tmp.name, builder)
+    breptools.Read(shape, tmp.name, builder)
     os.remove(tmp.name)
     return shape
 
@@ -242,7 +239,23 @@ def _apply_trsf_to_brep(solid: list, trsf) -> None:
             shape = topods.Solid(shape)
         except Exception:
             pass
+    # Regenerate entity ID to avoid cache collision with original solid
+    # (deepcopy preserves entity ID, but transformed solid should have its own)
+    _regenerate_solid_id(solid)
     attach_brep_to_solid(solid, BrepSolid(shape))
+
+
+def _regenerate_solid_id(solid: list) -> str:
+    """Force a new entity ID for a solid, clearing its BREP cache entry."""
+    import uuid
+    meta = get_solid_metadata(solid, create=True)
+    old_id = meta.get('entityId')
+    if old_id and old_id in _BREP_SOLID_CACHE:
+        del _BREP_SOLID_CACHE[old_id]
+    new_id = str(uuid.uuid4())
+    meta['entityId'] = new_id
+    meta['id'] = new_id
+    return new_id
 
 
 def transform_brep_shape(brep: "BrepSolid", trsf) -> Optional["BrepSolid"]:
@@ -343,7 +356,7 @@ class BrepSolid:
                         vec.Transform(trsf)
                         if reverse:
                             vec = gp_Vec(-vec.X(), -vec.Y(), -vec.Z())
-                        local_normals.append(point(vec.X(), vec.Y(), vec.Z()))
+                        local_normals.append([vec.X(), vec.Y(), vec.Z(), 0.0])
                 else:
                     accum = [[0.0, 0.0, 0.0] for _ in range(triangulation.NbNodes())]
 
@@ -384,14 +397,14 @@ class BrepSolid:
                             nx, ny, nz = 0.0, 0.0, 1.0
                         else:
                             nx, ny, nz = vec[0] / length, vec[1] / length, vec[2] / length
-                        all_normals.append(point(nx, ny, nz))
+                        all_normals.append([nx, ny, nz, 0.0])
                 
                 vertex_offset += triangulation.NbNodes()
             
             explorer.Next()
         
         if not all_normals or len(all_normals) != len(all_vertices):
-            default_normal = point(0, 0, 1)
+            default_normal = [0.0, 0.0, 1.0, 0.0]
             all_normals = [default_normal for _ in all_vertices]
 
         triangle_lists = [[tri[0], tri[1], tri[2]] for tri in all_triangles]
