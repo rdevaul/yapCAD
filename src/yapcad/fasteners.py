@@ -54,6 +54,7 @@ class HexCapScrewSpec:
     washer_thickness: float = 0.5
     washer_diameter: float | None = None
     shank_diameter: float | None = None
+    starts: int = 1
     thread_arc_samples: int = 180
     thread_samples_per_pitch: int = 6
 
