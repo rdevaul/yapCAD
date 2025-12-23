@@ -312,7 +312,7 @@ class BrepSolid:
     def shape(self):
         return self._shape
 
-    def tessellate(self, deflection=0.5):
+    def tessellate(self, deflection=0.5, _debug=False):
         """
         Generate a faceted representation of the BREP model.
 
@@ -321,17 +321,22 @@ class BrepSolid:
         faceted representation will be returned in the same format as
         `yapcad.geom3d.poly2surface`.
         """
-        
+
         require_occ()
         mesh = BRepMesh_IncrementalMesh(self._shape, deflection)
-        
+
         all_vertices = []
         all_triangles = []
         all_normals = []
         vertex_offset = 0
 
+        if _debug:
+            print(f"[tessellate] Shape type: {self._shape.ShapeType()}")
+
         explorer = TopExp_Explorer(self._shape, TopAbs_FACE)
+        _face_count = 0
         while explorer.More():
+            _face_count += 1
             face = explorer.Current()
             loc = TopLoc_Location()
             
@@ -404,7 +409,10 @@ class BrepSolid:
                 vertex_offset += triangulation.NbNodes()
             
             explorer.Next()
-        
+
+        if _debug:
+            print(f"[tessellate] Faces: {_face_count}, Vertices: {len(all_vertices)}")
+
         if not all_normals or len(all_normals) != len(all_vertices):
             default_normal = [0.0, 0.0, 1.0, 0.0]
             all_normals = [default_normal for _ in all_vertices]
