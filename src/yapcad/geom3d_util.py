@@ -2097,6 +2097,21 @@ def sweep_adaptive(profile, spine, *, inner_profiles=None,
     else:
         shape = outer_shape
 
+    # Normalize shape: if it's a Compound containing exactly one Solid, extract that Solid
+    # This ensures proper behavior in subsequent boolean operations
+    from OCC.Core.TopExp import TopExp_Explorer
+    from OCC.Core.TopAbs import TopAbs_SOLID
+    from OCC.Core.TopoDS import topods
+
+    if shape.ShapeType() == 0:  # Compound
+        exp = TopExp_Explorer(shape, TopAbs_SOLID)
+        solids = []
+        while exp.More():
+            solids.append(topods.Solid(exp.Current()))
+            exp.Next()
+        if len(solids) == 1:
+            shape = solids[0]
+
     # Compute volume for verification
     props = GProp_GProps()
     brepgprop.VolumeProperties(shape, props)
@@ -2112,6 +2127,109 @@ def sweep_adaptive(profile, spine, *, inner_profiles=None,
     attach_brep_to_solid(sld, brep_solid)
 
     # Attach metadata if provided
+    if metadata:
+        from yapcad.metadata import get_solid_metadata
+        meta = get_solid_metadata(sld, create=True)
+        meta.update(metadata)
+
+    return sld
+
+
+def extrude_region2d(profile, height, *, direction=None, metadata=None):
+    """
+    Extrude a 2D region (list of line/arc segments) to create a solid.
+
+    This uses OCC's BRepPrimAPI_MakePrism to create the extruded solid.
+    The profile should be a closed 2D region (list of line/arc segments in XY plane).
+
+    Args:
+        profile: A yapCAD region2d (list of 2D curve segments forming a closed loop)
+        height: Extrusion distance
+        direction: Optional direction vector [dx, dy, dz]. Defaults to [0, 0, 1] (Z-up).
+        metadata: Optional dict of metadata to attach
+
+    Returns:
+        A yapCAD solid representing the extruded shape
+    """
+    if not occ_available():
+        raise RuntimeError("extrude_region2d requires pythonocc-core")
+
+    from OCC.Core.gp import gp_Pnt, gp_Dir, gp_Ax2, gp_Circ, gp_Vec
+    from OCC.Core.BRepBuilderAPI import (
+        BRepBuilderAPI_MakeWire, BRepBuilderAPI_MakeEdge, BRepBuilderAPI_MakeFace
+    )
+    from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakePrism
+    from OCC.Core.GC import GC_MakeArcOfCircle
+    from OCC.Core.GProp import GProp_GProps
+    from OCC.Core.BRepGProp import brepgprop
+    import math
+
+    if direction is None:
+        direction = [0, 0, 1]
+
+    # Build wire from region2d in XY plane
+    wire_builder = BRepBuilderAPI_MakeWire()
+
+    for seg in profile:
+        if isline(seg):
+            p1 = seg[0]
+            p2 = seg[1]
+            # Keep in XY plane (Z=0)
+            start = gp_Pnt(p1[0], p1[1] if len(p1) > 1 else 0, 0)
+            end = gp_Pnt(p2[0], p2[1] if len(p2) > 1 else 0, 0)
+            edge = BRepBuilderAPI_MakeEdge(start, end).Edge()
+            wire_builder.Add(edge)
+        elif isarc(seg):
+            center = seg[0]
+            params = seg[1]
+            radius = params[0]
+            start_ang = math.radians(params[1])
+            end_ang = math.radians(params[2])
+            cx, cy = center[0], center[1] if len(center) > 1 else 0
+            start_pt = gp_Pnt(cx + radius * math.cos(start_ang), cy + radius * math.sin(start_ang), 0)
+            end_pt = gp_Pnt(cx + radius * math.cos(end_ang), cy + radius * math.sin(end_ang), 0)
+            arc_center = gp_Pnt(cx, cy, 0)
+            circ = gp_Circ(gp_Ax2(arc_center, gp_Dir(0, 0, 1)), radius)
+            arc_maker = GC_MakeArcOfCircle(circ, start_pt, end_pt, True)
+            if arc_maker.IsDone():
+                edge = BRepBuilderAPI_MakeEdge(arc_maker.Value()).Edge()
+                wire_builder.Add(edge)
+
+    if not wire_builder.IsDone():
+        raise RuntimeError("Failed to build wire from region2d")
+
+    outer_wire = wire_builder.Wire()
+
+    # Create face from wire
+    face_maker = BRepBuilderAPI_MakeFace(outer_wire, True)
+    if not face_maker.IsDone():
+        raise RuntimeError("Failed to build face from wire")
+
+    profile_face = face_maker.Face()
+
+    # Create extrusion vector
+    extrude_vec = gp_Vec(direction[0] * height, direction[1] * height, direction[2] * height)
+
+    # Create prism (extrusion)
+    prism = BRepPrimAPI_MakePrism(profile_face, extrude_vec, True)
+    prism.Build()
+
+    if not prism.IsDone():
+        raise RuntimeError("Failed to create prism")
+
+    shape = prism.Shape()
+
+    # Create BREP wrapper and tessellate to get yapCAD surface
+    from yapcad.brep import BrepSolid, attach_brep_to_solid
+    brep = BrepSolid(shape)
+    surface = brep.tessellate()
+
+    # Create solid from the tessellated surface
+    sld = solid([surface], [], ['procedure', f'extrude_region2d(height={height})'])
+
+    # Attach BREP data to the solid
+    attach_brep_to_solid(sld, brep)
+
     if metadata:
         from yapcad.metadata import get_solid_metadata
         meta = get_solid_metadata(sld, create=True)
@@ -2257,6 +2375,12 @@ def sweep_profile_along_path(profile, spine, *, inner_profile=None, metadata=Non
     spine = spine_wire.Wire()
 
     # Create pipe (sweep)
+    # Note: OCC's MakePipe will position the profile at the spine start
+    # and sweep it along the spine. The profile plane should be perpendicular
+    # to the initial spine tangent for best results.
+    #
+    # For paths with significant direction changes (>45 degrees), consider
+    # using sweep_adaptive() instead which re-orients the profile at each turn.
     pipe = BRepOffsetAPI_MakePipe(spine, profile_face)
     pipe.Build()
 
