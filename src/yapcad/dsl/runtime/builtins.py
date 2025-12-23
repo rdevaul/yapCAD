@@ -747,53 +747,78 @@ class BuiltinRegistry:
 
         # Path3D constructors for sweep operations
         def _make_path3d(*segments: Value) -> Value:
-            """Create a path3d from segment dicts.
+            """Create a path3d from segments or other path3d objects.
 
-            Each segment should be a dict with 'type' and coordinates.
+            Each argument can be:
+            - A path3d (dict with 'type': 'path3d' and 'segments' list)
+            - A segment dict (dict with 'type': 'line' or 'arc')
+            - A list of segments
             """
             seg_list = []
             for seg in segments:
-                if isinstance(seg.type, ListType):
+                data = seg.data
+                if isinstance(data, dict):
+                    if data.get('type') == 'path3d':
+                        # It's a path3d, extract its segments
+                        seg_list.extend(data.get('segments', []))
+                    else:
+                        # It's a single segment dict
+                        seg_list.append(data)
+                elif isinstance(data, list):
                     # List of segments
-                    seg_list.extend(seg.data)
+                    seg_list.extend(data)
                 else:
-                    seg_list.append(seg.data)
+                    seg_list.append(data)
             return path3d_val({'type': 'path3d', 'segments': seg_list})
 
         def _path3d_line(start: Value, end: Value) -> Value:
-            """Create a line segment for path3d.
+            """Create a path3d containing a single line segment.
 
             Args:
                 start: Start point [x, y, z]
                 end: End point [x, y, z]
+
+            Returns:
+                A path3d dict with a single line segment
             """
             s = start.data
             e = end.data
-            return wrap_value({
+            segment = {
                 'type': 'line',
                 'start': [s[0], s[1], s[2] if len(s) > 2 else 0],
                 'end': [e[0], e[1], e[2] if len(e) > 2 else 0]
+            }
+            return wrap_value({
+                'type': 'path3d',
+                'segments': [segment]
             }, PATH3D)
 
         def _path3d_arc(center: Value, start: Value, end: Value, normal: Value) -> Value:
-            """Create an arc segment for path3d.
+            """Create a path3d containing a single arc segment.
 
             Args:
                 center: Arc center point [x, y, z]
                 start: Arc start point [x, y, z]
                 end: Arc end point [x, y, z]
                 normal: Arc plane normal [nx, ny, nz]
+
+            Returns:
+                A path3d dict with a single arc segment
             """
             c = center.data
             s = start.data
             e = end.data
             n = normal.data
-            return wrap_value({
+            segment = {
                 'type': 'arc',
                 'center': [c[0], c[1], c[2] if len(c) > 2 else 0],
                 'start': [s[0], s[1], s[2] if len(s) > 2 else 0],
                 'end': [e[0], e[1], e[2] if len(e) > 2 else 0],
                 'normal': [n[0], n[1], n[2] if len(n) > 2 else 0]
+            }
+            return wrap_value({
+                'type': 'path3d',
+                'segments': [segment]
             }, PATH3D)
 
         self.register(BuiltinFunction(
@@ -810,6 +835,73 @@ class BuiltinRegistry:
             "path3d_arc",
             _make_sig("path3d_arc", [POINT3D, POINT3D, POINT3D, VECTOR3D], PATH3D),
             _path3d_arc,
+        ))
+
+        def _path3d_arc_auto(center: Value, start: Value, end: Value, flip: Value) -> Value:
+            """Create a path3d arc with auto-computed normal from geometry.
+
+            The arc plane normal is computed from the cross product of
+            (center->start) x (center->end). The flip parameter controls
+            which of the two possible arc directions is used.
+
+            Args:
+                center: Arc center point [x, y, z]
+                start: Arc start point [x, y, z]
+                end: Arc end point [x, y, z]
+                flip: If true, negate the computed normal (reverses arc direction)
+
+            Returns:
+                A path3d dict with a single arc segment
+            """
+            import math
+
+            c = center.data
+            s = start.data
+            e = end.data
+            do_flip = flip.data
+
+            # Extract coordinates
+            cx, cy, cz = c[0], c[1], c[2] if len(c) > 2 else 0
+            sx, sy, sz = s[0], s[1], s[2] if len(s) > 2 else 0
+            ex, ey, ez = e[0], e[1], e[2] if len(e) > 2 else 0
+
+            # Vectors from center to start and end
+            v1 = [sx - cx, sy - cy, sz - cz]
+            v2 = [ex - cx, ey - cy, ez - cz]
+
+            # Cross product: v1 x v2
+            nx = v1[1] * v2[2] - v1[2] * v2[1]
+            ny = v1[2] * v2[0] - v1[0] * v2[2]
+            nz = v1[0] * v2[1] - v1[1] * v2[0]
+
+            # Normalize
+            mag = math.sqrt(nx*nx + ny*ny + nz*nz)
+            if mag < 1e-10:
+                # Degenerate case - points are collinear, use Z-up default
+                nx, ny, nz = 0.0, 0.0, 1.0
+            else:
+                nx, ny, nz = nx/mag, ny/mag, nz/mag
+
+            # Apply flip if requested
+            if do_flip:
+                nx, ny, nz = -nx, -ny, -nz
+
+            segment = {
+                'type': 'arc',
+                'center': [cx, cy, cz],
+                'start': [sx, sy, sz],
+                'end': [ex, ey, ez],
+                'normal': [nx, ny, nz]
+            }
+            return wrap_value({
+                'type': 'path3d',
+                'segments': [segment]
+            }, PATH3D)
+
+        self.register(BuiltinFunction(
+            "path3d_arc_auto",
+            _make_sig("path3d_arc_auto", [POINT3D, POINT3D, POINT3D, BOOL], PATH3D),
+            _path3d_arc_auto,
         ))
 
     # --- Region Functions ---
@@ -1232,10 +1324,17 @@ class BuiltinRegistry:
             return solid_val(conic(radius1.data, radius2.data, height.data))
 
         def _extrude(profile: Value, height: Value, *args: Value) -> Value:
-            """Extrude a 2D region to create a solid."""
-            from yapcad.geom3d_util import extrude
-            # extrude takes surface, height
-            return solid_val(extrude(profile.data, height.data))
+            """Extrude a 2D region to create a solid.
+
+            Args:
+                profile: A region2d (closed 2D shape) to extrude
+                height: Extrusion height along Z axis
+
+            Returns:
+                A solid created by extruding the profile
+            """
+            from yapcad.geom3d_util import extrude_region2d
+            return solid_val(extrude_region2d(profile.data, height.data))
 
         def _revolve(profile: Value, axis: Value, angle: Value) -> Value:
             """Revolve a 2D region around an axis."""
@@ -1369,6 +1468,66 @@ class BuiltinRegistry:
             "sweep_adaptive_hollow",
             _make_sig("sweep_adaptive_hollow", [REGION2D, REGION2D, PATH3D, FLOAT], SOLID),
             _sweep_adaptive_hollow,
+        ))
+
+        def _sweep_adaptive_frenet(profile: Value, spine: Value,
+                                   threshold: Value) -> Value:
+            """Sweep a profile using Frenet frame (natural curvature-following).
+
+            The profile orientation follows the natural Frenet frame of the path,
+            where the profile 'up' direction aligns with the curve's normal
+            (perpendicular to both tangent and binormal).
+
+            This mode causes the profile to twist naturally with the path curvature,
+            which is appropriate for paths like helices where you want the profile
+            to follow the curve's intrinsic geometry.
+
+            Args:
+                profile: A region2d (closed 2D shape) to sweep
+                spine: A path3d (3D wire/curve) defining the sweep path
+                threshold: Angle in degrees that triggers new section
+
+            Returns:
+                A solid created by lofting with Frenet frame orientation
+            """
+            from yapcad.geom3d_util import sweep_adaptive
+            return solid_val(sweep_adaptive(
+                profile.data, spine.data,
+                angle_threshold_deg=threshold.data,
+                frame_mode='frenet'
+            ))
+
+        def _sweep_adaptive_hollow_frenet(outer_profile: Value, inner_profiles: Value,
+                                          spine: Value, threshold: Value) -> Value:
+            """Sweep a hollow profile using Frenet frame orientation.
+
+            Args:
+                outer_profile: A region2d for the outer boundary
+                inner_profiles: A region2d or list of region2d for inner void(s)
+                spine: A path3d defining the sweep path
+                threshold: Angle in degrees that triggers new section
+
+            Returns:
+                A hollow solid with Frenet frame orientation
+            """
+            from yapcad.geom3d_util import sweep_adaptive
+            inners = inner_profiles.data
+            return solid_val(sweep_adaptive(
+                outer_profile.data, spine.data,
+                inner_profiles=inners,
+                angle_threshold_deg=threshold.data,
+                frame_mode='frenet'
+            ))
+
+        self.register(BuiltinFunction(
+            "sweep_adaptive_frenet",
+            _make_sig("sweep_adaptive_frenet", [REGION2D, PATH3D, FLOAT], SOLID),
+            _sweep_adaptive_frenet,
+        ))
+        self.register(BuiltinFunction(
+            "sweep_adaptive_hollow_frenet",
+            _make_sig("sweep_adaptive_hollow_frenet", [REGION2D, REGION2D, PATH3D, FLOAT], SOLID),
+            _sweep_adaptive_hollow_frenet,
         ))
 
         def _involute_gear(teeth: Value, module_mm: Value, pressure_angle: Value,

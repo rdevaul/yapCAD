@@ -227,10 +227,10 @@ class SymbolTable:
             ("p2", PATH2D, None),
         ], PATH2D)
 
-        # Path3D constructors for sweep operations
+        # Path3D constructors for sweep operations (variadic)
         self._register_builtin("make_path3d", [
-            ("segments", make_list_type(PATH3D), None),
-        ], PATH3D)
+            ("segment", PATH3D, None),
+        ], PATH3D, is_variadic=True)
 
         self._register_builtin("path3d_line", [
             ("start", POINT3D, None),
@@ -242,6 +242,16 @@ class SymbolTable:
             ("start", POINT3D, None),
             ("end", POINT3D, None),
             ("normal", VECTOR3D, None),
+        ], PATH3D)
+
+        # Arc with auto-computed normal from geometry
+        # flip=false: normal = (center->start) x (center->end), takes shorter arc
+        # flip=true: negated normal, takes longer arc (opposite direction)
+        self._register_builtin("path3d_arc_auto", [
+            ("center", POINT3D, None),
+            ("start", POINT3D, None),
+            ("end", POINT3D, None),
+            ("flip", BOOL, None),
         ], PATH3D)
 
         self._register_builtin("close", [("p", PROFILE2D, None)], REGION2D)
@@ -355,6 +365,20 @@ class SymbolTable:
         self._register_builtin("sweep_adaptive_hollow", [
             ("outer_profile", REGION2D, None),
             ("inner_profiles", REGION2D, None),  # Single region2d or list
+            ("spine", PATH3D, None),
+            ("threshold", FLOAT, None),
+        ], SOLID)
+
+        # Frenet frame variants - profile follows natural curvature
+        self._register_builtin("sweep_adaptive_frenet", [
+            ("profile", REGION2D, None),
+            ("spine", PATH3D, None),
+            ("threshold", FLOAT, None),
+        ], SOLID)
+
+        self._register_builtin("sweep_adaptive_hollow_frenet", [
+            ("outer_profile", REGION2D, None),
+            ("inner_profiles", REGION2D, None),
             ("spine", PATH3D, None),
             ("threshold", FLOAT, None),
         ], SOLID)
