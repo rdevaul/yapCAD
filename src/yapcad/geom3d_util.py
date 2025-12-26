@@ -215,7 +215,87 @@ def sphere(diameter,center=point(0,0,0),depth=2):
         except Exception:  # pragma: no cover - OCC optional
             pass
     return sld
-                    
+
+
+def oblate_spheroid(equatorial_diameter, oblateness, center=point(0,0,0), depth=3):
+    """Create an oblate spheroid (ellipsoid with two equal equatorial radii).
+
+    An oblate spheroid is an ellipsoid with a < b = c (polar radius < equatorial).
+    The oblateness (flattening) f = (a - c) / a where a is equatorial, c is polar.
+    For Earth, f ≈ 0.00335; for Mars, f ≈ 0.00648.
+
+    :param equatorial_diameter: diameter at the equator (X and Y axes)
+    :param oblateness: geometric oblateness/flattening (0 = sphere, higher = flatter)
+    :param center: center point of the spheroid
+    :param depth: subdivision depth for mesh (default 2)
+    :returns: yapCAD solid representing the oblate spheroid
+    """
+    equatorial_radius = equatorial_diameter / 2.0
+    # polar_radius = equatorial_radius * (1 - oblateness)
+    polar_radius = equatorial_radius * (1.0 - oblateness)
+
+    call = f"yapcad.geom3d_util.oblate_spheroid({equatorial_diameter},{oblateness},center={center},depth={depth})"
+
+    # Create mesh by scaling sphere mesh in Z direction
+    # Start with unit sphere mesh, then scale
+    unit_surf = sphereSurface(2.0, point(0,0,0), depth)  # unit sphere (radius 1)
+    verts = unit_surf[1]
+    normals = unit_surf[2]
+    faces = unit_surf[3]
+
+    # Scale vertices: X,Y by equatorial_radius, Z by polar_radius
+    scaled_verts = []
+    scaled_normals = []
+    for v in verts:
+        sv = [v[0] * equatorial_radius + center[0],
+              v[1] * equatorial_radius + center[1],
+              v[2] * polar_radius + center[2],
+              1]
+        scaled_verts.append(sv)
+
+    # Normals need to be transformed by inverse transpose of scale matrix
+    # For diagonal scale (sx, sy, sz), inverse transpose is (1/sx, 1/sy, 1/sz)
+    for n in normals:
+        sn = [n[0] / equatorial_radius,
+              n[1] / equatorial_radius,
+              n[2] / polar_radius,
+              0]
+        # Normalize
+        mag_n = math.sqrt(sn[0]**2 + sn[1]**2 + sn[2]**2)
+        if mag_n > 0:
+            sn = [sn[0]/mag_n, sn[1]/mag_n, sn[2]/mag_n, 0]
+        scaled_normals.append(sn)
+
+    surf = ['surface', scaled_verts, scaled_normals, faces, [], []]
+    sld = solid([surf], [], ['procedure', call])
+
+    if occ_available():
+        try:
+            from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeSphere
+            from OCC.Core.gp import gp_Pnt, gp_Trsf, gp_GTrsf
+            from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_GTransform
+
+            # Create unit sphere at origin, then apply non-uniform scale
+            shape = BRepPrimAPI_MakeSphere(gp_Pnt(0, 0, 0), 1.0).Shape()
+
+            # Apply non-uniform scaling using general transformation
+            gtrsf = gp_GTrsf()
+            gtrsf.SetValue(1, 1, equatorial_radius)  # X scale
+            gtrsf.SetValue(2, 2, equatorial_radius)  # Y scale
+            gtrsf.SetValue(3, 3, polar_radius)       # Z scale
+            gtrsf.SetValue(1, 4, center[0])          # X translation
+            gtrsf.SetValue(2, 4, center[1])          # Y translation
+            gtrsf.SetValue(3, 4, center[2])          # Z translation
+
+            transformer = BRepBuilderAPI_GTransform(shape, gtrsf, True)
+            if transformer.IsDone():
+                scaled_shape = transformer.Shape()
+                attach_brep_to_solid(sld, BrepSolid(scaled_shape))
+        except Exception:  # pragma: no cover - OCC optional
+            pass
+
+    return sld
+
 
 def rectangularPlane(length,width,center=point(0,0,0)):
     """ return a rectangular surface with the normals oriented in the
@@ -2037,15 +2117,32 @@ def sweep_adaptive(profile, spine, *, inner_profiles=None,
     else:
         initial_up = [0, 0, 1]  # Default Z-up
 
+    # Check if path is closed (first and last sample at same position)
+    first_pt = samples[0][0]
+    last_pt = samples[-1][0]
+    dist_sq = sum((a - b) ** 2 for a, b in zip(first_pt, last_pt))
+    is_closed_path = dist_sq < 1e-6  # Within 1 micron
+
     # Helper to build a lofted solid from wires at sample locations
-    def _build_loft_from_wire_template(wire_template, samples_list, ruled_mode):
-        """Build lofted solid from wire template at sample locations."""
+    def _build_loft_from_wire_template(wire_template, samples_list, ruled_mode, is_closed):
+        """Build lofted solid from wire template at sample locations.
+
+        For closed paths, reuses the first wire to close the loft instead of
+        creating a duplicate wire at the same position (which causes mesh errors).
+        """
         from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_ThruSections
 
         loft = BRepOffsetAPI_ThruSections(True, ruled_mode, 1.0e-6)
 
         prev_up_local = initial_up
-        for i, (point, tangent, param) in enumerate(samples_list):
+        first_wire = None
+
+        # For closed paths, skip the last sample (we'll reuse first wire instead)
+        num_samples = len(samples_list) - 1 if is_closed else len(samples_list)
+
+        for i in range(num_samples):
+            point, tangent, param = samples_list[i]
+
             # Compute frame based on mode
             if frame_mode == 'frenet' and i > 0:
                 # Approximate derivative from previous/next tangent
@@ -2073,6 +2170,14 @@ def sweep_adaptive(profile, spine, *, inner_profiles=None,
             wire_transformed = _transform_wire_to_frame(wire_template, point, tangent, right, up_local)
             loft.AddWire(wire_transformed)
 
+            # Save first wire for closing
+            if i == 0:
+                first_wire = wire_transformed
+
+        # For closed paths, add the first wire again to properly close the loft
+        if is_closed and first_wire is not None:
+            loft.AddWire(first_wire)
+
         loft.Build()
         if not loft.IsDone():
             raise RuntimeError("Adaptive sweep loft failed")
@@ -2080,7 +2185,7 @@ def sweep_adaptive(profile, spine, *, inner_profiles=None,
         return loft.Shape()
 
     # Build outer loft
-    outer_shape = _build_loft_from_wire_template(outer_wire_template, samples, ruled)
+    outer_shape = _build_loft_from_wire_template(outer_wire_template, samples, ruled, is_closed_path)
 
     # If we have inner profiles, build inner lofts and subtract
     if inner_wire_templates:
@@ -2088,7 +2193,7 @@ def sweep_adaptive(profile, spine, *, inner_profiles=None,
 
         shape = outer_shape
         for inner_template in inner_wire_templates:
-            inner_shape = _build_loft_from_wire_template(inner_template, samples, ruled)
+            inner_shape = _build_loft_from_wire_template(inner_template, samples, ruled, is_closed_path)
             cut_op = BRepAlgoAPI_Cut(shape, inner_shape)
             cut_op.Build()
             if not cut_op.IsDone():
@@ -2272,7 +2377,7 @@ def sweep_profile_along_path(profile, spine, *, inner_profile=None, metadata=Non
     from OCC.Core.BRepBuilderAPI import (
         BRepBuilderAPI_MakeWire, BRepBuilderAPI_MakeEdge, BRepBuilderAPI_MakeFace
     )
-    from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_MakePipe
+    from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_MakePipe, BRepOffsetAPI_MakePipeShell
     from OCC.Core.GC import GC_MakeArcOfCircle
     from OCC.Core.GProp import GProp_GProps
     from OCC.Core.BRepGProp import brepgprop
@@ -2324,15 +2429,10 @@ def sweep_profile_along_path(profile, spine, *, inner_profile=None, metadata=Non
     # Build outer profile wire
     outer_wire = _build_wire_from_region2d(profile)
 
-    # Create face from outer wire
-    face_maker = BRepBuilderAPI_MakeFace(outer_wire, True)
-
-    # If inner profile provided, add it as a hole (reversed winding)
+    # Build inner profile wire if provided (for hollow shapes)
+    inner_wire = None
     if inner_profile is not None:
         inner_wire = _build_wire_from_region2d(inner_profile, reverse=True)
-        face_maker.Add(inner_wire)
-
-    profile_face = face_maker.Face()
 
     # Build spine wire from path3d
     spine_wire = BRepBuilderAPI_MakeWire()
@@ -2346,6 +2446,27 @@ def sweep_profile_along_path(profile, spine, *, inner_profile=None, metadata=Non
             p1 = gp_Pnt(start[0], start[1], start[2])
             p2 = gp_Pnt(end[0], end[1], end[2])
             edge = BRepBuilderAPI_MakeEdge(p1, p2).Edge()
+            spine_wire.Add(edge)
+        elif seg_type == 'full_circle':
+            # Full circle segment - creates a single closed circular edge
+            # This avoids the topology issues that arise with multi-arc paths
+            center = seg['center']
+            radius = seg['radius']
+            normal = seg.get('normal', [0, 0, 1])
+
+            circ = gp_Circ(gp_Ax2(gp_Pnt(center[0], center[1], center[2]),
+                                   gp_Dir(normal[0], normal[1], normal[2])), radius)
+            edge = BRepBuilderAPI_MakeEdge(circ).Edge()
+            spine_wire.Add(edge)
+        elif seg_type == 'tilted_circle':
+            # Tilted circle segment - circle in a tilted plane
+            center = seg['center']
+            radius = seg['radius']
+            normal = seg.get('normal', [0, 0, 1])
+
+            circ = gp_Circ(gp_Ax2(gp_Pnt(center[0], center[1], center[2]),
+                                   gp_Dir(normal[0], normal[1], normal[2])), radius)
+            edge = BRepBuilderAPI_MakeEdge(circ).Edge()
             spine_wire.Add(edge)
         elif seg_type == 'arc':
             center = seg['center']
@@ -2374,20 +2495,97 @@ def sweep_profile_along_path(profile, spine, *, inner_profile=None, metadata=Non
 
     spine = spine_wire.Wire()
 
-    # Create pipe (sweep)
-    # Note: OCC's MakePipe will position the profile at the spine start
-    # and sweep it along the spine. The profile plane should be perpendicular
-    # to the initial spine tangent for best results.
+    # Get the spine start point and tangent to properly position and orient the profile
+    # MakePipeShell needs the profile at the spine start, perpendicular to tangent
+    from OCC.Core.BRepAdaptor import BRepAdaptor_CompCurve
+    from OCC.Core.gp import gp_Trsf, gp_XYZ, gp_Ax1, gp_Ax3, gp_Pnt, gp_Dir
+    from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
+
+    spine_curve = BRepAdaptor_CompCurve(spine, True)
+    param_start = spine_curve.FirstParameter()
+    spine_start_pt = spine_curve.Value(param_start)
+
+    # Get tangent direction at start
+    tangent_vec = gp_Vec()
+    spine_curve.D1(param_start, spine_start_pt, tangent_vec)
+    tangent_vec.Normalize()
+    tangent_dir = gp_Dir(tangent_vec)
+
+    # Profile is built in XZ plane with normal pointing in Y direction
+    # We need to transform it so the normal aligns with the spine tangent at start
+    profile_normal = gp_Dir(0, 1, 0)  # Profile faces +Y
+
+    # Check if transformation is needed
+    dot = tangent_dir.X() * profile_normal.X() + \
+          tangent_dir.Y() * profile_normal.Y() + \
+          tangent_dir.Z() * profile_normal.Z()
+
+    need_rotation = abs(dot - 1.0) > 1e-6  # Not already aligned
+    need_translation = (abs(spine_start_pt.X()) > 1e-6 or
+                        abs(spine_start_pt.Y()) > 1e-6 or
+                        abs(spine_start_pt.Z()) > 1e-6)
+
+    if need_rotation or need_translation:
+        # Apply rotation first (if needed), then translation
+        # Profile is in XZ plane with normal = +Y
+        # We need normal to align with tangent
+
+        trsf = gp_Trsf()
+
+        if need_rotation:
+            # Find rotation axis = profile_normal cross tangent
+            # And rotation angle = angle between them
+            cross = gp_Vec(profile_normal).Crossed(gp_Vec(tangent_dir))
+            cross_mag = cross.Magnitude()
+
+            if cross_mag > 1e-6:  # Not parallel/antiparallel
+                cross.Normalize()
+                rot_axis = gp_Ax1(gp_Pnt(0, 0, 0), gp_Dir(cross))
+                # Angle from dot product (already computed above)
+                angle = math.acos(max(-1.0, min(1.0, dot)))
+                trsf.SetRotation(rot_axis, angle)
+
+        # Apply translation to move profile to spine start
+        trans = gp_Trsf()
+        trans.SetTranslation(gp_Vec(spine_start_pt.X(), spine_start_pt.Y(), spine_start_pt.Z()))
+
+        # Combine transformations: first rotate, then translate
+        combined = trans.Multiplied(trsf)
+
+        outer_transformer = BRepBuilderAPI_Transform(outer_wire, combined, True)
+        outer_wire = outer_transformer.Shape()
+
+        if inner_wire is not None:
+            inner_transformer = BRepBuilderAPI_Transform(inner_wire, combined, True)
+            inner_wire = inner_transformer.Shape()
+
+    # Create pipe shell (sweep)
+    # Using MakePipeShell instead of MakePipe for better handling of
+    # closed paths (like circular rings) which otherwise produce invalid geometry.
     #
-    # For paths with significant direction changes (>45 degrees), consider
-    # using sweep_adaptive() instead which re-orients the profile at each turn.
-    pipe = BRepOffsetAPI_MakePipe(spine, profile_face)
-    pipe.Build()
+    # MakePipeShell provides better control over profile orientation and
+    # produces valid manifold geometry for closed spine paths.
+    pipe_shell = BRepOffsetAPI_MakePipeShell(spine)
 
-    if not pipe.IsDone():
-        raise RuntimeError("OCC pipe sweep failed")
+    # Add the outer profile wire
+    pipe_shell.Add(outer_wire)
 
-    shape = pipe.Shape()
+    # Add inner profile wire if present (for hollow shapes)
+    if inner_wire is not None:
+        pipe_shell.Add(inner_wire)
+
+    # Set mode to keep profile orientation consistent with Z axis
+    # This helps avoid profile flipping/twisting along the path
+    pipe_shell.SetMode(gp_Dir(0, 0, 1))
+
+    pipe_shell.Build()
+
+    if not pipe_shell.IsDone():
+        raise RuntimeError("OCC pipe shell sweep failed")
+
+    # Make it a solid (not just a shell)
+    pipe_shell.MakeSolid()
+    shape = pipe_shell.Shape()
 
     # Get volume for verification
     props = GProp_GProps()
