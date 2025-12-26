@@ -271,7 +271,13 @@ class FenicsxAdapter(AnalysisAdapter):
             min_element_size=mesh_opts.get("min_element_size"),
             max_element_size=mesh_opts.get("max_element_size"),
             element_order=int(mesh_opts.get("element_order", 1)),
+            algorithm_2d=int(mesh_opts.get("algorithm_2d", 6)),  # Frontal-Delaunay
+            algorithm_3d=int(mesh_opts.get("algorithm_3d", 1)),  # Delaunay
             optimize=bool(mesh_opts.get("optimize", True)),
+            optimize_netgen=bool(mesh_opts.get("optimize_netgen", False)),
+            geometry_tolerance=float(mesh_opts.get("geometry_tolerance", 1e-4)),
+            use_stl=bool(mesh_opts.get("use_stl", False)),
+            scale_factor=float(mesh_opts.get("scale_factor", 1.0)),
         )
 
     def _get_physical_groups(self, plan: AnalysisPlan) -> Dict[str, List[int]]:
@@ -321,7 +327,11 @@ class FenicsxAdapter(AnalysisAdapter):
         plan: AnalysisPlan,
     ) -> None:
         """Generate mesh using Gmsh."""
-        with GmshMesher() as mesher:
+        mesher = GmshMesher()
+        mesher._geometry_tolerance = hints.geometry_tolerance
+        mesher._use_stl = hints.use_stl
+        mesher._scale_factor = hints.scale_factor
+        with mesher:
             # Check if we have STEP file reference
             geom_spec = plan.geometry
             step_file = geom_spec.get("step_file")
@@ -329,7 +339,7 @@ class FenicsxAdapter(AnalysisAdapter):
             if step_file:
                 mesher.import_step(Path(step_file))
             else:
-                mesher.import_solid(solid)
+                mesher.import_solid(solid, use_stl=hints.use_stl)
 
             # Set up physical groups for BCs
             if physical_groups:
@@ -508,46 +518,77 @@ class FenicsxAdapter(AnalysisAdapter):
     def _get_surface_load_form(self, domain, v, plan: AnalysisPlan):
         """Build surface load contribution to weak form.
 
-        For thrust structure: applies pressure to inner motor mount region
-        (center of plate, r < motor_mount_radius) on top surface.
+        Supports multiple load application strategies based on plan configuration:
+        - 'z_max': Apply load on top surface (highest Z)
+        - 'z_min': Apply load on bottom surface (lowest Z)
+        - 'z_max_ring': Apply load on ring-shaped region at top (for cradle rings)
+        - 'motor_mount': Apply load on central cylindrical region (thrust structure)
         """
         coords = domain.geometry.x
         z_min = float(np.min(coords[:, 2]))
         z_max = float(np.max(coords[:, 2]))
-        z_tol = (z_max - z_min) * 0.05  # 5% tolerance for thickness
+        z_range = z_max - z_min
+        z_tol = z_range * 0.05  # 5% tolerance
 
         # Get geometry parameters from plan metadata
         metadata = plan.metadata or {}
         design_params = metadata.get("design_parameters", {})
-        motor_mount_diameter = float(design_params.get("motor_mount_diameter_mm", 101.6))
-        motor_mount_radius = motor_mount_diameter / 2.0  # 50.8 mm
 
         tdim = domain.topology.dim
         fdim = tdim - 1
         domain.topology.create_connectivity(fdim, tdim)
 
-        # Find facets on top surface within motor mount radius
-        # These are the facets where thrust load is applied
-        def motor_mount_top(x):
-            r = np.sqrt(x[0]**2 + x[1]**2)
-            on_top = np.isclose(x[2], z_max, atol=z_tol)
-            in_motor_region = r <= motor_mount_radius * 1.1  # 10% tolerance
-            return on_top & in_motor_region
-
-        load_facet_indices = dfx_mesh.locate_entities_boundary(domain, fdim, motor_mount_top)
-
-        # Get pressure magnitude from plan loads
+        # Get pressure magnitude and load strategy from plan loads
         pressure_pa = 0.0
+        load_strategy = "z_max"  # Default: apply to top surface
+        load_direction = [0, 0, -1]  # Default: downward (-Z)
+
         for load in plan.loads:
             if load.get("type") == "pressure":
                 pressure_pa = float(load.get("magnitude_pa", 0.0))
+                load_strategy = load.get("strategy", "z_max")
+                load_direction = load.get("direction", [0, 0, -1])
                 break
 
-        if pressure_pa == 0.0 or len(load_facet_indices) == 0:
+        if pressure_pa == 0.0:
+            return None
+
+        # Build facet selector based on strategy
+        if load_strategy == "motor_mount":
+            # Original thrust structure logic
+            motor_mount_diameter = float(design_params.get("motor_mount_diameter_mm", 101.6))
+            motor_mount_radius = motor_mount_diameter / 2.0
+
+            def load_region(x):
+                r = np.sqrt(x[0]**2 + x[1]**2)
+                on_top = np.isclose(x[2], z_max, atol=z_tol)
+                in_motor_region = r <= motor_mount_radius * 1.1
+                return on_top & in_motor_region
+
+        elif load_strategy == "z_max_ring":
+            # Ring-shaped load region at top (e.g., cradle ring of globe stand)
+            # Load is applied to upper portion of geometry
+            z_threshold = z_max - z_range * 0.15  # Top 15% of height
+
+            def load_region(x):
+                return x[2] >= z_threshold
+
+        elif load_strategy == "z_min":
+            # Bottom surface
+            def load_region(x):
+                return np.isclose(x[2], z_min, atol=z_tol)
+
+        else:  # "z_max" - default
+            # Top surface
+            def load_region(x):
+                return np.isclose(x[2], z_max, atol=z_tol)
+
+        load_facet_indices = dfx_mesh.locate_entities_boundary(domain, fdim, load_region)
+
+        if len(load_facet_indices) == 0:
             return None
 
         # Convert pressure from Pa to MPa for mm-based geometry
-        # (consistent with material property scaling)
         SCALE_PA_TO_MPA = 1e-6
         pressure_mpa = pressure_pa * SCALE_PA_TO_MPA
 
@@ -559,69 +600,87 @@ class FenicsxAdapter(AnalysisAdapter):
         facet_tags = dfx_mesh.meshtags(domain, fdim, np.arange(num_facets, dtype=np.int32), facet_values)
         ds = ufl.Measure("ds", domain=domain, subdomain_data=facet_tags)
 
-        # Thrust acts in -Z direction (motor pushes down on mount)
-        # Using traction vector in MPa (N/mm²)
-        traction = fem.Constant(domain, default_scalar_type((0, 0, -pressure_mpa)))
+        # Apply load in specified direction
+        traction = fem.Constant(domain, default_scalar_type((
+            load_direction[0] * pressure_mpa,
+            load_direction[1] * pressure_mpa,
+            load_direction[2] * pressure_mpa
+        )))
 
         return ufl.dot(traction, v) * ds(1)
 
     def _apply_boundary_conditions(self, domain, V, plan: AnalysisPlan) -> List:
         """Apply boundary conditions from plan.
 
-        For thrust structure: fixes the three stringer notch locations
-        at the outer edge (rectangular cutouts at 0°, 120°, 240°).
+        Supports multiple BC strategies based on plan configuration:
+        - 'z_min': Fix bottom surface (lowest Z) - default for stand-like structures
+        - 'z_max': Fix top surface (highest Z)
+        - 'stringer_notches': Fix at stringer notch locations (thrust structure)
+        - 'outer_edge': Fix at outer radial boundary
         """
         bcs = []
 
         coords = domain.geometry.x
         z_min = float(np.min(coords[:, 2]))
         z_max = float(np.max(coords[:, 2]))
+        z_range = z_max - z_min
+        z_tol = z_range * 0.02  # 2% tolerance for surface detection
 
         # Get geometry parameters from plan metadata
         metadata = plan.metadata or {}
         design_params = metadata.get("design_parameters", {})
-        outer_diameter = float(design_params.get("outer_diameter_mm", 304.8))
-        outer_radius = outer_diameter / 2.0  # 152.4 mm
-
-        # Stringer notch parameters (from DSL: stringer_width=25.4, stringer_depth=12.7)
-        stringer_width = 25.4  # mm
-        stringer_depth = 12.7  # mm
-
-        # Notches are at 0°, 120°, 240° from +X axis
-        notch_angles_deg = [0.0, 120.0, 240.0]
 
         tdim = domain.topology.dim
         fdim = tdim - 1
 
         for bc_spec in plan.boundary_conditions:
             bc_type = bc_spec.get("type", "fixed")
+            bc_strategy = bc_spec.get("strategy", "z_min")  # Default: fix bottom
 
             if bc_type == "fixed":
-                # Fixed BC: u = 0 at stringer notch locations
-                # Notches are rectangular cutouts at the outer edge
+                if bc_strategy == "stringer_notches":
+                    # Original thrust structure logic
+                    outer_diameter = float(design_params.get("outer_diameter_mm", 304.8))
+                    outer_radius = outer_diameter / 2.0
+                    stringer_width = 25.4  # mm
+                    stringer_depth = 12.7  # mm
+                    notch_angles_deg = [0.0, 120.0, 240.0]
 
-                def stringer_notches(x):
-                    r = np.sqrt(x[0]**2 + x[1]**2)
-                    theta = np.arctan2(x[1], x[0])  # radians
+                    def bc_region(x):
+                        r = np.sqrt(x[0]**2 + x[1]**2)
+                        theta = np.arctan2(x[1], x[0])
+                        near_outer = r >= (outer_radius - stringer_depth * 1.5)
+                        half_angle = (stringer_width / 2.0) / outer_radius * 1.5
+                        in_notch = np.zeros_like(r, dtype=bool)
+                        for angle_deg in notch_angles_deg:
+                            angle_rad = np.radians(angle_deg)
+                            angle_diff = np.abs(np.arctan2(np.sin(theta - angle_rad), np.cos(theta - angle_rad)))
+                            in_notch = in_notch | (angle_diff <= half_angle)
+                        return near_outer & in_notch
 
-                    # Check if point is near outer edge (in notch depth region)
-                    near_outer = r >= (outer_radius - stringer_depth * 1.5)
+                elif bc_strategy == "z_max":
+                    # Fix top surface
+                    def bc_region(x):
+                        return np.isclose(x[2], z_max, atol=z_tol)
 
-                    # Check if point is within angular range of any notch
-                    # Each notch spans approximately ±(stringer_width/2) / outer_radius radians
-                    half_angle = (stringer_width / 2.0) / outer_radius * 1.5  # radians, with tolerance
+                elif bc_strategy == "outer_edge":
+                    # Fix outer radial boundary
+                    x_min, x_max = float(np.min(coords[:, 0])), float(np.max(coords[:, 0]))
+                    y_min, y_max = float(np.min(coords[:, 1])), float(np.max(coords[:, 1]))
+                    r_max = max(abs(x_min), abs(x_max), abs(y_min), abs(y_max))
+                    r_tol = r_max * 0.05
 
-                    in_notch = np.zeros_like(r, dtype=bool)
-                    for angle_deg in notch_angles_deg:
-                        angle_rad = np.radians(angle_deg)
-                        # Handle angle wrapping
-                        angle_diff = np.abs(np.arctan2(np.sin(theta - angle_rad), np.cos(theta - angle_rad)))
-                        in_notch = in_notch | (angle_diff <= half_angle)
+                    def bc_region(x):
+                        r = np.sqrt(x[0]**2 + x[1]**2)
+                        return r >= (r_max - r_tol)
 
-                    return near_outer & in_notch
+                else:  # "z_min" - default
+                    # Fix bottom surface (most common for stand structures)
+                    def bc_region(x):
+                        return np.isclose(x[2], z_min, atol=z_tol)
 
                 boundary_facets = dfx_mesh.locate_entities_boundary(
-                    domain, fdim, stringer_notches
+                    domain, fdim, bc_region
                 )
 
                 if len(boundary_facets) > 0:

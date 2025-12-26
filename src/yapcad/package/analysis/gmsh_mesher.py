@@ -71,6 +71,9 @@ class MeshHints:
         optimize: Whether to optimize mesh quality
         optimize_netgen: Use Netgen optimizer for 3D meshes
         refinement_fields: List of refinement field specifications
+        geometry_tolerance: Tolerance for geometry healing (default 1e-4)
+        recover_3d: If False, skip 3D mesh generation and do 2D only
+        stl_fallback: If True, use STL intermediate format when BREP fails
     """
     element_size: float = 5.0
     min_element_size: Optional[float] = None
@@ -81,6 +84,10 @@ class MeshHints:
     optimize: bool = True
     optimize_netgen: bool = False
     refinement_fields: List[Dict[str, Any]] = field(default_factory=list)
+    geometry_tolerance: float = 1e-4
+    recover_3d: bool = True
+    use_stl: bool = False  # Use STL-based meshing (robust but loses exact geometry)
+    scale_factor: float = 1.0  # Scale geometry for better precision (results scaled back)
 
 
 @dataclass
@@ -126,14 +133,33 @@ class GmshMesher:
         self._physical_groups: Dict[str, PhysicalGroup] = {}
         self._face_map: Dict[int, str] = {}  # Gmsh tag -> name
 
-    def initialize(self) -> None:
-        """Initialize Gmsh (must be called before other operations)."""
+    def initialize(self, verbose: bool = True, geometry_tolerance: float = 0.1) -> None:
+        """Initialize Gmsh (must be called before other operations).
+
+        Args:
+            verbose: If True, enable terminal output for progress monitoring
+            geometry_tolerance: Tolerance for geometry repair operations
+        """
         if self._initialized:
             return
         gmsh.initialize()
         gmsh.model.add(self._model_name)
-        gmsh.option.setNumber("General.Terminal", 0)  # Suppress terminal output
+        # Enable terminal output for progress monitoring
+        gmsh.option.setNumber("General.Terminal", 1 if verbose else 0)
+        gmsh.option.setNumber("General.Verbosity", 5 if verbose else 0)  # Max verbosity
+
+        # Set geometry healing options BEFORE importing geometry
+        gmsh.option.setNumber("Geometry.Tolerance", geometry_tolerance)
+        gmsh.option.setNumber("Geometry.ToleranceBoolean", geometry_tolerance)
+        gmsh.option.setNumber("Geometry.OCCFixDegenerated", 1)
+        gmsh.option.setNumber("Geometry.OCCFixSmallEdges", 1)
+        gmsh.option.setNumber("Geometry.OCCFixSmallFaces", 1)
+        gmsh.option.setNumber("Geometry.OCCSewFaces", 1)
+        gmsh.option.setNumber("Geometry.OCCMakeSolids", 1)
+
         self._initialized = True
+        self._verbose = verbose
+        self._geometry_tolerance = geometry_tolerance
 
     def finalize(self) -> None:
         """Finalize Gmsh and release resources."""
@@ -143,14 +169,14 @@ class GmshMesher:
 
     def __enter__(self) -> "GmshMesher":
         """Context manager entry."""
-        self.initialize()
+        self.initialize(geometry_tolerance=getattr(self, '_geometry_tolerance', 0.1))
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         """Context manager exit."""
         self.finalize()
 
-    def import_solid(self, solid: Any, face_names: Optional[Dict[str, List[int]]] = None) -> List[Tuple[int, int]]:
+    def import_solid(self, solid: Any, face_names: Optional[Dict[str, List[int]]] = None, use_stl: bool = False) -> List[Tuple[int, int]]:
         """Import a yapCAD solid into Gmsh.
 
         This uses Gmsh's OCC integration to import the geometry directly
@@ -159,6 +185,8 @@ class GmshMesher:
         Args:
             solid: yapCAD solid (must have OCC BREP representation)
             face_names: Optional mapping of face names to face indices
+            use_stl: If True, use STL (tessellated) representation which may
+                     be more robust for complex geometries with topology issues
 
         Returns:
             List of (dim, tag) tuples for imported entities
@@ -169,18 +197,196 @@ class GmshMesher:
         # Get OCC shape from yapCAD solid
         occ_shape = self._get_occ_shape(solid)
 
+        if use_stl or getattr(self, '_use_stl', False):
+            return self._import_via_stl(occ_shape)
+
         # Import via temporary BREP file (Gmsh's importShapes needs a file)
         # TODO: Investigate direct OCC shape passing when gmsh Python API supports it
         with tempfile.NamedTemporaryFile(suffix=".brep", delete=False) as tmp:
             tmp_path = Path(tmp.name)
 
         try:
+            # Apply OCC healing before export only if tolerance is large enough
+            tol = getattr(self, '_geometry_tolerance', 0.1)
+            if tol >= 0.01:  # Only heal if tolerance >= 0.01mm
+                if getattr(self, '_verbose', False):
+                    print(f"   Meshing: healing OCC shape (tol={tol})...", flush=True)
+
+                try:
+                    from OCC.Core.ShapeFix import ShapeFix_Shape, ShapeFix_Solid
+
+                    # Fix the shape
+                    fixer = ShapeFix_Shape(occ_shape)
+                    fixer.SetPrecision(tol)
+                    fixer.SetMaxTolerance(tol * 10)
+                    fixer.SetMinTolerance(tol / 10)
+                    fixer.Perform()
+                    fixed_shape = fixer.Shape()
+
+                    # Additional solid-specific fixing if applicable
+                    from OCC.Core.TopAbs import TopAbs_SOLID
+                    if fixed_shape.ShapeType() == TopAbs_SOLID:
+                        try:
+                            solid_fixer = ShapeFix_Solid(fixed_shape)
+                            solid_fixer.SetPrecision(tol)
+                            solid_fixer.Perform()
+                            fixed_shape = solid_fixer.Solid()
+                        except Exception:
+                            pass  # Skip if solid fixing fails
+
+                    occ_shape = fixed_shape
+                    if getattr(self, '_verbose', False):
+                        print("   Meshing: OCC shape healed", flush=True)
+
+                except Exception as occ_heal_err:
+                    if getattr(self, '_verbose', False):
+                        print(f"   Meshing: OCC healing skipped: {occ_heal_err}", flush=True)
+            else:
+                if getattr(self, '_verbose', False):
+                    print(f"   Meshing: skipping OCC healing (tol={tol} < 0.01)", flush=True)
+
+            # Optionally scale geometry for better numerical precision
+            scale_factor = getattr(self, '_scale_factor', 1.0)
+            if scale_factor != 1.0:
+                if getattr(self, '_verbose', False):
+                    print(f"   Meshing: scaling geometry by {scale_factor}x...", flush=True)
+                from OCC.Core.gp import gp_Trsf, gp_Pnt
+                from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
+                trsf = gp_Trsf()
+                trsf.SetScale(gp_Pnt(0, 0, 0), scale_factor)
+                transformer = BRepBuilderAPI_Transform(occ_shape, trsf, True)
+                transformer.Build()
+                occ_shape = transformer.Shape()
+
+            # If shape is a COMPOUND with multiple SOLIDs, fuse them into a single solid
+            # This ensures Gmsh imports a proper volume instead of loose surfaces
+            try:
+                from OCC.Core.TopAbs import TopAbs_COMPOUND, TopAbs_SOLID
+                from OCC.Core.TopExp import TopExp_Explorer
+                from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Fuse
+                from OCC.Core.TopoDS import topods
+
+                if occ_shape.ShapeType() == TopAbs_COMPOUND:
+                    # Count and collect solids
+                    solids = []
+                    exp = TopExp_Explorer(occ_shape, TopAbs_SOLID)
+                    while exp.More():
+                        solids.append(topods.Solid(exp.Current()))
+                        exp.Next()
+
+                    if len(solids) > 1:
+                        if getattr(self, '_verbose', False):
+                            print(f"   Meshing: fusing {len(solids)} solids into single body...", flush=True)
+
+                        # Fuse all solids together
+                        result = solids[0]
+                        for i, s in enumerate(solids[1:], 1):
+                            try:
+                                fuser = BRepAlgoAPI_Fuse(result, s)
+                                fuser.SetFuzzyValue(tol)
+                                fuser.Build()
+                                if fuser.IsDone():
+                                    result = fuser.Shape()
+                            except Exception as fuse_err:
+                                if getattr(self, '_verbose', False):
+                                    print(f"   Meshing: fuse {i} warning: {fuse_err}", flush=True)
+
+                        occ_shape = result
+                        if getattr(self, '_verbose', False):
+                            print("   Meshing: solids fused successfully", flush=True)
+            except Exception as fuse_err:
+                if getattr(self, '_verbose', False):
+                    print(f"   Meshing: solid fusion skipped: {fuse_err}", flush=True)
+
             # Write OCC shape to BREP file
+            if getattr(self, '_verbose', False):
+                print("   Meshing: exporting geometry to BREP...", flush=True)
             breptools.Write(occ_shape, str(tmp_path))
 
             # Import into Gmsh via OCC kernel
+            if getattr(self, '_verbose', False):
+                print("   Meshing: importing geometry into Gmsh...", flush=True)
             entities = gmsh.model.occ.importShapes(str(tmp_path))
+
+            # Heal and repair geometry topology only if tolerance is large enough
+            if tol >= 0.01:
+                if getattr(self, '_verbose', False):
+                    print("   Meshing: healing geometry in Gmsh...", flush=True)
+                try:
+                    # Remove small edges and faces that cause meshing issues
+                    gmsh.model.occ.healShapes(
+                        dimTags=[],
+                        tolerance=tol,
+                        fixDegenerated=True,
+                        fixSmallEdges=True,
+                        fixSmallFaces=True,
+                        sewFaces=True,
+                        makeSolids=True
+                    )
+                except Exception as heal_err:
+                    if getattr(self, '_verbose', False):
+                        print(f"   Meshing: heal warning: {heal_err}", flush=True)
+            else:
+                if getattr(self, '_verbose', False):
+                    print("   Meshing: skipping Gmsh healing (small tolerance)", flush=True)
+
             gmsh.model.occ.synchronize()
+
+            # Remove duplicate entities (internal faces from fused solids)
+            try:
+                gmsh.model.occ.removeAllDuplicates()
+                gmsh.model.occ.synchronize()
+            except Exception as dup_err:
+                if getattr(self, '_verbose', False):
+                    print(f"   Meshing: removeAllDuplicates warning: {dup_err}", flush=True)
+
+            if getattr(self, '_verbose', False):
+                print(f"   Meshing: imported {len(entities)} entities", flush=True)
+
+            # Check if we have volumes - if not, try to create them from surfaces
+            # This handles cases where healShapes "Could not make solid" during BREP import
+            volumes = gmsh.model.getEntities(dim=3)
+            if not volumes:
+                surfaces = gmsh.model.getEntities(dim=2)
+                if surfaces:
+                    if getattr(self, '_verbose', False):
+                        print(f"   Meshing: no volumes found, creating from {len(surfaces)} surfaces...", flush=True)
+
+                    # Use healShapes with makeSolids to try creating volumes from the surface shells
+                    try:
+                        surface_tags = [(2, s[1]) for s in surfaces]
+                        gmsh.model.occ.healShapes(
+                            dimTags=surface_tags,
+                            tolerance=max(tol, 0.1),  # Use at least 0.1mm tolerance for solid creation
+                            fixDegenerated=True,
+                            fixSmallEdges=True,
+                            fixSmallFaces=True,
+                            sewFaces=True,
+                            makeSolids=True
+                        )
+                        gmsh.model.occ.synchronize()
+                        volumes = gmsh.model.getEntities(dim=3)
+                        if volumes:
+                            if getattr(self, '_verbose', False):
+                                print(f"   Meshing: healShapes created {len(volumes)} volume(s)", flush=True)
+                    except Exception as heal_err:
+                        if getattr(self, '_verbose', False):
+                            print(f"   Meshing: healShapes for volumes failed: {heal_err}", flush=True)
+
+                    # If healShapes didn't create volumes, try single surface loop approach
+                    if not volumes:
+                        try:
+                            surfaces = gmsh.model.getEntities(dim=2)
+                            surface_tags = [s[1] for s in surfaces]
+                            sl = gmsh.model.occ.addSurfaceLoop(surface_tags)
+                            vol = gmsh.model.occ.addVolume([sl])
+                            gmsh.model.occ.synchronize()
+                            volumes = gmsh.model.getEntities(dim=3)
+                            if getattr(self, '_verbose', False):
+                                print(f"   Meshing: created {len(volumes)} volume(s) from surface loop", flush=True)
+                        except Exception as vol_err:
+                            if getattr(self, '_verbose', False):
+                                print(f"   Meshing: surface loop volume creation failed: {vol_err}", flush=True)
 
         finally:
             tmp_path.unlink(missing_ok=True)
@@ -195,6 +401,82 @@ class GmshMesher:
                         self._face_map[faces[idx][1]] = name
 
         return entities
+
+    def _import_via_stl(self, occ_shape: "TopoDS_Shape") -> List[Tuple[int, int]]:
+        """Import geometry via STL tessellation (bypasses BREP topology issues).
+
+        Uses Gmsh's discrete model capabilities to mesh from triangulated surfaces.
+        """
+        from OCC.Core.StlAPI import stlapi
+        from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
+
+        if getattr(self, '_verbose', False):
+            print("   Meshing: tessellating geometry to STL...", flush=True)
+
+        # Tessellate the shape with finer resolution for FEA
+        tol = getattr(self, '_geometry_tolerance', 0.1)
+        linear_deflection = tol  # Linear deviation tolerance
+        angular_deflection = 0.25  # Angular deviation in radians (~14 degrees)
+        mesh = BRepMesh_IncrementalMesh(occ_shape, linear_deflection, False, angular_deflection, True)
+        mesh.Perform()
+
+        # Export to STL
+        with tempfile.NamedTemporaryFile(suffix=".stl", delete=False) as tmp:
+            stl_path = Path(tmp.name)
+
+        try:
+            stlapi.Write(occ_shape, str(stl_path))
+
+            if getattr(self, '_verbose', False):
+                print("   Meshing: importing STL into Gmsh...", flush=True)
+
+            # Import STL using merge which creates surface triangulation
+            gmsh.merge(str(stl_path))
+
+            # Create topology from the imported mesh
+            if getattr(self, '_verbose', False):
+                print("   Meshing: creating volume from STL surface...", flush=True)
+
+            # Create edges and surfaces from the triangulation
+            angle_deg = 40  # Feature angle threshold in degrees
+            gmsh.model.mesh.classifySurfaces(
+                angle_deg * 3.14159265 / 180.0,  # angle
+                True,  # includeBoundary
+                False,  # forceParametrizablePatches
+                180 * 3.14159265 / 180.0  # curveAngle (don't split based on curves)
+            )
+
+            # Create discrete model geometry from the classified mesh
+            gmsh.model.mesh.createGeometry()
+
+            # Get the surfaces from the discrete model
+            surfaces = gmsh.model.getEntities(dim=2)
+            if getattr(self, '_verbose', False):
+                print(f"   Meshing: classified into {len(surfaces)} discrete surfaces", flush=True)
+
+            if surfaces:
+                # Create a surface filling to get a closed volume
+                surface_tags = [s[1] for s in surfaces]
+
+                # Add a discrete surface loop
+                sl = gmsh.model.geo.addSurfaceLoop(surface_tags)
+                vol = gmsh.model.geo.addVolume([sl])
+                gmsh.model.geo.synchronize()
+
+                if getattr(self, '_verbose', False):
+                    print(f"   Meshing: created volume entity", flush=True)
+
+            entities = gmsh.model.getEntities()
+            if getattr(self, '_verbose', False):
+                dim_counts = {}
+                for dim, _ in entities:
+                    dim_counts[dim] = dim_counts.get(dim, 0) + 1
+                print(f"   Meshing: final entities: {dim_counts}", flush=True)
+
+            return entities
+
+        finally:
+            stl_path.unlink(missing_ok=True)
 
     def import_step(self, step_path: Path) -> List[Tuple[int, int]]:
         """Import geometry from a STEP file.
@@ -292,6 +574,21 @@ class GmshMesher:
 
         hints = hints or MeshHints()
 
+        # Apply geometry tolerance for healing problematic geometry
+        gmsh.option.setNumber("Geometry.Tolerance", hints.geometry_tolerance)
+        gmsh.option.setNumber("Geometry.ToleranceBoolean", hints.geometry_tolerance)
+        gmsh.option.setNumber("Geometry.OCCFixDegenerated", 1)
+        gmsh.option.setNumber("Geometry.OCCFixSmallEdges", 1)
+        gmsh.option.setNumber("Geometry.OCCFixSmallFaces", 1)
+        gmsh.option.setNumber("Geometry.OCCSewFaces", 1)
+        gmsh.option.setNumber("Geometry.OCCMakeSolids", 1)
+        # More tolerant curve recovery during meshing
+        gmsh.option.setNumber("Mesh.ToleranceEdgeLength", hints.geometry_tolerance * 10)
+        gmsh.option.setNumber("Mesh.ToleranceInitialDelaunay", hints.geometry_tolerance * 100)
+        # Allow meshing to proceed even with small topology issues
+        gmsh.option.setNumber("Mesh.AngleToleranceFacetOverlap", 0.5)
+        gmsh.option.setNumber("Mesh.AllowSwapAngle", 90)
+
         # Apply mesh size options
         gmsh.option.setNumber("Mesh.CharacteristicLengthMin",
                              hints.min_element_size or hints.element_size * 0.1)
@@ -324,18 +621,37 @@ class GmshMesher:
         entities = gmsh.model.getEntities(0)  # vertices
         gmsh.model.mesh.setSize(entities, hints.element_size)
 
-        # Generate mesh
-        gmsh.model.mesh.generate(dim)
+        # Determine actual dimension to mesh
+        actual_dim = dim
+        if not hints.recover_3d and dim == 3:
+            if getattr(self, '_verbose', False):
+                print("   Meshing: recover_3d=False, generating 2D surface mesh only", flush=True)
+            actual_dim = 2
+
+        # Generate mesh with progress indication
+        if getattr(self, '_verbose', False):
+            print(f"   Meshing: generating {actual_dim}D mesh (element size={hints.element_size}mm)...", flush=True)
+
+        gmsh.model.mesh.generate(actual_dim)
+
+        if getattr(self, '_verbose', False):
+            print(f"   Meshing: {actual_dim}D mesh generation complete", flush=True)
 
         # Optimize if requested
         if hints.optimize:
+            if getattr(self, '_verbose', False):
+                print("   Meshing: optimizing 2D mesh...", flush=True)
             gmsh.model.mesh.optimize("Relocate2D")
-            if dim == 3:
+            if actual_dim == 3:
+                if getattr(self, '_verbose', False):
+                    print("   Meshing: optimizing 3D mesh...", flush=True)
                 # Use Netgen if requested, otherwise basic 3D relocation
                 if hints.optimize_netgen:
                     gmsh.model.mesh.optimize("Netgen")
                 else:
                     gmsh.model.mesh.optimize("Relocate3D")
+            if getattr(self, '_verbose', False):
+                print("   Meshing: optimization complete", flush=True)
 
     def _apply_refinement_field(self, field_id: int, spec: Dict[str, Any]) -> None:
         """Apply a mesh refinement field."""
