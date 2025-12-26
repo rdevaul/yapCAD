@@ -184,6 +184,21 @@ class BuiltinRegistry:
         def _tau() -> Value:
             return float_val(math.tau)
 
+        def _exp(x: Value) -> Value:
+            # Clamp to avoid overflow
+            val = x.data
+            if val > 700:
+                val = 700
+            elif val < -700:
+                val = -700
+            return float_val(math.exp(val))
+
+        def _log(x: Value) -> Value:
+            return float_val(math.log(x.data))
+
+        def _log10(x: Value) -> Value:
+            return float_val(math.log10(x.data))
+
         # Register math functions
         math_funcs = [
             ("sin", [FLOAT], FLOAT, _sin),
@@ -201,6 +216,9 @@ class BuiltinRegistry:
             ("pow", [FLOAT, FLOAT], FLOAT, _pow),
             ("radians", [FLOAT], FLOAT, _radians),
             ("degrees", [FLOAT], FLOAT, _degrees),
+            ("exp", [FLOAT], FLOAT, _exp),
+            ("log", [FLOAT], FLOAT, _log),
+            ("log10", [FLOAT], FLOAT, _log10),
         ]
 
         for name, param_types, return_type, impl in math_funcs:
@@ -1316,6 +1334,27 @@ class BuiltinRegistry:
             from yapcad.geom3d_util import sphere
             return solid_val(sphere(radius.data))
 
+        def _oblate_spheroid(equatorial_diameter: Value, oblateness: Value) -> Value:
+            """Create an oblate spheroid (flattened sphere).
+
+            An oblate spheroid has equal X and Y radii (equatorial) and a smaller
+            Z radius (polar). The oblateness parameter controls the flattening:
+            0 = perfect sphere, higher values = more flattened.
+
+            For reference:
+            - Earth's oblateness: ~0.00335
+            - Mars' oblateness: ~0.00648
+
+            Args:
+                equatorial_diameter: diameter at the equator (X and Y)
+                oblateness: geometric flattening (0-1, typically small like 0.006)
+
+            Returns:
+                A solid oblate spheroid centered at origin with polar axis along Z
+            """
+            from yapcad.geom3d_util import oblate_spheroid
+            return solid_val(oblate_spheroid(equatorial_diameter.data, oblateness.data))
+
         def _cone(radius1: Value, radius2: Value, height: Value) -> Value:
             """Create a cone/frustum solid using conic."""
             from yapcad.geom3d_util import conic
@@ -1388,6 +1427,11 @@ class BuiltinRegistry:
             "sphere",
             _make_sig("sphere", [FLOAT], SOLID),
             _sphere,
+        ))
+        self.register(BuiltinFunction(
+            "oblate_spheroid",
+            _make_sig("oblate_spheroid", [FLOAT, FLOAT], SOLID),
+            _oblate_spheroid,
         ))
         self.register(BuiltinFunction(
             "cone",
@@ -1621,6 +1665,68 @@ class BuiltinRegistry:
                 result = solid_boolean(result, operands[i], 'intersection')
             return solid_val(result)
 
+        def _compound(*args: Value) -> Value:
+            """Create a compound of multiple solids without boolean operations.
+
+            Unlike union(), this does NOT merge the solids - they remain as
+            separate bodies in a compound shape. Useful for assemblies where
+            you want to export multiple parts together without merging them.
+
+            Args:
+                *args: One or more solids to combine into a compound
+
+            Returns:
+                A solid containing all input solids as separate bodies
+            """
+            from yapcad.brep import occ_available, BrepSolid, attach_brep_to_solid, brep_from_solid
+            from yapcad.geom3d import solid
+
+            if len(args) == 1 and isinstance(args[0].type, ListType):
+                operands = args[0].data
+            else:
+                operands = [a.data for a in args]
+
+            if len(operands) == 0:
+                raise ValueError("compound requires at least one solid")
+
+            # Collect all surfaces from all solids for the mesh representation
+            all_surfaces = []
+            for op in operands:
+                if len(op) > 1 and op[1]:
+                    all_surfaces.extend(op[1])
+
+            # Create result solid with combined surfaces
+            result = solid(all_surfaces, [], ['procedure', 'compound'])
+
+            # If OCC available, create a proper compound shape
+            if occ_available():
+                try:
+                    from OCC.Core.TopoDS import TopoDS_Compound
+                    from OCC.Core.BRep import BRep_Builder
+                    from OCC.Core.TopExp import TopExp_Explorer
+                    from OCC.Core.TopAbs import TopAbs_SOLID
+                    from OCC.Core.TopoDS import topods
+
+                    compound = TopoDS_Compound()
+                    builder = BRep_Builder()
+                    builder.MakeCompound(compound)
+
+                    # Add each solid's BREP to the compound
+                    for op in operands:
+                        brep = brep_from_solid(op)
+                        if brep is not None and brep.shape is not None:
+                            # Extract all solids from this operand
+                            exp = TopExp_Explorer(brep.shape, TopAbs_SOLID)
+                            while exp.More():
+                                builder.Add(compound, exp.Current())
+                                exp.Next()
+
+                    attach_brep_to_solid(result, BrepSolid(compound))
+                except Exception:
+                    pass
+
+            return solid_val(result)
+
         # Boolean operations
         self.register(BuiltinFunction(
             "union",
@@ -1636,6 +1742,11 @@ class BuiltinRegistry:
             "intersection",
             _make_sig("intersection", [SOLID], SOLID, is_variadic=True),
             _intersection,
+        ))
+        self.register(BuiltinFunction(
+            "compound",
+            _make_sig("compound", [SOLID], SOLID, is_variadic=True),
+            _compound,
         ))
 
     # --- Query Functions ---

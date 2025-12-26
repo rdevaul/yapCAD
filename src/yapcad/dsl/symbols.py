@@ -402,6 +402,11 @@ class SymbolTable:
             ("radius", FLOAT, None),
         ], SOLID)
 
+        self._register_builtin("oblate_spheroid", [
+            ("equatorial_diameter", FLOAT, None),
+            ("oblateness", FLOAT, None),
+        ], SOLID)
+
         self._register_builtin("cone", [
             ("radius1", FLOAT, None),
             ("radius2", FLOAT, None),
@@ -428,6 +433,11 @@ class SymbolTable:
         ], SOLID, is_variadic=True)
 
         self._register_builtin("intersection", [
+            ("a", SOLID, None),
+            ("b", SOLID, None),
+        ], SOLID, is_variadic=True)
+
+        self._register_builtin("compound", [
             ("a", SOLID, None),
             ("b", SOLID, None),
         ], SOLID, is_variadic=True)
@@ -494,6 +504,9 @@ class SymbolTable:
         self._register_builtin("ceil", [("x", FLOAT, None)], INT)
         self._register_builtin("round", [("x", FLOAT, None)], INT)
         self._register_builtin("pow", [("base", FLOAT, None), ("exp", FLOAT, None)], FLOAT)
+        self._register_builtin("exp", [("x", FLOAT, None)], FLOAT)
+        self._register_builtin("log", [("x", FLOAT, None)], FLOAT)
+        self._register_builtin("log10", [("x", FLOAT, None)], FLOAT)
         self._register_builtin("pi", [], FLOAT)  # Constant: pi
         self._register_builtin("tau", [], FLOAT)  # Constant: tau (2*pi)
 

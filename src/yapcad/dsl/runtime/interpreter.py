@@ -620,12 +620,30 @@ class Interpreter:
         """Call a command as a function from within another command."""
         # Build parameters dict from args
         param_dict = {}
-        if len(args) != len(command.parameters):
-            raise RuntimeError(
-                f"Command '{command.name}' expects {len(command.parameters)} arguments, got {len(args)}"
-            )
+
+        # Count required parameters (those without defaults)
+        required_count = sum(1 for p in command.parameters if p.default_value is None)
+
+        if len(args) < required_count or len(args) > len(command.parameters):
+            if required_count == len(command.parameters):
+                raise RuntimeError(
+                    f"Command '{command.name}' expects {len(command.parameters)} arguments, got {len(args)}"
+                )
+            else:
+                raise RuntimeError(
+                    f"Command '{command.name}' expects {required_count}-{len(command.parameters)} arguments, got {len(args)}"
+                )
+
+        # Assign provided arguments
         for param, arg in zip(command.parameters, args):
             param_dict[param.name] = arg
+
+        # Fill in default values for missing parameters
+        for i in range(len(args), len(command.parameters)):
+            param = command.parameters[i]
+            if param.default_value is not None:
+                default_val = self._evaluate(param.default_value, parent_ctx)
+                param_dict[param.name] = default_val
 
         # Create a new context for the command execution
         module_name = self.current_module.name if self.current_module else "unknown"
