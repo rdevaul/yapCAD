@@ -18,7 +18,7 @@ from .ast import (
     ElifBranch,
     Expression, Literal, Identifier, BinaryOp, UnaryOp,
     FunctionCall, MethodCall, MemberAccess, IndexAccess,
-    ListLiteral, ListComprehension, RangeExpr, IfExpr, MatchExpr,
+    ListLiteral, ListComprehension, RangeExpr, ConditionalExpr, IfExpr, MatchExpr,
     MatchArm, Pattern, LiteralPattern, IdentifierPattern, WildcardPattern,
     LambdaExpr, PythonExpr, DictLiteral,
     TypeNode, SimpleType, GenericType, OptionalType as AstOptionalType,
@@ -528,6 +528,8 @@ class TypeChecker:
             return self._check_list_comprehension(expr)
         elif isinstance(expr, RangeExpr):
             return self._check_range_expr(expr)
+        elif isinstance(expr, ConditionalExpr):
+            return self._check_conditional_expr(expr)
         elif isinstance(expr, IfExpr):
             return self._check_if_expr(expr)
         elif isinstance(expr, MatchExpr):
@@ -950,6 +952,33 @@ class TypeChecker:
             )
 
         return make_list_type(INT)
+
+    def _check_conditional_expr(self, expr: ConditionalExpr) -> Type:
+        """Check a ternary conditional expression (e.g., x if cond else y)."""
+        cond_type = self._check_expression(expr.condition)
+        if cond_type != BOOL and cond_type != ERROR:
+            self._error(
+                f"Conditional expression requires boolean condition, got '{cond_type}'",
+                expr.condition.span,
+                "E310"
+            )
+
+        true_type = self._check_expression(expr.true_branch)
+        false_type = self._check_expression(expr.false_branch)
+
+        # Both branches must have compatible types
+        if true_type != ERROR and false_type != ERROR:
+            ct = common_type(true_type, false_type)
+            if ct is None and true_type != false_type:
+                self._error(
+                    f"Conditional branches have incompatible types: '{true_type}' and '{false_type}'",
+                    expr.span,
+                    "E311"
+                )
+                return true_type  # Return first branch type as fallback
+            return ct if ct is not None else true_type
+
+        return true_type if true_type != ERROR else false_type
 
     def _check_if_expr(self, expr: IfExpr) -> Type:
         """Check an if expression."""

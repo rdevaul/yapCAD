@@ -26,7 +26,7 @@ from ..ast import (
     Expression, Literal, Identifier, BinaryOp, UnaryOp,
     FunctionCall, MethodCall, MemberAccess, IndexAccess,
     ListLiteral, ListComprehension, RangeExpr, DictLiteral,
-    IfExpr, MatchExpr, MatchArm, LambdaExpr, PythonExpr,
+    ConditionalExpr, IfExpr, MatchExpr, MatchArm, LambdaExpr, PythonExpr,
     Pattern, LiteralPattern, IdentifierPattern, WildcardPattern,
 )
 from ..types import (
@@ -469,6 +469,8 @@ class Interpreter:
             return self._eval_range(expr, ctx)
         elif isinstance(expr, DictLiteral):
             return self._eval_dict_literal(expr, ctx)
+        elif isinstance(expr, ConditionalExpr):
+            return self._eval_conditional_expr(expr, ctx)
         elif isinstance(expr, IfExpr):
             return self._eval_if_expr(expr, ctx)
         elif isinstance(expr, MatchExpr):
@@ -787,6 +789,17 @@ class Interpreter:
         for key, value_expr in dct.entries.items():
             result[key] = self._evaluate(value_expr, ctx)
         return dict_val(result)
+
+    def _eval_conditional_expr(self, expr: ConditionalExpr, ctx: ExecutionContext) -> Value:
+        """Evaluate a ternary conditional expression (e.g., x if cond else y).
+
+        Short-circuits: only evaluates the selected branch.
+        """
+        condition = self._evaluate(expr.condition, ctx)
+        if condition.is_truthy():
+            return self._evaluate(expr.true_branch, ctx)
+        else:
+            return self._evaluate(expr.false_branch, ctx)
 
     def _eval_if_expr(self, if_expr: IfExpr, ctx: ExecutionContext) -> Value:
         """Evaluate an if expression."""

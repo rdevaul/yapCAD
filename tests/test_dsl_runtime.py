@@ -968,3 +968,250 @@ class TestDXFExport:
             msp = doc.modelspace()
             line_count = len(list(msp.query('LINE')))
             assert line_count == 28  # 4 + 24
+
+
+# --- Conditional Expression Tests ---
+
+class TestConditionalExpressions:
+    """Test ternary conditional expression support."""
+
+    def test_conditional_true_branch(self):
+        """Test conditional expression selects true branch."""
+        source = """
+        module test;
+        command COND_TEST(flag: bool) -> float {
+            let result: float = 10.0 if flag else 20.0;
+            emit result;
+        }
+        """
+        tokens = tokenize(textwrap.dedent(source))
+        module = parse(tokens)
+        result = check(module)
+        assert not result.has_errors
+
+        interpreter = Interpreter()
+        exec_result = interpreter.execute(
+            module,
+            "COND_TEST",
+            {"flag": True},
+            source=source,
+        )
+
+        assert exec_result.success
+        assert exec_result.geometry == 10.0
+
+    def test_conditional_false_branch(self):
+        """Test conditional expression selects false branch."""
+        source = """
+        module test;
+        command COND_TEST(flag: bool) -> float {
+            let result: float = 10.0 if flag else 20.0;
+            emit result;
+        }
+        """
+        tokens = tokenize(textwrap.dedent(source))
+        module = parse(tokens)
+
+        interpreter = Interpreter()
+        exec_result = interpreter.execute(
+            module,
+            "COND_TEST",
+            {"flag": False},
+            source=source,
+        )
+
+        assert exec_result.success
+        assert exec_result.geometry == 20.0
+
+    def test_conditional_with_comparison(self):
+        """Test conditional expression with comparison condition."""
+        source = """
+        module test;
+        command THRESHOLD(value: float) -> float {
+            let result: float = 100.0 if value > 50.0 else 0.0;
+            emit result;
+        }
+        """
+        tokens = tokenize(textwrap.dedent(source))
+        module = parse(tokens)
+        result = check(module)
+        assert not result.has_errors
+
+        interpreter = Interpreter()
+
+        # Above threshold
+        exec_result = interpreter.execute(
+            module,
+            "THRESHOLD",
+            {"value": 75.0},
+            source=source,
+        )
+        assert exec_result.success
+        assert exec_result.geometry == 100.0
+
+        # Below threshold
+        exec_result = interpreter.execute(
+            module,
+            "THRESHOLD",
+            {"value": 25.0},
+            source=source,
+        )
+        assert exec_result.success
+        assert exec_result.geometry == 0.0
+
+    def test_conditional_nested(self):
+        """Test nested (chained) conditional expressions."""
+        source = """
+        module test;
+        command GRADE(score: float) -> string {
+            let grade: string = "A" if score >= 90.0 else ("B" if score >= 80.0 else "C");
+            emit grade;
+        }
+        """
+        tokens = tokenize(textwrap.dedent(source))
+        module = parse(tokens)
+        result = check(module)
+        assert not result.has_errors
+
+        interpreter = Interpreter()
+
+        # A grade
+        exec_result = interpreter.execute(
+            module,
+            "GRADE",
+            {"score": 95.0},
+            source=source,
+        )
+        assert exec_result.success
+        assert exec_result.geometry == "A"
+
+        # B grade
+        exec_result = interpreter.execute(
+            module,
+            "GRADE",
+            {"score": 85.0},
+            source=source,
+        )
+        assert exec_result.success
+        assert exec_result.geometry == "B"
+
+        # C grade
+        exec_result = interpreter.execute(
+            module,
+            "GRADE",
+            {"score": 70.0},
+            source=source,
+        )
+        assert exec_result.success
+        assert exec_result.geometry == "C"
+
+    def test_conditional_in_expression(self):
+        """Test conditional expression used inline in arithmetic."""
+        source = """
+        module test;
+        command CALC(value: float, use_metric: bool) -> float {
+            let factor: float = 1.0 if use_metric else 25.4;
+            let result: float = value * factor;
+            emit result;
+        }
+        """
+        tokens = tokenize(textwrap.dedent(source))
+        module = parse(tokens)
+        result = check(module)
+        assert not result.has_errors
+
+        interpreter = Interpreter()
+
+        # Metric
+        exec_result = interpreter.execute(
+            module,
+            "CALC",
+            {"value": 10.0, "use_metric": True},
+            source=source,
+        )
+        assert exec_result.success
+        assert abs(exec_result.geometry - 10.0) < 0.001
+
+        # Imperial
+        exec_result = interpreter.execute(
+            module,
+            "CALC",
+            {"value": 10.0, "use_metric": False},
+            source=source,
+        )
+        assert exec_result.success
+        assert abs(exec_result.geometry - 254.0) < 0.001
+
+    def test_conditional_with_geometry(self):
+        """Test conditional expression selecting geometry."""
+        from yapcad.geom3d import issolid, volumeof
+
+        source = """
+        module test;
+        command MAKE_SHAPE(use_cube: bool, size: float) -> solid {
+            let shape: solid = box(size, size, size) if use_cube else cylinder(size/2.0, size);
+            emit shape;
+        }
+        """
+        tokens = tokenize(textwrap.dedent(source))
+        module = parse(tokens)
+        result = check(module)
+        assert not result.has_errors
+
+        interpreter = Interpreter()
+
+        # Cube: volume = size^3 = 1000
+        exec_result = interpreter.execute(
+            module,
+            "MAKE_SHAPE",
+            {"use_cube": True, "size": 10.0},
+            source=source,
+        )
+        assert exec_result.success
+        assert issolid(exec_result.geometry)
+        assert abs(volumeof(exec_result.geometry) - 1000.0) < 1.0
+
+        # Cylinder: volume = pi * r^2 * h = pi * 25 * 10 ~ 785.4
+        exec_result = interpreter.execute(
+            module,
+            "MAKE_SHAPE",
+            {"use_cube": False, "size": 10.0},
+            source=source,
+        )
+        assert exec_result.success
+        assert issolid(exec_result.geometry)
+        expected_vol = math.pi * 25.0 * 10.0
+        # Mesh approximation can have ~1% error
+        assert abs(volumeof(exec_result.geometry) - expected_vol) < expected_vol * 0.01
+
+    def test_conditional_type_error_condition(self):
+        """Test that non-boolean condition raises type error."""
+        source = """
+        module test;
+        command BAD_COND(x: int) -> float {
+            let result: float = 1.0 if x else 2.0;
+            emit result;
+        }
+        """
+        tokens = tokenize(textwrap.dedent(source))
+        module = parse(tokens)
+        result = check(module)
+        # Should have an error about condition type
+        assert result.has_errors
+        error_msgs = [d.message for d in result.diagnostics]
+        assert any("boolean" in msg.lower() for msg in error_msgs)
+
+    def test_conditional_type_error_branches(self):
+        """Test that incompatible branch types raise type error."""
+        source = """
+        module test;
+        command BAD_TYPES(flag: bool) -> float {
+            let result: float = 1.0 if flag else "nope";
+            emit result;
+        }
+        """
+        tokens = tokenize(textwrap.dedent(source))
+        module = parse(tokens)
+        result = check(module)
+        # Should have an error about incompatible types
+        assert result.has_errors

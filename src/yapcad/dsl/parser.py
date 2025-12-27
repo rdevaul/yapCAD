@@ -13,7 +13,7 @@ from .ast import (
     # Expressions
     Expression, Literal, Identifier, BinaryOp, UnaryOp,
     FunctionCall, MethodCall, MemberAccess, IndexAccess,
-    ListLiteral, ListComprehension, RangeExpr, IfExpr, MatchExpr,
+    ListLiteral, ListComprehension, RangeExpr, ConditionalExpr, IfExpr, MatchExpr,
     MatchArm, Pattern, LiteralPattern, IdentifierPattern, WildcardPattern,
     LambdaExpr, PythonExpr, DictLiteral, ElifBranch,
     # Statements
@@ -222,8 +222,54 @@ class Parser:
     # =========================================================================
 
     def _parse_expression(self) -> Expression:
-        """Parse an expression."""
-        return self._parse_binary_expr(0)
+        """Parse an expression.
+
+        Handles ternary conditional expressions at the lowest precedence:
+            value if condition else other_value
+        """
+        return self._parse_conditional_expr()
+
+    def _parse_conditional_expr(self) -> Expression:
+        """Parse a conditional expression (ternary if-else).
+
+        Syntax: expr if condition else expr
+
+        This has the lowest precedence of all expression forms.
+        """
+        # Parse the true branch (what comes before 'if')
+        true_branch = self._parse_binary_expr(0)
+
+        # Check for 'if' keyword indicating ternary conditional
+        if not self._check(TokenType.IF):
+            return true_branch
+
+        # Don't consume 'if' if followed by ':' (that's a block-level if statement)
+        # In expression context, we're looking for: expr if cond else expr
+        # Save position to backtrack if this is actually a block if
+        saved_pos = self.pos
+        self._advance()  # consume 'if'
+
+        # Parse the condition
+        condition = self._parse_binary_expr(0)
+
+        # Must have 'else' for ternary conditional
+        if not self._check(TokenType.ELSE):
+            # This might be a list comprehension 'if' or something else
+            # Backtrack and return just the first expression
+            self.pos = saved_pos
+            return true_branch
+
+        self._advance()  # consume 'else'
+
+        # Parse the false branch (recursively to allow chaining)
+        false_branch = self._parse_conditional_expr()
+
+        return ConditionalExpr(
+            span=SourceSpan(true_branch.span.start, false_branch.span.end),
+            condition=condition,
+            true_branch=true_branch,
+            false_branch=false_branch
+        )
 
     def _parse_binary_expr(self, min_precedence: int) -> Expression:
         """Parse binary expressions with precedence climbing."""

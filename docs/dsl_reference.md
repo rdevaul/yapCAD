@@ -524,6 +524,50 @@ else:
     # body
 ```
 
+### Conditional Expressions (Ternary)
+
+The DSL supports Python-style conditional expressions for inline value selection:
+
+```python
+# Basic syntax: value_if_true if condition else value_if_false
+result: float = 10.0 if use_metric else 25.4 * value
+
+# With comparison
+status: string = "hot" if temperature > 100.0 else "cold"
+
+# Nested (chained) conditionals
+grade: string = "A" if score >= 90.0 else ("B" if score >= 80.0 else "C")
+
+# Selecting geometry
+shape: solid = box(10.0, 10.0, 10.0) if use_cube else cylinder(5.0, 10.0)
+```
+
+Conditional expressions are useful for:
+- Selecting between two values based on a boolean parameter
+- Unit conversion (metric vs imperial)
+- Choosing geometry based on configuration
+- Inline computation without separate if/else blocks
+
+**Note:** Both branches must have compatible types, and the condition must be a boolean.
+
+### List Comprehensions
+
+Create lists using comprehension syntax:
+
+```python
+# Map: transform each element
+squares: list<float> = [x * x for x in values]
+
+# Generate from range
+angles: list<float> = [i * 30.0 for i in range(12)]
+
+# Filter: select elements matching condition
+positives: list<float> = [x for x in values if x > 0.0]
+
+# Combined map and filter
+big_squares: list<float> = [x * x for x in values if x > 10.0]
+```
+
 ## Common Patterns
 
 ### Box with Hole

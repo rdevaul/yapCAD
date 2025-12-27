@@ -164,6 +164,20 @@ class RangeExpr(Expression):
 
 
 @dataclass
+class ConditionalExpr(Expression):
+    """A ternary conditional expression (e.g., x if condition else y).
+
+    Unlike IfExpr (which uses blocks), this is for inline expressions:
+        value: float = a if condition else b
+
+    Both branches must be expressions and the else is required.
+    """
+    condition: Expression
+    true_branch: Expression
+    false_branch: Expression
+
+
+@dataclass
 class IfExpr(Expression):
     """An if-else expression (returns a value)."""
     condition: Expression
