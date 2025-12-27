@@ -49,7 +49,7 @@ def _make_builder(op: str, a: BrepSolid, b: BrepSolid):
 
 
 def solid_boolean(a, b, operation: str):
-    """Perform an OCC boolean; requires both solids to carry BREP metadata.
+    """Perform an OCC boolean, falling back to mesh engine if BREP unavailable.
 
     Handles both single-solid results and compound results (e.g., union of
     disconnected solids produces a compound containing multiple solids).
@@ -58,6 +58,9 @@ def solid_boolean(a, b, operation: str):
     significantly less than expected (more than 10% loss), falls back to
     creating a simple compound containing both shapes. This works around
     OCC boolean issues with certain lofted/swept shapes.
+
+    If either solid lacks BREP metadata, automatically falls back to the
+    native mesh boolean engine rather than raising an error.
     """
     import os
     from OCC.Core.GProp import GProp_GProps
@@ -70,7 +73,12 @@ def solid_boolean(a, b, operation: str):
     brep_a = brep_from_solid(a)
     brep_b = brep_from_solid(b)
     if brep_a is None or brep_b is None:
-        raise ValueError("OCC boolean requires solids with BREP metadata")
+        # Fall back to native mesh engine when BREP metadata is missing
+        if _debug:
+            print(f'[OCC_BOOL] BREP missing (a={brep_a is not None}, b={brep_b is not None}), '
+                  f'falling back to native mesh engine')
+        from yapcad.boolean import native as native_engine
+        return native_engine.solid_boolean(a, b, operation)
 
     # Get input volumes for sanity check
     props_a = GProp_GProps()

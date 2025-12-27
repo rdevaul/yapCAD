@@ -95,13 +95,18 @@ command MAKE_PART(param: float, param2: float = 10.0) -> solid:
 | `line_segment` | Straight line | `line(start, end)` |
 | `arc` | Circular arc | `arc(center, radius, start_angle, end_angle)` |
 | `circle` | Full circle | `circle(center, radius)` |
+| `ellipse` | Ellipse or elliptical arc | `ellipse(center, semi_major, semi_minor, ...)` |
+| `bezier` | Bezier curve | `bezier(control_points)` |
+| `catmullrom` | Catmull-Rom spline | `catmullrom(points, closed?, alpha?)` |
+| `nurbs` | NURBS curve | `nurbs(points, weights?, degree?)` |
 
 ### Compound Types
 
 | Type | Description | Constructor |
 |------|-------------|-------------|
+| `path2d` | 2D path of segments | `make_path2d(curves)` |
 | `path3d` | 3D path of segments | `make_path3d(segments)`, `path3d_line()`, `path3d_arc()` |
-| `region2d` | Closed 2D region | `rectangle()`, `regular_polygon()` |
+| `region2d` | Closed 2D region | `rectangle()`, `regular_polygon()`, `polygon()`, `disk()` |
 | `solid` | 3D solid volume | `box()`, `cylinder()`, `sphere()`, etc. |
 
 ### Generic Types
@@ -128,6 +133,9 @@ atan2(y: float, x: float) -> float
 sqrt(x: float) -> float
 abs(x: float) -> float
 pow(base: float, exp: float) -> float
+exp(x: float) -> float          # e^x
+log(x: float) -> float          # natural logarithm
+log10(x: float) -> float        # base-10 logarithm
 floor(x: float) -> int
 ceil(x: float) -> int
 round(x: float) -> int
@@ -167,6 +175,13 @@ rectangle(width: float, height: float, center: point2d) -> region2d
 # Regular polygon
 regular_polygon(sides: int, radius: float) -> region2d
 regular_polygon(sides: int, radius: float, center: point2d) -> region2d
+
+# Polygon from list of points
+polygon(points: list<point>) -> region2d
+
+# Disk (filled circle as polygon approximation)
+disk(center: point, radius: float) -> region2d
+disk(center: point, radius: float, segments: int) -> region2d  # default 64 segments
 ```
 
 ### Curve Constructors
@@ -175,24 +190,87 @@ regular_polygon(sides: int, radius: float, center: point2d) -> region2d
 # Line segment between two points
 line(start: point, end: point) -> line_segment
 
-# Arc from center point
+# Arc from center point (angles in degrees)
 arc(center: point, radius: float, start_angle: float, end_angle: float) -> arc
 
 # Full circle
 circle(center: point, radius: float) -> circle
+
+# Ellipse (angles in degrees, rotation in degrees)
+ellipse(center: point, semi_major: float, semi_minor: float) -> ellipse
+ellipse(center: point, semi_major: float, semi_minor: float,
+        rotation: float, start: float, end: float) -> ellipse
+
+# Bezier curve from control points
+bezier(control_points: list<point>) -> bezier
+
+# Catmull-Rom spline
+catmullrom(points: list<point>) -> catmullrom
+catmullrom(points: list<point>, closed: bool, alpha: float) -> catmullrom
+# alpha: 0.0=uniform, 0.5=centripetal (default), 1.0=chordal
+
+# NURBS curve
+nurbs(points: list<point>) -> nurbs
+nurbs(points: list<point>, weights: list<float>, degree: int) -> nurbs
+# degree default: 3
 ```
 
-### Path3D Constructors (for sweep operations)
+### Curve Sampling Functions
 
 ```python
-# Create a path3d from segment list
-make_path3d(segments: list<path3d>) -> path3d
+# Sample a point on a curve at parameter t in [0, 1]
+sample_curve(curve, t: float) -> point
+
+# Sample n points along a curve
+sample_curve_n(curve, n: int) -> list<point>
+
+# Get the length of a curve
+curve_length(curve) -> float
+```
+
+### Path Constructors
+
+#### 2D Paths
+
+```python
+# Create a path from a list of curves
+make_path2d(curves: list<curve>) -> path2d
+
+# Close an open path to create a region
+close_path(path: path2d) -> region2d
+
+# Convert a spline to a region (polygon approximation)
+region_from_spline(spline, segments: int = 64) -> region2d
+```
+
+#### 3D Paths (for sweep operations)
+
+```python
+# Create a path3d from segments
+make_path3d(segments...) -> path3d  # variadic
 
 # Line segment for path3d
 path3d_line(start: point3d, end: point3d) -> path3d
 
-# Arc segment for path3d
+# Arc segment for path3d (explicit normal)
 path3d_arc(center: point3d, start: point3d, end: point3d, normal: vector3d) -> path3d
+
+# Arc segment with auto-computed normal
+# flip=false: shorter arc, flip=true: longer arc (opposite direction)
+path3d_arc_auto(center: point3d, start: point3d, end: point3d, flip: bool) -> path3d
+```
+
+### 2D Boolean Operations
+
+```python
+# Union of two 2D regions
+union2d(a: region2d, b: region2d) -> region2d
+
+# Difference (subtract b from a)
+difference2d(a: region2d, b: region2d) -> region2d
+
+# Intersection (keep overlapping area)
+intersection2d(a: region2d, b: region2d) -> region2d
 ```
 
 ### Solid Constructors
@@ -206,6 +284,10 @@ cylinder(radius: float, height: float) -> solid
 
 # Sphere: centered at origin
 sphere(radius: float) -> solid
+
+# Oblate spheroid (flattened sphere like Earth/Mars)
+oblate_spheroid(equatorial_diameter: float, oblateness: float) -> solid
+# oblateness: 0=sphere, typical values: Earth~0.00335, Mars~0.00648
 
 # Cone/frustum: radius1 at bottom, radius2 at top
 cone(radius1: float, radius2: float, height: float) -> solid
@@ -230,7 +312,7 @@ sweep(profile: region2d, spine: path3d) -> solid
 sweep_hollow(outer_profile: region2d, inner_profile: region2d, spine: path3d) -> solid
 
 # Adaptive sweep - profile rotates to track path tangent
-# Creates ruled surfaces for straight segments
+# Uses minimal-twist frame (default) to avoid unwanted rotation
 sweep_adaptive(profile: region2d, spine: path3d, threshold_deg: float) -> solid
 
 # Adaptive sweep with hollow profile
@@ -240,6 +322,20 @@ sweep_adaptive_hollow(
     spine: path3d,
     threshold_deg: float
 ) -> solid
+
+# Frenet frame variants - profile follows natural curve curvature
+# Appropriate for paths like helices where you want natural twisting
+sweep_adaptive_frenet(profile: region2d, spine: path3d, threshold_deg: float) -> solid
+
+sweep_adaptive_hollow_frenet(
+    outer_profile: region2d,
+    inner_profile: region2d,
+    spine: path3d,
+    threshold_deg: float
+) -> solid
+
+# Loft between multiple profiles
+loft(profiles: list<region2d>) -> solid
 ```
 
 ### Boolean Operations
@@ -256,6 +352,10 @@ difference(a: solid, tools: list<solid>) -> solid  # variadic
 # Intersection (keep overlapping volume)
 intersection(a: solid, b: solid) -> solid
 intersection(solids: list<solid>) -> solid  # variadic
+
+# Compound - combine without merging (for multi-body assemblies)
+compound(a: solid, b: solid) -> solid
+compound(solids: list<solid>) -> solid  # variadic
 ```
 
 ### Transformation Functions
@@ -269,7 +369,12 @@ scale(s: solid, sx: float, sy: float, sz: float) -> solid
 # Create transform matrices (for advanced use)
 translate_xform(v: vector) -> transform
 rotate_xform(axis: vector3d, angle: float) -> transform
+rotate_2d(angle: float) -> transform
 scale_xform(factors: vector) -> transform
+scale_uniform(factor: float) -> transform
+mirror(plane_normal: vector3d) -> transform
+mirror_2d(axis: vector2d) -> transform
+mirror_y() -> transform  # Convenience: mirror across Y axis
 identity_transform() -> transform
 
 # Apply transform to geometry
@@ -285,10 +390,15 @@ apply_vector(t: transform, v: vector3d) -> vector3d
 # Solid queries
 volume(s: solid) -> float
 surface_area(s: solid) -> float
+centroid(s: solid) -> point3d
+is_empty(s: solid) -> bool
 
 # Region2D queries
 area(r: region2d) -> float
 perimeter(r: region2d) -> float
+
+# Distance between points
+distance(a: point, b: point, tolerance: float) -> float
 ```
 
 ### List Functions
@@ -309,6 +419,58 @@ flatten(nested: list<list<T>>) -> list<T>
 ```python
 # Debug output
 print(value, ...) -> bool  # variadic, returns true
+
+# Empty geometry constructors
+empty_solid() -> solid
+empty_region() -> region2d
+```
+
+## Method Syntax
+
+Some types support method-style calls as an alternative to function calls:
+
+### Solid Methods
+
+```python
+# These are equivalent:
+result = translate(my_solid, 10.0, 0.0, 0.0)
+result = my_solid.translate(vector(10.0, 0.0, 0.0))
+
+# Available methods on solids:
+solid.union(other: solid) -> solid
+solid.difference(other: solid) -> solid
+solid.intersection(other: solid) -> solid
+solid.translate(v: vector) -> solid
+solid.rotate(axis: vector3d, angle: float) -> solid
+solid.scale(factors: vector) -> solid
+solid.apply(t: transform) -> solid
+```
+
+### Region2D Methods
+
+```python
+region.union(other: region2d) -> region2d
+region.difference(other: region2d) -> region2d
+region.intersection(other: region2d) -> region2d
+```
+
+### Transform Methods
+
+```python
+transform.compose(other: transform) -> transform
+transform.inverse() -> transform
+transform.translation() -> vector3d
+transform.is_rigid() -> bool
+```
+
+### Curve Methods
+
+```python
+curve.at(t: float) -> point
+curve.tangent_at(t: float) -> vector
+curve.normal_at(t: float) -> vector
+curve.curvature_at(t: float) -> float
+curve.length() -> float
 ```
 
 ## Statements
@@ -337,6 +499,29 @@ require height > 0.0 and depth > 0.0
 ```python
 # Return the result from a command
 emit result
+```
+
+### For Loops
+
+```python
+# Iterate over a range
+for i in range(10):
+    # body
+
+# Iterate over a list
+for item in my_list:
+    # body
+```
+
+### Conditionals
+
+```python
+if condition:
+    # body
+elif other_condition:
+    # body
+else:
+    # body
 ```
 
 ## Common Patterns
@@ -435,8 +620,7 @@ command make_bent_path(
     seg2: path3d = path3d_line(p1, p2)
     seg3: path3d = path3d_line(p2, p3)
 
-    segments: list<path3d> = [seg1, seg2, seg3]
-    spine: path3d = make_path3d(segments)
+    spine: path3d = make_path3d(seg1, seg2, seg3)
     emit spine
 
 # Main command: sweep a profile along the bent path
@@ -474,37 +658,56 @@ command MAKE_SPUR_GEAR(
     emit gear
 ```
 
-### Combining Multiple Parts
+### Pattern with For Loop
 
 ```python
 module assembly
 
-command MAKE_ASSEMBLY(count: int) -> solid:
+command MAKE_PEGBOARD(count: int) -> solid:
+    require count > 0 and count <= 10
+
     # Create base
     base: solid = box(100.0, 100.0, 10.0)
-
-    # Create a cylinder to add multiple times
     peg: solid = cylinder(5.0, 20.0)
 
-    # Position and combine
+    # Create pegs in a grid
     result: solid = base
-    spacing: float = 20.0
+    spacing: float = 80.0 / (count + 1)
 
-    # Note: for loops with range work
-    i: int = 0
-    # Manual loop unrolling for now
-    peg1: solid = translate(peg, -30.0, -30.0, 10.0)
-    result = union(result, peg1)
+    for i in range(count):
+        for j in range(count):
+            x: float = -40.0 + (i + 1) * spacing
+            y: float = -40.0 + (j + 1) * spacing
+            peg_pos: solid = translate(peg, x, y, 10.0)
+            result = union(result, peg_pos)
 
-    peg2: solid = translate(peg, 30.0, -30.0, 10.0)
-    result = union(result, peg2)
+    emit result
+```
 
-    peg3: solid = translate(peg, -30.0, 30.0, 10.0)
-    result = union(result, peg3)
+### Spline-Based Profile
 
-    peg4: solid = translate(peg, 30.0, 30.0, 10.0)
-    result = union(result, peg4)
+```python
+module organic
 
+command MAKE_BLOB(scale: float = 10.0) -> solid:
+    # Create organic shape using Catmull-Rom spline
+    pts: list<point> = [
+        point(1.0 * scale, 0.0),
+        point(0.8 * scale, 0.6 * scale),
+        point(0.0, 1.0 * scale),
+        point(-0.8 * scale, 0.6 * scale),
+        point(-1.0 * scale, 0.0),
+        point(-0.8 * scale, -0.6 * scale),
+        point(0.0, -1.0 * scale),
+        point(0.8 * scale, -0.6 * scale)
+    ]
+
+    # Create closed Catmull-Rom spline
+    spline: catmullrom = catmullrom(pts, true, 0.5)
+
+    # Convert to region and extrude
+    profile: region2d = region_from_spline(spline, 64)
+    result: solid = extrude(profile, scale * 0.5)
     emit result
 ```
 
@@ -561,7 +764,7 @@ source = open("design.dsl").read()
 result = compile_and_run(source, "MAKE_PART", {"width": 10.0, "height": 5.0})
 
 if result.success:
-    solid = result.geometry
+    solid = result.emit_result.data  # The yapCAD solid
     # Use the solid...
 else:
     print(f"Error: {result.error_message}")
