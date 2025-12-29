@@ -261,12 +261,108 @@ Filtering values::
 Phase 3: Functional Combinators
 ===============================
 
-Status: Future
+Status: **Partially Implemented** (December 2025)
 
-After comprehensions, add functional list operations as builtins.
+Aggregation functions that operate on lists, enabling concise reduction of
+collections without manual iteration.
 
-Proposed Builtins
------------------
+Implemented Builtins
+--------------------
+
+**3D Boolean Aggregation:**
+
+``union_all(list<solid>)``
+    Union all solids in a list.
+
+    ::
+
+        combined: solid = union_all(gears)
+
+``difference_all(base: solid, tools: list<solid>)``
+    Subtract all solids in tools list from base.
+
+    ::
+
+        plate_with_holes: solid = difference_all(plate, holes)
+
+``intersection_all(list<solid>)``
+    Intersect all solids in a list.
+
+    ::
+
+        common: solid = intersection_all(volumes)
+
+**2D Boolean Aggregation:**
+
+``union2d_all(list<region2d>)``
+    Union all regions in a list.
+
+    ::
+
+        combined: region2d = union2d_all(shapes)
+
+``difference2d_all(base: region2d, tools: list<region2d>)``
+    Subtract all regions in tools list from base.
+
+    ::
+
+        plate: region2d = difference2d_all(rectangle(100.0, 60.0), holes)
+
+``intersection2d_all(list<region2d>)``
+    Intersect all regions in a list.
+
+    ::
+
+        overlap: region2d = intersection2d_all(regions)
+
+**Numeric Aggregation:**
+
+``sum(list<float>)``
+    Sum all values in a list.
+
+    ::
+
+        total: float = sum(values)
+
+``product(list<float>)``
+    Multiply all values in a list.
+
+    ::
+
+        factorial_5: float = product([1.0, 2.0, 3.0, 4.0, 5.0])
+
+``min_of(list<float>)``
+    Find minimum value in a list.
+
+    ::
+
+        smallest: float = min_of(measurements)
+
+``max_of(list<float>)``
+    Find maximum value in a list.
+
+    ::
+
+        largest: float = max_of(measurements)
+
+**Boolean Aggregation:**
+
+``any_true(list<bool>)``
+    Return true if any element is true.
+
+    ::
+
+        has_error: bool = any_true([x < 0.0 for x in values])
+
+``all_true(list<bool>)``
+    Return true if all elements are true.
+
+    ::
+
+        all_valid: bool = all_true([x > 0.0 for x in values])
+
+Future Builtins
+---------------
 
 ``reduce(func, list, initial)``
     Fold a list using a binary function.
@@ -303,29 +399,6 @@ Proposed Builtins
     ::
 
         indexed: list<tuple<int, solid>> = enumerate(parts)
-
-``any(list<bool>)`` / ``all(list<bool>)``
-    Boolean aggregation.
-
-    ::
-
-        has_error: bool = any([x < 0.0 for x in values])
-        all_valid: bool = all([x > 0.0 for x in values])
-
-``sum(list<float>)`` / ``product(list<float>)``
-    Numeric aggregation.
-
-    ::
-
-        total: float = sum(values)
-        factorial: float = product([float(i) for i in range(1, n+1)])
-
-``union_all(list<solid>)`` / ``intersection_all(list<solid>)``
-    Geometric aggregation.
-
-    ::
-
-        combined: solid = union_all(gears)
 
 Type Rules for Reduce
 ---------------------

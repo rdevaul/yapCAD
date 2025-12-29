@@ -298,6 +298,20 @@ class SymbolTable:
             ("b", REGION2D, None),
         ], REGION2D)
 
+        # Phase 3: 2D boolean aggregation functions
+        self._register_builtin("union2d_all", [
+            ("regions", make_list_type(REGION2D), None),
+        ], REGION2D)
+
+        self._register_builtin("difference2d_all", [
+            ("base", REGION2D, None),
+            ("tools", make_list_type(REGION2D), None),
+        ], REGION2D)
+
+        self._register_builtin("intersection2d_all", [
+            ("regions", make_list_type(REGION2D), None),
+        ], REGION2D)
+
         # Path2D construction
         self._register_builtin("make_path2d", [
             ("curves", make_list_type(UNKNOWN), None),
@@ -442,6 +456,20 @@ class SymbolTable:
             ("b", SOLID, None),
         ], SOLID, is_variadic=True)
 
+        # List-based boolean aggregation (Phase 3 functional combinators)
+        self._register_builtin("union_all", [
+            ("solids", make_list_type(SOLID), None),
+        ], SOLID)
+
+        self._register_builtin("difference_all", [
+            ("base", SOLID, None),
+            ("tools", make_list_type(SOLID), None),
+        ], SOLID)
+
+        self._register_builtin("intersection_all", [
+            ("solids", make_list_type(SOLID), None),
+        ], SOLID)
+
         # Pattern operations
         self._register_builtin("radial_pattern", [
             ("shape", UNKNOWN, None),  # Any geometry
@@ -524,6 +552,26 @@ class SymbolTable:
             ("list", make_list_type(make_list_type(UNKNOWN)), None),
         ], make_list_type(UNKNOWN))  # Flatten nested list
         self._register_builtin("print", [("value", UNKNOWN, None)], BOOL, is_variadic=True)
+
+        # Phase 3: Numeric aggregation functions
+        self._register_builtin("sum", [
+            ("values", make_list_type(FLOAT), None),
+        ], FLOAT)  # Sum of numeric list
+        self._register_builtin("product", [
+            ("values", make_list_type(FLOAT), None),
+        ], FLOAT)  # Product of numeric list
+        self._register_builtin("any_true", [
+            ("values", make_list_type(BOOL), None),
+        ], BOOL)  # True if any element is true
+        self._register_builtin("all_true", [
+            ("values", make_list_type(BOOL), None),
+        ], BOOL)  # True if all elements are true
+        self._register_builtin("min_of", [
+            ("values", make_list_type(FLOAT), None),
+        ], FLOAT)  # Minimum value in list
+        self._register_builtin("max_of", [
+            ("values", make_list_type(FLOAT), None),
+        ], FLOAT)  # Maximum value in list
 
         # Utility
         self._register_builtin("is_empty", [("s", SOLID, None)], BOOL)

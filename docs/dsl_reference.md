@@ -271,6 +271,11 @@ difference2d(a: region2d, b: region2d) -> region2d
 
 # Intersection (keep overlapping area)
 intersection2d(a: region2d, b: region2d) -> region2d
+
+# Aggregation operations (for lists)
+union2d_all(regions: list<region2d>) -> region2d        # Union all regions
+difference2d_all(base: region2d, tools: list<region2d>) -> region2d  # Subtract all tools from base
+intersection2d_all(regions: list<region2d>) -> region2d  # Intersect all regions
 ```
 
 ### Solid Constructors
@@ -356,6 +361,11 @@ intersection(solids: list<solid>) -> solid  # variadic
 # Compound - combine without merging (for multi-body assemblies)
 compound(a: solid, b: solid) -> solid
 compound(solids: list<solid>) -> solid  # variadic
+
+# Aggregation operations (for lists) - cleaner syntax than variadic
+union_all(solids: list<solid>) -> solid        # Union all solids in list
+difference_all(base: solid, tools: list<solid>) -> solid  # Subtract all tools from base
+intersection_all(solids: list<solid>) -> solid  # Intersect all solids in list
 ```
 
 ### Transformation Functions
@@ -412,6 +422,20 @@ range(start: int, end: int, step: int) -> list<int>
 concat(list1: list<T>, list2: list<T>) -> list<T>
 reverse(lst: list<T>) -> list<T>
 flatten(nested: list<list<T>>) -> list<T>
+```
+
+### Aggregation Functions
+
+```python
+# Numeric aggregation
+sum(values: list<float>) -> float       # Sum all values
+product(values: list<float>) -> float   # Multiply all values
+min_of(values: list<float>) -> float    # Find minimum value
+max_of(values: list<float>) -> float    # Find maximum value
+
+# Boolean aggregation
+any_true(values: list<bool>) -> bool    # True if any element is true
+all_true(values: list<bool>) -> bool    # True if all elements are true
 ```
 
 ### Utility Functions
@@ -726,6 +750,56 @@ command MAKE_PEGBOARD(count: int) -> solid:
             result = union(result, peg_pos)
 
     emit result
+```
+
+### Pattern with Aggregation Functions
+
+Using `union_all` and `difference_all` for cleaner multi-body operations:
+
+```python
+module thrust_plate
+
+command MAKE_PLATE_WITH_HOLES(
+    diameter: float,
+    thickness: float,
+    hole_radius: float
+) -> solid:
+    # Create base plate
+    plate: solid = cylinder(diameter / 2.0, thickness)
+
+    # Create holes at 120° intervals using list comprehension
+    hole_angles: list<float> = [i * 120.0 for i in range(3)]
+    holes: list<solid> = [
+        translate(
+            cylinder(hole_radius, thickness + 2.0),
+            (diameter / 3.0) * cos(radians(angle)),
+            (diameter / 3.0) * sin(radians(angle)),
+            -1.0
+        )
+        for angle in hole_angles
+    ]
+
+    # Subtract all holes at once using difference_all
+    result: solid = difference_all(plate, holes)
+    emit result
+```
+
+Using `union_all` to combine multiple parts:
+
+```python
+module assembly
+
+command MAKE_FRAME() -> solid:
+    # Create individual parts
+    bottom_rail: solid = box(100.0, 10.0, 10.0)
+    top_rail: solid = translate(box(100.0, 10.0, 10.0), 0.0, 0.0, 50.0)
+    left_post: solid = translate(box(10.0, 10.0, 50.0), -45.0, 0.0, 25.0)
+    right_post: solid = translate(box(10.0, 10.0, 50.0), 45.0, 0.0, 25.0)
+
+    # Union all parts at once
+    parts: list<solid> = [bottom_rail, top_rail, left_post, right_post]
+    frame: solid = union_all(parts)
+    emit frame
 ```
 
 ### Spline-Based Profile

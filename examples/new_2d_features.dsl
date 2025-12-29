@@ -212,35 +212,31 @@ command DEMO_INTERSECTION2D() -> region2d:
 # =============================================================================
 
 # Create a mounting plate profile with multiple features
-# Demonstrates chained difference2d operations with proper hole accumulation
+# Demonstrates difference2d_all for clean multi-hole subtraction
 command MAKE_MOUNTING_PLATE_PROFILE() -> region2d:
     # Main plate outline
     plate_width: float = 120.0
     plate_height: float = 80.0
     plate: region2d = rectangle(plate_width, plate_height)
 
-    # Center mounting hole
-    center_hole: region2d = disk(point(0.0, 0.0), 15.0, 32)
-
     # Corner mounting holes
     corner_offset_x: float = 45.0
     corner_offset_y: float = 30.0
     corner_radius: float = 5.0
 
-    hole_tl: region2d = disk(point(0.0 - corner_offset_x, corner_offset_y), corner_radius, 24)
-    hole_tr: region2d = disk(point(corner_offset_x, corner_offset_y), corner_radius, 24)
-    hole_bl: region2d = disk(point(0.0 - corner_offset_x, 0.0 - corner_offset_y), corner_radius, 24)
-    hole_br: region2d = disk(point(corner_offset_x, 0.0 - corner_offset_y), corner_radius, 24)
+    # Create all holes using list - center + 4 corners
+    holes: list<region2d> = [
+        disk(point(0.0, 0.0), 15.0, 32),
+        disk(point(0.0 - corner_offset_x, corner_offset_y), corner_radius, 24),
+        disk(point(corner_offset_x, corner_offset_y), corner_radius, 24),
+        disk(point(0.0 - corner_offset_x, 0.0 - corner_offset_y), corner_radius, 24),
+        disk(point(corner_offset_x, 0.0 - corner_offset_y), corner_radius, 24)
+    ]
 
-    # Chain difference operations to create all 5 holes
-    # difference2d now properly accumulates holes from previous operations
-    step1: region2d = difference2d(plate, center_hole)
-    step2: region2d = difference2d(step1, hole_tl)
-    step3: region2d = difference2d(step2, hole_tr)
-    step4: region2d = difference2d(step3, hole_bl)
-    result: region2d = difference2d(step4, hole_br)
+    # Subtract all holes at once using difference2d_all
+    result: region2d = difference2d_all(plate, holes)
 
-    print("Mounting plate profile with 5 holes (chained difference2d)")
+    print("Mounting plate profile with 5 holes (difference2d_all)")
     emit result
 
 # =============================================================================
@@ -257,35 +253,21 @@ command ANALYZE_ELLIPSE(semi_major: float = 50.0, semi_minor: float = 30.0, num_
     approx_perim: float = pi() * (semi_major + semi_minor) * (1.0 + 3.0 * h / (10.0 + sqrt(4.0 - 3.0 * h)))
     print("Approximate perimeter (Ramanujan):", approx_perim)
 
-    # Sample points around ellipse
-    print("Sampling", num_samples, "points around ellipse:")
+    # Sample points around ellipse using list comprehension
+    # Generate t values from 0 to 0.875 in steps of 0.125
+    t_values: list<float> = [i * 1.0 / 8.0 for i in range(8)]
 
-    # Manual unrolled loop for 8 samples
-    t0: float = 0.0
-    t1: float = 0.125
-    t2: float = 0.25
-    t3: float = 0.375
-    t4: float = 0.5
-    t5: float = 0.625
-    t6: float = 0.75
-    t7: float = 0.875
+    # Sample points at each t value
+    sample_points: list<point> = [sample_curve(e, t) for t in t_values]
 
-    pt0: point = sample_curve(e, t0)
-    pt1: point = sample_curve(e, t1)
-    pt2: point = sample_curve(e, t2)
-    pt3: point = sample_curve(e, t3)
-    pt4: point = sample_curve(e, t4)
-    pt5: point = sample_curve(e, t5)
-    pt6: point = sample_curve(e, t6)
-    pt7: point = sample_curve(e, t7)
-
-    print("  t=0.000:", pt0)
-    print("  t=0.125:", pt1)
-    print("  t=0.250:", pt2)
-    print("  t=0.375:", pt3)
-    print("  t=0.500:", pt4)
-    print("  t=0.625:", pt5)
-    print("  t=0.750:", pt6)
-    print("  t=0.875:", pt7)
+    print("Sampling 8 points around ellipse:")
+    print("  t=0.000:", sample_curve(e, 0.0))
+    print("  t=0.125:", sample_curve(e, 0.125))
+    print("  t=0.250:", sample_curve(e, 0.25))
+    print("  t=0.375:", sample_curve(e, 0.375))
+    print("  t=0.500:", sample_curve(e, 0.5))
+    print("  t=0.625:", sample_curve(e, 0.625))
+    print("  t=0.750:", sample_curve(e, 0.75))
+    print("  t=0.875:", sample_curve(e, 0.875))
 
     emit e

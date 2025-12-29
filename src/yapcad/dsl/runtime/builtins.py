@@ -1189,6 +1189,62 @@ class BuiltinRegistry:
             _intersection2d,
         ))
 
+        # Phase 3: 2D boolean aggregation functions
+        def _union2d_all(regions: Value) -> Value:
+            """Union all 2D regions in a list."""
+            from yapcad.geom_util import combineglist
+            if not regions.data:
+                raise ValueError("union2d_all requires non-empty list")
+            result = regions.data[0]
+            if hasattr(result, 'data'):
+                result = result.data
+            for r in regions.data[1:]:
+                r_data = r.data if hasattr(r, 'data') else r
+                result = combineglist(result, r_data, "union")
+            return region2d_val(result)
+
+        def _difference2d_all(base: Value, tools: Value) -> Value:
+            """Subtract all 2D regions in tools list from base."""
+            result = base.data
+            for tool in tools.data:
+                tool_data = tool.data if hasattr(tool, 'data') else tool
+                # Use the same robust difference logic as _difference2d
+                result_val = _difference2d(
+                    Value(result, REGION2D),
+                    Value(tool_data, REGION2D)
+                )
+                result = result_val.data
+            return region2d_val(result)
+
+        def _intersection2d_all(regions: Value) -> Value:
+            """Intersect all 2D regions in a list."""
+            from yapcad.geom_util import combineglist
+            if not regions.data:
+                raise ValueError("intersection2d_all requires non-empty list")
+            result = regions.data[0]
+            if hasattr(result, 'data'):
+                result = result.data
+            for r in regions.data[1:]:
+                r_data = r.data if hasattr(r, 'data') else r
+                result = combineglist(result, r_data, "intersection")
+            return region2d_val(result)
+
+        self.register(BuiltinFunction(
+            "union2d_all",
+            _make_sig("union2d_all", [ListType(REGION2D)], REGION2D),
+            _union2d_all,
+        ))
+        self.register(BuiltinFunction(
+            "difference2d_all",
+            _make_sig("difference2d_all", [REGION2D, ListType(REGION2D)], REGION2D),
+            _difference2d_all,
+        ))
+        self.register(BuiltinFunction(
+            "intersection2d_all",
+            _make_sig("intersection2d_all", [ListType(REGION2D)], REGION2D),
+            _intersection2d_all,
+        ))
+
         # Path2D and region from curves
         def _make_path2d(curves: Value) -> Value:
             """Create a 2D path from a list of curves.
@@ -1749,6 +1805,41 @@ class BuiltinRegistry:
             _compound,
         ))
 
+        # Phase 3: List-based aggregation functions
+        # These are aliases - the existing functions already handle list arguments
+        def _union_all(solids: Value) -> Value:
+            """Union all solids in a list."""
+            return _union(solids)
+
+        def _difference_all(base: Value, tools: Value) -> Value:
+            """Subtract all solids in tools list from base."""
+            from yapcad.geom3d import solid_boolean
+            result = base.data
+            for tool in tools.data:
+                tool_data = tool.data if hasattr(tool, 'data') else tool
+                result = solid_boolean(result, tool_data, 'difference')
+            return solid_val(result)
+
+        def _intersection_all(solids: Value) -> Value:
+            """Intersect all solids in a list."""
+            return _intersection(solids)
+
+        self.register(BuiltinFunction(
+            "union_all",
+            _make_sig("union_all", [ListType(SOLID)], SOLID),
+            _union_all,
+        ))
+        self.register(BuiltinFunction(
+            "difference_all",
+            _make_sig("difference_all", [SOLID, ListType(SOLID)], SOLID),
+            _difference_all,
+        ))
+        self.register(BuiltinFunction(
+            "intersection_all",
+            _make_sig("intersection_all", [ListType(SOLID)], SOLID),
+            _intersection_all,
+        ))
+
     # --- Query Functions ---
 
     def _register_query_functions(self) -> None:
@@ -1931,6 +2022,84 @@ class BuiltinRegistry:
             "print",
             _make_sig("print", [STRING], BOOL, is_variadic=True),
             _print_val,
+        ))
+
+        # Phase 3: Numeric and boolean aggregation functions
+        def _sum_list(lst: Value) -> Value:
+            """Sum all numeric values in a list."""
+            total = 0.0
+            for v in lst.data:
+                val = v.data if hasattr(v, 'data') else v
+                total += float(val)
+            return float_val(total)
+
+        def _product_list(lst: Value) -> Value:
+            """Multiply all numeric values in a list."""
+            result = 1.0
+            for v in lst.data:
+                val = v.data if hasattr(v, 'data') else v
+                result *= float(val)
+            return float_val(result)
+
+        def _any_true(lst: Value) -> Value:
+            """Return True if any element is truthy."""
+            for v in lst.data:
+                val = v.data if hasattr(v, 'data') else v
+                if val:
+                    return bool_val(True)
+            return bool_val(False)
+
+        def _all_true(lst: Value) -> Value:
+            """Return True if all elements are truthy."""
+            for v in lst.data:
+                val = v.data if hasattr(v, 'data') else v
+                if not val:
+                    return bool_val(False)
+            return bool_val(True)
+
+        def _min_of(lst: Value) -> Value:
+            """Return minimum value in list."""
+            if not lst.data:
+                raise ValueError("min_of requires non-empty list")
+            values = [v.data if hasattr(v, 'data') else v for v in lst.data]
+            return float_val(min(values))
+
+        def _max_of(lst: Value) -> Value:
+            """Return maximum value in list."""
+            if not lst.data:
+                raise ValueError("max_of requires non-empty list")
+            values = [v.data if hasattr(v, 'data') else v for v in lst.data]
+            return float_val(max(values))
+
+        self.register(BuiltinFunction(
+            "sum",
+            _make_sig("sum", [ListType(FLOAT)], FLOAT),
+            _sum_list,
+        ))
+        self.register(BuiltinFunction(
+            "product",
+            _make_sig("product", [ListType(FLOAT)], FLOAT),
+            _product_list,
+        ))
+        self.register(BuiltinFunction(
+            "any_true",
+            _make_sig("any_true", [ListType(BOOL)], BOOL),
+            _any_true,
+        ))
+        self.register(BuiltinFunction(
+            "all_true",
+            _make_sig("all_true", [ListType(BOOL)], BOOL),
+            _all_true,
+        ))
+        self.register(BuiltinFunction(
+            "min_of",
+            _make_sig("min_of", [ListType(FLOAT)], FLOAT),
+            _min_of,
+        ))
+        self.register(BuiltinFunction(
+            "max_of",
+            _make_sig("max_of", [ListType(FLOAT)], FLOAT),
+            _max_of,
         ))
 
 

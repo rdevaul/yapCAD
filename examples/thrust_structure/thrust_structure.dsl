@@ -44,17 +44,14 @@ command MAKE_BASELINE_PLATE(
     # Subtract motor mount
     plate1: solid = difference(base_disk, motor_hole_pos)
 
-    # Create and subtract notch 1 at 0°
-    notch1: solid = make_notch(outer_radius, stringer_width_mm, stringer_depth_mm, thickness_mm, 0.0)
-    plate2: solid = difference(plate1, notch1)
+    # Create stringer notches at 120° intervals using list comprehension
+    notches: list<solid> = [
+        make_notch(outer_radius, stringer_width_mm, stringer_depth_mm, thickness_mm, i * 120.0)
+        for i in range(3)
+    ]
 
-    # Create and subtract notch 2 at 120°
-    notch2: solid = make_notch(outer_radius, stringer_width_mm, stringer_depth_mm, thickness_mm, 120.0)
-    plate3: solid = difference(plate2, notch2)
-
-    # Create and subtract notch 3 at 240°
-    notch3: solid = make_notch(outer_radius, stringer_width_mm, stringer_depth_mm, thickness_mm, 240.0)
-    final_plate: solid = difference(plate3, notch3)
+    # Subtract all notches at once
+    final_plate: solid = difference_all(plate1, notches)
 
     emit final_plate
 
@@ -86,31 +83,19 @@ command MAKE_LIGHTENED_PLATE_3(
     outer_bound: float = outer_radius - stringer_depth_mm - hole_radius_mm - 5.0
     radial_dist: float = inner_bound + hole_radial_fraction * (outer_bound - inner_bound)
 
-    # Sector 1 (centered at 60°): holes at 40°, 60°, 80°
-    h1_1: solid = make_hole(radial_dist, hole_radius_mm, thickness_mm, 40.0)
-    h1_2: solid = make_hole(radial_dist, hole_radius_mm, thickness_mm, 60.0)
-    h1_3: solid = make_hole(radial_dist, hole_radius_mm, thickness_mm, 80.0)
+    # Hole angles: 3 sectors at 60°, 180°, 300° with 3 holes each (±20° spread)
+    # Sector centers: 60, 180, 300
+    # Hole offsets: -20, 0, +20
+    hole_angles: list<float> = [40.0, 60.0, 80.0, 160.0, 180.0, 200.0, 280.0, 300.0, 320.0]
 
-    # Sector 2 (centered at 180°): holes at 160°, 180°, 200°
-    h2_1: solid = make_hole(radial_dist, hole_radius_mm, thickness_mm, 160.0)
-    h2_2: solid = make_hole(radial_dist, hole_radius_mm, thickness_mm, 180.0)
-    h2_3: solid = make_hole(radial_dist, hole_radius_mm, thickness_mm, 200.0)
+    # Create all 9 holes using list comprehension
+    holes: list<solid> = [
+        make_hole(radial_dist, hole_radius_mm, thickness_mm, angle)
+        for angle in hole_angles
+    ]
 
-    # Sector 3 (centered at 300°): holes at 280°, 300°, 320°
-    h3_1: solid = make_hole(radial_dist, hole_radius_mm, thickness_mm, 280.0)
-    h3_2: solid = make_hole(radial_dist, hole_radius_mm, thickness_mm, 300.0)
-    h3_3: solid = make_hole(radial_dist, hole_radius_mm, thickness_mm, 320.0)
-
-    # Subtract all holes
-    p1: solid = difference(base_plate, h1_1)
-    p2: solid = difference(p1, h1_2)
-    p3: solid = difference(p2, h1_3)
-    p4: solid = difference(p3, h2_1)
-    p5: solid = difference(p4, h2_2)
-    p6: solid = difference(p5, h2_3)
-    p7: solid = difference(p6, h3_1)
-    p8: solid = difference(p7, h3_2)
-    final: solid = difference(p8, h3_3)
+    # Subtract all holes at once
+    final: solid = difference_all(base_plate, holes)
 
     emit final
 
@@ -140,37 +125,22 @@ command MAKE_LIGHTENED_PLATE_4(
     outer_bound: float = outer_radius - stringer_depth_mm - hole_radius_mm - 5.0
     radial_dist: float = inner_bound + hole_radial_fraction * (outer_bound - inner_bound)
 
-    # Sector 1 (60°): holes at 35°, 50°, 70°, 85°
-    h1_1: solid = make_hole(radial_dist, hole_radius_mm, thickness_mm, 35.0)
-    h1_2: solid = make_hole(radial_dist, hole_radius_mm, thickness_mm, 50.0)
-    h1_3: solid = make_hole(radial_dist, hole_radius_mm, thickness_mm, 70.0)
-    h1_4: solid = make_hole(radial_dist, hole_radius_mm, thickness_mm, 85.0)
+    # Hole angles: 3 sectors at 60°, 180°, 300° with 4 holes each
+    # Sector 1: 35, 50, 70, 85  |  Sector 2: 155, 170, 190, 205  |  Sector 3: 275, 290, 310, 325
+    hole_angles: list<float> = [
+        35.0, 50.0, 70.0, 85.0,
+        155.0, 170.0, 190.0, 205.0,
+        275.0, 290.0, 310.0, 325.0
+    ]
 
-    # Sector 2 (180°): holes at 155°, 170°, 190°, 205°
-    h2_1: solid = make_hole(radial_dist, hole_radius_mm, thickness_mm, 155.0)
-    h2_2: solid = make_hole(radial_dist, hole_radius_mm, thickness_mm, 170.0)
-    h2_3: solid = make_hole(radial_dist, hole_radius_mm, thickness_mm, 190.0)
-    h2_4: solid = make_hole(radial_dist, hole_radius_mm, thickness_mm, 205.0)
+    # Create all 12 holes using list comprehension
+    holes: list<solid> = [
+        make_hole(radial_dist, hole_radius_mm, thickness_mm, angle)
+        for angle in hole_angles
+    ]
 
-    # Sector 3 (300°): holes at 275°, 290°, 310°, 325°
-    h3_1: solid = make_hole(radial_dist, hole_radius_mm, thickness_mm, 275.0)
-    h3_2: solid = make_hole(radial_dist, hole_radius_mm, thickness_mm, 290.0)
-    h3_3: solid = make_hole(radial_dist, hole_radius_mm, thickness_mm, 310.0)
-    h3_4: solid = make_hole(radial_dist, hole_radius_mm, thickness_mm, 325.0)
-
-    # Subtract all 12 holes
-    p1: solid = difference(base_plate, h1_1)
-    p2: solid = difference(p1, h1_2)
-    p3: solid = difference(p2, h1_3)
-    p4: solid = difference(p3, h1_4)
-    p5: solid = difference(p4, h2_1)
-    p6: solid = difference(p5, h2_2)
-    p7: solid = difference(p6, h2_3)
-    p8: solid = difference(p7, h2_4)
-    p9: solid = difference(p8, h3_1)
-    p10: solid = difference(p9, h3_2)
-    p11: solid = difference(p10, h3_3)
-    final: solid = difference(p11, h3_4)
+    # Subtract all holes at once
+    final: solid = difference_all(base_plate, holes)
 
     emit final
 
