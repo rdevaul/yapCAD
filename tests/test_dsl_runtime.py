@@ -1215,3 +1215,359 @@ class TestConditionalExpressions:
         result = check(module)
         # Should have an error about incompatible types
         assert result.has_errors
+
+
+class TestFunctionalCombinators:
+    """Test Phase 3 functional combinator functions."""
+
+    def test_sum_function(self):
+        """Test sum() aggregation function."""
+        source = """
+        module test;
+        command CALC_SUM() -> float {
+            let values: list<float> = [1.0, 2.0, 3.0, 4.0, 5.0];
+            let total: float = sum(values);
+            emit total;
+        }
+        """
+        tokens = tokenize(textwrap.dedent(source))
+        module = parse(tokens)
+        result = check(module)
+        assert not result.has_errors
+
+        interpreter = Interpreter()
+        exec_result = interpreter.execute(module, "CALC_SUM", {}, source=source)
+        assert exec_result.success
+        assert abs(exec_result.geometry - 15.0) < 0.001
+
+    def test_product_function(self):
+        """Test product() aggregation function."""
+        source = """
+        module test;
+        command CALC_PRODUCT() -> float {
+            let values: list<float> = [1.0, 2.0, 3.0, 4.0, 5.0];
+            let result: float = product(values);
+            emit result;
+        }
+        """
+        tokens = tokenize(textwrap.dedent(source))
+        module = parse(tokens)
+        result = check(module)
+        assert not result.has_errors
+
+        interpreter = Interpreter()
+        exec_result = interpreter.execute(module, "CALC_PRODUCT", {}, source=source)
+        assert exec_result.success
+        assert abs(exec_result.geometry - 120.0) < 0.001
+
+    def test_min_of_function(self):
+        """Test min_of() aggregation function."""
+        source = """
+        module test;
+        command FIND_MIN() -> float {
+            let values: list<float> = [5.0, 2.0, 8.0, 1.0, 9.0];
+            let minimum: float = min_of(values);
+            emit minimum;
+        }
+        """
+        tokens = tokenize(textwrap.dedent(source))
+        module = parse(tokens)
+        result = check(module)
+        assert not result.has_errors
+
+        interpreter = Interpreter()
+        exec_result = interpreter.execute(module, "FIND_MIN", {}, source=source)
+        assert exec_result.success
+        assert abs(exec_result.geometry - 1.0) < 0.001
+
+    def test_max_of_function(self):
+        """Test max_of() aggregation function."""
+        source = """
+        module test;
+        command FIND_MAX() -> float {
+            let values: list<float> = [5.0, 2.0, 8.0, 1.0, 9.0];
+            let maximum: float = max_of(values);
+            emit maximum;
+        }
+        """
+        tokens = tokenize(textwrap.dedent(source))
+        module = parse(tokens)
+        result = check(module)
+        assert not result.has_errors
+
+        interpreter = Interpreter()
+        exec_result = interpreter.execute(module, "FIND_MAX", {}, source=source)
+        assert exec_result.success
+        assert abs(exec_result.geometry - 9.0) < 0.001
+
+    def test_any_true_function(self):
+        """Test any_true() boolean aggregation."""
+        source = """
+        module test;
+        command CHECK_ANY() -> bool {
+            let values: list<bool> = [false, false, true, false];
+            let result: bool = any_true(values);
+            emit result;
+        }
+        """
+        tokens = tokenize(textwrap.dedent(source))
+        module = parse(tokens)
+        result = check(module)
+        assert not result.has_errors
+
+        interpreter = Interpreter()
+        exec_result = interpreter.execute(module, "CHECK_ANY", {}, source=source)
+        assert exec_result.success
+        assert exec_result.geometry is True
+
+    def test_any_true_all_false(self):
+        """Test any_true() with all false values."""
+        source = """
+        module test;
+        command CHECK_ANY_FALSE() -> bool {
+            let values: list<bool> = [false, false, false];
+            let result: bool = any_true(values);
+            emit result;
+        }
+        """
+        tokens = tokenize(textwrap.dedent(source))
+        module = parse(tokens)
+        result = check(module)
+        assert not result.has_errors
+
+        interpreter = Interpreter()
+        exec_result = interpreter.execute(module, "CHECK_ANY_FALSE", {}, source=source)
+        assert exec_result.success
+        assert exec_result.geometry is False
+
+    def test_all_true_function(self):
+        """Test all_true() boolean aggregation."""
+        source = """
+        module test;
+        command CHECK_ALL() -> bool {
+            let values: list<bool> = [true, true, true];
+            let result: bool = all_true(values);
+            emit result;
+        }
+        """
+        tokens = tokenize(textwrap.dedent(source))
+        module = parse(tokens)
+        result = check(module)
+        assert not result.has_errors
+
+        interpreter = Interpreter()
+        exec_result = interpreter.execute(module, "CHECK_ALL", {}, source=source)
+        assert exec_result.success
+        assert exec_result.geometry is True
+
+    def test_all_true_with_false(self):
+        """Test all_true() with one false value."""
+        source = """
+        module test;
+        command CHECK_ALL_FALSE() -> bool {
+            let values: list<bool> = [true, false, true];
+            let result: bool = all_true(values);
+            emit result;
+        }
+        """
+        tokens = tokenize(textwrap.dedent(source))
+        module = parse(tokens)
+        result = check(module)
+        assert not result.has_errors
+
+        interpreter = Interpreter()
+        exec_result = interpreter.execute(module, "CHECK_ALL_FALSE", {}, source=source)
+        assert exec_result.success
+        assert exec_result.geometry is False
+
+    def test_union_all_function(self):
+        """Test union_all() solid aggregation."""
+        from yapcad.geom3d import issolid, volumeof
+
+        source = """
+        module test;
+        command MAKE_UNION() -> solid {
+            let boxes: list<solid> = [
+                box(10.0, 10.0, 10.0),
+                translate(box(10.0, 10.0, 10.0), 20.0, 0.0, 0.0),
+                translate(box(10.0, 10.0, 10.0), 40.0, 0.0, 0.0)
+            ];
+            let result: solid = union_all(boxes);
+            emit result;
+        }
+        """
+        tokens = tokenize(textwrap.dedent(source))
+        module = parse(tokens)
+        result = check(module)
+        assert not result.has_errors
+
+        interpreter = Interpreter()
+        exec_result = interpreter.execute(module, "MAKE_UNION", {}, source=source)
+        assert exec_result.success
+        assert issolid(exec_result.geometry)
+        # 3 boxes of 1000 each = 3000 total volume
+        assert abs(volumeof(exec_result.geometry) - 3000.0) < 10.0
+
+    def test_difference_all_function(self):
+        """Test difference_all() solid aggregation."""
+        from yapcad.geom3d import issolid, volumeof
+
+        source = """
+        module test;
+        command MAKE_DIFF() -> solid {
+            let plate: solid = box(100.0, 100.0, 10.0);
+            let holes: list<solid> = [
+                translate(cylinder(5.0, 12.0), -20.0, 0.0, -1.0),
+                translate(cylinder(5.0, 12.0), 0.0, 0.0, -1.0),
+                translate(cylinder(5.0, 12.0), 20.0, 0.0, -1.0)
+            ];
+            let result: solid = difference_all(plate, holes);
+            emit result;
+        }
+        """
+        tokens = tokenize(textwrap.dedent(source))
+        module = parse(tokens)
+        result = check(module)
+        assert not result.has_errors
+
+        interpreter = Interpreter()
+        exec_result = interpreter.execute(module, "MAKE_DIFF", {}, source=source)
+        assert exec_result.success
+        assert issolid(exec_result.geometry)
+        # 100*100*10 = 100000, minus 3 cylinders of pi*25*10 each
+        plate_vol = 100000.0
+        hole_vol = math.pi * 25.0 * 10.0 * 3
+        expected = plate_vol - hole_vol
+        # Allow some tolerance for mesh approximation
+        assert abs(volumeof(exec_result.geometry) - expected) < expected * 0.02
+
+    def test_intersection_all_function(self):
+        """Test intersection_all() solid aggregation."""
+        from yapcad.geom3d import issolid, volumeof
+
+        source = """
+        module test;
+        command MAKE_INTERSECT() -> solid {
+            let solids: list<solid> = [
+                box(20.0, 20.0, 20.0),
+                translate(box(20.0, 20.0, 20.0), 5.0, 0.0, 0.0)
+            ];
+            let result: solid = intersection_all(solids);
+            emit result;
+        }
+        """
+        tokens = tokenize(textwrap.dedent(source))
+        module = parse(tokens)
+        result = check(module)
+        assert not result.has_errors
+
+        interpreter = Interpreter()
+        exec_result = interpreter.execute(module, "MAKE_INTERSECT", {}, source=source)
+        assert exec_result.success
+        assert issolid(exec_result.geometry)
+        # Two 20x20x20 boxes offset by 5 in X: overlap is 15x20x20 = 6000
+        expected = 15.0 * 20.0 * 20.0
+        assert abs(volumeof(exec_result.geometry) - expected) < expected * 0.02
+
+    def test_union2d_all_function(self):
+        """Test union2d_all() 2D region aggregation."""
+        source = """
+        module test;
+        command MAKE_2D_UNION() -> region2d {
+            let shapes: list<region2d> = [
+                rectangle(10.0, 10.0),
+                disk(point(20.0, 0.0), 5.0, 32)
+            ];
+            let result: region2d = union2d_all(shapes);
+            emit result;
+        }
+        """
+        tokens = tokenize(textwrap.dedent(source))
+        module = parse(tokens)
+        result = check(module)
+        assert not result.has_errors
+
+        interpreter = Interpreter()
+        exec_result = interpreter.execute(module, "MAKE_2D_UNION", {}, source=source)
+        assert exec_result.success
+        # Result should be a valid 2D geometry
+        assert exec_result.geometry is not None
+
+    def test_difference2d_all_function(self):
+        """Test difference2d_all() 2D region aggregation."""
+        source = """
+        module test;
+        command MAKE_2D_DIFF() -> region2d {
+            let plate: region2d = rectangle(100.0, 50.0);
+            let holes: list<region2d> = [
+                disk(point(-30.0, 0.0), 8.0, 32),
+                disk(point(0.0, 0.0), 8.0, 32),
+                disk(point(30.0, 0.0), 8.0, 32)
+            ];
+            let result: region2d = difference2d_all(plate, holes);
+            emit result;
+        }
+        """
+        tokens = tokenize(textwrap.dedent(source))
+        module = parse(tokens)
+        result = check(module)
+        assert not result.has_errors
+
+        interpreter = Interpreter()
+        exec_result = interpreter.execute(module, "MAKE_2D_DIFF", {}, source=source)
+        assert exec_result.success
+        assert exec_result.geometry is not None
+
+    def test_combinators_with_comprehension(self):
+        """Test functional combinators combined with list comprehension."""
+        source = """
+        module test;
+        command CALC_SQUARES_SUM() -> float {
+            let values: list<float> = [1.0, 2.0, 3.0, 4.0];
+            let squares: list<float> = [x * x for x in values];
+            let total: float = sum(squares);
+            emit total;
+        }
+        """
+        tokens = tokenize(textwrap.dedent(source))
+        module = parse(tokens)
+        result = check(module)
+        assert not result.has_errors
+
+        interpreter = Interpreter()
+        exec_result = interpreter.execute(module, "CALC_SQUARES_SUM", {}, source=source)
+        assert exec_result.success
+        # 1 + 4 + 9 + 16 = 30
+        assert abs(exec_result.geometry - 30.0) < 0.001
+
+    def test_difference_all_with_comprehension(self):
+        """Test difference_all with list comprehension for hole array."""
+        from yapcad.geom3d import issolid, volumeof
+
+        source = """
+        module test;
+        command MAKE_HOLE_PATTERN() -> solid {
+            let plate: solid = cylinder(50.0, 10.0);
+            let angles: list<float> = [0.0, 60.0, 120.0, 180.0, 240.0, 300.0];
+            let holes: list<solid> = [
+                translate(cylinder(5.0, 12.0), 30.0 * cos(radians(a)), 30.0 * sin(radians(a)), -1.0)
+                for a in angles
+            ];
+            let result: solid = difference_all(plate, holes);
+            emit result;
+        }
+        """
+        tokens = tokenize(textwrap.dedent(source))
+        module = parse(tokens)
+        result = check(module)
+        assert not result.has_errors
+
+        interpreter = Interpreter()
+        exec_result = interpreter.execute(module, "MAKE_HOLE_PATTERN", {}, source=source)
+        assert exec_result.success
+        assert issolid(exec_result.geometry)
+        # Should be plate volume minus 6 holes
+        plate_vol = math.pi * 50.0 * 50.0 * 10.0
+        holes_vol = 6 * math.pi * 25.0 * 10.0
+        expected = plate_vol - holes_vol
+        assert abs(volumeof(exec_result.geometry) - expected) < expected * 0.05

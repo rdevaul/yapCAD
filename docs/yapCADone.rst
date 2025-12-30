@@ -31,10 +31,13 @@ This section reflects the **actual current state** of the codebase as of version
 - DSL with lexer, parser, type checker, and runtime interpreter
 - DSL CLI (``python -m yapcad.dsl``) with ``check``, ``run``, ``list`` commands
 - DSL builtins: primitives, booleans, transforms, sweeps (including adaptive), 2D regions
+- DSL conditional expressions (``value if condition else other``)
+- DSL list comprehensions (``[expr for var in iterable]`` with optional filter)
+- DSL functional combinators: ``union_all``, ``difference_all``, ``intersection_all``, ``sum``, ``product``, ``min_of``, ``max_of``, ``any_true``, ``all_true``, and 2D equivalents
 - 2D boolean operations (union, difference, intersection) with proper hole accumulation
 - Curve types: ellipse, catmull-rom splines, NURBS, parabola, hyperbola
 - Adaptive sweep operations with tangent-tracking profile orientation
-- 533 regression tests across geometry, DSL, import/export, and packaging
+- 533+ regression tests across geometry, DSL, import/export, and packaging
 
 **Partially Implemented:**
 
@@ -120,6 +123,13 @@ Roadmap & Milestones
 - 2D geometry: ellipse, catmull-rom, NURBS, polygon, disk, 2D booleans with hole accumulation
 - DXF export for 2D geometry visualization
 - Basic provenance tracking in DSL execution
+- **Conditional expressions**: ``value if condition else other`` syntax (December 2025)
+- **List comprehensions**: ``[expr for var in iterable if condition]`` with map and filter
+- **Functional combinators** (December 2025):
+  - 3D boolean aggregation: ``union_all``, ``difference_all``, ``intersection_all``
+  - 2D boolean aggregation: ``union2d_all``, ``difference2d_all``, ``intersection2d_all``
+  - Numeric aggregation: ``sum``, ``product``, ``min_of``, ``max_of``
+  - Boolean aggregation: ``any_true``, ``all_true``
 
 *Remaining:*
 
@@ -197,9 +207,13 @@ Priorities for 1.0 Release
 
 4. **Validation Test Schema** - Define minimal schema for validation tests storable in packages.
 
-5. **DSL Enhancements** - Address gaps: conditional expressions, better error messages, more list operations.
+5. **DSL Enhancements** - ✅ LARGELY COMPLETE (December 2025):
+   - ✅ Conditional expressions implemented
+   - ✅ List comprehensions with filter support
+   - ✅ Functional combinators (``union_all``, ``sum``, etc.)
+   - Remaining: better error messages with source context
 
-6. **Test Coverage** - Ensure new features (2D booleans, DXF export, adaptive sweep) have adequate test coverage.
+6. **Test Coverage** - Ensure new features (2D booleans, DXF export, adaptive sweep, functional combinators) have adequate test coverage.
 
 **Defer to 1.1:**
 
