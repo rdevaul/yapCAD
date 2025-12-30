@@ -1,0 +1,49 @@
+# Thrust Structure Mass Budget Check
+# ==================================
+#
+# Validates that the optimized thrust plate meets the mass budget
+# requirement of < 1.0 kg for the aluminum structure.
+#
+# This geometric validation uses yapCAD's native backend and does
+# not require external FEA solvers.
+
+id: mass-check
+kind: measurement
+backend: yapcad
+name: "Thrust Plate Mass Budget"
+description: |
+  Verify the thrust plate mass is within budget. The optimized design
+  must weigh less than 1.0 kg to meet the overall rocket mass allocation.
+
+  Material: 6061-T6 Aluminum (density: 2700 kg/m³)
+
+# Geometry reference
+geometry:
+  source: geometry/primary.json
+  entities: []  # All entities
+
+# Check specification
+check:
+  property: mass
+  density_kgm3: 2700  # 6061-T6 Aluminum
+
+# Acceptance criteria
+acceptance:
+  mass_kg:
+    limit: 1.0
+    comparison: "<"
+    description: "Plate mass must be under 1.0 kg for mass budget"
+
+# Metadata
+metadata:
+  author: "yapCAD Thrust Structure Demo"
+  created: "2025-12-30"
+  revision: 1
+  tags:
+    - aerospace
+    - mass-budget
+    - optimization-target
+  design_parameters:
+    material: "6061-T6 Aluminum"
+    density_kgm3: 2700
+    mass_budget_kg: 1.0

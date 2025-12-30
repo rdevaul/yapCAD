@@ -376,3 +376,201 @@ acceptance:
         workspace = pkg_root / "validation" / "results" / plan.plan_id
         result = adapter.run(manifest, plan, workspace)
         assert result.status == "passed"
+
+
+def _make_assembly():
+    """Create a simple assembly (two offset boxes)."""
+    from yapcad.geom3d_util import extrude
+
+    # First solid: 50x50x10 at origin
+    poly1 = [
+        point(0, 0),
+        point(50, 0),
+        point(50, 50),
+        point(0, 50),
+        point(0, 0),
+    ]
+    surf1, _ = poly2surfaceXY(poly1)
+    solid1 = extrude(surf1, distance=10.0)
+    set_layer(get_solid_metadata(solid1, create=True), "part1")
+
+    # Second solid: 50x50x10 offset by (100, 0, 0)
+    poly2 = [
+        point(100, 0),
+        point(150, 0),
+        point(150, 50),
+        point(100, 50),
+        point(100, 0),
+    ]
+    surf2, _ = poly2surfaceXY(poly2)
+    solid2 = extrude(surf2, distance=10.0)
+    set_layer(get_solid_metadata(solid2, create=True), "part2")
+
+    return [solid1, solid2]
+
+
+def _create_assembly_package(tmp_path: Path, solids):
+    """Create a test package with multiple solids."""
+    pkg_root = tmp_path / "assembly.ycpkg"
+    manifest = create_package_from_entities(
+        solids,
+        pkg_root,
+        name="Assembly Test",
+        version="0.1.0",
+    )
+    manifest.save()
+    return pkg_root, manifest
+
+
+class TestAssemblySupport:
+    """Tests for assembly (multi-part) validation."""
+
+    def test_assembly_volume_total(self, tmp_path: Path):
+        """Test volume check on assembly computes total."""
+        solids = _make_assembly()
+        pkg_root, manifest = _create_assembly_package(tmp_path, solids)
+
+        plan_dir = pkg_root / "validation" / "plans"
+        plan_dir.mkdir(parents=True, exist_ok=True)
+        plan_path = plan_dir / "volume-check.yaml"
+        plan_path.write_text(
+            """
+id: assembly-volume
+kind: geometric
+backend: yapcad
+geometry:
+  aggregate: true
+check:
+  property: volume
+acceptance:
+  volume:
+    limit: 40000.0
+    comparison: ">="
+""",
+            encoding="utf-8",
+        )
+
+        plan = load_plan(plan_path)
+        adapter = YapCADNativeAdapter()
+        workspace = pkg_root / "validation" / "results" / plan.plan_id
+        result = adapter.run(manifest, plan, workspace)
+
+        assert result.status == "passed"
+        # Two 50x50x10 boxes = 2 * 25000 = 50000 mm^3
+        assert result.metrics["volume"] == pytest.approx(50000.0, rel=0.05)
+        assert result.metrics["part_count"] == 2
+
+    def test_assembly_bbox_combined(self, tmp_path: Path):
+        """Test bounding box on assembly computes combined extent."""
+        solids = _make_assembly()
+        pkg_root, manifest = _create_assembly_package(tmp_path, solids)
+
+        plan_dir = pkg_root / "validation" / "plans"
+        plan_dir.mkdir(parents=True, exist_ok=True)
+        plan_path = plan_dir / "bbox-check.yaml"
+        plan_path.write_text(
+            """
+id: assembly-bbox
+kind: geometric
+backend: yapcad
+geometry:
+  aggregate: true
+check:
+  property: bbox
+acceptance:
+  bbox.width:
+    limit: 200.0
+    comparison: "<="
+""",
+            encoding="utf-8",
+        )
+
+        plan = load_plan(plan_path)
+        adapter = YapCADNativeAdapter()
+        workspace = pkg_root / "validation" / "results" / plan.plan_id
+        result = adapter.run(manifest, plan, workspace)
+
+        assert result.status == "passed"
+        # Width spans from 0 to 150
+        assert result.metrics["bbox.width"] == pytest.approx(150.0, rel=0.01)
+        assert result.metrics["part_count"] == 2
+
+    def test_assembly_mass_total(self, tmp_path: Path):
+        """Test mass check on assembly computes total mass."""
+        solids = _make_assembly()
+        pkg_root, manifest = _create_assembly_package(tmp_path, solids)
+
+        plan_dir = pkg_root / "validation" / "plans"
+        plan_dir.mkdir(parents=True, exist_ok=True)
+        plan_path = plan_dir / "mass-check.yaml"
+        plan_path.write_text(
+            """
+id: assembly-mass
+kind: measurement
+backend: yapcad
+geometry:
+  aggregate: true
+check:
+  property: mass
+  density_kgm3: 2700
+acceptance:
+  mass_kg:
+    limit: 1.0
+    comparison: "<="
+""",
+            encoding="utf-8",
+        )
+
+        plan = load_plan(plan_path)
+        adapter = YapCADNativeAdapter()
+        workspace = pkg_root / "validation" / "results" / plan.plan_id
+        result = adapter.run(manifest, plan, workspace)
+
+        assert result.status == "passed"
+        # Volume = 50000 mm^3 = 5e-5 m^3, mass = 5e-5 * 2700 = 0.135 kg
+        assert result.metrics["mass_kg"] == pytest.approx(0.135, rel=0.05)
+        assert result.metrics["part_count"] == 2
+
+
+class TestCentroidCheck:
+    """Tests for centroid calculation."""
+
+    def test_centroid_single_solid(self, tmp_path: Path):
+        """Test centroid check on a single solid."""
+        solid = _make_test_solid()
+        pkg_root, manifest = _create_test_package(tmp_path, solid)
+
+        plan_dir = pkg_root / "validation" / "plans"
+        plan_dir.mkdir(parents=True, exist_ok=True)
+        plan_path = plan_dir / "centroid-check.yaml"
+        plan_path.write_text(
+            """
+id: centroid-test
+kind: measurement
+backend: yapcad
+check:
+  property: centroid
+acceptance:
+  centroid.x:
+    limit: 100.0
+    comparison: "<="
+  centroid.y:
+    limit: 100.0
+    comparison: "<="
+""",
+            encoding="utf-8",
+        )
+
+        plan = load_plan(plan_path)
+        adapter = YapCADNativeAdapter()
+        workspace = pkg_root / "validation" / "results" / plan.plan_id
+        result = adapter.run(manifest, plan, workspace)
+
+        assert result.status == "passed"
+        # Centroid of 100x100x10 box at origin should be at (50, 50, 5)
+        assert "centroid.x" in result.metrics
+        assert "centroid.y" in result.metrics
+        assert "centroid.z" in result.metrics
+        assert result.metrics["centroid.x"] == pytest.approx(50.0, rel=0.1)
+        assert result.metrics["centroid.y"] == pytest.approx(50.0, rel=0.1)
+        assert result.metrics["centroid.z"] == pytest.approx(5.0, rel=0.1)
