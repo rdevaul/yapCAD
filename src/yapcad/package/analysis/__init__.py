@@ -11,6 +11,7 @@ from .base import (
     register_backend,
 )
 from .calculix import CalculixAdapter  # noqa: F401 - ensures backend registration
+from .yapcad_native import YapCADNativeAdapter  # noqa: F401 - ensures backend registration
 
 # Import optional backends (gracefully handle missing dependencies)
 try:
