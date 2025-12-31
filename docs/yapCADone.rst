@@ -18,7 +18,7 @@ Guiding Principles
 Implementation Status (December 2025)
 -------------------------------------
 
-This section reflects the **actual current state** of the codebase as of version 0.6.2.
+This section reflects the **actual current state** of the codebase as of version 1.0.0rc1.
 
 **Implemented and Working:**
 
@@ -37,7 +37,7 @@ This section reflects the **actual current state** of the codebase as of version
 - 2D boolean operations (union, difference, intersection) with proper hole accumulation
 - Curve types: ellipse, catmull-rom splines, NURBS, parabola, hyperbola
 - Adaptive sweep operations with tangent-tracking profile orientation
-- 533+ regression tests across geometry, DSL, import/export, and packaging
+- 584 regression tests across geometry, DSL, import/export, packaging, and validation
 
 **Partially Implemented:**
 
@@ -168,14 +168,17 @@ Roadmap & Milestones
 - Revocation lists
 - Full audit trails
 
-**Phase 6 - Release yapCAD 1.0 [IN PROGRESS]**
+**Phase 6 - Release yapCAD 1.0 [RC1 RELEASED]**
 
-Blockers:
+Completed:
 
 - ✅ Phase 3 validation schema specified (``docs/validation_schema.rst``)
 - ✅ Phase 5 scope decided (provisional signing for 1.0, multi-sig for 1.1)
 - ✅ Validation schema code implementation (``yapcad.package.analysis.schema``)
-- Documentation alignment with implementation (ongoing)
+- ✅ Documentation alignment with implementation
+- ✅ All specifications updated to v1.0 status
+- ✅ Historical documents reorganized
+- ✅ 584 tests passing
 
 Dependencies & Tooling
 ----------------------

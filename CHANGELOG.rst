@@ -2,6 +2,58 @@
 Changelog
 =========
 
+Version 1.0.0rc1 (2025-12-30)
+=============================
+
+**First release candidate for yapCAD 1.0**
+
+This release represents the culmination of the yapCAD 1.0 roadmap, delivering a
+requirements-driven, provenance-aware design platform with full solid modeling,
+packaging, and validation capabilities.
+
+what's new:
+-----------
+
+  - **Validation Schema Implementation**: Complete validation test schema with
+    ``yapcad.package.analysis.schema`` module providing ``ValidationKind``,
+    ``ResultStatus``, ``ComparisonOp`` enums and ``validate_plan()``,
+    ``validate_result()`` APIs. Supports geometric, measurement, structural,
+    thermal, CFD, multiphysics, and assembly test kinds.
+
+  - **Package Signing**: Provisional package signing with GPG and SSH keys.
+    ``sign_package()``, ``verify_package()``, ``list_signatures()`` APIs for
+    cryptographic verification of package integrity and authorship.
+
+  - **DSL Enhancements**: Conditional expressions (``value if cond else other``),
+    nested list comprehensions (``[f(x,y) for x in xs for y in ys if cond]``),
+    and functional combinators (``union_all``, ``difference_all``, ``sum``,
+    ``product``, ``min_of``, ``max_of``, ``any_true``, ``all_true``).
+
+  - **Documentation Reorganization**: Historical planning documents moved to
+    ``docs/historical/``. All specification documents updated to v1.0 status.
+
+  - **Test Suite**: 584 passing tests covering geometry, DSL, import/export,
+    packaging, validation schema, and fasteners.
+
+specifications finalized:
+-------------------------
+
+  - ``ycpkg-spec-v1.0`` - Package format specification
+  - ``metadata-namespace-v1.0`` - Metadata dictionary specification
+  - ``validation-schema-v1.0`` - Validation test schema
+  - ``ycpkg-signing-v1.0`` - Package signing specification
+  - ``yapcad-geometry-json-v1.0`` - Geometry JSON schema
+  - Material schema specification v1.0
+
+deferred to 1.1:
+----------------
+
+  - Multi-signature approval workflows
+  - Delegation and authority chains
+  - Revocation lists
+  - Full audit trails
+  - Solver adapter framework (generalized FEA/simulation integration)
+
 Version 0.6.3 (2025-12-17)
 ==========================
 
@@ -49,7 +101,6 @@ Known problems
 --------------
 
 - Analytic STEP export preserves BREP data but complex surfaces may tessellate.
-- DSL validation test definition language not yet implemented.
 
 Version 0.6.1 (2025-10-30)
 ==========================
