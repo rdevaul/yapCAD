@@ -13,7 +13,7 @@ from .ast import (
     # Expressions
     Expression, Literal, Identifier, BinaryOp, UnaryOp,
     FunctionCall, MethodCall, MemberAccess, IndexAccess,
-    ListLiteral, ListComprehension, RangeExpr, ConditionalExpr, IfExpr, MatchExpr,
+    ListLiteral, ListComprehension, ComprehensionClause, RangeExpr, ConditionalExpr, IfExpr, MatchExpr,
     MatchArm, Pattern, LiteralPattern, IdentifierPattern, WildcardPattern,
     LambdaExpr, PythonExpr, DictLiteral, ElifBranch,
     # Statements
@@ -112,6 +112,10 @@ class Parser:
     def _check_any(self, *token_types: TokenType) -> bool:
         """Check if current token is any of given types."""
         return self._current().type in token_types
+
+    def _check_ahead(self, token_type: TokenType, offset: int = 1) -> bool:
+        """Check if token at current position + offset is of given type."""
+        return self._peek(offset).type == token_type
 
     def _advance(self) -> Token:
         """Consume and return current token."""
@@ -507,7 +511,14 @@ class Parser:
         return expr
 
     def _parse_list_literal(self) -> Expression:
-        """Parse list literal or list comprehension."""
+        """Parse list literal or list comprehension.
+
+        Supports nested comprehensions:
+            [expr for x in xs]                    # single clause
+            [expr for x in xs if cond]            # with condition
+            [expr for x in xs for y in ys]        # nested (multiple clauses)
+            [expr for x in xs if c1 for y in ys if c2]  # with conditions
+        """
         start = self._advance()  # consume '['
 
         if self._check(TokenType.RBRACKET):
@@ -516,24 +527,39 @@ class Parser:
 
         first = self._parse_expression()
 
-        # Check for list comprehension: [expr for x in iterable]
+        # Check for list comprehension: [expr for x in iterable ...]
         if self._check(TokenType.FOR):
-            self._advance()  # consume 'for'
-            var = self._consume(TokenType.IDENTIFIER, "identifier").value
-            self._consume(TokenType.IN, "'in'")
-            iterable = self._parse_expression()
+            clauses: List[ComprehensionClause] = []
 
-            condition = None
-            if self._match(TokenType.IF):
-                condition = self._parse_expression()
+            # Parse one or more for clauses
+            while self._check(TokenType.FOR):
+                clause_start = self._current()
+                self._advance()  # consume 'for'
+                var = self._consume(TokenType.IDENTIFIER, "identifier").value
+                self._consume(TokenType.IN, "'in'")
+                iterable = self._parse_expression()
+
+                # Parse zero or more 'if' conditions for this clause
+                # Each 'if' is followed by a condition expression. The condition
+                # expression will not consume 'for' (it's a keyword, not identifier),
+                # so the outer while loop correctly stops at the next 'for'.
+                conditions: List[Expression] = []
+                while self._check(TokenType.IF):
+                    self._advance()  # consume 'if'
+                    conditions.append(self._parse_expression())
+
+                clauses.append(ComprehensionClause(
+                    span=self._span_from(clause_start),
+                    variable=var,
+                    iterable=iterable,
+                    conditions=conditions
+                ))
 
             self._consume(TokenType.RBRACKET, "']'")
             return ListComprehension(
                 span=self._span_from(start),
                 element_expr=first,
-                variable=var,
-                iterable=iterable,
-                condition=condition
+                clauses=clauses
             )
 
         # Check for range: [start..end]

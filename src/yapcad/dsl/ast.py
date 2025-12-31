@@ -147,12 +147,74 @@ class ListLiteral(Expression):
 
 
 @dataclass
-class ListComprehension(Expression):
-    """A list comprehension (e.g., [f(x) for x in items if cond])."""
-    element_expr: Expression
+class ComprehensionClause(AstNode):
+    """A single for clause in a list comprehension.
+
+    Represents: for variable in iterable [if condition1] [if condition2] ...
+
+    Multiple if conditions are allowed per clause, all must be true.
+    """
     variable: str
     iterable: Expression
-    condition: Optional[Expression] = None  # Optional 'if' filter
+    conditions: List[Expression] = field(default_factory=list)
+
+
+@dataclass
+class ListComprehension(Expression):
+    """A list comprehension with one or more for clauses.
+
+    Single clause (original):
+        [f(x) for x in items if cond]
+
+    Multiple clauses (nested):
+        [f(x, y) for x in xs for y in ys]
+        [f(x, y) for x in xs for y in ys if x < y]
+        [f(x, y) for x in xs if x > 0 for y in ys if y < 10]
+
+    The clauses are evaluated left-to-right as nested loops.
+    """
+    element_expr: Expression
+    clauses: List[ComprehensionClause] = field(default_factory=list)
+
+    # Legacy compatibility properties for single-clause comprehensions
+    @property
+    def variable(self) -> str:
+        """Get variable name (for single-clause compatibility)."""
+        if self.clauses:
+            return self.clauses[0].variable
+        return ""
+
+    @property
+    def iterable(self) -> Expression:
+        """Get iterable (for single-clause compatibility)."""
+        if self.clauses:
+            return self.clauses[0].iterable
+        # Return a dummy - shouldn't happen in valid AST
+        from .tokens import SourceLocation
+        return Identifier(
+            span=self.span,
+            name=""
+        )
+
+    @property
+    def condition(self) -> Optional[Expression]:
+        """Get first condition (for single-clause compatibility)."""
+        if self.clauses and self.clauses[0].conditions:
+            return self.clauses[0].conditions[0]
+        return None
+
+    @classmethod
+    def from_single(cls, span: SourceSpan, element_expr: Expression,
+                    variable: str, iterable: Expression,
+                    condition: Optional[Expression] = None) -> "ListComprehension":
+        """Create a single-clause comprehension (backward compatibility)."""
+        clause = ComprehensionClause(
+            span=span,
+            variable=variable,
+            iterable=iterable,
+            conditions=[condition] if condition else []
+        )
+        return cls(span=span, element_expr=element_expr, clauses=[clause])
 
 
 @dataclass

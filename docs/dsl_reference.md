@@ -592,6 +592,43 @@ positives: list<float> = [x for x in values if x > 0.0]
 big_squares: list<float> = [x * x for x in values if x > 10.0]
 ```
 
+#### Nested Comprehensions
+
+Multiple `for` clauses create nested iterations (cartesian products):
+
+```python
+# Nested comprehension - generates all (x, y) combinations
+sums: list<int> = [x + y for x in xs for y in ys]
+# Equivalent to: for x in xs: for y in ys: append(x + y)
+
+# With conditions on outer loop
+filtered_outer: list<int> = [x + y for x in xs if x > 0 for y in ys]
+
+# With conditions on inner loop
+filtered_inner: list<int> = [x + y for x in xs for y in ys if y < 10]
+
+# With conditions on both loops
+filtered_both: list<int> = [x + y for x in xs if x > 0 for y in ys if y < 10]
+
+# Triple nesting
+products: list<int> = [x + y + z for x in xs for y in ys for z in zs]
+```
+
+**Example: Creating patterns with symmetric geometry**
+
+```python
+# Generate holes at 3 sectors (0°, 120°, 240°) with multiple angles per sector
+sector_offsets: list<float> = [0.0, 120.0, 240.0]
+base_angles: list<float> = [50.0, 60.0, 70.0]
+
+all_holes: list<solid> = [
+    make_hole(radius, thickness, base_angle + offset)
+    for offset in sector_offsets
+    for base_angle in base_angles
+]
+# Creates 9 holes: 3 sectors × 3 angles per sector
+```
+
 ## Common Patterns
 
 ### Box with Hole

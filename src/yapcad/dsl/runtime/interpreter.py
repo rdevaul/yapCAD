@@ -748,31 +748,72 @@ class Interpreter:
         return list_val(values, elem_type)
 
     def _eval_list_comprehension(self, comp: ListComprehension, ctx: ExecutionContext) -> Value:
-        """Evaluate a list comprehension."""
-        iterable = self._evaluate(comp.iterable, ctx)
+        """Evaluate a list comprehension with one or more for clauses.
 
-        results = []
+        Supports:
+            [expr for x in xs]
+            [expr for x in xs if cond]
+            [expr for x in xs for y in ys]
+            [expr for x in xs if c1 for y in ys if c2]
+
+        Multiple for clauses are evaluated as nested loops (left = outer).
+        """
+        results: list = []
+
         with ctx.new_scope("comprehension"):
-            for item in iterable.data:
-                if isinstance(iterable.type, ListType):
-                    elem_type = iterable.type.element_type
-                else:
-                    elem_type = INT
-                ctx.set_variable(comp.variable, wrap_value(item, elem_type))
-
-                # Check condition if present
-                if comp.condition:
-                    cond = self._evaluate(comp.condition, ctx)
-                    if not cond.is_truthy():
-                        continue
-
-                # Evaluate the expression
-                value = self._evaluate(comp.element_expr, ctx)
-                results.append(value)
+            self._eval_comprehension_clauses(comp.clauses, comp.element_expr, ctx, results)
 
         if results:
             return list_val(results, results[0].type)
         return list_val([], INT)
+
+    def _eval_comprehension_clauses(
+        self,
+        clauses: list,
+        element_expr,
+        ctx: ExecutionContext,
+        results: list
+    ) -> None:
+        """Recursively evaluate comprehension clauses.
+
+        Each clause defines a loop. Multiple clauses become nested loops.
+        """
+        if not clauses:
+            # Base case: all clauses processed, evaluate and collect element
+            value = self._evaluate(element_expr, ctx)
+            results.append(value)
+            return
+
+        # Process first clause
+        clause = clauses[0]
+        remaining_clauses = clauses[1:]
+
+        # Evaluate the iterable
+        iterable = self._evaluate(clause.iterable, ctx)
+
+        # Iterate
+        for item in iterable.data:
+            # Determine element type
+            if isinstance(iterable.type, ListType):
+                elem_type = iterable.type.element_type
+            else:
+                elem_type = INT
+
+            # Bind loop variable
+            ctx.set_variable(clause.variable, wrap_value(item, elem_type))
+
+            # Check all conditions for this clause
+            skip = False
+            for condition in clause.conditions:
+                cond = self._evaluate(condition, ctx)
+                if not cond.is_truthy():
+                    skip = True
+                    break
+            if skip:
+                continue
+
+            # Recurse to inner clauses (or evaluate element if no more clauses)
+            self._eval_comprehension_clauses(remaining_clauses, element_expr, ctx, results)
 
     def _eval_range(self, range_expr: RangeExpr, ctx: ExecutionContext) -> Value:
         """Evaluate a range expression."""

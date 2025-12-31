@@ -896,37 +896,48 @@ class TypeChecker:
         return make_list_type(elem_type)
 
     def _check_list_comprehension(self, expr: ListComprehension) -> Type:
-        """Check a list comprehension."""
-        iterable_type = self._check_expression(expr.iterable)
+        """Check a list comprehension with one or more for clauses.
 
-        # Determine element type
-        if isinstance(iterable_type, ListType):
-            iter_elem_type = iterable_type.element_type
-        else:
-            iter_elem_type = INT  # Assume range
-
-        # Create scope for comprehension variable
+        Supports:
+            [expr for x in xs]
+            [expr for x in xs if cond]
+            [expr for x in xs for y in ys]
+            [expr for x in xs if c1 for y in ys if c2]
+        """
+        # Create a single scope for all comprehension variables
         self.symbols.push_scope("list comprehension")
 
-        symbol = Symbol(
-            name=expr.variable,
-            kind=SymbolKind.VARIABLE,
-            type=iter_elem_type,
-            span=expr.span
-        )
-        self.symbols.define(symbol)
+        # Process each clause in order (left-to-right = outer-to-inner loop)
+        for clause in expr.clauses:
+            # Check the iterable expression (can reference earlier clause variables)
+            iterable_type = self._check_expression(clause.iterable)
 
-        # Check condition if present
-        if expr.condition is not None:
-            cond_type = self._check_expression(expr.condition)
-            if cond_type != BOOL and cond_type != ERROR:
-                self._error(
-                    f"Comprehension condition must be boolean, got '{cond_type}'",
-                    expr.condition.span,
-                    "E294"
-                )
+            # Determine element type from iterable
+            if isinstance(iterable_type, ListType):
+                iter_elem_type = iterable_type.element_type
+            else:
+                iter_elem_type = INT  # Assume range
 
-        # Check element expression
+            # Define the loop variable for this clause
+            symbol = Symbol(
+                name=clause.variable,
+                kind=SymbolKind.VARIABLE,
+                type=iter_elem_type,
+                span=clause.span
+            )
+            self.symbols.define(symbol)
+
+            # Check all conditions for this clause
+            for condition in clause.conditions:
+                cond_type = self._check_expression(condition)
+                if cond_type != BOOL and cond_type != ERROR:
+                    self._error(
+                        f"Comprehension condition must be boolean, got '{cond_type}'",
+                        condition.span,
+                        "E294"
+                    )
+
+        # Check element expression (can reference all clause variables)
         elem_type = self._check_expression(expr.element_expr)
 
         self.symbols.pop_scope()

@@ -4,7 +4,7 @@
 # Static structural analysis of rocket motor thrust plate under
 # maximum thrust loading condition.
 #
-# Analysis validates the design meets the 10mm deflection limit
+# Analysis validates the design meets the 1mm deflection limit
 # when subjected to 1500 lbf (6672 N) thrust load.
 
 id: thrust-fea
@@ -44,12 +44,15 @@ loads:
     # Inner surface area ≈ π × 101.6 × 8 = 2553 mm² = 2.553e-3 m²
     # Pressure = 6672 / 2.553e-3 ≈ 2.61 MPa
     magnitude_pa: 2.61e6
+    strategy: motor_mount     # Apply to central motor mount region only
+    direction: [0, 0, -1]     # Thrust pushes plate downward (-Z), stringers support from below
 
 # Boundary conditions
 boundaryConditions:
   - id: stringer_fixed
     type: fixed
     description: "Stringer attachment points fixed (simulating welded stringers)"
+    strategy: stringer_notches  # Fix at the 3 stringer notch locations
     surfaces:
       - stringer_notch_1
       - stringer_notch_2
@@ -58,9 +61,9 @@ boundaryConditions:
 # Acceptance criteria
 acceptance:
   displacement.max_mm:
-    limit: 10.0
+    limit: 1.0
     comparison: "<="
-    description: "Maximum displacement must not exceed 10mm"
+    description: "Maximum displacement must not exceed 1mm"
 
   # Optional: stress check against yield with safety factor
   # stress.von_mises.max:
