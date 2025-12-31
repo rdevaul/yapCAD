@@ -32,7 +32,7 @@ This section reflects the **actual current state** of the codebase as of version
 - DSL CLI (``python -m yapcad.dsl``) with ``check``, ``run``, ``list`` commands
 - DSL builtins: primitives, booleans, transforms, sweeps (including adaptive), 2D regions
 - DSL conditional expressions (``value if condition else other``)
-- DSL list comprehensions (``[expr for var in iterable]`` with optional filter)
+- DSL list comprehensions with nested ``for`` clauses (``[f(x,y) for x in xs for y in ys if cond]``)
 - DSL functional combinators: ``union_all``, ``difference_all``, ``intersection_all``, ``sum``, ``product``, ``min_of``, ``max_of``, ``any_true``, ``all_true``, and 2D equivalents
 - 2D boolean operations (union, difference, intersection) with proper hole accumulation
 - Curve types: ellipse, catmull-rom splines, NURBS, parabola, hyperbola
@@ -124,7 +124,7 @@ Roadmap & Milestones
 - DXF export for 2D geometry visualization
 - Basic provenance tracking in DSL execution
 - **Conditional expressions**: ``value if condition else other`` syntax (December 2025)
-- **List comprehensions**: ``[expr for var in iterable if condition]`` with map and filter
+- **List comprehensions**: nested ``for`` clauses (``[f(x,y) for x in xs for y in ys if cond]``)
 - **Functional combinators** (December 2025):
   - 3D boolean aggregation: ``union_all``, ``difference_all``, ``intersection_all``
   - 2D boolean aggregation: ``union2d_all``, ``difference2d_all``, ``intersection2d_all``
