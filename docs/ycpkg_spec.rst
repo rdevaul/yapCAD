@@ -2,8 +2,8 @@ yapCAD Package (`.ycpkg`) Specification
 =======================================
 
 
-**Version:** ``ycpkg-spec-v0.1``
-**Status:** Draft – initial workflow design
+**Version:** ``ycpkg-spec-v1.0``
+**Status:** Stable – yapCAD 1.0
 
 
 

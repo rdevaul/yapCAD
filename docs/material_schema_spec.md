@@ -1,8 +1,8 @@
 # Material Schema Specification
 
-**Version**: 0.1 (Draft)
-**Status**: Proposal for Review
-**Date**: November 2025
+**Version**: 1.0
+**Status**: Implemented – yapCAD 1.0
+**Date**: December 2025
 
 ## Overview
 

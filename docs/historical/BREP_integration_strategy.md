@@ -1,3 +1,11 @@
+# Historical Document
+
+> **Note**: This is a historical planning document from October-December 2025. All seven
+> phases of BREP integration have been completed. For current BREP implementation details,
+> see `docs/yapBREP.rst`.
+
+---
+
 # BREP Integration Strategy
 
 This document outlines a strategy for integrating a Boundary Representation (BREP) model into yapCAD, enabling support for STEP import and a more robust internal geometry representation. The primary goal is to achieve this while maintaining backward compatibility with existing yapCAD designs and packages.

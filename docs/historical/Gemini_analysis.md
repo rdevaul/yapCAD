@@ -1,3 +1,17 @@
+# Historical Document
+
+> **Note**: This is a snapshot analysis produced by Gemini AI in 2025. Many of the gaps
+> identified in this document have been addressed in yapCAD 1.0:
+> - DSL: Fully implemented (lexer, parser, type checker, runtime)
+> - STEP/STL Import: Implemented via OCC BREP integration
+> - Validation Framework: Schema specified and code implementation complete
+> - Provenance and Security: Package signing implemented (GPG/SSH)
+> - Test Coverage: Increased to 584+ tests
+>
+> This document is preserved for historical reference.
+
+---
+
 # Gemini Analysis of yapCAD
 
 This document provides an analysis of the yapCAD codebase, guided by the project's `yapCADone.rst` roadmap. It includes an overall assessment of the code's state, identifies gaps in functionality and test coverage, and provides recommendations for evolving the project towards yapCAD 1.0.

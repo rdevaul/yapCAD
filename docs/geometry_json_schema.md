@@ -1,7 +1,7 @@
 # yapCAD Geometry JSON Schema
 
-**Schema ID:** `yapcad-geometry-json-v0.1`  
-**Status:** Accepted working version  
+**Schema ID:** `yapcad-geometry-json-v1.0`
+**Status:** Stable – yapCAD 1.0  
 **Purpose:** Serialise yapCAD solids, surfaces, assemblies, and associated metadata into a portable JSON document for storage, interchange, or inclusion in `.ycpkg` packages.
 
 ---

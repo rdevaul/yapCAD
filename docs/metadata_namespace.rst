@@ -2,8 +2,8 @@ yapCAD Metadata Namespace Specification
 =======================================
 
 
-**Version:** ``metadata-namespace-v0.1``  
-**Status:** Accepted working version  
+**Version:** ``metadata-namespace-v1.0``
+**Status:** Stable – yapCAD 1.0  
 **Scope:** Metadata dictionaries attached to solids, surfaces, geometry collections, assemblies, and exported artefacts.
 
 

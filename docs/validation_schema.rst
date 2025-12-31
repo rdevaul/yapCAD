@@ -2,8 +2,10 @@
 yapCAD Validation Test Schema
 ================================
 
-**Version:** ``validation-schema-v0.1``
-**Status:** Draft
+**Version:** ``validation-schema-v1.0``
+**Status:** Implemented – yapCAD 1.0
+
+Code implementation: ``yapcad.package.analysis.schema``
 
 This document defines the schema for validation tests that can be stored in
 yapCAD packages (``.ycpkg``). Validation tests allow automated verification

@@ -23,20 +23,19 @@ yapCAD
    support, rendered with zinc (left) and brass (right) finishes.
 
 Welcome to **yapCAD**, yet another procedural CAD and computational
-geometry system, written in Python_.  The project is in active development,
-with the 0.6.x series delivering reusable `.ycpkg` package workflows, an
-embedded involute gear toolkit, spline-aware exports, and continued
-improvements to robust boolean operations, STL/STEP export, and the
-interactive viewer.
+geometry system, written in Python_.  Version 1.0 delivers a complete
+parametric DSL, OCC BREP kernel integration, package signing, validation
+schemas, and production-ready STL/STEP/DXF export. The reusable `.ycpkg`
+package format enables provenance tracking and reproducible designs.
 
 .. note::
 
     **yapCAD** was created to solve some fairly specific problems in
-    procedural CAD and `parametric design`_.  Earlier releases were
-    primarily geared toward generating 2D drawings in the `AutoCad
-    DXF`_ format; the current 0.6.x cycle adds reusable `.ycpkg`
-    packaging, vendored gear generation utilities, spline-native exports, and
-    production-ready STL/STEP output with improved validation.
+    procedural CAD and `parametric design`_.  Earlier releases focused
+    on 2D drawings in `AutoCad DXF`_ format; version 1.0 delivers a
+    complete parametric DSL, OCC BREP kernel for exact solid modeling,
+    `.ycpkg` packaging with signing and validation schemas, and
+    production-ready STL/STEP/DXF export.
 
     Why use yapCAD? yapCAD allows you to transform the 2D and 3D mechanical
     design process from the manual creation of drawings, parts, and assemblies
@@ -77,11 +76,15 @@ Contents
    Changelog <changelog>
    Module Reference <api/modules>
    README <README>
-   Roadmap Snapshot <yapCADone>
-   Metadata Namespace <metadata_namespace>
+   Roadmap <yapCADone>
+   DSL Reference <dsl_reference>
+   DSL Tutorial <dsl_tutorial>
+   BREP Implementation <yapBREP>
    Project Packaging <ycpkg_spec>
-   DSL Draft <dsl_spec>
-   BREP Roadmap <yapBREP>
+   Metadata Namespace <metadata_namespace>
+   Validation Schema <validation_schema>
+   Package Signing <signing_spec>
+   Material Schema <material_schema_spec>
 
 
 Indices and tables

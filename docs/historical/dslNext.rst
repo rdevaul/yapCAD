@@ -1,3 +1,14 @@
+Historical Document
+===================
+
+.. note::
+
+   This is a historical planning document from December 2025. The DSL language
+   extensions described here have been implemented in yapCAD 1.0. For current
+   DSL syntax and features, see ``docs/dsl_reference.md``.
+
+---
+
 ==================================
 DSL Language Extensions: dslNext
 ==================================

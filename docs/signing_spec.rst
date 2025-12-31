@@ -1,8 +1,8 @@
 Package Signing Specification
 =============================
 
-**Version:** ``ycpkg-signing-v0.1``
-**Status:** Draft – Provisional signing for yapCAD 1.0
+**Version:** ``ycpkg-signing-v1.0``
+**Status:** Implemented – yapCAD 1.0
 
 1. Overview
 -----------

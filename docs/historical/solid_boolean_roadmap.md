@@ -1,3 +1,12 @@
+# Historical Document
+
+> **Note**: This is a historical planning document from November 2025. It tracked the
+> development of the boolean engine architecture. The native and OCC boolean engines
+> are now complete and production-ready. For current boolean operation usage,
+> see the API documentation for `yapcad.geom3d` and `yapcad.boolean`.
+
+---
+
 # Boolean Engine Roadmap
 
 ## Status as of v0.6.0 (November 2025)
