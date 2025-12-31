@@ -10,6 +10,17 @@ from .base import (
     load_plan,
     register_backend,
 )
+from .schema import (
+    ValidationKind,
+    ResultStatus,
+    ComparisonOp,
+    SchemaError,
+    ValidationReport,
+    validate_plan,
+    validate_result,
+    validate_plan_file,
+    validate_result_file,
+)
 from .calculix import CalculixAdapter  # noqa: F401 - ensures backend registration
 from .yapcad_native import YapCADNativeAdapter  # noqa: F401 - ensures backend registration
 
@@ -64,6 +75,16 @@ __all__ = [
     "get_backend",
     "load_plan",
     "register_backend",
+    # Schema validation
+    "ValidationKind",
+    "ResultStatus",
+    "ComparisonOp",
+    "SchemaError",
+    "ValidationReport",
+    "validate_plan",
+    "validate_result",
+    "validate_plan_file",
+    "validate_result_file",
     # Gmsh meshing
     "GmshMesher",
     "MeshHints",

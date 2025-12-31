@@ -3,9 +3,22 @@ import os
 import pathlib
 import sys
 
+import pytest
+
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
 
-os.environ.setdefault("YAPCAD_BOOLEAN_ENGINE", "native")
+
+@pytest.fixture(autouse=True)
+def use_native_boolean_engine():
+    """Use native boolean engine for fastener tests, restore original after."""
+    original = os.environ.get("YAPCAD_BOOLEAN_ENGINE")
+    os.environ["YAPCAD_BOOLEAN_ENGINE"] = "native"
+    yield
+    if original is None:
+        os.environ.pop("YAPCAD_BOOLEAN_ENGINE", None)
+    else:
+        os.environ["YAPCAD_BOOLEAN_ENGINE"] = original
+
 
 from yapcad.fasteners import (
     HexCapScrewSpec,
