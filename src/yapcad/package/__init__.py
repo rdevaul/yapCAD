@@ -21,6 +21,16 @@ from .analysis import (
     register_backend,
 )
 from .analysis.cli import analyze_package
+from .signing import (
+    sign_package,
+    verify_package,
+    list_signatures,
+    SignatureMethod,
+    VerificationStatus,
+    SignatureInfo,
+    VerificationResult,
+    SigningError,
+)
 
 
 def view_package(package_path, *, strict: bool = False):
@@ -47,4 +57,13 @@ __all__ = [
     "register_backend",
     "analyze_package",
     "view_package",
+    # Signing
+    "sign_package",
+    "verify_package",
+    "list_signatures",
+    "SignatureMethod",
+    "VerificationStatus",
+    "SignatureInfo",
+    "VerificationResult",
+    "SigningError",
 ]

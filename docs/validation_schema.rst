@@ -272,19 +272,67 @@ For ``kind: assembly``:
        description: "Sliding fit clearance"
 
 
+Surface Selection Strategies
+============================
+
+For FEA boundary conditions and loads, surfaces can be selected by name or
+by geometric strategy. The ``strategy`` field invokes backend-specific
+surface selectors:
+
+Built-in Strategies
+-------------------
+
+Position-based (all backends):
+
+- ``z_min`` - Bottom surface (minimum Z coordinate)
+- ``z_max`` - Top surface (maximum Z coordinate)
+- ``x_min``, ``x_max``, ``y_min``, ``y_max`` - Axis-aligned selections
+
+Shape-based (fenics backend):
+
+- ``z_max_ring`` - Top surface excluding central region (for ring/annular loads)
+- ``motor_mount`` - Central cylindrical region
+- ``stringer_notches`` - Edge notch regions at specified angles
+
+Face Naming Rules
+-----------------
+
+The ``faceNaming`` section can define custom surface selection rules:
+
+.. code-block:: yaml
+
+   faceNaming:
+     strategy: geometric
+     rules:
+       - name: motor_mount_inner
+         selector:
+           type: cylindrical
+           axis: [0, 0, 1]
+           radius: 50.8
+           tolerance: 1.0
+
+       - name: stringer_notch_1
+         selector:
+           type: planar
+           normal: [1, 0, 0]
+           position_constraint:
+             axis: x
+             at_max: true
+
+
 Result Schema
 =============
 
 After execution, results are stored in ``validation/results/<plan_id>/``:
 
-.. code-block:: yaml
+.. code-block:: json
 
-   # validation/results/thrust-fea/summary.json
    {
      "plan_id": "thrust-fea",
-     "status": "passed",          # passed, failed, error, skipped
+     "status": "passed",
      "timestamp": "2025-12-30T15:30:00Z",
      "backend": "fenics",
+     "backend_version": "0.8.0",
      "execution_time_s": 45.2,
 
      "metrics": {
@@ -299,13 +347,17 @@ After execution, results are stored in ``validation/results/<plan_id>/``:
          "value": 7.3,
          "limit": 10.0,
          "comparison": "<=",
-         "passed": true
+         "passed": true,
+         "margin": 2.7,
+         "margin_pct": 27.0
        },
        "stress.von_mises.max_pa": {
          "value": 145e6,
          "limit": 180e6,
          "comparison": "<=",
-         "passed": true
+         "passed": true,
+         "margin": 35e6,
+         "margin_pct": 19.4
        }
      },
 
@@ -315,8 +367,19 @@ After execution, results are stored in ``validation/results/<plan_id>/``:
        {"kind": "log", "path": "solver.log"}
      ],
 
+     "errors": [],
+     "warnings": [],
      "notes": "Analysis completed successfully."
    }
+
+Status Values
+-------------
+
+- ``passed`` - All acceptance criteria met
+- ``failed`` - One or more criteria not met
+- ``error`` - Execution error (solver crash, missing files, etc.)
+- ``skipped`` - Plan skipped (missing backend, disabled, etc.)
+- ``pending`` - Queued for remote execution
 
 
 Backend Registration

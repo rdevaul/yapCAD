@@ -45,11 +45,16 @@ This section reflects the **actual current state** of the codebase as of version
 - FEA integration (demo in ``examples/thrust_structure/`` - not production-ready)
 - Package validation (basic schema validation, no solver orchestration)
 
+**Newly Implemented (December 2025):**
+
+- Validation test schema specification (``docs/validation_schema.rst``)
+- Package signing with GPG and SSH keys (``docs/signing_spec.rst``)
+- ``sign_package()``, ``verify_package()`` APIs for cryptographic verification
+
 **Not Yet Implemented:**
 
-- Validation test definition language and schema
 - Solver adapter framework (generalized FEA/simulation integration)
-- Cryptographic signatures and approval workflows (Phase 5)
+- Multi-signature approval workflows (Phase 5 - deferred to 1.1)
 - Migration tooling for 0.x → 1.0 conversion
 - Full provenance chain with audit trails
 
@@ -133,7 +138,7 @@ Roadmap & Milestones
 
 *Remaining:*
 
-- Validation test definition language (schema specification needed)
+- Validation test schema implementation in code (schema specified in ``docs/validation_schema.rst``)
 - Solver adapter framework (generalize FEA demo)
 
 **Phase 4 - Export/Import Expansion [COMPLETE]**
@@ -144,20 +149,31 @@ Roadmap & Milestones
 - DXF export for 2D geometry
 - Full BREP kernel with OCC integration
 
-**Phase 5 - Provenance & Security Enhancements [NOT STARTED]**
+**Phase 5 - Provenance & Security Enhancements [PARTIALLY COMPLETE]**
 
-- Basic hashing exists for geometry/assets
-- Cryptographic signatures not implemented
-- Approval workflows not implemented
-- **Decision needed**: Scope for 1.0 vs defer to 1.1
+*Implemented (December 2025):*
 
-**Phase 6 - Release yapCAD 1.0 [NOT STARTED]**
+- Provisional package signing with GPG and SSH keys (``docs/signing_spec.rst``)
+- ``sign_package()``, ``verify_package()``, ``list_signatures()`` APIs
+- Canonical manifest hashing for deterministic signatures
+- Verification status levels: VALID, VALID_UNTRUSTED, INVALID, ERROR
+- Basic hashing for geometry/assets (existing)
+
+*Deferred to 1.1:*
+
+- Multi-signature approval workflows
+- Delegation and authority chains
+- Revocation lists
+- Full audit trails
+
+**Phase 6 - Release yapCAD 1.0 [IN PROGRESS]**
 
 Blockers:
 
-- Phase 3 validation language formalization
-- Documentation alignment with implementation
-- Decision on Phase 5 scope
+- ✅ Phase 3 validation schema specified (``docs/validation_schema.rst``)
+- ✅ Phase 5 scope decided (provisional signing for 1.0, multi-sig for 1.1)
+- Documentation alignment with implementation (ongoing)
+- Validation schema code implementation
 
 Dependencies & Tooling
 ----------------------
@@ -188,8 +204,8 @@ Risks & Mitigations
 Open Questions
 --------------
 
-- Signature trust model (self-signed vs. PKI integration) - **defer to post-1.0**
-- Validation test definition language specification - **needed for 1.0**
+- ✅ Signature trust model - **resolved**: GPG/SSH PKI for 1.0, advanced workflows deferred to 1.1
+- ✅ Validation test definition language specification - **resolved**: see ``docs/validation_schema.rst``
 - Integration story for non-visual viewers and headless pipelines
 
 Priorities for 1.0 Release
@@ -205,7 +221,8 @@ Priorities for 1.0 Release
 
 **Recommended for 1.0:**
 
-4. **Validation Test Schema** - Define minimal schema for validation tests storable in packages.
+4. **Validation Test Schema** - ✅ COMPLETE: Schema specified in ``docs/validation_schema.rst``
+   - Code implementation of schema validation still needed
 
 5. **DSL Enhancements** - ✅ LARGELY COMPLETE (December 2025):
    - ✅ Conditional expressions implemented
@@ -215,12 +232,17 @@ Priorities for 1.0 Release
 
 6. **Test Coverage** - Ensure new features (2D booleans, DXF export, adaptive sweep, functional combinators) have adequate test coverage.
 
+7. **Package Signing** - ✅ COMPLETE (December 2025):
+   - ✅ GPG and SSH signature support
+   - ✅ ``sign_package()``, ``verify_package()``, ``list_signatures()`` APIs
+   - ✅ Specification in ``docs/signing_spec.rst``
+
 **Defer to 1.1:**
 
-7. **Phase 5 Security** - Cryptographic signatures and approval workflows.
+8. **Advanced Signing** - Multi-signature approval workflows, delegation, revocation.
 
-8. **Migration Tooling** - 0.x → 1.0 package conversion (API not yet stable enough).
+9. **Migration Tooling** - 0.x → 1.0 package conversion (API not yet stable enough).
 
-9. **Advanced Automation APIs** - Full LLM agent interfaces beyond current CLI.
+10. **Advanced Automation APIs** - Full LLM agent interfaces beyond current CLI.
 
-10. **Additional Import Formats** - IGES, OBJ, 3MF support.
+11. **Additional Import Formats** - IGES, OBJ, 3MF support.
