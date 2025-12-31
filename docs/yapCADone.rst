@@ -48,8 +48,10 @@ This section reflects the **actual current state** of the codebase as of version
 **Newly Implemented (December 2025):**
 
 - Validation test schema specification (``docs/validation_schema.rst``)
+- Validation schema code implementation (``yapcad.package.analysis.schema`` module)
 - Package signing with GPG and SSH keys (``docs/signing_spec.rst``)
 - ``sign_package()``, ``verify_package()`` APIs for cryptographic verification
+- ``validate_plan()``, ``validate_result()`` APIs for schema validation
 
 **Not Yet Implemented:**
 
@@ -172,8 +174,8 @@ Blockers:
 
 - ✅ Phase 3 validation schema specified (``docs/validation_schema.rst``)
 - ✅ Phase 5 scope decided (provisional signing for 1.0, multi-sig for 1.1)
+- ✅ Validation schema code implementation (``yapcad.package.analysis.schema``)
 - Documentation alignment with implementation (ongoing)
-- Validation schema code implementation
 
 Dependencies & Tooling
 ----------------------
@@ -221,8 +223,9 @@ Priorities for 1.0 Release
 
 **Recommended for 1.0:**
 
-4. **Validation Test Schema** - ✅ COMPLETE: Schema specified in ``docs/validation_schema.rst``
-   - Code implementation of schema validation still needed
+4. **Validation Test Schema** - ✅ COMPLETE (December 2025):
+   - ✅ Schema specified in ``docs/validation_schema.rst``
+   - ✅ Code implementation in ``yapcad.package.analysis.schema``
 
 5. **DSL Enhancements** - ✅ LARGELY COMPLETE (December 2025):
    - ✅ Conditional expressions implemented
