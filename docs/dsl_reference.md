@@ -284,7 +284,8 @@ intersection2d_all(regions: list<region2d>) -> region2d  # Intersect all regions
 # Box: width (X), depth (Y), height (Z) - centered at origin
 box(width: float, depth: float, height: float) -> solid
 
-# Cylinder: centered at origin, extends from Z=0 to Z=height
+# Cylinder: base at Z=0, extends to Z=height (NOT centered)
+# Note: To center, use translate(cylinder(r, h), 0.0, 0.0, -h/2.0)
 cylinder(radius: float, height: float) -> solid
 
 # Sphere: centered at origin
@@ -295,11 +296,47 @@ oblate_spheroid(equatorial_diameter: float, oblateness: float) -> solid
 # oblateness: 0=sphere, typical values: Earth~0.00335, Mars~0.00648
 
 # Cone/frustum: radius1 at bottom, radius2 at top
+# Base at Z=0, extends to Z=height (NOT centered, same as cylinder)
 cone(radius1: float, radius2: float, height: float) -> solid
 
-# Involute spur gear
+# Involute spur gear (centered at origin, extends Z=0 to face_width)
 involute_gear(teeth: int, module_mm: float, pressure_angle: float, face_width: float) -> solid
+
+# === Fasteners (catalog-based with parametric threads) ===
+
+# Metric hex bolt per ISO 4014/4017 (head up, threads at bottom)
+# Size examples: "M3", "M4", "M5", "M6", "M8", "M10", "M12", "M14", "M16", "M20", "M24"
+metric_hex_bolt(size: string, length: float) -> solid
+
+# Metric hex nut per ISO 4032
+metric_hex_nut(size: string) -> solid
+
+# Unified (UNC) hex bolt per ASME B18.2.1
+# Size examples: "#4-40", "#6-32", "#8-32", "#10-24", "#12-24",
+#                "1/4-20", "5/16-18", "3/8-16", "1/2-13", "5/8-11", "3/4-10", "1-8"
+# Length is in inches (converted to mm internally)
+unified_hex_bolt(size: string, length: float) -> solid
+
+# Unified hex nut per ASME B18.2.2
+unified_hex_nut(size: string) -> solid
 ```
+
+**Primitive Positioning Summary:**
+
+| Primitive | X/Y Centering | Z Positioning |
+|-----------|---------------|---------------|
+| `box` | Centered | Centered |
+| `sphere` | Centered | Centered |
+| `cylinder` | Centered | Base at Z=0 |
+| `cone` | Centered | Base at Z=0 |
+| `involute_gear` | Centered | Base at Z=0 |
+| `metric_hex_bolt` | Centered | Head up, tip at Z=0 |
+| `metric_hex_nut` | Centered | Base at Z=0 |
+| `unified_hex_bolt` | Centered | Head up, tip at Z=0 |
+| `unified_hex_nut` | Centered | Base at Z=0 |
+
+For hollow tubes and more control over positioning, use the Python API directly
+(`yapcad.geom3d_util.tube`, `conic_tube`, etc.).
 
 ### Solid from 2D Operations
 

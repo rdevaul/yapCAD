@@ -435,6 +435,27 @@ class SymbolTable:
             ("face_width", FLOAT, None),
         ], SOLID)
 
+        # Fasteners - hex bolts and nuts from catalog
+        # Metric fasteners (ISO 4014/4017 bolts, ISO 4032 nuts)
+        self._register_builtin("metric_hex_bolt", [
+            ("size", STRING, None),           # e.g., "M8", "M10"
+            ("length", FLOAT, None),          # shank length in mm
+        ], SOLID)
+
+        self._register_builtin("metric_hex_nut", [
+            ("size", STRING, None),           # e.g., "M8", "M10"
+        ], SOLID)
+
+        # Unified fasteners (ASME B18.2.1 bolts, ASME B18.2.2 nuts)
+        self._register_builtin("unified_hex_bolt", [
+            ("size", STRING, None),           # e.g., "1/4-20", "1/2-13"
+            ("length", FLOAT, None),          # shank length in inches
+        ], SOLID)
+
+        self._register_builtin("unified_hex_nut", [
+            ("size", STRING, None),           # e.g., "1/4-20", "1/2-13"
+        ], SOLID)
+
         # Boolean operations (variadic)
         self._register_builtin("union", [
             ("a", SOLID, None),

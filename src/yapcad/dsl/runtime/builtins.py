@@ -3,26 +3,23 @@ Built-in function registry for DSL interpreter.
 
 Maps DSL function names to yapCAD implementations.
 
-TODO: Add missing 2D curve primitives:
-  - ellipse(center, major, minor, rotation?) -> ellipse
-  - parabola(vertex, focus) -> parabola
-  - hyperbola(center, a, b) -> hyperbola
-  Types are defined in types.py but constructors not yet implemented.
-  See yapCAD core: yapcad.geom.Ellipse, yapcad.geom.conic_arc
+Implementation status (v1.0):
+  - 2D curve primitives: DONE (ellipse, parabola, hyperbola implemented)
+  - involute_gear: DONE (using yapcad.contrib.figgear)
+  - Functional combinators: DONE (union_all, difference_all, sum, etc.)
+  - Adaptive sweeps: DONE (sweep_adaptive, sweep_adaptive_hollow)
 
-TODO: Move involute_gear to yapcad.stdlib.gears package
-  High-level parametric constructions (gears, fasteners) should be
-  DSL modules in a standard library, not hardcoded builtins. This allows:
-  - Multiple implementations (figgear vs other algorithms)
-  - User customization and extension
-  - Proper namespace management (use gears.involute)
+TODO for 1.0: Add DSL builtins for fasteners (Python API exists):
+  - hex_bolt(standard, size, length) -> solid
+    Uses yapcad.fasteners.metric_hex_cap_screw / unified_hex_cap_screw
+  - hex_nut(standard, size) -> solid
+    Uses yapcad.fasteners.metric_hex_nut / unified_hex_nut
+  See: yapcad.fasteners, yapcad.threadgen for existing implementation
 
-TODO: Add fastener primitives via yapcad.stdlib.fasteners package
-  - hex_bolt(standard, size, length) using existing fastener catalog
-  - hex_nut(standard, size)
-  - washer(standard, size)
-  - threaded_hole(standard, size, depth, tapped?)
-  See: yapcad.contrib.fasteners for existing implementation
+Future enhancements (v1.1+):
+  - Move involute_gear to yapcad.stdlib.gears package for better namespace
+  - Add tube/conic_tube/spherical_shell builtins from geom3d_util
+  - Add optional 'centered' parameter to cylinder/cone primitives
 """
 
 from dataclasses import dataclass
@@ -108,6 +105,7 @@ class BuiltinRegistry:
         self._register_curve_functions()
         self._register_region_functions()
         self._register_solid_functions()
+        self._register_fastener_functions()
         self._register_boolean_functions()
         self._register_query_functions()
         self._register_utility_functions()
@@ -1671,6 +1669,85 @@ class BuiltinRegistry:
             "involute_gear",
             _make_sig("involute_gear", [INT, FLOAT, FLOAT, FLOAT], SOLID),
             _involute_gear,
+        ))
+
+    # --- Fastener Functions ---
+
+    def _register_fastener_functions(self) -> None:
+        """Register fastener generation builtins."""
+
+        def _metric_hex_bolt(size: Value, length: Value) -> Value:
+            """Create a metric hex bolt (ISO 4014/4017).
+
+            Args:
+                size: Thread size designation (e.g., "M8", "M10")
+                length: Total shank length in mm
+
+            Returns:
+                yapCAD solid representing the bolt
+            """
+            from yapcad.fasteners import metric_hex_bolt
+            return solid_val(metric_hex_bolt(size.data, length.data))
+
+        def _metric_hex_nut(size: Value) -> Value:
+            """Create a metric hex nut (ISO 4032).
+
+            Args:
+                size: Thread size designation (e.g., "M8", "M10")
+
+            Returns:
+                yapCAD solid representing the nut
+            """
+            from yapcad.fasteners import metric_hex_nut
+            return solid_val(metric_hex_nut(size.data))
+
+        def _unified_hex_bolt(size: Value, length: Value) -> Value:
+            """Create a unified (UNC/UNF) hex bolt (ASME B18.2.1).
+
+            Args:
+                size: Thread size designation (e.g., "1/4-20", "#10-24")
+                length: Total shank length in inches
+
+            Returns:
+                yapCAD solid representing the bolt
+            """
+            from yapcad.fasteners import unified_hex_bolt
+            return solid_val(unified_hex_bolt(size.data, length.data))
+
+        def _unified_hex_nut(size: Value) -> Value:
+            """Create a unified (UNC/UNF) hex nut (ASME B18.2.2).
+
+            Args:
+                size: Thread size designation (e.g., "1/4-20", "#10-24")
+
+            Returns:
+                yapCAD solid representing the nut
+            """
+            from yapcad.fasteners import unified_hex_nut
+            return solid_val(unified_hex_nut(size.data))
+
+        self.register(BuiltinFunction(
+            "metric_hex_bolt",
+            _make_sig("metric_hex_bolt", [STRING, FLOAT], SOLID),
+            _metric_hex_bolt,
+        ))
+
+        self.register(BuiltinFunction(
+            "metric_hex_nut",
+            _make_sig("metric_hex_nut", [STRING], SOLID),
+            _metric_hex_nut,
+        ))
+
+        self.register(BuiltinFunction(
+            "unified_hex_bolt",
+            _make_sig("unified_hex_bolt", [STRING, FLOAT], SOLID),
+            _unified_hex_bolt,
+        ))
+
+        self.register(BuiltinFunction(
+            "unified_hex_nut",
+            _make_sig("unified_hex_nut", [STRING], SOLID),
+            _unified_hex_nut,
         ))
 
     # --- Boolean Functions ---

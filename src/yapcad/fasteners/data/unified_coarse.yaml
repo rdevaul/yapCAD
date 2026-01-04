@@ -1,0 +1,559 @@
+# Unified National Coarse (UNC) Thread Fastener Catalog
+# Standards: ASME B1.1 (threads), ASME B18.2.1 (hex bolts), ASME B18.2.2 (hex nuts)
+---
+schema_version: "1.0"
+standard: "ASME B1.1 / ASME B18.2.1 / ASME B18.2.2"
+thread_series: "unified_coarse"
+description: "Unified National Coarse (UNC) thread series with hex bolt and nut dimensions"
+
+# All dimensions in millimeters (converted from inches for internal consistency)
+# Original inch values noted in comments
+
+# Thread geometry per ASME B1.1
+# H = 0.866025 * P (height of fundamental triangle)
+# Basic pitch diameter d2 = d - 0.6495*P
+# Basic minor diameter d1 = d - 1.0825*P
+
+tolerance_classes:
+  # Class 1A/1B: Loose fit - easy assembly even with dirt/damage
+  1A:
+    description: "Class 1A external - loose fit"
+    type: "external"
+    allowance: "large"
+  1B:
+    description: "Class 1B internal - loose fit"
+    type: "internal"
+    allowance: "large"
+
+  # Class 2A/2B: General purpose - most common
+  2A:
+    description: "Class 2A external - general purpose (most common)"
+    type: "external"
+    allowance: "standard"
+  2B:
+    description: "Class 2B internal - general purpose (most common)"
+    type: "internal"
+    allowance: "standard"
+
+  # Class 3A/3B: Close tolerance - no allowance
+  3A:
+    description: "Class 3A external - close tolerance, zero allowance"
+    type: "external"
+    allowance: "zero"
+  3B:
+    description: "Class 3B internal - close tolerance, zero allowance"
+    type: "internal"
+    allowance: "zero"
+
+sizes:
+  # Number sizes
+  "#4-40":
+    nominal_diameter: 2.845    # 0.1120"
+    tpi: 40
+    pitch: 0.635               # 25.4/40
+    basic_pitch_diameter: 2.433
+    basic_minor_diameter: 2.157
+    tolerances:
+      2A:
+        allowance: 0.038       # 0.0015"
+        Td2: 0.097             # Pitch diameter tolerance
+        Td: 0.109              # Major diameter tolerance
+      3A:
+        allowance: 0.000
+        Td2: 0.076
+        Td: 0.086
+      2B:
+        EI: 0.000
+        TD2: 0.102
+        TD1: 0.127
+      3B:
+        EI: 0.000
+        TD2: 0.081
+        TD1: 0.102
+    hex_bolt:
+      width_across_flats: 6.35   # 1/4"
+      width_across_corners: 7.34
+      head_height: 2.31          # 0.091"
+      washer_face_diameter: 5.56
+      washer_face_thickness: 0.25
+    hex_nut:
+      width_across_flats: 6.35
+      width_across_corners: 7.34
+      thickness: 2.39            # 3/32"
+
+  "#6-32":
+    nominal_diameter: 3.505    # 0.1380"
+    tpi: 32
+    pitch: 0.794               # 25.4/32
+    basic_pitch_diameter: 2.990
+    basic_minor_diameter: 2.647
+    tolerances:
+      2A:
+        allowance: 0.043
+        Td2: 0.109
+        Td: 0.122
+      3A:
+        allowance: 0.000
+        Td2: 0.086
+        Td: 0.097
+      2B:
+        EI: 0.000
+        TD2: 0.114
+        TD1: 0.145
+      3B:
+        EI: 0.000
+        TD2: 0.091
+        TD1: 0.114
+    hex_bolt:
+      width_across_flats: 7.94   # 5/16"
+      width_across_corners: 9.17
+      head_height: 2.84
+      washer_face_diameter: 6.86
+      washer_face_thickness: 0.30
+    hex_nut:
+      width_across_flats: 7.94
+      width_across_corners: 9.17
+      thickness: 2.79
+
+  "#8-32":
+    nominal_diameter: 4.166    # 0.1640"
+    tpi: 32
+    pitch: 0.794
+    basic_pitch_diameter: 3.650
+    basic_minor_diameter: 3.307
+    tolerances:
+      2A:
+        allowance: 0.046
+        Td2: 0.114
+        Td: 0.127
+      3A:
+        allowance: 0.000
+        Td2: 0.091
+        Td: 0.102
+      2B:
+        EI: 0.000
+        TD2: 0.119
+        TD1: 0.152
+      3B:
+        EI: 0.000
+        TD2: 0.094
+        TD1: 0.119
+    hex_bolt:
+      width_across_flats: 8.73   # 11/32"
+      width_across_corners: 10.08
+      head_height: 3.18
+      washer_face_diameter: 7.62
+      washer_face_thickness: 0.33
+    hex_nut:
+      width_across_flats: 8.73
+      width_across_corners: 10.08
+      thickness: 3.18
+
+  "#10-24":
+    nominal_diameter: 4.826    # 0.1900"
+    tpi: 24
+    pitch: 1.058
+    basic_pitch_diameter: 4.139
+    basic_minor_diameter: 3.681
+    tolerances:
+      2A:
+        allowance: 0.051
+        Td2: 0.127
+        Td: 0.145
+      3A:
+        allowance: 0.000
+        Td2: 0.102
+        Td: 0.114
+      2B:
+        EI: 0.000
+        TD2: 0.135
+        TD1: 0.170
+      3B:
+        EI: 0.000
+        TD2: 0.107
+        TD1: 0.135
+    hex_bolt:
+      width_across_flats: 9.53   # 3/8"
+      width_across_corners: 11.00
+      head_height: 3.58
+      washer_face_diameter: 8.38
+      washer_face_thickness: 0.36
+    hex_nut:
+      width_across_flats: 9.53
+      width_across_corners: 11.00
+      thickness: 3.58
+
+  "#12-24":
+    nominal_diameter: 5.486    # 0.2160"
+    tpi: 24
+    pitch: 1.058
+    basic_pitch_diameter: 4.800
+    basic_minor_diameter: 4.341
+    tolerances:
+      2A:
+        allowance: 0.053
+        Td2: 0.132
+        Td: 0.150
+      3A:
+        allowance: 0.000
+        Td2: 0.104
+        Td: 0.119
+      2B:
+        EI: 0.000
+        TD2: 0.140
+        TD1: 0.178
+      3B:
+        EI: 0.000
+        TD2: 0.112
+        TD1: 0.140
+    hex_bolt:
+      width_across_flats: 9.53
+      width_across_corners: 11.00
+      head_height: 3.96
+      washer_face_diameter: 8.64
+      washer_face_thickness: 0.38
+    hex_nut:
+      width_across_flats: 9.53
+      width_across_corners: 11.00
+      thickness: 4.17
+
+  # Fractional sizes
+  "1/4-20":
+    nominal_diameter: 6.350    # 0.2500"
+    tpi: 20
+    pitch: 1.270
+    basic_pitch_diameter: 5.525
+    basic_minor_diameter: 4.976
+    tolerances:
+      2A:
+        allowance: 0.056
+        Td2: 0.145
+        Td: 0.163
+      3A:
+        allowance: 0.000
+        Td2: 0.114
+        Td: 0.130
+      2B:
+        EI: 0.000
+        TD2: 0.152
+        TD1: 0.193
+      3B:
+        EI: 0.000
+        TD2: 0.122
+        TD1: 0.152
+    hex_bolt:
+      width_across_flats: 11.11  # 7/16"
+      width_across_corners: 12.83
+      head_height: 4.14          # 0.163"
+      washer_face_diameter: 9.91
+      washer_face_thickness: 0.41
+    hex_nut:
+      width_across_flats: 11.11
+      width_across_corners: 12.83
+      thickness: 5.56            # 7/32"
+
+  "5/16-18":
+    nominal_diameter: 7.938    # 0.3125"
+    tpi: 18
+    pitch: 1.411
+    basic_pitch_diameter: 7.021
+    basic_minor_diameter: 6.410
+    tolerances:
+      2A:
+        allowance: 0.061
+        Td2: 0.155
+        Td: 0.175
+      3A:
+        allowance: 0.000
+        Td2: 0.124
+        Td: 0.140
+      2B:
+        EI: 0.000
+        TD2: 0.163
+        TD1: 0.208
+      3B:
+        EI: 0.000
+        TD2: 0.130
+        TD1: 0.163
+    hex_bolt:
+      width_across_flats: 12.70  # 1/2"
+      width_across_corners: 14.67
+      head_height: 5.23          # 0.206"
+      washer_face_diameter: 11.43
+      washer_face_thickness: 0.46
+    hex_nut:
+      width_across_flats: 12.70
+      width_across_corners: 14.67
+      thickness: 6.75            # 17/64"
+
+  "3/8-16":
+    nominal_diameter: 9.525    # 0.3750"
+    tpi: 16
+    pitch: 1.588
+    basic_pitch_diameter: 8.493
+    basic_minor_diameter: 7.805
+    tolerances:
+      2A:
+        allowance: 0.066
+        Td2: 0.168
+        Td: 0.188
+      3A:
+        allowance: 0.000
+        Td2: 0.132
+        Td: 0.150
+      2B:
+        EI: 0.000
+        TD2: 0.175
+        TD1: 0.224
+      3B:
+        EI: 0.000
+        TD2: 0.140
+        TD1: 0.175
+    hex_bolt:
+      width_across_flats: 14.29  # 9/16"
+      width_across_corners: 16.50
+      head_height: 6.22          # 0.245"
+      washer_face_diameter: 12.95
+      washer_face_thickness: 0.51
+    hex_nut:
+      width_across_flats: 14.29
+      width_across_corners: 16.50
+      thickness: 8.33            # 21/64"
+
+  "7/16-14":
+    nominal_diameter: 11.112   # 0.4375"
+    tpi: 14
+    pitch: 1.814
+    basic_pitch_diameter: 9.933
+    basic_minor_diameter: 9.149
+    tolerances:
+      2A:
+        allowance: 0.071
+        Td2: 0.180
+        Td: 0.203
+      3A:
+        allowance: 0.000
+        Td2: 0.145
+        Td: 0.163
+      2B:
+        EI: 0.000
+        TD2: 0.188
+        TD1: 0.241
+      3B:
+        EI: 0.000
+        TD2: 0.152
+        TD1: 0.188
+    hex_bolt:
+      width_across_flats: 15.88  # 5/8"
+      width_across_corners: 18.33
+      head_height: 7.14
+      washer_face_diameter: 14.48
+      washer_face_thickness: 0.56
+    hex_nut:
+      width_across_flats: 15.88
+      width_across_corners: 18.33
+      thickness: 9.53            # 3/8"
+
+  "1/2-13":
+    nominal_diameter: 12.700   # 0.5000"
+    tpi: 13
+    pitch: 1.954
+    basic_pitch_diameter: 11.430
+    basic_minor_diameter: 10.585
+    tolerances:
+      2A:
+        allowance: 0.076
+        Td2: 0.193
+        Td: 0.216
+      3A:
+        allowance: 0.000
+        Td2: 0.155
+        Td: 0.173
+      2B:
+        EI: 0.000
+        TD2: 0.201
+        TD1: 0.259
+      3B:
+        EI: 0.000
+        TD2: 0.163
+        TD1: 0.201
+    hex_bolt:
+      width_across_flats: 19.05  # 3/4"
+      width_across_corners: 22.00
+      head_height: 8.10          # 0.319"
+      washer_face_diameter: 17.02
+      washer_face_thickness: 0.61
+    hex_nut:
+      width_across_flats: 19.05
+      width_across_corners: 22.00
+      thickness: 11.11           # 7/16"
+
+  "9/16-12":
+    nominal_diameter: 14.288   # 0.5625"
+    tpi: 12
+    pitch: 2.117
+    basic_pitch_diameter: 12.912
+    basic_minor_diameter: 11.997
+    tolerances:
+      2A:
+        allowance: 0.079
+        Td2: 0.203
+        Td: 0.226
+      3A:
+        allowance: 0.000
+        Td2: 0.163
+        Td: 0.183
+      2B:
+        EI: 0.000
+        TD2: 0.213
+        TD1: 0.274
+      3B:
+        EI: 0.000
+        TD2: 0.170
+        TD1: 0.213
+    hex_bolt:
+      width_across_flats: 20.64  # 13/16"
+      width_across_corners: 23.83
+      head_height: 9.02
+      washer_face_diameter: 18.54
+      washer_face_thickness: 0.66
+    hex_nut:
+      width_across_flats: 20.64
+      width_across_corners: 23.83
+      thickness: 12.30
+
+  "5/8-11":
+    nominal_diameter: 15.875   # 0.6250"
+    tpi: 11
+    pitch: 2.309
+    basic_pitch_diameter: 14.375
+    basic_minor_diameter: 13.375
+    tolerances:
+      2A:
+        allowance: 0.084
+        Td2: 0.213
+        Td: 0.239
+      3A:
+        allowance: 0.000
+        Td2: 0.170
+        Td: 0.193
+      2B:
+        EI: 0.000
+        TD2: 0.224
+        TD1: 0.287
+      3B:
+        EI: 0.000
+        TD2: 0.178
+        TD1: 0.224
+    hex_bolt:
+      width_across_flats: 23.81  # 15/16"
+      width_across_corners: 27.50
+      head_height: 9.93
+      washer_face_diameter: 21.08
+      washer_face_thickness: 0.71
+    hex_nut:
+      width_across_flats: 23.81
+      width_across_corners: 27.50
+      thickness: 13.89           # 35/64"
+
+  "3/4-10":
+    nominal_diameter: 19.050   # 0.7500"
+    tpi: 10
+    pitch: 2.540
+    basic_pitch_diameter: 17.399
+    basic_minor_diameter: 16.299
+    tolerances:
+      2A:
+        allowance: 0.089
+        Td2: 0.226
+        Td: 0.254
+      3A:
+        allowance: 0.000
+        Td2: 0.180
+        Td: 0.203
+      2B:
+        EI: 0.000
+        TD2: 0.239
+        TD1: 0.305
+      3B:
+        EI: 0.000
+        TD2: 0.188
+        TD1: 0.239
+    hex_bolt:
+      width_across_flats: 28.58  # 1-1/8"
+      width_across_corners: 33.00
+      head_height: 11.89         # 0.468"
+      washer_face_diameter: 25.15
+      washer_face_thickness: 0.81
+    hex_nut:
+      width_across_flats: 28.58
+      width_across_corners: 33.00
+      thickness: 16.67           # 21/32"
+
+  "7/8-9":
+    nominal_diameter: 22.225   # 0.8750"
+    tpi: 9
+    pitch: 2.822
+    basic_pitch_diameter: 20.391
+    basic_minor_diameter: 19.171
+    tolerances:
+      2A:
+        allowance: 0.094
+        Td2: 0.244
+        Td: 0.274
+      3A:
+        allowance: 0.000
+        Td2: 0.193
+        Td: 0.218
+      2B:
+        EI: 0.000
+        TD2: 0.254
+        TD1: 0.325
+      3B:
+        EI: 0.000
+        TD2: 0.203
+        TD1: 0.254
+    hex_bolt:
+      width_across_flats: 33.34  # 1-5/16"
+      width_across_corners: 38.50
+      head_height: 13.84
+      washer_face_diameter: 29.21
+      washer_face_thickness: 0.91
+    hex_nut:
+      width_across_flats: 33.34
+      width_across_corners: 38.50
+      thickness: 19.05           # 3/4"
+
+  "1-8":
+    nominal_diameter: 25.400   # 1.0000"
+    tpi: 8
+    pitch: 3.175
+    basic_pitch_diameter: 23.337
+    basic_minor_diameter: 21.963
+    tolerances:
+      2A:
+        allowance: 0.102
+        Td2: 0.262
+        Td: 0.292
+      3A:
+        allowance: 0.000
+        Td2: 0.208
+        Td: 0.236
+      2B:
+        EI: 0.000
+        TD2: 0.274
+        TD1: 0.351
+      3B:
+        EI: 0.000
+        TD2: 0.218
+        TD1: 0.274
+    hex_bolt:
+      width_across_flats: 38.10  # 1-1/2"
+      width_across_corners: 44.00
+      head_height: 15.80         # 0.622"
+      washer_face_diameter: 33.27
+      washer_face_thickness: 1.02
+    hex_nut:
+      width_across_flats: 38.10
+      width_across_corners: 44.00
+      thickness: 21.83           # 55/64"

@@ -1,0 +1,604 @@
+# Metric Coarse Thread Fastener Catalog
+# Standards: ISO 262 (thread pitch), ISO 965-1 (tolerances), ISO 4014/4017 (hex bolts), ISO 4032 (hex nuts)
+---
+schema_version: "1.0"
+standard: "ISO 262 / ISO 965-1 / ISO 4014 / ISO 4032"
+thread_series: "metric_coarse"
+description: "ISO metric coarse pitch thread series with hex bolt and nut dimensions"
+
+# Thread geometry constants (ISO 68-1)
+# H = 0.866025 * P (height of fundamental triangle)
+# For external threads: d2 = d - 0.6495*P, d1 = d - 1.0825*P
+# For internal threads: D1 = D - 1.0825*P, D2 = D - 0.6495*P
+
+tolerance_classes:
+  # External thread classes (bolts/screws)
+  6g:
+    description: "General purpose external thread, medium tolerance"
+    type: "external"
+    position: "g"
+    grade: 6
+
+  4g6g:
+    description: "Close tolerance external thread"
+    type: "external"
+    pitch_position: "g"
+    pitch_grade: 4
+    major_position: "g"
+    major_grade: 6
+
+  8g:
+    description: "Coarse tolerance external thread"
+    type: "external"
+    position: "g"
+    grade: 8
+
+  # Internal thread classes (nuts/tapped holes)
+  6H:
+    description: "General purpose internal thread, medium tolerance"
+    type: "internal"
+    position: "H"
+    grade: 6
+
+  5H:
+    description: "Close tolerance internal thread"
+    type: "internal"
+    position: "H"
+    grade: 5
+
+  7H:
+    description: "Coarse tolerance internal thread"
+    type: "internal"
+    position: "H"
+    grade: 7
+
+sizes:
+  M3:
+    nominal_diameter: 3.0
+    pitch: 0.5
+    # Basic diameters per ISO 68-1
+    basic_pitch_diameter: 2.675   # d2 = D2 = d - 0.6495*P
+    basic_minor_diameter: 2.459   # d1 = d - 1.0825*P
+    # Precomputed tolerances per ISO 965-1
+    tolerances:
+      6g:
+        es: -0.020        # Upper deviation (fundamental deviation g)
+        Td2: 0.100        # Pitch diameter tolerance
+        Td: 0.112         # Major diameter tolerance
+      4g6g:
+        es: -0.020
+        Td2: 0.063        # Grade 4 pitch tolerance
+        Td: 0.112         # Grade 6 major tolerance
+      8g:
+        es: -0.020
+        Td2: 0.160
+        Td: 0.180
+      6H:
+        EI: 0.000         # Lower deviation (position H = 0)
+        TD2: 0.100        # Pitch diameter tolerance
+        TD1: 0.125        # Minor diameter tolerance
+      5H:
+        EI: 0.000
+        TD2: 0.080
+        TD1: 0.100
+      7H:
+        EI: 0.000
+        TD2: 0.125
+        TD1: 0.160
+    # Hex bolt head dimensions per ISO 4014
+    hex_bolt:
+      width_across_flats: 5.5
+      width_across_corners: 6.35
+      head_height: 2.0
+      washer_face_diameter: 4.6
+      washer_face_thickness: 0.15
+      thread_length_short: 12.0   # For L <= 125mm
+    # Hex nut dimensions per ISO 4032
+    hex_nut:
+      width_across_flats: 5.5
+      width_across_corners: 6.35
+      thickness: 2.4
+
+  M4:
+    nominal_diameter: 4.0
+    pitch: 0.7
+    basic_pitch_diameter: 3.545
+    basic_minor_diameter: 3.242
+    tolerances:
+      6g:
+        es: -0.024
+        Td2: 0.112
+        Td: 0.125
+      4g6g:
+        es: -0.024
+        Td2: 0.071
+        Td: 0.125
+      8g:
+        es: -0.024
+        Td2: 0.180
+        Td: 0.200
+      6H:
+        EI: 0.000
+        TD2: 0.112
+        TD1: 0.140
+      5H:
+        EI: 0.000
+        TD2: 0.090
+        TD1: 0.112
+      7H:
+        EI: 0.000
+        TD2: 0.140
+        TD1: 0.180
+    hex_bolt:
+      width_across_flats: 7.0
+      width_across_corners: 8.08
+      head_height: 2.8
+      washer_face_diameter: 5.9
+      washer_face_thickness: 0.2
+      thread_length_short: 14.0
+    hex_nut:
+      width_across_flats: 7.0
+      width_across_corners: 8.08
+      thickness: 3.2
+
+  M5:
+    nominal_diameter: 5.0
+    pitch: 0.8
+    basic_pitch_diameter: 4.480
+    basic_minor_diameter: 4.134
+    tolerances:
+      6g:
+        es: -0.026
+        Td2: 0.118
+        Td: 0.132
+      4g6g:
+        es: -0.026
+        Td2: 0.075
+        Td: 0.132
+      8g:
+        es: -0.026
+        Td2: 0.190
+        Td: 0.212
+      6H:
+        EI: 0.000
+        TD2: 0.118
+        TD1: 0.150
+      5H:
+        EI: 0.000
+        TD2: 0.095
+        TD1: 0.118
+      7H:
+        EI: 0.000
+        TD2: 0.150
+        TD1: 0.190
+    hex_bolt:
+      width_across_flats: 8.0
+      width_across_corners: 9.24
+      head_height: 3.5
+      washer_face_diameter: 6.9
+      washer_face_thickness: 0.25
+      thread_length_short: 16.0
+    hex_nut:
+      width_across_flats: 8.0
+      width_across_corners: 9.24
+      thickness: 4.7
+
+  M6:
+    nominal_diameter: 6.0
+    pitch: 1.0
+    basic_pitch_diameter: 5.350
+    basic_minor_diameter: 4.917
+    tolerances:
+      6g:
+        es: -0.028
+        Td2: 0.132
+        Td: 0.150
+      4g6g:
+        es: -0.028
+        Td2: 0.085
+        Td: 0.150
+      8g:
+        es: -0.028
+        Td2: 0.212
+        Td: 0.236
+      6H:
+        EI: 0.000
+        TD2: 0.132
+        TD1: 0.170
+      5H:
+        EI: 0.000
+        TD2: 0.106
+        TD1: 0.132
+      7H:
+        EI: 0.000
+        TD2: 0.170
+        TD1: 0.212
+    hex_bolt:
+      width_across_flats: 10.0
+      width_across_corners: 11.55
+      head_height: 4.0
+      washer_face_diameter: 8.9
+      washer_face_thickness: 0.3
+      thread_length_short: 18.0
+    hex_nut:
+      width_across_flats: 10.0
+      width_across_corners: 11.55
+      thickness: 5.2
+
+  M8:
+    nominal_diameter: 8.0
+    pitch: 1.25
+    basic_pitch_diameter: 7.188
+    basic_minor_diameter: 6.647
+    tolerances:
+      6g:
+        es: -0.032
+        Td2: 0.150
+        Td: 0.170
+      4g6g:
+        es: -0.032
+        Td2: 0.095
+        Td: 0.170
+      8g:
+        es: -0.032
+        Td2: 0.236
+        Td: 0.272
+      6H:
+        EI: 0.000
+        TD2: 0.150
+        TD1: 0.190
+      5H:
+        EI: 0.000
+        TD2: 0.118
+        TD1: 0.150
+      7H:
+        EI: 0.000
+        TD2: 0.190
+        TD1: 0.236
+    hex_bolt:
+      width_across_flats: 13.0
+      width_across_corners: 15.01
+      head_height: 5.3
+      washer_face_diameter: 11.6
+      washer_face_thickness: 0.4
+      thread_length_short: 22.0
+    hex_nut:
+      width_across_flats: 13.0
+      width_across_corners: 15.01
+      thickness: 6.8
+
+  M10:
+    nominal_diameter: 10.0
+    pitch: 1.5
+    basic_pitch_diameter: 9.026
+    basic_minor_diameter: 8.376
+    tolerances:
+      6g:
+        es: -0.036
+        Td2: 0.170
+        Td: 0.190
+      4g6g:
+        es: -0.036
+        Td2: 0.106
+        Td: 0.190
+      8g:
+        es: -0.036
+        Td2: 0.265
+        Td: 0.300
+      6H:
+        EI: 0.000
+        TD2: 0.170
+        TD1: 0.212
+      5H:
+        EI: 0.000
+        TD2: 0.132
+        TD1: 0.170
+      7H:
+        EI: 0.000
+        TD2: 0.212
+        TD1: 0.265
+    hex_bolt:
+      width_across_flats: 16.0
+      width_across_corners: 18.48
+      head_height: 6.4
+      washer_face_diameter: 14.6
+      washer_face_thickness: 0.4
+      thread_length_short: 26.0
+    hex_nut:
+      width_across_flats: 16.0
+      width_across_corners: 18.48
+      thickness: 8.4
+
+  M12:
+    nominal_diameter: 12.0
+    pitch: 1.75
+    basic_pitch_diameter: 10.863
+    basic_minor_diameter: 10.106
+    tolerances:
+      6g:
+        es: -0.040
+        Td2: 0.190
+        Td: 0.212
+      4g6g:
+        es: -0.040
+        Td2: 0.118
+        Td: 0.212
+      8g:
+        es: -0.040
+        Td2: 0.300
+        Td: 0.335
+      6H:
+        EI: 0.000
+        TD2: 0.190
+        TD1: 0.236
+      5H:
+        EI: 0.000
+        TD2: 0.150
+        TD1: 0.190
+      7H:
+        EI: 0.000
+        TD2: 0.236
+        TD1: 0.300
+    hex_bolt:
+      width_across_flats: 18.0
+      width_across_corners: 20.78
+      head_height: 7.5
+      washer_face_diameter: 16.6
+      washer_face_thickness: 0.5
+      thread_length_short: 30.0
+    hex_nut:
+      width_across_flats: 18.0
+      width_across_corners: 20.78
+      thickness: 10.8
+
+  M14:
+    nominal_diameter: 14.0
+    pitch: 2.0
+    basic_pitch_diameter: 12.701
+    basic_minor_diameter: 11.835
+    tolerances:
+      6g:
+        es: -0.043
+        Td2: 0.212
+        Td: 0.236
+      4g6g:
+        es: -0.043
+        Td2: 0.132
+        Td: 0.236
+      8g:
+        es: -0.043
+        Td2: 0.335
+        Td: 0.375
+      6H:
+        EI: 0.000
+        TD2: 0.212
+        TD1: 0.265
+      5H:
+        EI: 0.000
+        TD2: 0.170
+        TD1: 0.212
+      7H:
+        EI: 0.000
+        TD2: 0.265
+        TD1: 0.335
+    hex_bolt:
+      width_across_flats: 21.0
+      width_across_corners: 24.25
+      head_height: 8.8
+      washer_face_diameter: 19.6
+      washer_face_thickness: 0.5
+      thread_length_short: 34.0
+    hex_nut:
+      width_across_flats: 21.0
+      width_across_corners: 24.25
+      thickness: 12.8
+
+  M16:
+    nominal_diameter: 16.0
+    pitch: 2.0
+    basic_pitch_diameter: 14.701
+    basic_minor_diameter: 13.835
+    tolerances:
+      6g:
+        es: -0.043
+        Td2: 0.212
+        Td: 0.250
+      4g6g:
+        es: -0.043
+        Td2: 0.132
+        Td: 0.250
+      8g:
+        es: -0.043
+        Td2: 0.335
+        Td: 0.400
+      6H:
+        EI: 0.000
+        TD2: 0.212
+        TD1: 0.280
+      5H:
+        EI: 0.000
+        TD2: 0.170
+        TD1: 0.224
+      7H:
+        EI: 0.000
+        TD2: 0.265
+        TD1: 0.355
+    hex_bolt:
+      width_across_flats: 24.0
+      width_across_corners: 27.71
+      head_height: 10.0
+      washer_face_diameter: 22.5
+      washer_face_thickness: 0.5
+      thread_length_short: 38.0
+    hex_nut:
+      width_across_flats: 24.0
+      width_across_corners: 27.71
+      thickness: 14.8
+
+  M18:
+    nominal_diameter: 18.0
+    pitch: 2.5
+    basic_pitch_diameter: 16.376
+    basic_minor_diameter: 15.294
+    tolerances:
+      6g:
+        es: -0.048
+        Td2: 0.236
+        Td: 0.265
+      4g6g:
+        es: -0.048
+        Td2: 0.150
+        Td: 0.265
+      8g:
+        es: -0.048
+        Td2: 0.375
+        Td: 0.425
+      6H:
+        EI: 0.000
+        TD2: 0.236
+        TD1: 0.300
+      5H:
+        EI: 0.000
+        TD2: 0.190
+        TD1: 0.236
+      7H:
+        EI: 0.000
+        TD2: 0.300
+        TD1: 0.375
+    hex_bolt:
+      width_across_flats: 27.0
+      width_across_corners: 31.18
+      head_height: 11.5
+      washer_face_diameter: 25.3
+      washer_face_thickness: 0.6
+      thread_length_short: 42.0
+    hex_nut:
+      width_across_flats: 27.0
+      width_across_corners: 31.18
+      thickness: 15.8
+
+  M20:
+    nominal_diameter: 20.0
+    pitch: 2.5
+    basic_pitch_diameter: 18.376
+    basic_minor_diameter: 17.294
+    tolerances:
+      6g:
+        es: -0.048
+        Td2: 0.250
+        Td: 0.280
+      4g6g:
+        es: -0.048
+        Td2: 0.160
+        Td: 0.280
+      8g:
+        es: -0.048
+        Td2: 0.400
+        Td: 0.450
+      6H:
+        EI: 0.000
+        TD2: 0.250
+        TD1: 0.315
+      5H:
+        EI: 0.000
+        TD2: 0.200
+        TD1: 0.250
+      7H:
+        EI: 0.000
+        TD2: 0.315
+        TD1: 0.400
+    hex_bolt:
+      width_across_flats: 30.0
+      width_across_corners: 34.64
+      head_height: 12.5
+      washer_face_diameter: 28.2
+      washer_face_thickness: 0.6
+      thread_length_short: 46.0
+    hex_nut:
+      width_across_flats: 30.0
+      width_across_corners: 34.64
+      thickness: 18.0
+
+  M22:
+    nominal_diameter: 22.0
+    pitch: 2.5
+    basic_pitch_diameter: 20.376
+    basic_minor_diameter: 19.294
+    tolerances:
+      6g:
+        es: -0.048
+        Td2: 0.265
+        Td: 0.300
+      4g6g:
+        es: -0.048
+        Td2: 0.170
+        Td: 0.300
+      8g:
+        es: -0.048
+        Td2: 0.425
+        Td: 0.475
+      6H:
+        EI: 0.000
+        TD2: 0.265
+        TD1: 0.335
+      5H:
+        EI: 0.000
+        TD2: 0.212
+        TD1: 0.265
+      7H:
+        EI: 0.000
+        TD2: 0.335
+        TD1: 0.425
+    hex_bolt:
+      width_across_flats: 32.0
+      width_across_corners: 36.95
+      head_height: 14.0
+      washer_face_diameter: 30.0
+      washer_face_thickness: 0.6
+      thread_length_short: 50.0
+    hex_nut:
+      width_across_flats: 32.0
+      width_across_corners: 36.95
+      thickness: 19.4
+
+  M24:
+    nominal_diameter: 24.0
+    pitch: 3.0
+    basic_pitch_diameter: 22.051
+    basic_minor_diameter: 20.752
+    tolerances:
+      6g:
+        es: -0.053
+        Td2: 0.280
+        Td: 0.315
+      4g6g:
+        es: -0.053
+        Td2: 0.180
+        Td: 0.315
+      8g:
+        es: -0.053
+        Td2: 0.450
+        Td: 0.500
+      6H:
+        EI: 0.000
+        TD2: 0.280
+        TD1: 0.355
+      5H:
+        EI: 0.000
+        TD2: 0.224
+        TD1: 0.280
+      7H:
+        EI: 0.000
+        TD2: 0.355
+        TD1: 0.450
+    hex_bolt:
+      width_across_flats: 36.0
+      width_across_corners: 41.57
+      head_height: 15.0
+      washer_face_diameter: 33.6
+      washer_face_thickness: 0.6
+      thread_length_short: 54.0
+    hex_nut:
+      width_across_flats: 36.0
+      width_across_corners: 41.57
+      thickness: 21.5
