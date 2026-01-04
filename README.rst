@@ -41,11 +41,11 @@ systems. Starting with the 0.5 release, the emphasis has shifted toward
 simulation, while retaining support for DXF generation and computational
 geometry experiments.
 
-software status (version 0.6.3, December 2025)
-----------------------------------------------
+software status (version 1.0.0rc1, January 2026)
+------------------------------------------------
 
 **yapCAD** is in **active development** and already powers production design
-pipelines. Highlights from the 0.6.x cycle include:
+pipelines. Highlights from the 1.0 release cycle include:
 
 * **Parametric DSL**: Full domain-specific language with lexer, parser, type checker,
   and runtime interpreter. CLI supports ``check``, ``run``, ``list`` commands with
@@ -60,7 +60,11 @@ pipelines. Highlights from the 0.6.x cycle include:
 * **Adaptive Sweeps**: ``sweep_adaptive()`` with tangent-tracking profile orientation
   for complex path sweeps.
 * ``.ycpkg`` project packaging with manifest, geometry JSON, exports, and metadata.
-* 533 regression tests covering geometry, DSL, import/export, and packaging.
+* **Package signing** with GPG and SSH key support for cryptographic verification.
+* **Validation schemas** for test definitions and solver integration.
+* **YAML-based fastener catalogs** with ISO metric and ASME unified thread specifications.
+* **Emacs major mode** for DSL syntax highlighting (``editors/yapcad-dsl-mode.el``).
+* 612 regression tests covering geometry, DSL, import/export, packaging, and validation.
 
 Upcoming work (tracked in ``docs/yapCADone.rst``) focuses on validation test
 definition language, solver adapter framework, and provenance/security features.
@@ -150,6 +154,7 @@ top-level ``src`` directory. Example entry points:
 * ``examples/new_2d_features.dsl`` - 2D curves, splines, ellipses, and boolean operations.
 * ``examples/spur_gears.dsl`` - parametric spur gear generation.
 * ``examples/figgear.dsl`` - involute gear profiles using figgear integration.
+* ``examples/fasteners.dsl`` - metric and unified hex bolts and nuts with DSL builtins.
 
 **Python Examples**:
 
@@ -160,6 +165,24 @@ top-level ``src`` directory. Example entry points:
 * ``examples/threaded_fastener_package.py`` - generates ``.ycpkg`` packages for metric/unified
   screws, nuts, and washers with proper thread geometry and material properties.
 * ``examples/import_demo.py`` - STEP/STL import demo showcasing the OCC BREP integration.
+
+editor support
+~~~~~~~~~~~~~~
+
+**Emacs**: A major mode for yapCAD DSL files is available in ``editors/yapcad-dsl-mode.el``.
+Features include syntax highlighting for keywords, types, and builtins, Python-style
+indentation, and comment support. To install::
+
+   ;; In your init.el or .emacs
+   (add-to-list 'load-path "/path/to/yapCAD/editors")
+   (require 'yapcad-dsl-mode)
+
+   ;; Or with use-package
+   (use-package yapcad-dsl-mode
+     :load-path "/path/to/yapCAD/editors"
+     :mode "\\.dsl\\'")
+
+For Doom Emacs, add to ``~/.doom.d/config.el`` and run ``doom sync``.
 
 documentation
 ~~~~~~~~~~~~~

@@ -37,7 +37,7 @@ This section reflects the **actual current state** of the codebase as of version
 - 2D boolean operations (union, difference, intersection) with proper hole accumulation
 - Curve types: ellipse, catmull-rom splines, NURBS, parabola, hyperbola
 - Adaptive sweep operations with tangent-tracking profile orientation
-- 584 regression tests across geometry, DSL, import/export, packaging, and validation
+- 612 regression tests across geometry, DSL, import/export, packaging, and validation
 
 **Partially Implemented:**
 
@@ -45,13 +45,16 @@ This section reflects the **actual current state** of the codebase as of version
 - FEA integration (demo in ``examples/thrust_structure/`` - not production-ready)
 - Package validation (basic schema validation, no solver orchestration)
 
-**Newly Implemented (December 2025):**
+**Newly Implemented (December 2025 - January 2026):**
 
 - Validation test schema specification (``docs/validation_schema.rst``)
 - Validation schema code implementation (``yapcad.package.analysis.schema`` module)
 - Package signing with GPG and SSH keys (``docs/signing_spec.rst``)
 - ``sign_package()``, ``verify_package()`` APIs for cryptographic verification
 - ``validate_plan()``, ``validate_result()`` APIs for schema validation
+- YAML-based fastener catalog system with ISO metric and ASME unified thread specifications
+- DSL builtins for fastener generation (``metric_hex_bolt``, ``metric_hex_nut``, ``unified_hex_bolt``, ``unified_hex_nut``)
+- Emacs major mode for DSL syntax highlighting (``editors/yapcad-dsl-mode.el``)
 
 **Not Yet Implemented:**
 
