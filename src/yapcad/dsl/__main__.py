@@ -206,7 +206,8 @@ def cmd_run(args):
         return 0
 
     # Regular execution
-    result = compile_and_run(source, args.command, parameters)
+    recursion_limit = getattr(args, 'recursion_limit', None)
+    result = compile_and_run(source, args.command, parameters, recursion_limit=recursion_limit)
 
     if not result.success:
         print(f"Error: {result.error_message}", file=sys.stderr)
@@ -335,6 +336,8 @@ def main():
     run_parser.add_argument('--description', help='Package description')
     run_parser.add_argument('-f', '--force', action='store_true',
                           help='Overwrite existing output')
+    run_parser.add_argument('--recursion-limit', type=int, metavar='N',
+                          help='Maximum recursion depth for command calls (default: 100, env: YAPCAD_DSL_RECURSION_LIMIT)')
 
     args = parser.parse_args()
 

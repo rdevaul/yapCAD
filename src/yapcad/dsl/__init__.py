@@ -89,7 +89,6 @@ from .ast import (
     RequireStatement,
     EmitStatement,
     ForStatement,
-    WhileStatement,
     IfStatement,
     ExpressionStatement,
     ReturnStatement,

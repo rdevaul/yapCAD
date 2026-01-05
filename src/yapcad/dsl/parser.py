@@ -736,9 +736,13 @@ class Parser:
         if token.type == TokenType.FOR:
             return self._parse_for_statement()
 
-        # While loop
+        # While loop - DEPRECATED, give helpful error
         if token.type == TokenType.WHILE:
-            return self._parse_while_statement()
+            raise ParseError(
+                "'while' loops are not supported (removed for static verifiability). "
+                "Use 'for i in range(max_iterations)' with early return instead.",
+                token.span
+            )
 
         # If statement
         if token.type == TokenType.IF:
@@ -921,18 +925,7 @@ class Parser:
             body=body
         )
 
-    def _parse_while_statement(self) -> WhileStatement:
-        """Parse a while statement."""
-        start = self._advance()  # consume 'while'
-        condition = self._parse_expression()
-        self._consume(TokenType.COLON, "':'")
-        body = self._parse_block()
-
-        return WhileStatement(
-            span=self._span_from(start),
-            condition=condition,
-            body=body
-        )
+    # NOTE: _parse_while_statement removed - while loops not supported for static verifiability
 
     def _parse_if_statement(self) -> IfStatement:
         """Parse an if statement."""

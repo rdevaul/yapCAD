@@ -4,8 +4,16 @@ Tree-walking interpreter for DSL execution.
 Evaluates AST nodes to produce geometry and other values.
 """
 
+import os
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Callable, Union
+
+# Default recursion limit for command-to-command calls
+DEFAULT_RECURSION_LIMIT = 100
+
+# Default limits for list comprehensions (prevent combinatorial explosion)
+DEFAULT_COMPREHENSION_MAX_SIZE = 100000  # Max elements in result list
+DEFAULT_COMPREHENSION_MAX_DEPTH = 4       # Max nesting depth of for clauses
 
 from .values import (
     Value, EmitResult, RequireFailure,
@@ -67,16 +75,37 @@ class Interpreter:
     Evaluates AST nodes by dispatching to type-specific methods.
     """
 
-    def __init__(self, transforms: List[Callable[[Module], Module]] = None):
+    def __init__(
+        self,
+        transforms: List[Callable[[Module], Module]] = None,
+        recursion_limit: Optional[int] = None,
+    ):
         """
         Initialize the interpreter.
 
         Args:
             transforms: Optional list of AST transformations to apply before execution
+            recursion_limit: Maximum depth for command-to-command calls (default 100).
+                             Can also be set via YAPCAD_DSL_RECURSION_LIMIT env var.
         """
         self.transforms = transforms or []
         self.native_functions: Dict[str, Callable] = {}  # Functions from native blocks
         self.current_module: Optional[Module] = None  # Current module being executed
+
+        # Set recursion limit: CLI arg > env var > default
+        if recursion_limit is not None:
+            self.recursion_limit = recursion_limit
+        else:
+            env_limit = os.environ.get("YAPCAD_DSL_RECURSION_LIMIT")
+            if env_limit is not None:
+                try:
+                    self.recursion_limit = int(env_limit)
+                except ValueError:
+                    self.recursion_limit = DEFAULT_RECURSION_LIMIT
+            else:
+                self.recursion_limit = DEFAULT_RECURSION_LIMIT
+
+        self.call_depth = 0  # Current command call depth
 
     def execute(
         self,
@@ -232,8 +261,7 @@ class Interpreter:
             self._execute_emit(stmt, ctx)
         elif isinstance(stmt, ForStatement):
             self._execute_for(stmt, ctx)
-        elif isinstance(stmt, WhileStatement):
-            self._execute_while(stmt, ctx)
+        # NOTE: WhileStatement removed - while loops not supported for static verifiability
         elif isinstance(stmt, IfStatement):
             self._execute_if_statement(stmt, ctx)
         elif isinstance(stmt, PassStatement):
@@ -308,17 +336,7 @@ class Interpreter:
                     if ctx.should_return:
                         return
 
-    def _execute_while(self, stmt: WhileStatement, ctx: ExecutionContext) -> None:
-        """Execute a while loop."""
-        with ctx.new_scope("while-loop"):
-            while True:
-                condition = self._evaluate(stmt.condition, ctx)
-                if not condition.is_truthy():
-                    break
-                for body_stmt in stmt.body.statements:
-                    self._execute_statement(body_stmt, ctx)
-                    if ctx.should_return:
-                        return
+    # NOTE: _execute_while removed - while loops not supported for static verifiability
 
     def _execute_if_statement(self, stmt: IfStatement, ctx: ExecutionContext) -> None:
         """Execute a block-level if statement."""
@@ -620,45 +638,57 @@ class Interpreter:
 
     def _call_command(self, command: Command, args: List[Value], parent_ctx: ExecutionContext) -> Value:
         """Call a command as a function from within another command."""
-        # Build parameters dict from args
-        param_dict = {}
+        # Check recursion depth limit
+        self.call_depth += 1
+        if self.call_depth > self.recursion_limit:
+            self.call_depth -= 1
+            raise RuntimeError(
+                f"Maximum recursion depth ({self.recursion_limit}) exceeded calling '{command.name}'. "
+                f"Increase limit via --recursion-limit or YAPCAD_DSL_RECURSION_LIMIT env var."
+            )
 
-        # Count required parameters (those without defaults)
-        required_count = sum(1 for p in command.parameters if p.default_value is None)
+        try:
+            # Build parameters dict from args
+            param_dict = {}
 
-        if len(args) < required_count or len(args) > len(command.parameters):
-            if required_count == len(command.parameters):
-                raise RuntimeError(
-                    f"Command '{command.name}' expects {len(command.parameters)} arguments, got {len(args)}"
-                )
+            # Count required parameters (those without defaults)
+            required_count = sum(1 for p in command.parameters if p.default_value is None)
+
+            if len(args) < required_count or len(args) > len(command.parameters):
+                if required_count == len(command.parameters):
+                    raise RuntimeError(
+                        f"Command '{command.name}' expects {len(command.parameters)} arguments, got {len(args)}"
+                    )
+                else:
+                    raise RuntimeError(
+                        f"Command '{command.name}' expects {required_count}-{len(command.parameters)} arguments, got {len(args)}"
+                    )
+
+            # Assign provided arguments
+            for param, arg in zip(command.parameters, args):
+                param_dict[param.name] = arg
+
+            # Fill in default values for missing parameters
+            for i in range(len(args), len(command.parameters)):
+                param = command.parameters[i]
+                if param.default_value is not None:
+                    default_val = self._evaluate(param.default_value, parent_ctx)
+                    param_dict[param.name] = default_val
+
+            # Create a new context for the command execution
+            module_name = self.current_module.name if self.current_module else "unknown"
+            cmd_ctx = create_context(module_name, command.name, param_dict, "")
+
+            # Execute the command body
+            self._execute_command(command, cmd_ctx)
+
+            # Return the emitted value
+            if cmd_ctx.emit_result is not None:
+                return cmd_ctx.emit_result
             else:
-                raise RuntimeError(
-                    f"Command '{command.name}' expects {required_count}-{len(command.parameters)} arguments, got {len(args)}"
-                )
-
-        # Assign provided arguments
-        for param, arg in zip(command.parameters, args):
-            param_dict[param.name] = arg
-
-        # Fill in default values for missing parameters
-        for i in range(len(args), len(command.parameters)):
-            param = command.parameters[i]
-            if param.default_value is not None:
-                default_val = self._evaluate(param.default_value, parent_ctx)
-                param_dict[param.name] = default_val
-
-        # Create a new context for the command execution
-        module_name = self.current_module.name if self.current_module else "unknown"
-        cmd_ctx = create_context(module_name, command.name, param_dict, "")
-
-        # Execute the command body
-        self._execute_command(command, cmd_ctx)
-
-        # Return the emitted value
-        if cmd_ctx.emit_result is not None:
-            return cmd_ctx.emit_result
-        else:
-            raise RuntimeError(f"Command '{command.name}' did not emit a value")
+                raise RuntimeError(f"Command '{command.name}' did not emit a value")
+        finally:
+            self.call_depth -= 1
 
     def _call_native_function(self, func_name: str, args: List[Value]) -> Value:
         """Call a native function with the given arguments."""
@@ -757,7 +787,20 @@ class Interpreter:
             [expr for x in xs if c1 for y in ys if c2]
 
         Multiple for clauses are evaluated as nested loops (left = outer).
+
+        Resource Limits:
+            - Max nesting depth: DEFAULT_COMPREHENSION_MAX_DEPTH (4 levels)
+            - Max result size: DEFAULT_COMPREHENSION_MAX_SIZE (100,000 elements)
         """
+        # Check nesting depth limit
+        num_clauses = len(comp.clauses)
+        if num_clauses > DEFAULT_COMPREHENSION_MAX_DEPTH:
+            raise RuntimeError(
+                f"List comprehension nesting depth ({num_clauses}) exceeds maximum "
+                f"({DEFAULT_COMPREHENSION_MAX_DEPTH}). Simplify the comprehension or "
+                f"use nested for loops."
+            )
+
         results: list = []
 
         with ctx.new_scope("comprehension"):
@@ -777,8 +820,16 @@ class Interpreter:
         """Recursively evaluate comprehension clauses.
 
         Each clause defines a loop. Multiple clauses become nested loops.
+        Enforces a maximum result size to prevent combinatorial explosion.
         """
         if not clauses:
+            # Check size limit before adding
+            if len(results) >= DEFAULT_COMPREHENSION_MAX_SIZE:
+                raise RuntimeError(
+                    f"List comprehension result size exceeds maximum "
+                    f"({DEFAULT_COMPREHENSION_MAX_SIZE} elements). "
+                    f"Consider using a filter or processing in batches."
+                )
             # Base case: all clauses processed, evaluate and collect element
             value = self._evaluate(element_expr, ctx)
             results.append(value)
@@ -793,6 +844,14 @@ class Interpreter:
 
         # Iterate
         for item in iterable.data:
+            # Early exit if we've hit the size limit
+            if len(results) >= DEFAULT_COMPREHENSION_MAX_SIZE:
+                raise RuntimeError(
+                    f"List comprehension result size exceeds maximum "
+                    f"({DEFAULT_COMPREHENSION_MAX_SIZE} elements). "
+                    f"Consider using a filter or processing in batches."
+                )
+
             # Determine element type
             if isinstance(iterable.type, ListType):
                 elem_type = iterable.type.element_type
@@ -935,6 +994,7 @@ def compile_and_run(
     source: str,
     command_name: str,
     parameters: Dict[str, Any],
+    recursion_limit: Optional[int] = None,
 ) -> ExecutionResult:
     """
     High-level API to compile and run DSL source code in one call.
@@ -959,6 +1019,8 @@ def compile_and_run(
         source: DSL source code as a string
         command_name: Name of the command to execute
         parameters: Parameter values (raw Python values)
+        recursion_limit: Maximum depth for command-to-command calls (default 100,
+                         can also be set via YAPCAD_DSL_RECURSION_LIMIT env var)
 
     Returns:
         ExecutionResult with geometry, provenance, and any errors
@@ -996,5 +1058,5 @@ def compile_and_run(
         )
 
     # Execute
-    interpreter = Interpreter()
+    interpreter = Interpreter(recursion_limit=recursion_limit)
     return interpreter.execute(module, command_name, parameters, source)

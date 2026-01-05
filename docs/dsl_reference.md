@@ -32,6 +32,11 @@ python -m yapcad.dsl run myfile.dsl COMMAND_NAME --output result.step
 
 # Export to package
 python -m yapcad.dsl run myfile.dsl COMMAND_NAME --package output.ycpkg
+
+# Increase recursion limit for deeply recursive designs
+python -m yapcad.dsl run myfile.dsl COMMAND_NAME --recursion-limit 500
+# Or via environment variable:
+YAPCAD_DSL_RECURSION_LIMIT=500 python -m yapcad.dsl run myfile.dsl COMMAND_NAME
 ```
 
 ## Syntax Overview
@@ -574,6 +579,39 @@ for item in my_list:
     # body
 ```
 
+**Note:** The DSL does not support `while` loops. This restriction ensures all DSL programs
+are statically verifiable (guaranteed to terminate). Use `for i in range(max_iterations)`
+with early return instead:
+
+```python
+command FIND_ROOT(start: float) -> float:
+    x: float = start
+    for i in range(100):  # Maximum 100 iterations
+        if abs(f(x)) < 0.001:
+            emit x  # Early return when condition met
+        x = improve(x)
+    emit x  # Return best result after max iterations
+```
+
+### Command Recursion
+
+Commands can call other commands, enabling modular designs:
+
+```python
+command make_branch(depth: int) -> solid:
+    if depth <= 0:
+        emit cylinder(1.0, 5.0)
+    branch: solid = cylinder(1.0, 5.0)
+    sub: solid = make_branch(depth - 1)  # Recursive call
+    emit union(branch, translate(sub, 0.0, 0.0, 5.0))
+```
+
+**Recursion Limits:** To prevent runaway recursion, command-to-command call depth is
+limited to 100 by default. The type checker warns about recursive call patterns.
+Configure the limit via:
+- CLI: `--recursion-limit 200`
+- Environment: `YAPCAD_DSL_RECURSION_LIMIT=200`
+
 ### Conditionals
 
 ```python
@@ -650,6 +688,13 @@ filtered_both: list<int> = [x + y for x in xs if x > 0 for y in ys if y < 10]
 # Triple nesting
 products: list<int> = [x + y + z for x in xs for y in ys for z in zs]
 ```
+
+**Resource Limits:** To prevent combinatorial explosion, list comprehensions have two limits:
+- **Maximum nesting depth:** 4 levels (e.g., `[... for a in xs for b in ys for c in zs for d in ws]`)
+- **Maximum result size:** 100,000 elements
+
+Exceeding either limit raises a runtime error. For larger datasets, use explicit for loops
+with batch processing.
 
 **Example: Creating patterns with symmetric geometry**
 
@@ -961,6 +1006,65 @@ if result.success:
 else:
     print(f"Error: {result.error_message}")
 ```
+
+## Static Verifiability and Safety
+
+The yapCAD DSL is designed for **static verifiability**: programs are guaranteed to terminate
+and have bounded resource consumption (within configured limits). This makes DSL files safe
+to execute without manual review, unlike arbitrary Python code.
+
+### Safety Guarantees
+
+| Feature | Guarantee | Mechanism |
+|---------|-----------|-----------|
+| Iteration | Bounded | `for` loops iterate over pre-computed finite lists; `while` is not supported |
+| Recursion | Depth-limited | Command-to-command calls limited to 100 (configurable) |
+| List sizes | Bounded | Comprehensions limited to 100,000 elements |
+| Nesting | Depth-limited | Comprehensions limited to 4 nesting levels |
+
+### Resource Limits
+
+| Resource | Default Limit | Configuration |
+|----------|---------------|---------------|
+| Recursion depth | 100 | `--recursion-limit N` or `YAPCAD_DSL_RECURSION_LIMIT` |
+| Comprehension elements | 100,000 | Code constant (recompile to change) |
+| Comprehension nesting | 4 levels | Code constant (recompile to change) |
+
+### Escape Hatches (Advanced Use)
+
+For complex operations that cannot be expressed in pure DSL, two escape hatches exist.
+These **bypass static verifiability** and require manual review:
+
+**@native decorator** - Embed Python functions:
+```python
+@native
+def complex_calculation(x: float, y: float) -> float:
+    # Arbitrary Python code - not statically verified
+    import numpy as np
+    return float(np.sqrt(x**2 + y**2))
+```
+
+**Legacy Python blocks** (deprecated):
+```python
+native python {
+    def helper(x):
+        return x * 2
+} exports {
+    helper(x: float) -> float
+}
+```
+
+The type checker issues warnings (W212, W213) when native code is present, indicating
+that manual review is required for type safety.
+
+### Type Checker Warnings
+
+| Code | Meaning |
+|------|---------|
+| W212 | Native Python block requires manual review |
+| W213 | Native function requires manual review |
+| W301 | Direct recursion detected (command calls itself) |
+| W302 | Mutual recursion detected (command call cycle) |
 
 ## See Also
 

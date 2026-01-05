@@ -12,7 +12,7 @@ from .ast import (
     AstNode, Module, Command, FunctionDef, Parameter, Block,
     Statement, LetStatement, VarDecl, AssignmentStatement,
     RequireStatement, AssertStatement,
-    EmitStatement, ForStatement, WhileStatement, IfStatement,
+    EmitStatement, ForStatement, IfStatement,
     ExpressionStatement, ReturnStatement, PassStatement,
     PythonBlock, NativeBlock, NativeFunctionDecl, NativeFunction, Decorator,
     ElifBranch,
@@ -74,6 +74,10 @@ class TypeChecker:
         self.max_errors = max_errors
         self._current_command: Optional[Command] = None
         self._has_python_blocks = False
+        # Call graph for recursion detection: command_name -> set of called command names
+        self._call_graph: Dict[str, set] = {}
+        # Set of command names (to distinguish from builtins/native functions)
+        self._command_names: set = set()
 
     def check(self, module: Module) -> CheckResult:
         """Type check a complete module."""
@@ -100,13 +104,18 @@ class TypeChecker:
         for native_func in getattr(module, 'native_functions', []):
             self._register_native_function(native_func)
 
-        # Second pass: register all commands/functions
+        # Second pass: register all commands/functions and track their names
         for command in module.commands:
             self._register_command(command)
+            self._command_names.add(command.name)
+            self._call_graph[command.name] = set()
 
-        # Third pass: check command/function bodies
+        # Third pass: check command/function bodies (populates call graph)
         for command in module.commands:
             self._check_command(command)
+
+        # Fourth pass: detect recursive call cycles and warn
+        self._check_recursion(module)
 
     def _register_native_block(self, native_block: NativeBlock) -> None:
         """Register exported functions from a native block."""
@@ -283,8 +292,7 @@ class TypeChecker:
             self._check_emit_statement(stmt)
         elif isinstance(stmt, ForStatement):
             self._check_for_statement(stmt)
-        elif isinstance(stmt, WhileStatement):
-            self._check_while_statement(stmt)
+        # NOTE: WhileStatement removed - while loops not supported for static verifiability
         elif isinstance(stmt, IfStatement):
             self._check_if_statement(stmt)
         elif isinstance(stmt, PassStatement):
@@ -428,21 +436,7 @@ class TypeChecker:
 
         self.symbols.pop_scope()
 
-    def _check_while_statement(self, stmt: WhileStatement) -> None:
-        """Check a while statement."""
-        cond_type = self._check_expression(stmt.condition)
-
-        if cond_type != BOOL and cond_type != ERROR:
-            self._error(
-                f"While condition must be boolean, got '{cond_type}'",
-                stmt.condition.span,
-                "E225"
-            )
-
-        # Create new scope for loop body
-        self.symbols.push_scope("while loop")
-        self._check_block(stmt.body)
-        self.symbols.pop_scope()
+    # NOTE: _check_while_statement removed - while loops not supported for static verifiability
 
     def _check_if_statement(self, stmt: IfStatement) -> None:
         """Check a block-level if statement."""
@@ -722,6 +716,12 @@ class TypeChecker:
         # Check for user-defined command or native function
         symbol = self.symbols.lookup(callee_name)
         if symbol is not None and symbol.kind in (SymbolKind.COMMAND, SymbolKind.FUNCTION):
+            # Track command-to-command calls for recursion detection
+            if (callee_name in self._command_names and
+                self._current_command is not None and
+                self._current_command.name in self._call_graph):
+                self._call_graph[self._current_command.name].add(callee_name)
+
             if isinstance(symbol.type, FunctionType):
                 # Check argument count and types for native functions
                 func_type = symbol.type
@@ -799,6 +799,70 @@ class TypeChecker:
                         return_type = arg_types[0]
 
         return return_type
+
+    def _check_recursion(self, module: Module) -> None:
+        """Detect recursive cycles in the call graph and emit warnings.
+
+        Uses depth-first search to find strongly connected components (cycles)
+        in the command call graph.
+        """
+        # Find all cycles using DFS
+        visited = set()
+        rec_stack = set()  # Current recursion stack
+        cycles_found = []
+
+        def find_cycles(node: str, path: list) -> None:
+            """DFS to find cycles starting from node."""
+            if node in rec_stack:
+                # Found a cycle - extract it from path
+                cycle_start = path.index(node)
+                cycle = path[cycle_start:] + [node]
+                cycles_found.append(cycle)
+                return
+            if node in visited:
+                return
+
+            visited.add(node)
+            rec_stack.add(node)
+            path.append(node)
+
+            for callee in self._call_graph.get(node, set()):
+                find_cycles(callee, path)
+
+            path.pop()
+            rec_stack.remove(node)
+
+        # Start DFS from each command
+        for cmd_name in self._command_names:
+            if cmd_name not in visited:
+                find_cycles(cmd_name, [])
+
+        # Emit warnings for detected cycles
+        for cycle in cycles_found:
+            # Find the command AST node for the first command in cycle
+            cmd_span = None
+            for cmd in module.commands:
+                if cmd.name == cycle[0]:
+                    cmd_span = cmd.span
+                    break
+
+            if len(cycle) == 2 and cycle[0] == cycle[1]:
+                # Direct self-recursion: A -> A
+                self._warning(
+                    f"Command '{cycle[0]}' is directly recursive. "
+                    f"Runtime depth is limited to YAPCAD_DSL_RECURSION_LIMIT (default 100).",
+                    cmd_span,
+                    "W301"
+                )
+            else:
+                # Mutual recursion: A -> B -> ... -> A
+                cycle_str = " -> ".join(cycle)
+                self._warning(
+                    f"Recursive call cycle detected: {cycle_str}. "
+                    f"Runtime depth is limited to YAPCAD_DSL_RECURSION_LIMIT (default 100).",
+                    cmd_span,
+                    "W302"
+                )
 
     def _check_method_call(self, expr: MethodCall) -> Type:
         """Check a method call."""

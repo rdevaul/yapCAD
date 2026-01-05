@@ -38,7 +38,7 @@ class TokenType(Enum):
     ELSE = auto()               # else
     FOR = auto()                # for
     IN = auto()                 # in
-    WHILE = auto()              # while (future)
+    WHILE = auto()              # while (DEPRECATED - removed for static verifiability)
     ASSERT = auto()             # assert
     PASS = auto()               # pass
     AS = auto()                 # as
@@ -300,6 +300,7 @@ DEPRECATED_KEYWORDS: set[str] = {
     "require",  # Use 'assert' instead
     "fn",       # Use 'def' instead
     "exports",  # Use @native decorator instead
+    "while",    # Removed for static verifiability - use 'for x in range(n)' instead
 }
 
 # Mapping of deprecated keyword to suggestion
@@ -310,6 +311,7 @@ DEPRECATED_SUGGESTIONS: dict[str, str] = {
     "fn": "Use 'def' to define functions",
     "exports": "Use '@native' decorator instead of 'native python { } exports { }'",
     "with": "Use keyword arguments with emit: 'emit value, name=\"x\", material=\"y\"'",
+    "while": "'while' loops are not supported (removed for static verifiability). Use 'for i in range(max_iterations)' with early return instead",
 }
 
 
