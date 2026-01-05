@@ -525,7 +525,8 @@ The stand consists of:
 
 - 3 arc beams (swept hollow box sections along 3D Bezier curves)
 - 1 base ring (swept hollow box section along circular path)
-- Junction areas where arcs meet base
+- 1 top ring (swept hollow box section along circular path, smaller diameter)
+- Junction areas where arcs meet base and top rings
 
 **Proposed Segmentation:**
 
@@ -542,16 +543,22 @@ The stand consists of:
     - Position cuts between arc attachment points
     - 3 segments total for base
 
-    Total: 12 printable segments + integrated connectors
+    Top Ring:
+    - May fit within build volume without segmentation (smaller diameter)
+    - If segmentation needed: cut at 120° intervals like base ring
+    - 1 or 3 segments depending on printer build volume
+
+    Total: 13-15 printable segments + integrated connectors
 
 **Assembly Sequence:**
 
-1. Print all 12 segments
+1. Print all segments (base ring, arc beams, top ring)
 2. Assemble base ring (3 segments)
 3. Attach arc bottom segments to base
 4. Attach arc middle segments
 5. Attach arc top segments
-6. Final assembly complete
+6. Attach/assemble top ring to arc tops
+7. Final assembly complete
 
 **Connector Design:**
 
