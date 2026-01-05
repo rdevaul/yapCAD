@@ -37,7 +37,7 @@ This section reflects the **actual current state** of the codebase as of version
 - 2D boolean operations (union, difference, intersection) with proper hole accumulation
 - Curve types: ellipse, catmull-rom splines, NURBS, parabola, hyperbola
 - Adaptive sweep operations with tangent-tracking profile orientation
-- 612 regression tests across geometry, DSL, import/export, packaging, and validation
+- 627 regression tests across geometry, DSL, import/export, packaging, and validation
 
 **Partially Implemented:**
 
@@ -55,6 +55,8 @@ This section reflects the **actual current state** of the codebase as of version
 - YAML-based fastener catalog system with ISO metric and ASME unified thread specifications
 - DSL builtins for fastener generation (``metric_hex_bolt``, ``metric_hex_nut``, ``unified_hex_bolt``, ``unified_hex_nut``)
 - Emacs major mode for DSL syntax highlighting (``editors/yapcad-dsl-mode.el``)
+- DSL static verifiability: ``while`` loops removed, recursion depth limits with ``--recursion-limit``
+- DSL resource limits for list comprehensions (size and nesting depth limits)
 
 **Not Yet Implemented:**
 
@@ -181,7 +183,8 @@ Completed:
 - ✅ Documentation alignment with implementation
 - ✅ All specifications updated to v1.0 status
 - ✅ Historical documents reorganized
-- ✅ 584 tests passing
+- ✅ DSL static verifiability (``while`` removed, recursion/comprehension limits)
+- ✅ 627 tests passing
 
 Dependencies & Tooling
 ----------------------
