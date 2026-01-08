@@ -75,3 +75,9 @@ gemini_venv/
 # ignore test python scripts in root
 /*.py
 
+# ignore the projects directory (for now)
+projects/*
+
+# ignore output directories
+output/*
+examples/output/*
