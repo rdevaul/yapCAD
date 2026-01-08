@@ -452,7 +452,8 @@ command CENTERED_GLOBE_STAND_HIRES(
     beam_outer: float = 10.0,
     beam_wall: float = 2.0,
     angle_threshold: float = 5.0,
-    mars_oblateness: float = 0.00648
+    mars_oblateness: float = 0.00648,
+    include_mars: bool = false
 ) -> solid:
     base_radius: float = base_diameter / 2.0
     globe_radius: float = globe_diameter / 2.0
@@ -516,6 +517,6 @@ command CENTERED_GLOBE_STAND_HIRES(
     mars: solid = centered_mars_globe(globe_diameter, globe_center_z, tilt_angle, mars_oblateness)
 
     stand: solid = union(base, cradle, arc1, arc2, arc3)
-    result: solid = compound(stand, mars)
+    result: solid = compound(stand, mars) if include_mars else stand
 
     emit result
