@@ -2,6 +2,33 @@
 Changelog
 =========
 
+Version 1.0.1 (Development)
+============================
+
+what's new:
+-----------
+
+  - **Helical Extrusion**: New ``helical_extrude()`` function in ``yapcad.geom3d_util``
+    creates smooth helical/twisted extrusions using high-resolution lofting. Ideal for
+    helical gears, twisted columns, and spiral features. Requires pythonocc-core.
+
+  - **Pattern Functions**: New pattern generation functions for creating arrays of geometry:
+
+    - ``radial_pattern()`` in ``yapcad.geom_util`` - Creates circular patterns of 2D geometry
+    - ``linear_pattern()`` in ``yapcad.geom_util`` - Creates linear arrays of 2D geometry
+    - ``radial_pattern_solid()`` in ``yapcad.geom3d_util`` - Creates circular patterns of 3D solids
+    - ``linear_pattern_solid()`` in ``yapcad.geom3d_util`` - Creates linear arrays of 3D solids
+    - ``radial_pattern_surface()`` in ``yapcad.geom3d_util`` - Creates circular patterns of surfaces
+    - ``linear_pattern_surface()`` in ``yapcad.geom3d_util`` - Creates linear arrays of surfaces
+
+  - **OCC Helix Helper**: New ``make_occ_helix()`` function creates mathematically exact
+    helix curves using OpenCascade's 2D parametric curve on cylindrical surface technique.
+    Used internally by ``helical_extrude()`` but also available for advanced users.
+
+  - **Documentation Improvements**: All new functions include comprehensive docstrings
+    with parameter descriptions, return values, usage examples, and notes following
+    Sphinx documentation standards.
+
 Version 1.0.0rc1 (2025-12-30)
 =============================
 

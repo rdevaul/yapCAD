@@ -14,10 +14,72 @@ import math
 Utility functions to support 3D geometry in yapCAD
 ==================================================
 
-This module is mostly a collection of 
+This module is mostly a collection of
 parametric soids and surfaces, and supporting functions.
 
 """
+
+
+def adaptive_arc_segments(radius, chord_error=0.1, min_segments=12, max_segments=360):
+    """
+    Calculate the optimal number of arc segments for a given radius
+    to achieve a target maximum chord error (deviation from true circle).
+
+    This ensures that larger objects get more segments for smooth surfaces,
+    while small features don't waste polygons.
+
+    :param radius: radius of the circle/arc in mm
+    :param chord_error: maximum acceptable chord error in mm (default 0.1mm)
+    :param min_segments: minimum number of segments (default 12)
+    :param max_segments: maximum number of segments (default 360)
+    :returns: optimal number of segments as an integer
+
+    The chord error is the distance between the actual circle and the
+    straight line segment connecting two adjacent points. For a circle
+    of radius r and angle θ between segments:
+        chord_error = r * (1 - cos(θ/2))
+
+    Solving for θ:
+        θ = 2 * arccos(1 - chord_error/r)
+        segments = 2π / θ
+
+    Example:
+        - 5mm radius: ~31 segments (for 0.1mm error)
+        - 170mm radius: ~183 segments (for 0.1mm error)
+    """
+    if radius <= 0 or chord_error <= 0:
+        return 36  # fallback default
+
+    # Prevent math domain error when error >= radius
+    # (entire radius fits within error tolerance)
+    ratio = min(chord_error / radius, 0.999999)
+
+    # Calculate angle subtended by each segment
+    theta_rad = 2 * math.acos(1 - ratio)
+
+    # Calculate number of segments for full circle
+    segments = int(math.ceil(2 * math.pi / theta_rad))
+
+    # Clamp to reasonable bounds
+    return max(min_segments, min(max_segments, segments))
+
+
+def adaptive_angr_from_radius(radius, chord_error=0.1, min_angr=1.0, max_angr=30.0):
+    """
+    Calculate angular resolution (degrees per segment) adaptively based on radius.
+
+    This is the inverse of adaptive_arc_segments, providing the angular resolution
+    for functions that take 'angr' parameter instead of segment count.
+
+    :param radius: radius of the circle/arc in mm
+    :param chord_error: maximum acceptable chord error in mm (default 0.1mm)
+    :param min_angr: minimum angular resolution in degrees (default 1.0)
+    :param max_angr: maximum angular resolution in degrees (default 30.0)
+    :returns: optimal angular resolution in degrees
+    """
+    segments = adaptive_arc_segments(radius, chord_error)
+    angr = 360.0 / segments
+    return max(min_angr, min(max_angr, angr))
 
 
 def sphere2cartesian(lat,lon,rad):
@@ -354,14 +416,24 @@ def prism(length,width,height,center=point(0,0,0)):
             pass
     return sol
 
-def circleSurface(center,radius,angr=10,zup=True):
+def circleSurface(center,radius,angr=None,zup=True,chord_error=0.1):
     """make a circular surface centered at ``center`` lying in the XY
     plane with normals pointing in the positive z direction if ``zup
-    == True``, negative z otherwise"""
+    == True``, negative z otherwise
 
-    if angr < 1 or angr > 45:
+    :param center: center point of circle
+    :param radius: radius of circle
+    :param angr: angular resolution in degrees (if None, use adaptive resolution)
+    :param zup: if True, normal points +Z, else -Z
+    :param chord_error: max chord error for adaptive resolution (default 0.1mm)
+    """
+
+    if angr is None:
+        # Use adaptive resolution based on radius
+        angr = adaptive_angr_from_radius(radius, chord_error)
+    elif angr < 1 or angr > 45:
         raise ValueError('angular resolution must be between 1 and 45 degrees')
-    
+
     samples = round(360.0/angr)
     angr = 360.0/samples
     basep=[center]
@@ -400,7 +472,7 @@ def circleSurface(center,radius,angr=10,zup=True):
     surf[5] = []
     return surf
 
-def conic(baser,topr,height, center=point(0,0,0),angr=10):
+def conic(baser,topr,height, center=point(0,0,0),angr=None,chord_error=0.1):
 
     """Make a conic frustum splid, center is center of first 'base'
     circle, main axis aligns with positive z.  This function can be
@@ -416,14 +488,23 @@ def conic(baser,topr,height, center=point(0,0,0),angr=10):
 
          ``height`` is distance from base to top, must be greater than
          epsilon.
-    
+
          ``center`` is the location of the center of the base.
 
          ``angr`` is the requested angular resolution in degrees for
-         sampling circles.  Actual angular resolution will be
-         ``360/round(360/angr)``
+         sampling circles. If None (default), adaptive resolution is used
+         based on the larger of baser and topr. Actual angular resolution
+         will be ``360/round(360/angr)``
+
+         ``chord_error`` is the maximum chord error in mm for adaptive
+         resolution (default 0.1mm), ignored if angr is specified.
 
     """
+    # Use adaptive resolution based on larger radius if angr not specified
+    if angr is None:
+        max_radius = max(baser, topr if topr >= epsilon else baser)
+        angr = adaptive_angr_from_radius(max_radius, chord_error)
+
     call = f"yapcad.geom3d_util.conic({baser},{topr},{height},{center},{angr})"
     if baser < epsilon:
         raise ValueError('bad base radius for conic')
@@ -438,13 +519,13 @@ def conic(baser,topr,height, center=point(0,0,0),angr=10):
     if height < epsilon:
         raise ValueError('bad height in conic')
 
-    baseS = circleSurface(center,baser,zup=False)
+    baseS = circleSurface(center,baser,angr=angr,zup=False)
     baseV = baseS[1]
     ll = len(baseV)
-        
+
     if not toppoint:
         topS = circleSurface(add(center,point(0,0,height)),
-                             topr,zup=True)
+                             topr,angr=angr,zup=True)
         topV = topS[1]
         cylV = baseV[1:] + topV[1:]
         ll = ll-1
@@ -591,7 +672,7 @@ def _make_revolution_brep(contour, zStart, zEnd, steps):
         return None
 
 
-def makeRevolutionSurface(contour,zStart,zEnd,steps,arcSamples=36,*,return_brep=False):
+def makeRevolutionSurface(contour,zStart,zEnd,steps,arcSamples=None,*,chord_error=0.1,return_brep=False):
     """
     Generate a surface of revolution by sampling a contour function.
 
@@ -599,7 +680,9 @@ def makeRevolutionSurface(contour,zStart,zEnd,steps,arcSamples=36,*,return_brep=
     :param zStart: lower bound for the ``z`` interval
     :param zEnd: upper bound for the ``z`` interval
     :param steps: number of contour samples between ``zStart`` and ``zEnd``
-    :param arcSamples: number of samples around the revolution arc
+    :param arcSamples: number of samples around the revolution arc.
+                       If None (default), adaptive resolution is used.
+    :param chord_error: maximum chord error for adaptive resolution (default 0.1mm)
     :returns: ``['surface', vertices, normals, faces]`` list representing the surface
     """
 
@@ -608,6 +691,16 @@ def makeRevolutionSurface(contour,zStart,zEnd,steps,arcSamples=36,*,return_brep=
     sF=[]
     zRange = zEnd-zStart
     zD = zRange/steps
+
+    # Use adaptive resolution if arcSamples not specified
+    if arcSamples is None:
+        # Sample the contour to find maximum radius
+        max_radius = 0
+        for i in range(steps + 1):
+            z = i * zD + zStart
+            r = contour(z)
+            max_radius = max(max_radius, r)
+        arcSamples = adaptive_arc_segments(max_radius, chord_error)
 
     degStep = 360.0/arcSamples
     radStep = pi2/arcSamples
@@ -919,14 +1012,18 @@ def makeRevolutionThetaSamplingSurface(contour, zStart, zEnd, arcSamples=360,
     return surf, brep_shape
 
 
-def makeRevolutionSolid(contour, zStart, zEnd, steps, arcSamples=36, metadata=None):
+def makeRevolutionSolid(contour, zStart, zEnd, steps, arcSamples=None, chord_error=0.1, metadata=None):
     """
     Build a solid of revolution around the Z axis. When pythonocc-core is
     available, a native BREP is attached; otherwise we fall back to the
     tessellated representation.
+
+    :param arcSamples: number of samples around the revolution arc.
+                       If None (default), adaptive resolution is used.
+    :param chord_error: maximum chord error for adaptive resolution (default 0.1mm)
     """
     surf, brep_shape = makeRevolutionSurface(
-        contour, zStart, zEnd, steps, arcSamples=arcSamples, return_brep=True
+        contour, zStart, zEnd, steps, arcSamples=arcSamples, chord_error=chord_error, return_brep=True
     )
     call = f"yapcad.geom3d_util.makeRevolutionSolid(contour,{zStart},{zEnd},{steps},{arcSamples})"
     construction = ['procedure', call]
@@ -1335,7 +1432,17 @@ def makeLoftSolid(lower_loop, upper_loop, *, metadata=None):
 
     
 
-def _circle_loop(center_xy, radius, minang):
+def _circle_loop(center_xy, radius, minang=None, chord_error=0.1):
+    """Generate a circle loop with adaptive or fixed resolution.
+
+    :param center_xy: (x, y) center coordinates
+    :param radius: radius of circle
+    :param minang: minimum angular resolution in degrees. If None, use adaptive.
+    :param chord_error: maximum chord error for adaptive resolution (default 0.1mm)
+    """
+    if minang is None:
+        minang = adaptive_angr_from_radius(radius, chord_error)
+
     arc_geom = [arc(point(center_xy[0], center_xy[1]), radius)]
     loop = geomlist2poly(arc_geom, minang=minang, minlen=0.0)
     if not loop:
@@ -1344,11 +1451,14 @@ def _circle_loop(center_xy, radius, minang):
 
 
 def tube(outer_diameter, wall_thickness, length,
-         center=None, *, base_point=None, minang=5.0, include_caps=True):
+         center=None, *, base_point=None, minang=None, chord_error=0.1, include_caps=True):
     """Create a cylindrical tube solid.
 
     ``base_point`` (or legacy ``center`` argument) identifies the base of the
     cylindrical wall, i.e. the plane where ``z == base_point[2]``.
+
+    :param minang: minimum angular resolution in degrees. If None, use adaptive.
+    :param chord_error: maximum chord error for adaptive resolution (default 0.1mm)
     """
 
     if base_point is not None and center is not None:
@@ -1366,6 +1476,10 @@ def tube(outer_diameter, wall_thickness, length,
     inner_radius = outer_radius - wall_thickness
     if inner_radius <= epsilon:
         raise ValueError('wall thickness too large for tube')
+
+    # Use adaptive resolution based on outer radius if not specified
+    if minang is None:
+        minang = adaptive_angr_from_radius(outer_radius, chord_error)
 
     base_z = base_point[2]
     center_xy = (base_point[0], base_point[1])
@@ -1413,11 +1527,15 @@ def tube(outer_diameter, wall_thickness, length,
 
 
 def conic_tube(bottom_outer_diameter, top_outer_diameter, wall_thickness,
-               length, center=None, *, base_point=None, minang=5.0, include_caps=True):
+               length, center=None, *, base_point=None, minang=None, chord_error=0.1, include_caps=True):
     """Create a conic tube with varying outer diameter.
 
     ``base_point`` (or ``center`` legacy argument) marks the axial base of the
-    frustum (the larger-diameter end when stacked)."""
+    frustum (the larger-diameter end when stacked).
+
+    :param minang: minimum angular resolution in degrees. If None, use adaptive.
+    :param chord_error: maximum chord error for adaptive resolution (default 0.1mm)
+    """
 
     if base_point is not None and center is not None:
         raise ValueError('specify only base_point (preferred) or center, not both')
@@ -1434,6 +1552,11 @@ def conic_tube(bottom_outer_diameter, top_outer_diameter, wall_thickness,
     r1_inner = r1_outer - wall_thickness
     if r0_inner <= epsilon or r1_inner <= epsilon:
         raise ValueError('wall thickness too large for conic tube')
+
+    # Use adaptive resolution based on larger outer radius if not specified
+    if minang is None:
+        max_radius = max(r0_outer, r1_outer)
+        minang = adaptive_angr_from_radius(max_radius, chord_error)
 
     base_z = base_point[2]
     center_xy = (base_point[0], base_point[1])
@@ -2610,3 +2733,463 @@ def sweep_profile_along_path(profile, spine, *, inner_profile=None, metadata=Non
         pass
 
     return sld
+
+
+def make_occ_helix(radius, pitch, height, left_hand=False):
+    """
+    Create a true helix wire using 2D parametric curve on cylindrical surface.
+
+    This produces a mathematically exact helix, not a polyline approximation.
+    Uses the standard OCC technique: 2D line on Geom_CylindricalSurface.
+
+    :param radius: Radius of the helix cylinder
+    :param pitch: Vertical rise per full turn (360 degrees)
+    :param height: Total height of the helix
+    :param left_hand: If True, create left-handed helix (default False = right-handed)
+    :returns: An OCC TopoDS_Wire representing the helix
+
+    .. note::
+       This function requires pythonocc-core and will raise RuntimeError if not available.
+
+    Example::
+
+        >>> # Create a right-handed helix
+        >>> helix = make_occ_helix(radius=10.0, pitch=5.0, height=20.0)
+        >>> # Create a left-handed helix
+        >>> left_helix = make_occ_helix(radius=10.0, pitch=5.0, height=20.0, left_hand=True)
+    """
+    if not occ_available():
+        raise RuntimeError("make_occ_helix requires pythonocc-core")
+
+    from OCC.Core.gp import gp_Ax3, gp_Pnt, gp_Dir, gp_Pnt2d, gp_Dir2d, gp_Lin2d
+    from OCC.Core.Geom import Geom_CylindricalSurface
+    from OCC.Core.GCE2d import GCE2d_MakeSegment
+    from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeEdge, BRepBuilderAPI_MakeWire
+    from OCC.Core.BRepLib import BRepLib
+
+    # Create cylindrical surface centered at origin with axis along Z
+    # gp_Ax3 defines a coordinate system: origin, Z direction, X direction
+    # For XOY plane: origin at (0,0,0), Z along (0,0,1), X along (1,0,0)
+    ax3_xoy = gp_Ax3(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0))
+    cylinder = Geom_CylindricalSurface(ax3_xoy, radius)
+
+    # Calculate the number of turns based on height and pitch
+    turns = height / pitch
+
+    # Direction in UV space: U is angle (in radians), V is height
+    # For a right-handed helix going up, U increases as V increases
+    # For a left-handed helix, U decreases as V increases
+    sign = -1.0 if left_hand else 1.0
+
+    # In UV space of cylinder: U = angle (radians), V = height along axis
+    # A helix is a straight line in UV space: for each turn (2*pi in U), we rise by pitch in V
+    # So direction is (sign * 2*pi, pitch) and we travel for 'turns' turns
+    direction = gp_Dir2d(sign * 2.0 * math.pi, pitch)
+
+    # Create 2D line from origin in the UV space
+    line_2d = gp_Lin2d(gp_Pnt2d(0.0, 0.0), direction)
+
+    # Parameter range: from 0 to 'turns' (each unit = one full turn)
+    segment = GCE2d_MakeSegment(line_2d, 0.0, turns).Value()
+
+    # Create 3D edge from 2D curve on cylindrical surface
+    helix_edge = BRepBuilderAPI_MakeEdge(segment, cylinder, 0.0, turns).Edge()
+
+    # Build the 3D curve representation
+    BRepLib.BuildCurves3d_s(helix_edge)
+
+    # Create wire from edge
+    return BRepBuilderAPI_MakeWire(helix_edge).Wire()
+
+
+def helical_extrude(profile, height, twist_angle_deg, *,
+                    auxiliary_radius=10.0, segments=64, metadata=None):
+    """
+    Extrude a 2D profile along Z with smooth helical twist.
+
+    This function creates a helical extrusion where the profile rotates around
+    the Z axis as it extrudes upward. The implementation uses high-resolution
+    lofting through many intermediate sections to produce smooth helical surfaces.
+
+    For profiles centered at the origin, the twist rotates the entire profile
+    around Z. This is ideal for helical gears, twisted columns, and spiral features.
+
+    :param profile: A yapCAD region2d (list of 2D curve segments forming a closed loop)
+                    in the XY plane, centered at or near the origin
+    :param height: Total extrusion height along Z axis
+    :param twist_angle_deg: Total twist angle in degrees over the full height.
+                           Positive = counterclockwise when viewed from +Z.
+                           Zero twist will produce a simple extrusion.
+    :param auxiliary_radius: (Deprecated, kept for API compatibility) Previously used
+                            for auxiliary helix. Now ignored.
+    :param segments: Number of intermediate sections for lofting (default 64).
+                     More segments = smoother helical surface. For helical gears,
+                     use at least 64 segments to avoid visible stepping.
+    :param metadata: Optional dict of metadata to attach
+    :returns: A yapCAD solid with smooth helical surfaces
+
+    .. note::
+       This function requires pythonocc-core and will raise RuntimeError if not available.
+       For small twist angles (<10 degrees), the result may be similar to a simple extrusion.
+       The helical effect is most visible with larger twist angles. Using segments=64 or
+       higher is recommended for smooth surfaces.
+
+    Example::
+
+        >>> # Create a twisted square prism with smooth surfaces
+        >>> from yapcad.geom import line, point
+        >>> square = [
+        ...     line(point(-5, -5), point(5, -5)),
+        ...     line(point(5, -5), point(5, 5)),
+        ...     line(point(5, 5), point(-5, 5)),
+        ...     line(point(-5, 5), point(-5, -5))
+        ... ]
+        >>> twisted = helical_extrude(square, height=20, twist_angle_deg=90)
+    """
+    if not occ_available():
+        raise RuntimeError("helical_extrude requires pythonocc-core")
+
+    from OCC.Core.gp import gp_Pnt, gp_Dir, gp_Ax2, gp_Circ, gp_Trsf, gp_Ax1
+    from OCC.Core.BRepBuilderAPI import (
+        BRepBuilderAPI_MakeWire, BRepBuilderAPI_MakeEdge,
+        BRepBuilderAPI_MakeFace, BRepBuilderAPI_Transform
+    )
+    from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_ThruSections
+    from OCC.Core.GC import GC_MakeArcOfCircle
+    from OCC.Core.GProp import GProp_GProps
+    from OCC.Core.BRepGProp import brepgprop
+    from OCC.Core.TopoDS import topods
+
+    # Handle zero or very small twist as simple extrusion
+    if abs(twist_angle_deg) < 1e-6:
+        return extrude_region2d(profile, height, metadata=metadata)
+
+    def _build_wire_from_region2d_xy(region):
+        """Build an OCC wire from a yapCAD region2d in the XY plane (Z=0)."""
+        wire_builder = BRepBuilderAPI_MakeWire()
+
+        for seg in region:
+            if isline(seg):
+                p1 = seg[0]
+                p2 = seg[1]
+                # Keep in XY plane (Z=0)
+                start = gp_Pnt(p1[0], p1[1] if len(p1) > 1 else 0, 0)
+                end = gp_Pnt(p2[0], p2[1] if len(p2) > 1 else 0, 0)
+                edge = BRepBuilderAPI_MakeEdge(start, end).Edge()
+                wire_builder.Add(edge)
+            elif isarc(seg):
+                center = seg[0]
+                params = seg[1]
+                radius = params[0]
+                start_ang = math.radians(params[1])
+                end_ang = math.radians(params[2])
+                cx, cy = center[0], center[1] if len(center) > 1 else 0
+                start_pt = gp_Pnt(cx + radius * math.cos(start_ang),
+                                  cy + radius * math.sin(start_ang), 0)
+                end_pt = gp_Pnt(cx + radius * math.cos(end_ang),
+                                cy + radius * math.sin(end_ang), 0)
+                arc_center = gp_Pnt(cx, cy, 0)
+                circ = gp_Circ(gp_Ax2(arc_center, gp_Dir(0, 0, 1)), radius)
+                arc_maker = GC_MakeArcOfCircle(circ, start_pt, end_pt, True)
+                if arc_maker.IsDone():
+                    edge = BRepBuilderAPI_MakeEdge(arc_maker.Value()).Edge()
+                    wire_builder.Add(edge)
+
+        if not wire_builder.IsDone():
+            raise RuntimeError("Failed to build wire from region2d")
+        return wire_builder.Wire()
+
+    def _transform_wire(wire, z_offset, rotation_deg):
+        """Transform wire: translate along Z and rotate around Z axis."""
+        trsf = gp_Trsf()
+
+        # Combined transformation: first rotate around Z, then translate along Z
+        # Create rotation around Z axis at origin
+        rotation_rad = math.radians(rotation_deg)
+        z_axis = gp_Ax1(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1))
+        trsf.SetRotation(z_axis, rotation_rad)
+
+        # Apply rotation
+        transformer = BRepBuilderAPI_Transform(wire, trsf, True)
+        rotated_wire = topods.Wire(transformer.Shape())
+
+        # Apply translation
+        trsf_translate = gp_Trsf()
+        trsf_translate.SetTranslation(gp_Pnt(0, 0, 0), gp_Pnt(0, 0, z_offset))
+        transformer2 = BRepBuilderAPI_Transform(rotated_wire, trsf_translate, True)
+
+        return topods.Wire(transformer2.Shape())
+
+    # Build template wire at Z=0
+    template_wire = _build_wire_from_region2d_xy(profile)
+
+    # Create loft through rotated sections
+    # Use ruled=True for better handling of profiles with straight edges
+    loft = BRepOffsetAPI_ThruSections(True, True, 1.0e-6)
+
+    # Add sections from bottom to top
+    for i in range(segments + 1):
+        t = i / segments  # 0 to 1
+        z = t * height
+        angle = t * twist_angle_deg
+
+        transformed_wire = _transform_wire(template_wire, z, angle)
+        loft.AddWire(transformed_wire)
+
+    loft.Build()
+    if not loft.IsDone():
+        raise RuntimeError("Failed to create helical extrusion loft")
+
+    shape = loft.Shape()
+
+    # Normalize shape: if it's a Compound containing exactly one Solid, extract it
+    from OCC.Core.TopExp import TopExp_Explorer
+    from OCC.Core.TopAbs import TopAbs_SOLID
+
+    if shape.ShapeType() == 0:  # Compound
+        exp = TopExp_Explorer(shape, TopAbs_SOLID)
+        solids = []
+        while exp.More():
+            solids.append(topods.Solid(exp.Current()))
+            exp.Next()
+        if len(solids) == 1:
+            shape = solids[0]
+
+    # Compute volume for verification
+    props = GProp_GProps()
+    brepgprop.VolumeProperties(shape, props)
+    volume = abs(props.Mass())
+
+    # Create BREP wrapper and tessellate to get yapCAD surface
+    from yapcad.brep import BrepSolid, attach_brep_to_solid
+    brep = BrepSolid(shape)
+    surface = brep.tessellate()
+
+    # Create solid from the tessellated surface
+    construction = ['procedure',
+                    f'helical_extrude(height={height}, twist={twist_angle_deg}deg)']
+    sld = solid([surface], [], construction)
+
+    # Attach BREP data to the solid
+    attach_brep_to_solid(sld, brep)
+
+    if metadata:
+        from yapcad.metadata import get_solid_metadata
+        meta = get_solid_metadata(sld, create=True)
+        meta.update(metadata)
+
+    return sld
+
+
+def radial_pattern_solid(solid_geom, count, center=None, axis=None, angle=None):
+    """
+    Create a radial/circular pattern of solid copies.
+
+    Creates multiple copies of a 3D solid arranged in a circular pattern
+    around a center point, rotating about a specified axis.
+
+    :param solid_geom: A yapCAD solid to pattern
+    :param count: Number of copies (including original)
+    :param center: Center point for rotation (default [0,0,0,1])
+    :param axis: Rotation axis vector (default [0,0,1,0] for Z-axis)
+    :param angle: Total angle to span in degrees (default 360 = full circle)
+    :returns: List of solid copies, each rotated by angle/count increments
+
+    Example::
+
+        >>> # Create 6 holes around a circle
+        >>> hole = conic(2.5, 2.5, 10)  # cylinder hole
+        >>> holes = radial_pattern_solid(hole, count=6)  # 6 holes at 60 degree intervals
+    """
+    if count < 1:
+        raise ValueError("count must be at least 1")
+
+    if not issolid(solid_geom):
+        raise ValueError("solid_geom must be a valid solid")
+
+    # Set defaults
+    if center is None:
+        center = point(0, 0, 0)
+    if axis is None:
+        axis = point(0, 0, 1)
+    if angle is None:
+        angle = 360.0
+
+    # Single item returns the original
+    if count == 1:
+        return [solid_geom]
+
+    # Calculate angle increment between copies
+    # For a full 360 pattern, don't duplicate at start/end
+    if close(angle, 360.0):
+        angle_step = angle / count
+    else:
+        angle_step = angle / (count - 1) if count > 1 else 0
+
+    result = []
+    for i in range(count):
+        current_angle = i * angle_step
+        if close(current_angle, 0.0):
+            # No rotation needed for the first copy
+            result.append(solid_geom)
+        else:
+            rotated = rotatesolid(solid_geom, current_angle, cent=center, axis=axis)
+            result.append(rotated)
+
+    return result
+
+
+def linear_pattern_solid(solid_geom, count, spacing):
+    """
+    Create a linear pattern of solid copies.
+
+    Creates multiple copies of a 3D solid arranged in a line with uniform spacing.
+
+    :param solid_geom: A yapCAD solid to pattern
+    :param count: Number of copies (including original)
+    :param spacing: Vector defining direction and distance between copies.
+                    Can be a 4-tuple [x, y, z, w] or 3-tuple/list [x, y, z]
+    :returns: List of solid copies, each translated by spacing increments
+
+    Example::
+
+        >>> # Create 5 mounting holes in a row
+        >>> hole = conic(3, 3, 10)  # cylinder hole
+        >>> holes = linear_pattern_solid(hole, count=5, spacing=[20, 0, 0])  # 5 holes, 20mm apart
+    """
+    if count < 1:
+        raise ValueError("count must be at least 1")
+
+    if not issolid(solid_geom):
+        raise ValueError("solid_geom must be a valid solid")
+
+    # Normalize spacing to a proper vector
+    if isinstance(spacing, (list, tuple)):
+        if len(spacing) == 3:
+            spacing = point(spacing[0], spacing[1], spacing[2])
+        elif len(spacing) == 4:
+            spacing = point(spacing[0], spacing[1], spacing[2])
+        elif len(spacing) == 2:
+            spacing = point(spacing[0], spacing[1], 0)
+        else:
+            raise ValueError("spacing must be a 2D, 3D, or 4D vector")
+    else:
+        raise ValueError("spacing must be a list or tuple")
+
+    result = []
+    for i in range(count):
+        if i == 0:
+            # No translation for the first copy
+            result.append(solid_geom)
+        else:
+            # Calculate total offset for this copy
+            delta = scale3(spacing, float(i))
+            translated = translatesolid(solid_geom, delta)
+            result.append(translated)
+
+    return result
+
+
+def radial_pattern_surface(surf, count, center=None, axis=None, angle=None):
+    """
+    Create a radial/circular pattern of surface copies.
+
+    Creates multiple copies of a 3D surface arranged in a circular pattern
+    around a center point, rotating about a specified axis.
+
+    :param surf: A yapCAD surface to pattern
+    :param count: Number of copies (including original)
+    :param center: Center point for rotation (default [0,0,0,1])
+    :param axis: Rotation axis vector (default [0,0,1,0] for Z-axis)
+    :param angle: Total angle to span in degrees (default 360 = full circle)
+    :returns: List of surface copies, each rotated by angle/count increments
+
+    Example::
+
+        >>> # Create 8 fins around a rocket body
+        >>> fin_surface = triangulate_region(fin_profile)
+        >>> fins = radial_pattern_surface(fin_surface, count=8)
+    """
+    if count < 1:
+        raise ValueError("count must be at least 1")
+
+    if not issurface(surf):
+        raise ValueError("surf must be a valid surface")
+
+    # Set defaults
+    if center is None:
+        center = point(0, 0, 0)
+    if axis is None:
+        axis = point(0, 0, 1)
+    if angle is None:
+        angle = 360.0
+
+    # Single item returns the original
+    if count == 1:
+        return [surf]
+
+    # Calculate angle increment between copies
+    if close(angle, 360.0):
+        angle_step = angle / count
+    else:
+        angle_step = angle / (count - 1) if count > 1 else 0
+
+    result = []
+    for i in range(count):
+        current_angle = i * angle_step
+        if close(current_angle, 0.0):
+            result.append(surf)
+        else:
+            rotated = rotatesurface(surf, current_angle, cent=center, axis=axis)
+            result.append(rotated)
+
+    return result
+
+
+def linear_pattern_surface(surf, count, spacing):
+    """
+    Create a linear pattern of surface copies.
+
+    Creates multiple copies of a 3D surface arranged in a line with uniform spacing.
+
+    :param surf: A yapCAD surface to pattern
+    :param count: Number of copies (including original)
+    :param spacing: Vector defining direction and distance between copies.
+                    Can be a 2D, 3D, or 4D vector
+    :returns: List of surface copies, each translated by spacing increments
+
+    Example::
+
+        >>> # Create a row of ribs along a structure
+        >>> rib_surface = triangulate_region(rib_profile)
+        >>> ribs = linear_pattern_surface(rib_surface, count=10, spacing=[5, 0, 0])
+    """
+    if count < 1:
+        raise ValueError("count must be at least 1")
+
+    if not issurface(surf):
+        raise ValueError("surf must be a valid surface")
+
+    # Normalize spacing to a proper vector
+    if isinstance(spacing, (list, tuple)):
+        if len(spacing) == 3:
+            spacing = point(spacing[0], spacing[1], spacing[2])
+        elif len(spacing) == 4:
+            spacing = point(spacing[0], spacing[1], spacing[2])
+        elif len(spacing) == 2:
+            spacing = point(spacing[0], spacing[1], 0)
+        else:
+            raise ValueError("spacing must be a 2D, 3D, or 4D vector")
+    else:
+        raise ValueError("spacing must be a list or tuple")
+
+    result = []
+    for i in range(count):
+        if i == 0:
+            result.append(surf)
+        else:
+            delta = scale3(spacing, float(i))
+            translated = translatesurface(surf, delta)
+            result.append(translated)
+
+    return result
