@@ -7,7 +7,10 @@ the resulting geometry with full provenance tracking.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from yapcad.package.core import PackageManifest
 
 from .runtime import compile_and_run, ExecutionResult
 

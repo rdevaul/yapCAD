@@ -738,7 +738,7 @@ class Parser:
 
         # While loop - DEPRECATED, give helpful error
         if token.type == TokenType.WHILE:
-            raise ParseError(
+            raise ParserError(
                 "'while' loops are not supported (removed for static verifiability). "
                 "Use 'for i in range(max_iterations)' with early return instead.",
                 token.span
