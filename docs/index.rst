@@ -62,8 +62,10 @@ package format enables provenance tracking and reproducible designs.
     helpers and ear-cut tessellation), ``yapcad.geometry_checks`` (mesh
     validation), ``yapcad.metadata`` (surface/solid provenance),
     ``yapcad.geom3d_util.stack_solids`` and ``cutaway_solid_x`` (layout and
-    section tools), ``yapcad.boolean.native`` (production-ready boolean
-    engine), and ``yapcad.io`` for validated STL/STEP export.
+    section tools), ``yapcad.geom3d_util.helical_extrude`` (smooth helical
+    extrusions), ``yapcad.geom_util.radial_pattern`` and ``linear_pattern``
+    (geometry array generation), ``yapcad.boolean.native`` (production-ready
+    boolean engine), and ``yapcad.io`` for validated STL/STEP export.
 
 Contents
 ========

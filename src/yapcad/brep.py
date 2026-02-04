@@ -272,6 +272,85 @@ def transform_brep_shape(brep: "BrepSolid", trsf) -> Optional["BrepSolid"]:
         except Exception:
             pass
     return BrepSolid(shape)
+
+
+def apply_matrix_to_brep_solid(solid: list, matrix) -> None:
+    """Apply a yapCAD transformation matrix to the stored BREP shape.
+
+    This function converts a yapCAD Matrix (4x4 homogeneous transformation)
+    to an OCC gp_Trsf and applies it to the BREP data attached to the solid.
+
+    Args:
+        solid: A yapCAD solid with BREP metadata attached
+        matrix: A yapCAD Matrix instance (from yapcad.xform)
+
+    Note:
+        The matrix must represent an affine transformation (rotation, translation,
+        uniform scale, or composition thereof). Non-uniform scaling will cause
+        the BREP to be dropped.
+    """
+    if not occ_available() or gp_Trsf is None:
+        return
+
+    brep = brep_from_solid(solid)
+    if brep is None:
+        return
+
+    # Extract transformation parameters from the matrix
+    # yapCAD matrices are 4x4 homogeneous transformation matrices
+    # Row-major format: m[row][col]
+    try:
+        m = matrix.m if hasattr(matrix, 'm') else matrix
+
+        # Check for non-uniform scale (approximate check)
+        # Extract the 3x3 rotation/scale submatrix
+        sx = math.sqrt(m[0][0]**2 + m[1][0]**2 + m[2][0]**2)
+        sy = math.sqrt(m[0][1]**2 + m[1][1]**2 + m[2][1]**2)
+        sz = math.sqrt(m[0][2]**2 + m[1][2]**2 + m[2][2]**2)
+
+        # If non-uniform scale, we cannot preserve BREP with gp_Trsf
+        # (would need gp_GTrsf which changes topology)
+        eps = 1e-6
+        if abs(sx - sy) > eps or abs(sy - sz) > eps or abs(sx - sz) > eps:
+            # Non-uniform scale detected - clear BREP data to avoid stale/inconsistent state
+            _clear_brep_data(solid)
+            return
+
+        # Build OCC transformation matrix
+        # gp_Trsf uses column vectors, so we need to transpose
+        trsf = gp_Trsf()
+
+        # Set the transformation values (1-indexed in OCC)
+        # OCC gp_Trsf expects: row, col (1-indexed), value
+        # The matrix format is:
+        #   [R11 R12 R13 Tx]
+        #   [R21 R22 R23 Ty]
+        #   [R31 R32 R33 Tz]
+        #   [0   0   0   1 ]
+        trsf.SetValues(
+            m[0][0], m[0][1], m[0][2], m[0][3],
+            m[1][0], m[1][1], m[1][2], m[1][3],
+            m[2][0], m[2][1], m[2][2], m[2][3]
+        )
+
+        _apply_trsf_to_brep(solid, trsf)
+    except Exception:
+        # If matrix conversion fails, BREP is not updated
+        pass
+
+
+def _clear_brep_data(solid: list) -> None:
+    """Remove BREP data from a solid to avoid stale/inconsistent state."""
+    meta = get_solid_metadata(solid, create=False)
+    if meta is None:
+        return
+    solid_id = meta.get('entityId')
+    if solid_id and solid_id in _BREP_SOLID_CACHE:
+        del _BREP_SOLID_CACHE[solid_id]
+    if 'brep' in meta:
+        del meta['brep']
+
+
 class BrepVertex:
     """A wrapper for a TopoDS_Vertex."""
     def __init__(self, shape: TopoDS_Vertex):
@@ -337,7 +416,8 @@ class BrepSolid:
         _face_count = 0
         while explorer.More():
             _face_count += 1
-            face = explorer.Current()
+            # Cast to TopoDS_Face for OCP compatibility (pythonocc may not need this)
+            face = topods.Face(explorer.Current())
             loc = TopLoc_Location()
             
             triangulation = BRep_Tool.Triangulation(face, loc)
@@ -423,6 +503,218 @@ class BrepSolid:
         return ['surface', all_vertices, all_normals, triangle_lists, [], []]
 
 
+# =============================================================================
+# Fillet and Chamfer Operations
+# =============================================================================
+
+def _get_all_edges(shape) -> list:
+    """Extract all edges from a TopoDS_Shape.
+
+    Returns a list of TopoDS_Edge objects.
+    """
+    require_occ()
+    from OCC.Core.TopAbs import TopAbs_EDGE
+
+    edges = []
+    explorer = TopExp_Explorer(shape, TopAbs_EDGE)
+    while explorer.More():
+        edge = explorer.Current()
+        edges.append(edge)
+        explorer.Next()
+    return edges
+
+
+def fillet_all_edges(brep_solid: BrepSolid, radius: float) -> BrepSolid:
+    """Apply fillet (rounded edge) to all edges of a BREP solid.
+
+    Args:
+        brep_solid: A BrepSolid object containing the shape to fillet
+        radius: Fillet radius in model units
+
+    Returns:
+        A new BrepSolid with filleted edges
+
+    Raises:
+        RuntimeError: If OCC is not available or fillet operation fails
+    """
+    require_occ()
+
+    from OCC.Core.BRepFilletAPI import BRepFilletAPI_MakeFillet
+    from OCC.Core.TopAbs import TopAbs_EDGE
+
+    shape = brep_solid.shape
+    fillet_maker = BRepFilletAPI_MakeFillet(shape)
+
+    # Add all edges with the specified radius
+    edges = _get_all_edges(shape)
+    if not edges:
+        # No edges to fillet, return original
+        return brep_solid
+
+    for edge in edges:
+        # Cast to TopoDS_Edge if needed
+        if topods is not None:
+            try:
+                edge = topods.Edge(edge)
+            except Exception:
+                continue
+        try:
+            fillet_maker.Add(radius, edge)
+        except Exception:
+            # Skip edges that can't be filleted (e.g., too small)
+            continue
+
+    # Build the filleted shape
+    try:
+        fillet_maker.Build()
+        if not fillet_maker.IsDone():
+            raise RuntimeError("Fillet operation failed - IsDone() returned False")
+        result_shape = fillet_maker.Shape()
+    except Exception as e:
+        raise RuntimeError(f"Fillet operation failed: {e}")
+
+    return BrepSolid(result_shape)
+
+
+def chamfer_all_edges(brep_solid: BrepSolid, distance: float) -> BrepSolid:
+    """Apply chamfer (beveled edge) to all edges of a BREP solid.
+
+    Creates symmetric 45-degree chamfers with equal distances on both faces.
+
+    Args:
+        brep_solid: A BrepSolid object containing the shape to chamfer
+        distance: Chamfer distance from the edge in model units
+
+    Returns:
+        A new BrepSolid with chamfered edges
+
+    Raises:
+        RuntimeError: If OCC is not available or chamfer operation fails
+    """
+    require_occ()
+
+    from OCC.Core.BRepFilletAPI import BRepFilletAPI_MakeChamfer
+
+    shape = brep_solid.shape
+    chamfer_maker = BRepFilletAPI_MakeChamfer(shape)
+
+    edges = _get_all_edges(shape)
+    if not edges:
+        # No edges to chamfer, return original
+        return brep_solid
+
+    for edge in edges:
+        # Cast to TopoDS_Edge if needed
+        if topods is not None:
+            try:
+                edge = topods.Edge(edge)
+            except Exception:
+                continue
+
+        try:
+            # Add symmetric chamfer (single distance applies to both faces equally)
+            chamfer_maker.Add(distance, edge)
+        except Exception:
+            # Skip edges that can't be chamfered
+            continue
+
+    # Build the chamfered shape
+    try:
+        chamfer_maker.Build()
+        if not chamfer_maker.IsDone():
+            raise RuntimeError("Chamfer operation failed - IsDone() returned False")
+        result_shape = chamfer_maker.Shape()
+    except Exception as e:
+        raise RuntimeError(f"Chamfer operation failed: {e}")
+
+    return BrepSolid(result_shape)
+
+
+def fillet_edges(brep_solid: BrepSolid, edges: list, radius: float) -> BrepSolid:
+    """Apply fillet to specific edges of a BREP solid.
+
+    Args:
+        brep_solid: A BrepSolid object containing the shape to fillet
+        edges: List of BrepEdge objects to fillet
+        radius: Fillet radius in model units
+
+    Returns:
+        A new BrepSolid with filleted edges
+
+    Raises:
+        RuntimeError: If OCC is not available or fillet operation fails
+    """
+    require_occ()
+
+    from OCC.Core.BRepFilletAPI import BRepFilletAPI_MakeFillet
+
+    shape = brep_solid.shape
+    fillet_maker = BRepFilletAPI_MakeFillet(shape)
+
+    if not edges:
+        return brep_solid
+
+    for brep_edge in edges:
+        edge = brep_edge.shape if isinstance(brep_edge, BrepEdge) else brep_edge
+        try:
+            fillet_maker.Add(radius, edge)
+        except Exception:
+            continue
+
+    try:
+        fillet_maker.Build()
+        if not fillet_maker.IsDone():
+            raise RuntimeError("Fillet operation failed - IsDone() returned False")
+        result_shape = fillet_maker.Shape()
+    except Exception as e:
+        raise RuntimeError(f"Fillet operation failed: {e}")
+
+    return BrepSolid(result_shape)
+
+
+def chamfer_edges(brep_solid: BrepSolid, edges: list, distance: float) -> BrepSolid:
+    """Apply chamfer to specific edges of a BREP solid.
+
+    Args:
+        brep_solid: A BrepSolid object containing the shape to chamfer
+        edges: List of BrepEdge objects to chamfer
+        distance: Chamfer distance from the edge in model units
+
+    Returns:
+        A new BrepSolid with chamfered edges
+
+    Raises:
+        RuntimeError: If OCC is not available or chamfer operation fails
+    """
+    require_occ()
+
+    from OCC.Core.BRepFilletAPI import BRepFilletAPI_MakeChamfer
+
+    shape = brep_solid.shape
+    chamfer_maker = BRepFilletAPI_MakeChamfer(shape)
+
+    if not edges:
+        return brep_solid
+
+    for brep_edge in edges:
+        edge = brep_edge.shape if isinstance(brep_edge, BrepEdge) else brep_edge
+        try:
+            # Add symmetric chamfer (single distance)
+            chamfer_maker.Add(distance, edge)
+        except Exception:
+            continue
+
+    try:
+        chamfer_maker.Build()
+        if not chamfer_maker.IsDone():
+            raise RuntimeError("Chamfer operation failed - IsDone() returned False")
+        result_shape = chamfer_maker.Shape()
+    except Exception as e:
+        raise RuntimeError(f"Chamfer operation failed: {e}")
+
+    return BrepSolid(result_shape)
+
+
 def is_brep(obj):
     """Check if an object is a yapCAD BREP object."""
     return isinstance(obj, (BrepVertex, BrepEdge, BrepFace, BrepSolid))
@@ -439,4 +731,9 @@ __all__ = [
     "attach_brep_to_solid",
     "brep_from_solid",
     "has_brep_data",
+    "apply_matrix_to_brep_solid",
+    "fillet_all_edges",
+    "chamfer_all_edges",
+    "fillet_edges",
+    "chamfer_edges",
 ]

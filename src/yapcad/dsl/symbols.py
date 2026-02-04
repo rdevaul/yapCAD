@@ -435,6 +435,27 @@ class SymbolTable:
             ("face_width", FLOAT, None),
         ], SOLID)
 
+        # Herringbone gear - double-helix gear with smooth tooth surfaces
+        self._register_builtin("herringbone_gear", [
+            ("teeth", INT, None),
+            ("module_mm", FLOAT, None),
+            ("face_width", FLOAT, None),
+            ("helix_angle", FLOAT, None),
+        ], SOLID)
+
+        # Sun gear with integrated hub - optimized to avoid expensive boolean
+        self._register_builtin("sun_gear_with_hub", [
+            ("teeth", INT, None),
+            ("module_mm", FLOAT, None),
+            ("face_width", FLOAT, None),
+            ("helix_angle", FLOAT, None),
+            ("hub_diameter", FLOAT, None),
+            ("hub_height", FLOAT, None),
+            ("bolt_circle", FLOAT, None),
+            ("num_bolts", INT, None),
+            ("bolt_hole_diameter", FLOAT, None),
+        ], SOLID)
+
         # Fasteners - hex bolts and nuts from catalog
         # Metric fasteners (ISO 4014/4017 bolts, ISO 4032 nuts)
         self._register_builtin("metric_hex_bolt", [
@@ -489,6 +510,17 @@ class SymbolTable:
 
         self._register_builtin("intersection_all", [
             ("solids", make_list_type(SOLID), None),
+        ], SOLID)
+
+        # Fillet and chamfer operations (OCC-based edge finishing)
+        self._register_builtin("fillet", [
+            ("s", SOLID, None),
+            ("radius", FLOAT, None),
+        ], SOLID)
+
+        self._register_builtin("chamfer", [
+            ("s", SOLID, None),
+            ("distance", FLOAT, None),
         ], SOLID)
 
         # Pattern operations

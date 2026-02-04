@@ -59,6 +59,10 @@ pipelines. Highlights from the 1.0 release cycle include:
   proper threading geometry.
 * **Adaptive Sweeps**: ``sweep_adaptive()`` with tangent-tracking profile orientation
   for complex path sweeps.
+* **Helical Extrusion**: ``helical_extrude()`` creates smooth twisted extrusions with
+  true helical surfaces for gears, columns, and spiral features.
+* **Pattern Generation**: ``radial_pattern()`` and ``linear_pattern()`` functions for
+  creating circular and linear arrays of 2D/3D geometry, solids, and surfaces.
 * ``.ycpkg`` project packaging with manifest, geometry JSON, exports, and metadata.
 * **Package signing** with GPG and SSH key support for cryptographic verification.
 * **Validation schemas** for test definitions and solver integration.

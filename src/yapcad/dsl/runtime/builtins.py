@@ -109,6 +109,7 @@ class BuiltinRegistry:
         self._register_boolean_functions()
         self._register_query_functions()
         self._register_utility_functions()
+        self._register_fillet_chamfer_functions()
 
     # --- Math Functions ---
 
@@ -424,6 +425,13 @@ class BuiltinRegistry:
                 # actual transformation is done entirely by the provided matrix
                 result = rotatesolid(data, 0.001, cent=point(0, 0, 0),
                                     axis=point(0, 0, 1.0), mat=mat)
+                # Apply the matrix transformation to BREP data as well
+                # (rotatesolid only applies the rotation from ang/axis, not mat)
+                try:
+                    from yapcad.brep import apply_matrix_to_brep_solid
+                    apply_matrix_to_brep_solid(result, mat)
+                except ImportError:
+                    pass
                 return solid_val(result)
 
             # Handle surfaces
@@ -1671,6 +1679,254 @@ class BuiltinRegistry:
             _involute_gear,
         ))
 
+        def _herringbone_gear(teeth: Value, module_mm: Value, face_width: Value,
+                              helix_angle: Value) -> Value:
+            """Create a herringbone (double-helix) gear solid.
+
+            Uses helical_extrude for smooth, mathematically continuous tooth surfaces
+            without stepping artifacts. Uses OCC fuse to properly combine halves,
+            preserving BREP data for subsequent boolean operations.
+
+            Args:
+                teeth: Number of teeth (int)
+                module_mm: Module in mm (metric gear sizing)
+                face_width: Total face width of the gear
+                helix_angle: Helix angle in degrees (typically 20-30)
+
+            Returns:
+                A solid representing the herringbone gear with BREP data
+            """
+            import math
+            from yapcad.contrib.figgear import make_gear_figure
+            from yapcad.geom import point, line
+            from yapcad.geom3d import solid
+            from yapcad.geom3d_util import helical_extrude
+            from yapcad.brep import brep_from_solid, attach_brep_to_solid, BrepSolid, occ_available
+
+            if not occ_available():
+                raise RuntimeError("herringbone_gear requires pythonocc-core")
+
+            from OCC.Core.gp import gp_Pnt, gp_Dir, gp_Ax2, gp_Vec, gp_Trsf
+            from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Fuse
+            from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
+
+            n_teeth = int(teeth.data)
+            mod = float(module_mm.data)
+            width = float(face_width.data)
+            helix_deg = float(helix_angle.data)
+
+            pitch_diameter = n_teeth * mod
+            pitch_radius = pitch_diameter / 2.0
+            half_height = width / 2.0
+
+            # Generate 2D gear profile with optimized resolution
+            profile_points, _ = make_gear_figure(
+                m=mod, z=n_teeth, alpha_deg=20.0,
+                bottom_type='spline', involute_step=0.8, spline_division_num=12
+            )
+
+            # Convert to region2d
+            points = list(profile_points)
+            if len(points) > 1:
+                first, last = points[0], points[-1]
+                if math.sqrt((first[0]-last[0])**2 + (first[1]-last[1])**2) > 1e-6:
+                    points.append(first)
+
+            profile_region = []
+            for i in range(len(points) - 1):
+                p1 = point(points[i][0], points[i][1], 0.0)
+                p2 = point(points[i + 1][0], points[i + 1][1], 0.0)
+                profile_region.append(line(p1, p2))
+
+            # Calculate twist parameters
+            helix_tan = math.tan(math.radians(helix_deg))
+            total_twist_deg = math.degrees(half_height * helix_tan / pitch_radius)
+            segments = max(24, int(abs(total_twist_deg) * 3))
+
+            # Create halves with helical_extrude (these have BREP data)
+            half1 = helical_extrude(profile_region, half_height, total_twist_deg, segments=segments)
+            half2 = helical_extrude(profile_region, half_height, -total_twist_deg, segments=segments)
+
+            # Get BREP shapes
+            brep1 = brep_from_solid(half1)
+            brep2 = brep_from_solid(half2)
+
+            if brep1 is None or brep2 is None:
+                raise RuntimeError("helical_extrude failed to create BREP data")
+
+            # Transform half2: rotate by total_twist_deg and translate up
+            trsf_rot = gp_Trsf()
+            trsf_rot.SetRotation(gp_Ax2(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)).Axis(),
+                                 math.radians(total_twist_deg))
+            brep2_rot = BRepBuilderAPI_Transform(brep2.shape, trsf_rot, True).Shape()
+
+            trsf_trans = gp_Trsf()
+            trsf_trans.SetTranslation(gp_Vec(0, 0, half_height))
+            brep2_final = BRepBuilderAPI_Transform(brep2_rot, trsf_trans, True).Shape()
+
+            # Fuse the two halves using OCC boolean (proper solid, no internal artifacts)
+            fuse = BRepAlgoAPI_Fuse(brep1.shape, brep2_final)
+            if not fuse.IsDone():
+                raise RuntimeError("Failed to fuse gear halves")
+            gear_shape = fuse.Shape()
+
+            # Create yapCAD solid with BREP data
+            brep = BrepSolid(gear_shape)
+            surface = brep.tessellate()
+            gear_solid = solid([surface], [], ['procedure', 'herringbone_gear_dsl'])
+            attach_brep_to_solid(gear_solid, brep)
+
+            return solid_val(gear_solid)
+
+        self.register(BuiltinFunction(
+            "herringbone_gear",
+            _make_sig("herringbone_gear", [INT, FLOAT, FLOAT, FLOAT], SOLID),
+            _herringbone_gear,
+        ))
+
+        def _sun_gear_with_hub(teeth: Value, module_mm: Value, face_width: Value,
+                               helix_angle: Value, hub_diameter: Value, hub_height: Value,
+                               bolt_circle: Value, num_bolts: Value, bolt_hole_diameter: Value) -> Value:
+            """Create a sun gear with integrated hub using OCC booleans for speed.
+
+            Uses OCC BREP booleans directly (staying in OCC-land) rather than
+            mesh-based booleans, which is significantly faster.
+
+            Args:
+                teeth: Number of teeth
+                module_mm: Module in mm
+                face_width: Gear face width
+                helix_angle: Helix angle in degrees
+                hub_diameter: Hub diameter in mm
+                hub_height: Hub height below gear (extends down from z=0)
+                bolt_circle: Bolt circle diameter for servo horn
+                num_bolts: Number of bolt holes (typically 4)
+                bolt_hole_diameter: Diameter of bolt holes
+
+            Returns:
+                Complete sun gear with hub and bolt holes
+            """
+            import math
+            from yapcad.contrib.figgear import make_gear_figure
+            from yapcad.geom import point, line
+            from yapcad.geom3d import solid
+            from yapcad.geom3d_util import helical_extrude
+            from yapcad.brep import brep_from_solid, attach_brep_to_solid, BrepSolid, occ_available
+
+            if not occ_available():
+                raise RuntimeError("sun_gear_with_hub requires pythonocc-core")
+
+            from OCC.Core.gp import gp_Pnt, gp_Dir, gp_Ax2, gp_Vec, gp_Trsf
+            from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeCylinder
+            from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Fuse, BRepAlgoAPI_Cut
+            from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
+
+            n_teeth = int(teeth.data)
+            mod = float(module_mm.data)
+            width = float(face_width.data)
+            helix_deg = float(helix_angle.data)
+            hub_d = float(hub_diameter.data)
+            hub_h = float(hub_height.data)
+            bolt_r = float(bolt_circle.data) / 2.0
+            n_bolts = int(num_bolts.data)
+            hole_d = float(bolt_hole_diameter.data)
+
+            pitch_diameter = n_teeth * mod
+            pitch_radius = pitch_diameter / 2.0
+            half_height = width / 2.0
+
+            # Generate gear profile
+            profile_points, _ = make_gear_figure(
+                m=mod, z=n_teeth, alpha_deg=20.0,
+                bottom_type='spline', involute_step=0.8, spline_division_num=12
+            )
+
+            points = list(profile_points)
+            if len(points) > 1:
+                first, last = points[0], points[-1]
+                if math.sqrt((first[0]-last[0])**2 + (first[1]-last[1])**2) > 1e-6:
+                    points.append(first)
+
+            profile_region = []
+            for i in range(len(points) - 1):
+                p1 = point(points[i][0], points[i][1], 0.0)
+                p2 = point(points[i + 1][0], points[i + 1][1], 0.0)
+                profile_region.append(line(p1, p2))
+
+            helix_tan = math.tan(math.radians(helix_deg))
+            total_twist_deg = math.degrees(half_height * helix_tan / pitch_radius)
+            segments = max(24, int(abs(total_twist_deg) * 3))
+
+            # Create herringbone gear halves (these have BREP data)
+            half1 = helical_extrude(profile_region, half_height, total_twist_deg, segments=segments)
+            half2 = helical_extrude(profile_region, half_height, -total_twist_deg, segments=segments)
+
+            # Get BREP shapes
+            brep1 = brep_from_solid(half1)
+            brep2 = brep_from_solid(half2)
+
+            if brep1 is None or brep2 is None:
+                raise RuntimeError("helical_extrude failed to create BREP data")
+
+            # Transform half2: rotate by total_twist_deg and translate up
+            trsf_rot = gp_Trsf()
+            trsf_rot.SetRotation(gp_Ax2(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)).Axis(),
+                                 math.radians(total_twist_deg))
+            brep2_rot = BRepBuilderAPI_Transform(brep2.shape, trsf_rot, True).Shape()
+
+            trsf_trans = gp_Trsf()
+            trsf_trans.SetTranslation(gp_Vec(0, 0, half_height))
+            brep2_final = BRepBuilderAPI_Transform(brep2_rot, trsf_trans, True).Shape()
+
+            # Fuse the two gear halves (OCC boolean - fast!)
+            fuse_halves = BRepAlgoAPI_Fuse(brep1.shape, brep2_final)
+            if not fuse_halves.IsDone():
+                raise RuntimeError("Failed to fuse gear halves")
+            gear_shape = fuse_halves.Shape()
+
+            # Create hub cylinder at z=-hub_h to z=0
+            hub_axis = gp_Ax2(gp_Pnt(0, 0, -hub_h), gp_Dir(0, 0, 1))
+            hub_shape = BRepPrimAPI_MakeCylinder(hub_axis, hub_d/2.0, hub_h).Shape()
+
+            # Fuse gear and hub
+            fuse_hub = BRepAlgoAPI_Fuse(gear_shape, hub_shape)
+            if not fuse_hub.IsDone():
+                raise RuntimeError("Failed to fuse gear and hub")
+            body_shape = fuse_hub.Shape()
+
+            # Create and subtract bolt holes
+            hole_depth = width + hub_h + 2.0
+            for i in range(n_bolts):
+                angle = math.radians(45.0 + i * (360.0 / n_bolts))
+                x = bolt_r * math.cos(angle)
+                y = bolt_r * math.sin(angle)
+                hole_axis = gp_Ax2(gp_Pnt(x, y, -hub_h - 1.0), gp_Dir(0, 0, 1))
+                hole = BRepPrimAPI_MakeCylinder(hole_axis, hole_d/2.0, hole_depth).Shape()
+                cut = BRepAlgoAPI_Cut(body_shape, hole)
+                if cut.IsDone():
+                    body_shape = cut.Shape()
+
+            # Center hole
+            center_axis = gp_Ax2(gp_Pnt(0, 0, -hub_h - 1.0), gp_Dir(0, 0, 1))
+            center_hole = BRepPrimAPI_MakeCylinder(center_axis, hole_d/2.0, hole_depth).Shape()
+            cut_center = BRepAlgoAPI_Cut(body_shape, center_hole)
+            if cut_center.IsDone():
+                body_shape = cut_center.Shape()
+
+            # Tessellate and create yapCAD solid
+            brep = BrepSolid(body_shape)
+            surface = brep.tessellate()
+            gear_solid = solid([surface], [], ['procedure', 'sun_gear_with_hub'])
+            attach_brep_to_solid(gear_solid, brep)
+
+            return solid_val(gear_solid)
+
+        self.register(BuiltinFunction(
+            "sun_gear_with_hub",
+            _make_sig("sun_gear_with_hub", [INT, FLOAT, FLOAT, FLOAT, FLOAT, FLOAT, FLOAT, INT, FLOAT], SOLID),
+            _sun_gear_with_hub,
+        ))
+
     # --- Fastener Functions ---
 
     def _register_fastener_functions(self) -> None:
@@ -1915,6 +2171,86 @@ class BuiltinRegistry:
             "intersection_all",
             _make_sig("intersection_all", [ListType(SOLID)], SOLID),
             _intersection_all,
+        ))
+
+        # Pattern operations
+        def _radial_pattern(shape: Value, count: Value, axis: Value, center: Value) -> Value:
+            """Create a radial/circular pattern of geometry copies.
+
+            Args:
+                shape: A 2D region or 3D solid to pattern
+                count: Number of copies (including original)
+                axis: Rotation axis vector (e.g., [0,0,1] for Z-axis)
+                center: Center point for rotation
+
+            Returns:
+                List of geometry copies, each rotated by 360/count degrees
+            """
+            from yapcad.geom3d import issolid, issurface
+            from yapcad.geom import isgeomlist, isline, isarc
+
+            data = shape.data
+            n = int(count.data)
+            ax = axis.data
+            ct = center.data
+
+            # Detect geometry type and dispatch to appropriate function
+            if issolid(data):
+                from yapcad.geom3d_util import radial_pattern_solid
+                result = radial_pattern_solid(data, n, center=ct, axis=ax, angle=360.0)
+                return list_val([solid_val(s) for s in result], SOLID)
+            elif issurface(data):
+                from yapcad.geom3d_util import radial_pattern_surface
+                result = radial_pattern_surface(data, n, center=ct, axis=ax, angle=360.0)
+                return list_val([surface_val(s) for s in result], SURFACE)
+            else:
+                # Assume 2D geometry (region, arc, line, geomlist)
+                from yapcad.geom_util import radial_pattern
+                result = radial_pattern(data, n, center=ct, axis=ax, angle=360.0)
+                return list_val([region2d_val(g) for g in result], REGION2D)
+
+        def _linear_pattern(shape: Value, count: Value, spacing: Value) -> Value:
+            """Create a linear pattern of geometry copies.
+
+            Args:
+                shape: A 2D region or 3D solid to pattern
+                count: Number of copies (including original)
+                spacing: Vector defining direction and distance between copies
+
+            Returns:
+                List of geometry copies, each translated by spacing increments
+            """
+            from yapcad.geom3d import issolid, issurface
+            from yapcad.geom import isgeomlist, isline, isarc
+
+            data = shape.data
+            n = int(count.data)
+            sp = spacing.data
+
+            # Detect geometry type and dispatch to appropriate function
+            if issolid(data):
+                from yapcad.geom3d_util import linear_pattern_solid
+                result = linear_pattern_solid(data, n, spacing=sp)
+                return list_val([solid_val(s) for s in result], SOLID)
+            elif issurface(data):
+                from yapcad.geom3d_util import linear_pattern_surface
+                result = linear_pattern_surface(data, n, spacing=sp)
+                return list_val([surface_val(s) for s in result], SURFACE)
+            else:
+                # Assume 2D geometry (region, arc, line, geomlist)
+                from yapcad.geom_util import linear_pattern
+                result = linear_pattern(data, n, spacing=sp)
+                return list_val([region2d_val(g) for g in result], REGION2D)
+
+        self.register(BuiltinFunction(
+            "radial_pattern",
+            _make_sig("radial_pattern", [UNKNOWN, INT, VECTOR3D, POINT], ListType(UNKNOWN)),
+            _radial_pattern,
+        ))
+        self.register(BuiltinFunction(
+            "linear_pattern",
+            _make_sig("linear_pattern", [UNKNOWN, INT, VECTOR], ListType(UNKNOWN)),
+            _linear_pattern,
         ))
 
     # --- Query Functions ---
@@ -2177,6 +2513,104 @@ class BuiltinRegistry:
             "max_of",
             _make_sig("max_of", [ListType(FLOAT)], FLOAT),
             _max_of,
+        ))
+
+    # --- Fillet and Chamfer Functions ---
+
+    def _register_fillet_chamfer_functions(self) -> None:
+        """Register fillet and chamfer operations for solid edge finishing."""
+
+        def _fillet(s: Value, radius: Value) -> Value:
+            """Apply fillet (rounded edge) to all edges of a solid.
+
+            Requires pythonocc-core/OCC. Uses the BREP representation
+            attached to the solid for precise edge operations.
+
+            Args:
+                s: A solid to fillet
+                radius: Fillet radius in model units
+
+            Returns:
+                A new solid with filleted edges
+            """
+            from yapcad.brep import (
+                brep_from_solid, attach_brep_to_solid,
+                fillet_all_edges, occ_available, BrepSolid
+            )
+            from yapcad.geom3d import solid
+
+            if not occ_available():
+                raise RuntimeError("fillet requires pythonocc-core (OCC)")
+
+            # Get BREP representation from solid
+            brep = brep_from_solid(s.data)
+            if brep is None:
+                raise RuntimeError(
+                    "fillet requires a solid with BREP data. "
+                    "Use box(), cylinder(), or other BREP-enabled primitives."
+                )
+
+            # Apply fillet to all edges
+            r = float(radius.data)
+            filleted_brep = fillet_all_edges(brep, r)
+
+            # Tessellate and create new yapCAD solid
+            surface = filleted_brep.tessellate()
+            new_solid = solid([surface], [], ['procedure', 'fillet'])
+            attach_brep_to_solid(new_solid, filleted_brep)
+
+            return solid_val(new_solid)
+
+        def _chamfer(s: Value, distance: Value) -> Value:
+            """Apply chamfer (beveled edge) to all edges of a solid.
+
+            Requires pythonocc-core/OCC. Uses the BREP representation
+            attached to the solid for precise edge operations.
+
+            Args:
+                s: A solid to chamfer
+                distance: Chamfer distance from edge in model units
+
+            Returns:
+                A new solid with chamfered edges
+            """
+            from yapcad.brep import (
+                brep_from_solid, attach_brep_to_solid,
+                chamfer_all_edges, occ_available, BrepSolid
+            )
+            from yapcad.geom3d import solid
+
+            if not occ_available():
+                raise RuntimeError("chamfer requires pythonocc-core (OCC)")
+
+            # Get BREP representation from solid
+            brep = brep_from_solid(s.data)
+            if brep is None:
+                raise RuntimeError(
+                    "chamfer requires a solid with BREP data. "
+                    "Use box(), cylinder(), or other BREP-enabled primitives."
+                )
+
+            # Apply chamfer to all edges
+            d = float(distance.data)
+            chamfered_brep = chamfer_all_edges(brep, d)
+
+            # Tessellate and create new yapCAD solid
+            surface = chamfered_brep.tessellate()
+            new_solid = solid([surface], [], ['procedure', 'chamfer'])
+            attach_brep_to_solid(new_solid, chamfered_brep)
+
+            return solid_val(new_solid)
+
+        self.register(BuiltinFunction(
+            "fillet",
+            _make_sig("fillet", [SOLID, FLOAT], SOLID),
+            _fillet,
+        ))
+        self.register(BuiltinFunction(
+            "chamfer",
+            _make_sig("chamfer", [SOLID, FLOAT], SOLID),
+            _chamfer,
         ))
 
 

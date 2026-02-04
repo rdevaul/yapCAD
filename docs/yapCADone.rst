@@ -37,6 +37,8 @@ This section reflects the **actual current state** of the codebase as of version
 - 2D boolean operations (union, difference, intersection) with proper hole accumulation
 - Curve types: ellipse, catmull-rom splines, NURBS, parabola, hyperbola
 - Adaptive sweep operations with tangent-tracking profile orientation
+- Helical extrusion with smooth twisted surfaces (``helical_extrude()``)
+- Pattern generation: radial and linear patterns for 2D geometry, 3D solids, and surfaces
 - 627 regression tests across geometry, DSL, import/export, packaging, and validation
 
 **Partially Implemented:**

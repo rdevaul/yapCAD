@@ -109,6 +109,7 @@ FUNCTION_DESCRIPTIONS: Dict[str, str] = {
     "sphere": "Create a sphere solid from radius",
     "cone": "Create a cone/frustum solid from two radii and height",
     "involute_gear": "Create an involute spur gear solid",
+    "herringbone_gear": "Create a herringbone (double-helix) gear with smooth tooth surfaces",
 
     # Boolean Operations
     "union": "Combine two or more solids into one",
