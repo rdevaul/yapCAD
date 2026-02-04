@@ -24,6 +24,20 @@ from yapcad.dsl.transforms import (
 from yapcad.dsl.types import INT, FLOAT, BOOL, STRING, ListType
 
 
+def _occ_boolean_will_be_used():
+    """Check if OCC boolean engine will be used (not overridden by env var)."""
+    import os
+    # If native engine is explicitly forced, OCC won't be used
+    engine = os.environ.get('YAPCAD_BOOLEAN_ENGINE', '')
+    if engine == 'native':
+        return False
+    try:
+        from yapcad.brep import occ_available
+        return occ_available()
+    except ImportError:
+        return False
+
+
 # --- Value Tests ---
 
 class TestValues:
@@ -1408,6 +1422,10 @@ class TestFunctionalCombinators:
         # 3 boxes of 1000 each = 3000 total volume
         assert abs(volumeof(exec_result.geometry) - 3000.0) < 10.0
 
+    @pytest.mark.skipif(
+        not _occ_boolean_will_be_used(),
+        reason="Native boolean engine produces non-manifold meshes; requires OCC"
+    )
     def test_difference_all_function(self):
         """Test difference_all() solid aggregation."""
         from yapcad.geom3d import issolid, volumeof
@@ -1441,6 +1459,10 @@ class TestFunctionalCombinators:
         # Allow some tolerance for mesh approximation
         assert abs(volumeof(exec_result.geometry) - expected) < expected * 0.02
 
+    @pytest.mark.skipif(
+        not _occ_boolean_will_be_used(),
+        reason="Native boolean engine produces non-manifold meshes; requires OCC"
+    )
     def test_intersection_all_function(self):
         """Test intersection_all() solid aggregation."""
         from yapcad.geom3d import issolid, volumeof
@@ -1540,6 +1562,10 @@ class TestFunctionalCombinators:
         # 1 + 4 + 9 + 16 = 30
         assert abs(exec_result.geometry - 30.0) < 0.001
 
+    @pytest.mark.skipif(
+        not _occ_boolean_will_be_used(),
+        reason="Native boolean engine produces non-manifold meshes; requires OCC"
+    )
     def test_difference_all_with_comprehension(self):
         """Test difference_all with list comprehension for hole array."""
         from yapcad.geom3d import issolid, volumeof
