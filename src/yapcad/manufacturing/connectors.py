@@ -6,7 +6,10 @@ provide structural continuity across cut planes.
 """
 
 import math
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .data import ConnectorSpec, SweptElementProvenance
 
 from .path_utils import (
     extract_sub_path,
