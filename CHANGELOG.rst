@@ -25,6 +25,21 @@ what's new:
     helix curves using OpenCascade's 2D parametric curve on cylindrical surface technique.
     Used internally by ``helical_extrude()`` but also available for advanced users.
 
+  - **Edge Operations**: New fillet and chamfer functions in ``yapcad.brep``:
+
+    - ``fillet_all_edges()`` - Apply rounded fillets to all edges of a BREP solid
+    - ``fillet_edges()`` - Apply fillets to specific selected edges
+    - ``chamfer_all_edges()`` - Apply beveled chamfers to all edges
+    - ``chamfer_edges()`` - Apply chamfers to specific selected edges
+    - DSL builtins: ``fillet(solid, radius)`` and ``chamfer(solid, distance)``
+
+  - **3D Text Support**: New ``yapcad.text3d`` module for creating 3D text geometry:
+
+    - ``text_to_solid()`` - Generate extruded 3D text from strings
+    - ``text_to_surface()`` - Generate text as a flat surface
+    - TrueType font support via freetype-py (with block font fallback)
+    - System font discovery across macOS, Linux, and Windows
+
   - **Documentation Improvements**: All new functions include comprehensive docstrings
     with parameter descriptions, return values, usage examples, and notes following
     Sphinx documentation standards.
