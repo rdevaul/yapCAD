@@ -571,3 +571,16 @@ class TestParserErrors:
         """Unexpected token raises error."""
         with pytest.raises(ParserError):
             parse_source("command T() -> int { emit %; }")
+
+    def test_while_loop_deprecated(self):
+        """While loops raise helpful deprecation error."""
+        source = """
+        def test() -> int:
+            while True:
+                pass
+        """
+        with pytest.raises(ParserError) as exc_info:
+            parse_source(source)
+        error_msg = str(exc_info.value).lower()
+        assert "while" in error_msg
+        assert "not supported" in error_msg or "static verifiability" in error_msg
