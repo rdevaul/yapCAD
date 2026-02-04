@@ -1,7 +1,70 @@
 Manufacturing Post-Processing Framework
 ======================================
 
-Design Document v0.1 - January 2026
+Design Document v0.2 - January 2026
+
+.. note::
+
+    **Implementation Status: Phase 1 Complete**
+
+    The core beam segmentation functionality is implemented and working:
+
+    - Swept element segmentation at specified cut points
+    - Interior connector specification generation
+    - STEP file export for individual segments
+    - Assembly manifest generation with mating relationships
+
+    See ``examples/globe_stand/segment_globe_stand.py`` for a working example.
+
+Quick Start
+-----------
+
+Run the globe stand segmentation example:
+
+.. code-block:: bash
+
+    # Segment support arcs at 200mm max length, export STEP files
+    python examples/globe_stand/segment_globe_stand.py
+
+    # Segment at 150mm max length
+    python examples/globe_stand/segment_globe_stand.py 150
+
+    # Skip STEP export (faster for testing)
+    python examples/globe_stand/segment_globe_stand.py --no-step
+
+This produces:
+
+- Individual STEP files for each segment (e.g., ``support_arc_1_seg_0.step``)
+- ``assembly_manifest.json`` with part relationships and file paths
+
+Basic Python usage:
+
+.. code-block:: python
+
+    from yapcad.manufacturing import (
+        SweptElementProvenance,
+        CutPoint,
+        segment_swept_element,
+        compute_optimal_cuts,
+    )
+
+    # Create provenance for your swept solid
+    provenance = SweptElementProvenance(
+        id="my_beam",
+        operation="sweep_adaptive",
+        outer_profile=outer_region2d,
+        spine=path3d,
+        wall_thickness=2.0,
+        metadata={'solid': my_solid}  # The actual solid
+    )
+
+    # Compute cuts for max 200mm segments
+    cuts = compute_optimal_cuts(provenance, max_segment_length=200.0)
+
+    # Segment the solid
+    result = segment_swept_element(provenance, cuts)
+    print(f"Created {result.segment_count} segments")
+
 
 Overview
 --------
@@ -412,26 +475,38 @@ CLI Integration
 Implementation Phases
 ---------------------
 
-Phase 1: Core Segmentation (MVP)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Phase 1: Core Segmentation (MVP) - **COMPLETE**
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 **Goal:** Enable manual segmentation of swept elements with interior connectors.
 
 **Deliverables:**
 
-1. ``segment_swept_element()`` function
-2. ``create_interior_connector()`` function
-3. Basic provenance capture for sweep operations
-4. Export segments as separate STEP/STL files
+1. ✅ ``segment_swept_element()`` function - segments solids at cut planes
+2. ✅ ``create_interior_connector()`` function - generates connector geometry
+3. ✅ ``compute_optimal_cuts()`` function - computes cuts for max segment length
+4. ✅ Basic provenance capture via ``SweptElementProvenance`` dataclass
+5. ✅ Export segments as separate STEP files
+6. ✅ Assembly manifest generation with mating relationships
+
+**Implementation Location:** ``src/yapcad/manufacturing/``
+
+- ``data.py`` - Data structures (CutPoint, Segment, SegmentationResult, etc.)
+- ``path_utils.py`` - Path3D evaluation and sub-path extraction
+- ``connectors.py`` - Interior connector generation
+- ``segmentation.py`` - Core segmentation operations
+
+**Example:** ``examples/globe_stand/segment_globe_stand.py``
 
 **Scope:**
 
-- Box beam (rectangular) profiles only
-- Straight and arc spines
-- Manual cut point specification
-- Single wall thickness
-
-**Estimated complexity:** Medium
+- Box beam (rectangular) profiles ✅
+- Piecewise-linear (polyline) spines ✅
+- Manual cut point specification ✅
+- Automatic cut computation based on max length ✅
+- Single wall thickness ✅
+- STEP file export ✅
+- Interior connector solid generation ✅
 
 
 Phase 2: Automatic Cut Point Computation
@@ -517,54 +592,119 @@ Phase 5: Advanced Manufacturing Support
 Globe Stand Example
 -------------------
 
-Applying segmentation to the Mars globe stand:
+The ``examples/globe_stand/segment_globe_stand.py`` script demonstrates the
+manufacturing module by segmenting the support arcs from the Mars globe stand.
 
-**Analysis:**
+**Running the Example:**
 
-The stand consists of:
+.. code-block:: bash
 
-- 3 arc beams (swept hollow box sections along 3D Bezier curves)
-- 1 base ring (swept hollow box section along circular path)
-- 1 top ring (swept hollow box section along circular path, smaller diameter)
-- Junction areas where arcs meet base and top rings
+    cd yapCAD
+    PYTHONPATH=./src python examples/globe_stand/segment_globe_stand.py
 
-**Proposed Segmentation:**
+**Example Output:**
 
 .. code-block:: text
 
-    Arc Beams (3 each):
-    - Cut at t=0.35 and t=0.65
-    - Results in 3 segments per arc: bottom, middle, top
-    - Connectors follow arc curves
-    - 9 segments total for arcs
+    ============================================================
+    Globe Stand Segmentation Example
+    ============================================================
 
-    Base Ring:
-    - Cut at 120° intervals (t=0.33, 0.67, 1.0)
-    - Position cuts between arc attachment points
-    - 3 segments total for base
+    Parameters:
+      Globe diameter: 304.8 mm
+      Base diameter: 400.0 mm
+      Beam profile: 10.0x10.0 mm, wall: 2.0 mm
+      Max segment length: 200.0 mm
+      STEP export: True
 
-    Top Ring:
-    - May fit within build volume without segmentation (smaller diameter)
-    - If segmentation needed: cut at 120° intervals like base ring
-    - 1 or 3 segments depending on printer build volume
+    Building and segmenting support arcs...
+    ----------------------------------------
 
-    Total: 13-15 printable segments + integrated connectors
+    Arc 0: base=0.0°, top=60.0°
+      Path length: 460.6 mm
+      Cuts needed: 2
+        Cut 0: t=0.333
+        Cut 1: t=0.667
+      Created 3 segments
+        Exported: support_arc_0_seg_0.step
+        Exported: support_arc_0_seg_1.step
+        Exported: support_arc_0_seg_2.step
+      Building connector solids...
+        Exported: support_arc_0_conn_33.step
+        Exported: support_arc_0_conn_66.step
 
-**Assembly Sequence:**
+    Arc 1: base=120.0°, top=180.0°
+      Path length: 396.1 mm
+      Cuts needed: 1
+        Cut 0: t=0.500
+      Created 2 segments
+        Exported: support_arc_1_seg_0.step
+        Exported: support_arc_1_seg_1.step
+      Building connector solids...
+        Exported: support_arc_1_conn_50.step
 
-1. Print all segments (base ring, arc beams, top ring)
-2. Assemble base ring (3 segments)
-3. Attach arc bottom segments to base
-4. Attach arc middle segments
-5. Attach arc top segments
-6. Attach/assemble top ring to arc tops
-7. Final assembly complete
+    Arc 2: base=240.0°, top=300.0°
+      Path length: 375.4 mm
+      Cuts needed: 1
+        Cut 0: t=0.500
+      Created 2 segments
+        Exported: support_arc_2_seg_0.step
+        Exported: support_arc_2_seg_1.step
+      Building connector solids...
+        Exported: support_arc_2_conn_50.step
+
+    ============================================================
+    Summary
+    ============================================================
+      Total segments: 7
+      Total connectors: 4
+      STEP files exported: 11
+      Output directory: examples/globe_stand/output
+
+**Output Files:**
+
+The script creates an ``output/`` directory containing:
+
+- ``assembly_manifest.json`` - Part relationships and file paths
+- ``support_arc_0_seg_0.step`` - First third of arc 0
+- ``support_arc_0_seg_1.step`` - Middle third of arc 0
+- ``support_arc_0_seg_2.step`` - Last third of arc 0
+- ``support_arc_0_conn_33.step`` - Connector at first cut of arc 0
+- ``support_arc_0_conn_66.step`` - Connector at second cut of arc 0
+- ``support_arc_1_seg_0.step`` - First half of arc 1
+- ``support_arc_1_seg_1.step`` - Second half of arc 1
+- ``support_arc_1_conn_50.step`` - Connector at cut of arc 1
+- ``support_arc_2_seg_0.step`` - First half of arc 2
+- ``support_arc_2_seg_1.step`` - Second half of arc 2
+- ``support_arc_2_conn_50.step`` - Connector at cut of arc 2
+
+**Assembly Manifest Format:**
+
+.. code-block:: json
+
+    {
+      "project": "Mars Globe Stand",
+      "max_segment_length": 200.0,
+      "beam_profile": "10.0x10.0mm hollow, 2.0mm wall",
+      "fit_clearance": 0.18,
+      "parts": [
+        {
+          "id": "support_arc_1_seg_0",
+          "type": "arc_segment",
+          "parent": "support_arc_1",
+          "parameter_range": [0.0, 0.5],
+          "mates_with": ["support_arc_1_seg_1"],
+          "has_connector_tab": true,
+          "step_file": "support_arc_1_seg_0.step"
+        },
+        ...
+      ]
+    }
 
 **Connector Design:**
 
-- Arc connectors: ~40mm length (follows curve)
-- Base connectors: ~50mm length (larger profile)
-- Press-fit clearance: 0.18mm for Bambu HD2 with PLA
+- Connector length: 3x largest profile dimension (30mm for 10x10mm beam)
+- Press-fit clearance: 0.18mm per side (default for FDM printing)
 
 
 Future Extensions
@@ -639,7 +779,9 @@ Open Questions
 References
 ----------
 
+- Manufacturing module: ``src/yapcad/manufacturing/``
 - yapCAD sweep operations: ``src/yapcad/geom3d_util.py``
-- DSL provenance system: ``src/yapcad/dsl/runtime/provenance.py``
+- BREP utilities: ``src/yapcad/brep.py``
+- Globe stand DSL source: ``examples/globe_stand/globe_stand_v5.dsl``
+- Globe stand segmentation example: ``examples/globe_stand/segment_globe_stand.py``
 - Package specification: ``docs/ycpkg_spec.rst``
-- Globe stand example: ``examples/globe_stand/globe_stand_v5.dsl``
