@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from yapcad.package.core import PackageManifest
+    from yapcad.package import PackageManifest
 
 from .runtime import compile_and_run, ExecutionResult
 
