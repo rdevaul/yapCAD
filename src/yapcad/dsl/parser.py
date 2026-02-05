@@ -33,6 +33,8 @@ from .errors import (
     error_unexpected_eof,
     error_invalid_expression,
     DiagnosticCollector,
+    Diagnostic,
+    ErrorSeverity,
 )
 
 
@@ -738,11 +740,14 @@ class Parser:
 
         # While loop - DEPRECATED, give helpful error
         if token.type == TokenType.WHILE:
-            raise ParserError(
-                "'while' loops are not supported (removed for static verifiability). "
-                "Use 'for i in range(max_iterations)' with early return instead.",
-                token.span
+            diag = Diagnostic(
+                code="E104",
+                message="'while' loops are not supported (removed for static verifiability). "
+                        "Use 'for i in range(max_iterations)' with early return instead.",
+                severity=ErrorSeverity.ERROR,
+                span=token.span,
             )
+            raise ParserError(diag)
 
         # If statement
         if token.type == TokenType.IF:
