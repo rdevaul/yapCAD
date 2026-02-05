@@ -26,6 +26,8 @@ from yapcad.brep import (
     brep_from_solid,
     has_brep_data,
     occ_available,
+    fillet_all_edges,
+    chamfer_all_edges,
 )
 
 try:  # pragma: no cover - exercised when pythonocc-core is installed
@@ -300,3 +302,116 @@ def test_loft_solid_brep_and_occ_boolean():
     cutter = translatesolid(cutter, point(0.0, 0.0, 0.25))
     result = solid_boolean(sld, cutter, 'union', engine='occ')
     assert has_brep_data(result)
+
+
+def test_fillet_all_edges_on_box():
+    """Test fillet_all_edges on a simple box."""
+    if not occ_available():
+        pytest.skip("pythonocc-core not available")
+    if BRepPrimAPI_MakeBox is None:
+        pytest.skip("pythonocc-core not available")
+
+    # Create a 10x10x10 box
+    shape = BRepPrimAPI_MakeBox(10.0, 10.0, 10.0).Shape()
+    brep = BrepSolid(shape)
+
+    # Apply fillet with radius 1.0
+    filleted = fillet_all_edges(brep, 1.0)
+
+    # Verify we got a valid shape back
+    assert filleted is not None
+    assert isinstance(filleted, BrepSolid)
+
+    # Verify tessellation works
+    surface = filleted.tessellate()
+    assert surface[0] == 'surface'
+    assert len(surface[1]) > 0  # Has vertices
+    assert len(surface[3]) > 0  # Has triangles
+
+
+def test_chamfer_all_edges_on_box():
+    """Test chamfer_all_edges on a simple box."""
+    if not occ_available():
+        pytest.skip("pythonocc-core not available")
+    if BRepPrimAPI_MakeBox is None:
+        pytest.skip("pythonocc-core not available")
+
+    # Create a 10x10x10 box
+    shape = BRepPrimAPI_MakeBox(10.0, 10.0, 10.0).Shape()
+    brep = BrepSolid(shape)
+
+    # Apply chamfer with distance 0.5
+    chamfered = chamfer_all_edges(brep, 0.5)
+
+    # Verify we got a valid shape back
+    assert chamfered is not None
+    assert isinstance(chamfered, BrepSolid)
+
+    # Verify tessellation works
+    surface = chamfered.tessellate()
+    assert surface[0] == 'surface'
+    assert len(surface[1]) > 0  # Has vertices
+    assert len(surface[3]) > 0  # Has triangles
+
+
+def test_fillet_on_prism():
+    """Test fillet on a prism created via yapCAD's prism function."""
+    if not occ_available():
+        pytest.skip("pythonocc-core not available")
+
+    # Create a prism which already has BREP attached
+    sld = prism(20.0, 10.0, 5.0)
+    assert has_brep_data(sld)
+
+    # Get the BREP and fillet it
+    brep = brep_from_solid(sld)
+    filleted = fillet_all_edges(brep, 0.5)
+
+    # Verify result
+    assert filleted is not None
+    surface = filleted.tessellate()
+    assert surface[0] == 'surface'
+
+
+def test_chamfer_on_prism():
+    """Test chamfer on a prism created via yapCAD's prism function."""
+    if not occ_available():
+        pytest.skip("pythonocc-core not available")
+
+    # Create a prism which already has BREP attached
+    sld = prism(20.0, 10.0, 5.0)
+    assert has_brep_data(sld)
+
+    # Get the BREP and chamfer it
+    brep = brep_from_solid(sld)
+    chamfered = chamfer_all_edges(brep, 0.3)
+
+    # Verify result
+    assert chamfered is not None
+    surface = chamfered.tessellate()
+    assert surface[0] == 'surface'
+
+
+def test_fillet_preserves_solid_creation():
+    """Test that filleted BREP can be attached to a new yapCAD solid."""
+    if not occ_available():
+        pytest.skip("pythonocc-core not available")
+    if BRepPrimAPI_MakeBox is None:
+        pytest.skip("pythonocc-core not available")
+
+    # Create and fillet a box
+    shape = BRepPrimAPI_MakeBox(10.0, 10.0, 10.0).Shape()
+    brep = BrepSolid(shape)
+    filleted = fillet_all_edges(brep, 1.0)
+
+    # Create a yapCAD solid from the filleted BREP
+    surface = filleted.tessellate()
+    sld = solid([surface])
+    attach_brep_to_solid(sld, filleted)
+
+    # Verify BREP data is preserved
+    assert has_brep_data(sld)
+
+    # Verify we can get BREP back
+    restored = brep_from_solid(sld)
+    assert restored is not None

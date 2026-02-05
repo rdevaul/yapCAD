@@ -914,3 +914,107 @@ def combineglist(g1,g2,operation):
                           [inter[1][i-1],
                            inter[1][i%len(inter[1])]]])
     return r
+
+
+def radial_pattern(geometry, count, center=None, axis=None, angle=None):
+    """
+    Create a radial/circular pattern of geometry copies.
+
+    Creates multiple copies of a 2D geometry element (line, arc, polyline,
+    or geomlist/region) arranged in a circular pattern around a center point.
+
+    :param geometry: A 2D region, polyline, line, arc, or geomlist to pattern
+    :param count: Number of copies (including original)
+    :param center: Center point for rotation (default [0,0,0,1])
+    :param axis: Rotation axis vector (default [0,0,1,0] for Z-axis)
+    :param angle: Total angle to span in degrees (default 360 = full circle)
+    :returns: List of geometry copies, each rotated by angle/count increments
+
+    Example::
+
+        >>> # Create 6 bolt holes around a circle
+        >>> hole = arc(point(10, 0), 2.5)  # hole at 10mm radius
+        >>> holes = radial_pattern(hole, count=6)  # 6 holes at 60 degree intervals
+    """
+    if count < 1:
+        raise ValueError("count must be at least 1")
+
+    # Set defaults
+    if center is None:
+        center = point(0, 0, 0)
+    if axis is None:
+        axis = point(0, 0, 1)
+    if angle is None:
+        angle = 360.0
+
+    # Single item returns the original
+    if count == 1:
+        return [geometry]
+
+    # Calculate angle increment between copies
+    # For a full 360 pattern, don't duplicate at start/end
+    if abs(angle - 360.0) < epsilon:
+        angle_step = angle / count
+    else:
+        angle_step = angle / (count - 1)
+
+    result = []
+    for i in range(count):
+        current_angle = i * angle_step
+        if abs(current_angle) < epsilon:
+            # No rotation needed for the first copy
+            result.append(geometry)
+        else:
+            rotated = rotate(geometry, current_angle, cent=center, axis=axis)
+            result.append(rotated)
+
+    return result
+
+
+def linear_pattern(geometry, count, spacing):
+    """
+    Create a linear pattern of geometry copies.
+
+    Creates multiple copies of a 2D geometry element (line, arc, polyline,
+    or geomlist/region) arranged in a line with uniform spacing.
+
+    :param geometry: A 2D region, polyline, line, arc, or geomlist to pattern
+    :param count: Number of copies (including original)
+    :param spacing: Vector defining direction and distance between copies.
+                    Can be a 4-tuple [x, y, z, w] or 3-tuple/list [x, y, z]
+    :returns: List of geometry copies, each translated by spacing increments
+
+    Example::
+
+        >>> # Create 5 mounting holes in a row
+        >>> hole = arc(point(0, 0), 3)
+        >>> holes = linear_pattern(hole, count=5, spacing=[20, 0, 0])  # 5 holes, 20mm apart
+    """
+    if count < 1:
+        raise ValueError("count must be at least 1")
+
+    # Normalize spacing to a proper vector
+    if isinstance(spacing, (list, tuple)):
+        if len(spacing) == 3:
+            spacing = point(spacing[0], spacing[1], spacing[2])
+        elif len(spacing) == 4:
+            spacing = point(spacing[0], spacing[1], spacing[2])
+        elif len(spacing) == 2:
+            spacing = point(spacing[0], spacing[1], 0)
+        else:
+            raise ValueError("spacing must be a 2D, 3D, or 4D vector")
+    else:
+        raise ValueError("spacing must be a list or tuple")
+
+    result = []
+    for i in range(count):
+        if i == 0:
+            # No translation for the first copy
+            result.append(geometry)
+        else:
+            # Calculate total offset for this copy
+            delta = scale3(spacing, float(i))
+            translated = translate(geometry, delta)
+            result.append(translated)
+
+    return result

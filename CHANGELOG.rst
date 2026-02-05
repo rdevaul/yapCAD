@@ -2,6 +2,48 @@
 Changelog
 =========
 
+Version 1.0.1 (Development)
+============================
+
+what's new:
+-----------
+
+  - **Helical Extrusion**: New ``helical_extrude()`` function in ``yapcad.geom3d_util``
+    creates smooth helical/twisted extrusions using high-resolution lofting. Ideal for
+    helical gears, twisted columns, and spiral features. Requires pythonocc-core.
+
+  - **Pattern Functions**: New pattern generation functions for creating arrays of geometry:
+
+    - ``radial_pattern()`` in ``yapcad.geom_util`` - Creates circular patterns of 2D geometry
+    - ``linear_pattern()`` in ``yapcad.geom_util`` - Creates linear arrays of 2D geometry
+    - ``radial_pattern_solid()`` in ``yapcad.geom3d_util`` - Creates circular patterns of 3D solids
+    - ``linear_pattern_solid()`` in ``yapcad.geom3d_util`` - Creates linear arrays of 3D solids
+    - ``radial_pattern_surface()`` in ``yapcad.geom3d_util`` - Creates circular patterns of surfaces
+    - ``linear_pattern_surface()`` in ``yapcad.geom3d_util`` - Creates linear arrays of surfaces
+
+  - **OCC Helix Helper**: New ``make_occ_helix()`` function creates mathematically exact
+    helix curves using OpenCascade's 2D parametric curve on cylindrical surface technique.
+    Used internally by ``helical_extrude()`` but also available for advanced users.
+
+  - **Edge Operations**: New fillet and chamfer functions in ``yapcad.brep``:
+
+    - ``fillet_all_edges()`` - Apply rounded fillets to all edges of a BREP solid
+    - ``fillet_edges()`` - Apply fillets to specific selected edges
+    - ``chamfer_all_edges()`` - Apply beveled chamfers to all edges
+    - ``chamfer_edges()`` - Apply chamfers to specific selected edges
+    - DSL builtins: ``fillet(solid, radius)`` and ``chamfer(solid, distance)``
+
+  - **3D Text Support**: New ``yapcad.text3d`` module for creating 3D text geometry:
+
+    - ``text_to_solid()`` - Generate extruded 3D text from strings
+    - ``text_to_surface()`` - Generate text as a flat surface
+    - TrueType font support via freetype-py (with block font fallback)
+    - System font discovery across macOS, Linux, and Windows
+
+  - **Documentation Improvements**: All new functions include comprehensive docstrings
+    with parameter descriptions, return values, usage examples, and notes following
+    Sphinx documentation standards.
+
 Version 1.0.0rc1 (2025-12-30)
 =============================
 
