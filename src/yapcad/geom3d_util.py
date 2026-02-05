@@ -64,7 +64,7 @@ def adaptive_arc_segments(radius, chord_error=0.1, min_segments=12, max_segments
     return max(min_segments, min(max_segments, segments))
 
 
-def adaptive_angr_from_radius(radius, chord_error=0.1, min_angr=1.0, max_angr=30.0):
+def adaptive_angr_from_radius(radius, chord_error=0.1, min_angr=1.0, max_angr=10.0):
     """
     Calculate angular resolution (degrees per segment) adaptively based on radius.
 
@@ -74,7 +74,7 @@ def adaptive_angr_from_radius(radius, chord_error=0.1, min_angr=1.0, max_angr=30
     :param radius: radius of the circle/arc in mm
     :param chord_error: maximum acceptable chord error in mm (default 0.1mm)
     :param min_angr: minimum angular resolution in degrees (default 1.0)
-    :param max_angr: maximum angular resolution in degrees (default 30.0)
+    :param max_angr: maximum angular resolution in degrees (default 10.0)
     :returns: optimal angular resolution in degrees
     """
     segments = adaptive_arc_segments(radius, chord_error)
