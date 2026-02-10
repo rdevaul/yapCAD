@@ -416,6 +416,130 @@ def prism(length,width,height,center=point(0,0,0)):
             pass
     return sol
 
+def dodecahedron(diameter, center=point(0,0,0)):
+    """
+    Create a regular dodecahedron solid.
+    
+    A dodecahedron is a Platonic solid with 12 pentagonal faces, 
+    20 vertices, and 30 edges. This implementation uses the golden 
+    ratio construction.
+    
+    :param diameter: diameter of circumscribed sphere in mm
+    :param center: center point of the dodecahedron (default origin)
+    :returns: yapCAD solid with 12 pentagonal faces (36 triangles)
+    
+    Example::
+    
+        >>> d = dodecahedron(20)  # 20mm diameter dodecahedron
+        >>> write_stl(d, 'dodeca.stl')
+    """
+    call = f"yapcad.geom3d_util.dodecahedron({diameter},{center})"
+    
+    phi = (1 + math.sqrt(5)) / 2  # Golden ratio ≈ 1.618
+    
+    # Scale factor to fit within diameter
+    scale = diameter / (2 * phi)
+    
+    # 20 vertices of a regular dodecahedron
+    # Using standard golden ratio construction
+    a, b, c = 1.0, 1.0/phi, phi
+    
+    vertex_coords = [
+        # Cube vertices (±1, ±1, ±1) - indices 0-7
+        (+a, +a, +a), (+a, +a, -a), (+a, -a, +a), (+a, -a, -a),
+        (-a, +a, +a), (-a, +a, -a), (-a, -a, +a), (-a, -a, -a),
+        # (0, ±1/φ, ±φ) - indices 8-11
+        (0, +b, +c), (0, +b, -c), (0, -b, +c), (0, -b, -c),
+        # (±1/φ, ±φ, 0) - indices 12-15
+        (+b, +c, 0), (+b, -c, 0), (-b, +c, 0), (-b, -c, 0),
+        # (±φ, 0, ±1/φ) - indices 16-19
+        (+c, 0, +b), (+c, 0, -b), (-c, 0, +b), (-c, 0, -b),
+    ]
+    
+    # Scale vertices
+    verts = [[x*scale, y*scale, z*scale] for x, y, z in vertex_coords]
+    
+    # Rotate ~31.72° around Y-axis so model sits on a flat pentagonal face
+    # (default orientation would place it on an edge/vertex)
+    angle = math.radians(31.72)
+    cos_a, sin_a = math.cos(angle), math.sin(angle)
+    verts = [[v[0]*cos_a + v[2]*sin_a, v[1], -v[0]*sin_a + v[2]*cos_a] 
+             for v in verts]
+    
+    # Shift so z_min = 0 (now sitting on flat face with 5 vertices at bottom)
+    z_min = min(v[2] for v in verts)
+    verts = [[v[0], v[1], v[2] - z_min] for v in verts]
+    
+    # Apply center offset and convert to yapCAD points
+    points = [point(v[0] + center[0], v[1] + center[1], v[2] + center[2]) 
+              for v in verts]
+    
+    # 12 pentagonal faces - vertex indices in counter-clockwise order
+    pentagon_faces = [
+        [0, 8, 10, 2, 16],
+        [0, 16, 17, 1, 12],
+        [0, 12, 14, 4, 8],
+        [1, 17, 3, 11, 9],
+        [1, 9, 5, 14, 12],
+        [2, 10, 6, 15, 13],
+        [2, 13, 3, 17, 16],
+        [3, 13, 15, 7, 11],
+        [4, 18, 6, 10, 8],
+        [4, 14, 5, 19, 18],
+        [5, 9, 11, 7, 19],
+        [6, 18, 19, 7, 15],
+    ]
+    
+    # Helper to compute face normal
+    def face_normal(face_indices):
+        p0 = points[face_indices[0]]
+        p1 = points[face_indices[1]]
+        p2 = points[face_indices[2]]
+        # Cross product of two edges
+        e1 = sub(p1, p0)
+        e2 = sub(p2, p0)
+        n = cross(e1, e2)
+        # Normalize
+        mag = dist(n, point(0,0,0,1))
+        if mag > 0:
+            n = scale3(n, 1.0/mag)
+        return vect(n[0], n[1], n[2], 0)
+    
+    # Build surfaces - one per pentagonal face
+    surfaces = []
+    for face in pentagon_faces:
+        # Get vertices for this face
+        face_verts = [points[i] for i in face]
+        
+        # Compute face normal (same for all vertices in flat face)
+        n = face_normal(face)
+        face_normals = [n] * 5
+        
+        # Triangulate pentagon: fan from first vertex
+        # Creates triangles [0,1,2], [0,2,3], [0,3,4]
+        triangles = [[0, 1, 2], [0, 2, 3], [0, 3, 4]]
+        
+        # Create surface
+        surf = surface(face_verts, face_normals, triangles)
+        surf[4] = list(range(5))  # boundary
+        surf[5] = []  # no holes
+        surfaces.append(surf)
+    
+    sol = solid(surfaces, [], ['procedure', call])
+    
+    # Attach BREP if OpenCASCADE is available
+    if occ_available():
+        try:
+            from yapcad.brep import brep_from_solid
+            brep = brep_from_solid(sol)
+            if brep is not None:
+                attach_brep_to_solid(sol, brep)
+        except Exception:
+            pass
+    
+    return sol
+
+
 def circleSurface(center,radius,angr=None,zup=True,chord_error=0.1):
     """make a circular surface centered at ``center`` lying in the XY
     plane with normals pointing in the positive z direction if ``zup
