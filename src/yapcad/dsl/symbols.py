@@ -154,7 +154,7 @@ class SymbolTable:
         self._register_builtin("rotate_2d", [("angle", FLOAT, None)], TRANSFORM)
         self._register_builtin("scale_xform", [("factors", VECTOR, None)], TRANSFORM)
         self._register_builtin("scale_uniform", [("factor", FLOAT, None)], TRANSFORM)
-        self._register_builtin("mirror", [("plane_normal", VECTOR3D, None)], TRANSFORM)
+        self._register_builtin("mirror", [("s", SOLID, None), ("plane_normal", VECTOR3D, None)], SOLID)
         self._register_builtin("mirror_2d", [("axis", VECTOR2D, None)], TRANSFORM)
         self._register_builtin("mirror_y", [], TRANSFORM)  # Convenience
         self._register_builtin("identity_transform", [], TRANSFORM)
@@ -455,6 +455,75 @@ class SymbolTable:
             ("num_bolts", INT, None),
             ("bolt_hole_diameter", FLOAT, None),
         ], SOLID)
+
+        # Phase 2 geometry primitives
+        self._register_builtin("dodecahedron", [
+            ("diameter", FLOAT, None),
+        ], SOLID)
+
+        self._register_builtin("tube", [
+            ("outer_diameter", FLOAT, None),
+            ("wall_thickness", FLOAT, None),
+            ("length", FLOAT, None),
+        ], SOLID)
+
+        self._register_builtin("conic_tube", [
+            ("bottom_od", FLOAT, None),
+            ("top_od", FLOAT, None),
+            ("wall_thickness", FLOAT, None),
+            ("length", FLOAT, None),
+        ], SOLID)
+
+        self._register_builtin("spherical_shell", [
+            ("outer_diameter", FLOAT, None),
+            ("wall_thickness", FLOAT, None),
+        ], SOLID)
+
+        self._register_builtin("helical_extrude", [
+            ("profile", REGION2D, None),
+            ("height", FLOAT, None),
+            ("twist_angle", FLOAT, None),
+        ], SOLID)
+
+        # Phase 3 text support
+        self._register_builtin("text_solid", [
+            ("text", STRING, None),
+            ("height", FLOAT, None),
+            ("depth", FLOAT, None),
+            ("spacing", FLOAT, None),
+        ], SOLID)
+
+        self._register_builtin("engrave_text", [
+            ("target", SOLID, None),
+            ("text", STRING, None),
+            ("position", VECTOR3D, None),
+            ("normal", VECTOR3D, None),
+            ("height", FLOAT, None),
+            ("depth", FLOAT, None),
+            ("spacing", FLOAT, None),
+        ], SOLID)
+
+        self._register_builtin("text_width", [
+            ("text", STRING, None),
+            ("height", FLOAT, None),
+            ("spacing", FLOAT, None),
+        ], FLOAT)
+
+        # Phase 4 path utilities & manufacturing
+        self._register_builtin("path3d_eval", [
+            ("path", PATH3D, None),
+            ("t", FLOAT, None),
+        ], POINT3D)  # Returns point (tangent available via separate call if needed)
+
+        self._register_builtin("path3d_length", [
+            ("path", PATH3D, None),
+        ], FLOAT)
+
+        self._register_builtin("split_solid", [
+            ("s", SOLID, None),
+            ("plane_point", POINT3D, None),
+            ("plane_normal", VECTOR3D, None),
+        ], SOLID)  # Returns list but typed as SOLID for now (first half)
 
         # Fasteners - hex bolts and nuts from catalog
         # Metric fasteners (ISO 4014/4017 bolts, ISO 4032 nuts)

@@ -1,0 +1,34 @@
+schema: ycpkg-spec-v0.1
+id: 7f93dac1-5bc1-405e-8154-46d86bce66d6
+name: centered_globe_stand_hires
+version: 1.0.0
+description: ''
+created:
+  timestamp: '2026-02-05T02:18:41.547187+00:00'
+generator:
+  tool: yapCAD-DSL
+  version: 1.0.0rc1
+  dsl:
+    module: globe_stand_v5
+    command: CENTERED_GLOBE_STAND_HIRES
+    parameters:
+      include_mars: true
+    source_signature: sha256:81953c37544c240bf3c64f048d3437c1a3583b2370a2c6a3d106272f0382bc88
+    version: 0.0.0
+units: mm
+tags: []
+geometry:
+  primary:
+    path: geometry/primary.json
+    schema: yapcad-geometry-json-v0.1
+    entities:
+    - 930775eb-916a-4af8-a9e0-c69ff9b50b7e
+    - ca1b41ad-bee9-46ac-9540-64506b378f0a
+    - d0de7b9e-2cdb-4387-919e-425bf48e568f
+    hash: sha256:ca0320ecd4c53566b307b56ccd7f604a86cee40281720f74d847eaaa64c3ff2f
+attachments:
+- id: dsl-source
+  path: attachments/source.dsl
+  hash: sha256:7cfcff25c65d4ffb11591bbd1f33f6d4e271cbae9bded6f61e8e7f43dddb475f
+  format: dsl
+  purpose: DSL source code for CENTERED_GLOBE_STAND_HIRES command
