@@ -26,7 +26,9 @@ command hexagonal_body() -> solid:
     let hex_profile: region2d = regular_polygon(6, 70.0)
     let body: solid = extrude(hex_profile, 80.0)
     let centered: solid = translate(body, 0.0, 0.0, -40.0)
-    emit centered
+    # Rotate 30° so flat faces align with arm placement angles (0°, 60°, 120°...)
+    let aligned: solid = rotate(centered, 0.0, 0.0, 30.0)
+    emit aligned
 
 command arm_cylinder() -> solid:
     let arm: solid = cylinder(28.0, 120.0)
