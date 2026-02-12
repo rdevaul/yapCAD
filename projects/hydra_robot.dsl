@@ -3,49 +3,60 @@ module hydra_robot
 # Hydra Modular Reconfigurable Robot — Starfish Configuration
 # All dimensions in millimeters.
 #
-# Layout (X axis example):
-#   Body face at x=60
-#   Connector ring centered at x=60 (2.5mm into body, 2.5mm out)
-#   Arm inner face at x=65 (5mm gap for connector pair)  
-#   Arm outer face at x=175 (65 + 110)
-#   Connector ring centered at x=175
-#   Effector base at x=180 (175 + 5mm connector)
+# PRIMITIVE ORIGINS:
+#   box(w,d,h)      → centered at origin (±w/2, ±d/2, ±h/2)
+#   cylinder(r,h)   → base at z=0, top at z=h, centered on XY
+#   sphere(r)        → centered at origin
+#
+# DESIGN:
+#   Hexagonal body (6 faces) with 5 radial arms (asymmetric starfish).
+#   Arms are cylindrical tubes. Face 6 left open for docking.
+#   Body height: 80mm. Arm diameter: 56mm, length: 120mm.
+#   Hexagon circumradius: 70mm (flat-to-flat ~121mm).
+#
+# LAYOUT:
+#   5 arms at 72° intervals (360/5) around Z axis.
+#   Arm angles: 0°, 72°, 144°, 216°, 288°
+#   Each arm: connector flush on body face → arm cylinder → connector → effector
 
 command connector_ring() -> solid:
-    # Magnetic alignment ring + power coil housing
-    # 5mm tall, centered at z=0 (extends -2.5 to +2.5)
+    # 46mm OD ring, 5mm tall, base at z=0
     let outer: solid = cylinder(23.0, 5.0)
     let inner: solid = cylinder(10.0, 6.0)
     let ring: solid = difference(outer, inner)
-    let centered: solid = translate(ring, 0.0, 0.0, -2.5)
+    emit ring
+
+command hexagonal_body() -> solid:
+    # Hexagonal prism via regular_polygon extrusion
+    # Circumradius 70mm, height 80mm
+    let hex_profile: region2d = regular_polygon(6, 70.0)
+    let body: solid = extrude(hex_profile, 80.0)
+    # Body base at z=0, top at z=80. Center vertically.
+    let centered: solid = translate(body, 0.0, 0.0, -40.0)
     emit centered
 
-command arm_segment() -> solid:
-    # 56x56x110 beam, bottom at z=0, top at z=110
-    let beam: solid = box(56.0, 56.0, 110.0)
-    let bc: solid = translate(beam, -28.0, -28.0, 0.0)
-    # Spherical joint cap at top
-    let js: solid = sphere(24.0)
-    let jp: solid = translate(js, 0.0, 0.0, 110.0)
-    let arm: solid = union(bc, jp)
+command arm_cylinder() -> solid:
+    # Cylindrical arm segment, r=28mm, length=120mm
+    # Base at z=0, extends to z=120
+    let arm: solid = cylinder(28.0, 120.0)
     emit arm
 
 command gripper_unit() -> solid:
-    # Base at z=0, fingers extend upward
-    let base: solid = box(50.0, 50.0, 10.0)
-    let bc: solid = translate(base, -25.0, -25.0, 0.0)
+    # Base plate + two fingers. Base at z=0.
+    let base: solid = cylinder(25.0, 10.0)
     let fl: solid = box(10.0, 10.0, 70.0)
-    let flp: solid = translate(fl, -25.0, -5.0, 10.0)
+    let flp: solid = translate(fl, -15.0, 0.0, 10.0)
     let fr: solid = box(10.0, 10.0, 70.0)
-    let frp: solid = translate(fr, 15.0, -5.0, 10.0)
-    let g1: solid = union(bc, flp)
+    let frp: solid = translate(fr, 15.0, 0.0, 10.0)
+    let g1: solid = union(base, flp)
     let g2: solid = union(g1, frp)
     emit g2
 
 command wheel_unit() -> solid:
-    let hub: solid = cylinder(30.0, 8.0)
-    let rim_o: solid = cylinder(35.0, 18.0)
-    let rim_i: solid = cylinder(28.0, 20.0)
+    # Hub + rim. Base at z=0.
+    let hub: solid = cylinder(25.0, 8.0)
+    let rim_o: solid = cylinder(35.0, 20.0)
+    let rim_i: solid = cylinder(28.0, 22.0)
     let rim: solid = difference(rim_o, rim_i)
     let rim_up: solid = translate(rim, 0.0, 0.0, 8.0)
     let w: solid = union(hub, rim_up)
@@ -54,96 +65,129 @@ command wheel_unit() -> solid:
 # === PER-LAYER COMMANDS ===
 
 command BODY() -> solid:
-    let body: solid = box(120.0, 120.0, 80.0)
-    let bc: solid = translate(body, -60.0, -60.0, -40.0)
-    emit bc, name="body", layer="body", material="aluminum"
+    let body: solid = hexagonal_body()
+    emit body, name="body", layer="body", material="aluminum"
 
 command CONNECTORS() -> solid:
     let cr: solid = connector_ring()
 
-    # Body-to-arm connectors at each face (x=±60, y=±60)
-    let c1: solid = rotate(cr, 0.0, 90.0, 0.0)
-    let c1p: solid = translate(c1, 62.5, 0.0, 0.0)
+    # 5 connector pairs at 72° intervals
+    # Body hex circumradius = 70mm. Connector at face.
+    # Arm 0 at 0° (+X direction)
+    let c0a: solid = rotate(cr, 0.0, 90.0, 0.0)
+    let c0b: solid = translate(c0a, 70.0, 0.0, 0.0)
 
-    let c2: solid = rotate(cr, 0.0, -90.0, 0.0)
-    let c2p: solid = translate(c2, -62.5, 0.0, 0.0)
+    # Arm 1 at 72°
+    let c1a: solid = rotate(cr, 0.0, 90.0, 0.0)
+    let c1t: solid = translate(c1a, 70.0, 0.0, 0.0)
+    let c1b: solid = rotate(c1t, 0.0, 0.0, 72.0)
 
-    let c3: solid = rotate(cr, -90.0, 0.0, 0.0)
-    let c3p: solid = translate(c3, 0.0, 62.5, 0.0)
+    # Arm 2 at 144°
+    let c2a: solid = rotate(cr, 0.0, 90.0, 0.0)
+    let c2t: solid = translate(c2a, 70.0, 0.0, 0.0)
+    let c2b: solid = rotate(c2t, 0.0, 0.0, 144.0)
 
-    let c4: solid = rotate(cr, 90.0, 0.0, 0.0)
-    let c4p: solid = translate(c4, 0.0, -62.5, 0.0)
+    # Arm 3 at 216°
+    let c3a: solid = rotate(cr, 0.0, 90.0, 0.0)
+    let c3t: solid = translate(c3a, 70.0, 0.0, 0.0)
+    let c3b: solid = rotate(c3t, 0.0, 0.0, 216.0)
 
-    # Arm-to-effector connectors at outer arm faces
-    # Arm outer face at body_face(60) + gap(5) + arm(110) = 175
-    let ao1: solid = rotate(cr, 0.0, 90.0, 0.0)
-    let ao1p: solid = translate(ao1, 177.5, 0.0, 0.0)
+    # Arm 4 at 288°
+    let c4a: solid = rotate(cr, 0.0, 90.0, 0.0)
+    let c4t: solid = translate(c4a, 70.0, 0.0, 0.0)
+    let c4b: solid = rotate(c4t, 0.0, 0.0, 288.0)
 
-    let ao2: solid = rotate(cr, 0.0, -90.0, 0.0)
-    let ao2p: solid = translate(ao2, -177.5, 0.0, 0.0)
+    # Outer connectors at arm tips (70 + 5 + 120 = 195)
+    let co0a: solid = rotate(cr, 0.0, 90.0, 0.0)
+    let co0b: solid = translate(co0a, 195.0, 0.0, 0.0)
 
-    let ao3: solid = rotate(cr, -90.0, 0.0, 0.0)
-    let ao3p: solid = translate(ao3, 0.0, 177.5, 0.0)
+    let co1a: solid = rotate(cr, 0.0, 90.0, 0.0)
+    let co1t: solid = translate(co1a, 195.0, 0.0, 0.0)
+    let co1b: solid = rotate(co1t, 0.0, 0.0, 72.0)
 
-    let ao4: solid = rotate(cr, 90.0, 0.0, 0.0)
-    let ao4p: solid = translate(ao4, 0.0, -177.5, 0.0)
+    let co2a: solid = rotate(cr, 0.0, 90.0, 0.0)
+    let co2t: solid = translate(co2a, 195.0, 0.0, 0.0)
+    let co2b: solid = rotate(co2t, 0.0, 0.0, 144.0)
 
-    let u1: solid = union(c1p, c2p)
-    let u2: solid = union(u1, c3p)
-    let u3: solid = union(u2, c4p)
-    let u4: solid = union(u3, ao1p)
-    let u5: solid = union(u4, ao2p)
-    let u6: solid = union(u5, ao3p)
-    let u7: solid = union(u6, ao4p)
+    let co3a: solid = rotate(cr, 0.0, 90.0, 0.0)
+    let co3t: solid = translate(co3a, 195.0, 0.0, 0.0)
+    let co3b: solid = rotate(co3t, 0.0, 0.0, 216.0)
 
-    emit u7, name="connectors", layer="connector", material="copper"
+    let co4a: solid = rotate(cr, 0.0, 90.0, 0.0)
+    let co4t: solid = translate(co4a, 195.0, 0.0, 0.0)
+    let co4b: solid = rotate(co4t, 0.0, 0.0, 288.0)
+
+    let u1: solid = union(c0b, c1b)
+    let u2: solid = union(u1, c2b)
+    let u3: solid = union(u2, c3b)
+    let u4: solid = union(u3, c4b)
+    let u5: solid = union(u4, co0b)
+    let u6: solid = union(u5, co1b)
+    let u7: solid = union(u6, co2b)
+    let u8: solid = union(u7, co3b)
+    let u9: solid = union(u8, co4b)
+
+    emit u9, name="connectors", layer="connector", material="copper"
 
 command ARMS() -> solid:
-    let seg: solid = arm_segment()
+    let seg: solid = arm_cylinder()
 
-    # Arm inner face at body_face(60) + connector(5) = 65
-    # Arm extends from 65 to 175 along each axis
-    # +X arm: rotate so arm Z axis points along +X, base at x=65
-    let a1r: solid = rotate(seg, 0.0, -90.0, 0.0)
-    let a1p: solid = translate(a1r, 65.0, 0.0, 0.0)
+    # Arm base at body face (70) + connector (5) = 75
+    # Rotate cylinder so Z axis → radial outward, then translate out
+    # Arm 0 at 0°
+    let a0r: solid = rotate(seg, 0.0, 90.0, 0.0)
+    let a0p: solid = translate(a0r, 75.0, 0.0, 0.0)
 
-    # -X arm: rotate so arm Z axis points along -X, base at x=-65
+    # Arm 1 at 72°
+    let a1r: solid = rotate(seg, 0.0, 90.0, 0.0)
+    let a1t: solid = translate(a1r, 75.0, 0.0, 0.0)
+    let a1p: solid = rotate(a1t, 0.0, 0.0, 72.0)
+
+    # Arm 2 at 144°
     let a2r: solid = rotate(seg, 0.0, 90.0, 0.0)
-    let a2p: solid = translate(a2r, -65.0, 0.0, 0.0)
+    let a2t: solid = translate(a2r, 75.0, 0.0, 0.0)
+    let a2p: solid = rotate(a2t, 0.0, 0.0, 144.0)
 
-    # +Y arm
-    let a3r: solid = rotate(seg, 90.0, 0.0, 0.0)
-    let a3p: solid = translate(a3r, 0.0, 65.0, 0.0)
+    # Arm 3 at 216°
+    let a3r: solid = rotate(seg, 0.0, 90.0, 0.0)
+    let a3t: solid = translate(a3r, 75.0, 0.0, 0.0)
+    let a3p: solid = rotate(a3t, 0.0, 0.0, 216.0)
 
-    # -Y arm
-    let a4r: solid = rotate(seg, -90.0, 0.0, 0.0)
-    let a4p: solid = translate(a4r, 0.0, -65.0, 0.0)
+    # Arm 4 at 288°
+    let a4r: solid = rotate(seg, 0.0, 90.0, 0.0)
+    let a4t: solid = translate(a4r, 75.0, 0.0, 0.0)
+    let a4p: solid = rotate(a4t, 0.0, 0.0, 288.0)
 
-    let u1: solid = union(a1p, a2p)
-    let u2: solid = union(u1, a3p)
-    let u3: solid = union(u2, a4p)
+    let u1: solid = union(a0p, a1p)
+    let u2: solid = union(u1, a2p)
+    let u3: solid = union(u2, a3p)
+    let u4: solid = union(u3, a4p)
 
-    emit u3, name="arms", layer="arm", material="steel"
+    emit u4, name="arms", layer="arm", material="steel"
 
 command EFFECTORS() -> solid:
-    # Effector base at arm_outer(175) + connector(5) = 180
-    # +X gripper
+    # Effector base at arm tip (75 + 120) + connector (5) = 200
+    # Arms 0,1: grippers. Arm 2: wheel. Arms 3,4: open (no effector).
+
+    # Gripper at 0°
+    let g0: solid = gripper_unit()
+    let g0r: solid = rotate(g0, 0.0, 90.0, 0.0)
+    let g0t: solid = translate(g0r, 200.0, 0.0, 0.0)
+
+    # Gripper at 72°
     let g1: solid = gripper_unit()
-    let g1r: solid = rotate(g1, 0.0, -90.0, 0.0)
-    let g1p: solid = translate(g1r, 180.0, 0.0, 0.0)
+    let g1r: solid = rotate(g1, 0.0, 90.0, 0.0)
+    let g1t: solid = translate(g1r, 200.0, 0.0, 0.0)
+    let g1p: solid = rotate(g1t, 0.0, 0.0, 72.0)
 
-    # -X gripper
-    let g2: solid = gripper_unit()
-    let g2r: solid = rotate(g2, 0.0, 90.0, 0.0)
-    let g2p: solid = translate(g2r, -180.0, 0.0, 0.0)
+    # Wheel at 144°
+    let w2: solid = wheel_unit()
+    let w2r: solid = rotate(w2, 0.0, 90.0, 0.0)
+    let w2t: solid = translate(w2r, 200.0, 0.0, 0.0)
+    let w2p: solid = rotate(w2t, 0.0, 0.0, 144.0)
 
-    # +Y wheel
-    let w1: solid = wheel_unit()
-    let w1r: solid = rotate(w1, 90.0, 0.0, 0.0)
-    let w1p: solid = translate(w1r, 0.0, 180.0, 0.0)
-
-    let u1: solid = union(g1p, g2p)
-    let u2: solid = union(u1, w1p)
+    let u1: solid = union(g0t, g1p)
+    let u2: solid = union(u1, w2p)
 
     emit u2, name="effectors", layer="effector", material="plastic"
 
@@ -154,7 +198,6 @@ command ASSEMBLY() -> solid:
     let conn: solid = CONNECTORS()
     let arms: solid = ARMS()
     let eff: solid = EFFECTORS()
-
     let u1: solid = union(body, conn)
     let u2: solid = union(u1, arms)
     let u3: solid = union(u2, eff)
