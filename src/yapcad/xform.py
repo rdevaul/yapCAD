@@ -26,6 +26,7 @@
 # SOFTWARE.
 
 from math import *
+import numbers
 import yapcad.geom as geom
 
 ## a matrix is represented as a list of four four vectors. In a
@@ -69,7 +70,7 @@ class Matrix:
                         for j in range(4):
                             x =a[i][j]
                             if (not isinstance(x,bool)) and \
-                               isinstance(x,(int,float)):
+                               isinstance(x,numbers.Number):
                                 self.m[i][j]=x
                             else:
                                 raise ValueError('bad element in matrix initialization: {}'.format(x))
@@ -79,7 +80,7 @@ class Matrix:
                         ind=i*4+j
                         x = a[ind]
                         if (not isinstance(x,bool)) and \
-                           isinstance(x,(int,float)):
+                           isinstance(x,numbers.Number):
                             self.m[i][j]=x
                         else:
                             raise ValueError('bad element in matrix initialization: {}'.format(x))

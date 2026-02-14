@@ -367,6 +367,27 @@ def _normalize3(v, tol):
     return [v[0] / m, v[1] / m, v[2] / m]
 
 
+def _point_to_key(p):
+    """
+    Convert a point to a hashable key for edge/vertex identification.
+    Uses rounded coordinates to handle floating point precision issues.
+    """
+    # Round to a reasonable precision to handle floating point comparison
+    return (round(p[0] / epsilon) * epsilon,
+            round(p[1] / epsilon) * epsilon,
+            round(p[2] / epsilon) * epsilon)
+
+
+def _canonical_edge_key(p1, p2):
+    """
+    Create a canonical edge key from two points.
+    Returns tuple of keys in sorted order so (p1,p2) and (p2,p1) map to same edge.
+    """
+    k1 = _point_to_key(p1)
+    k2 = _point_to_key(p2)
+    return (min(k1, k2), max(k1, k2))
+
+
 def _lerp_point(p0, p1, t):
     return point(
         p0[0] + (p1[0] - p0[0]) * t,

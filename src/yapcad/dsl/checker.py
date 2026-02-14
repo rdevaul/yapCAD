@@ -797,6 +797,10 @@ class TypeChecker:
                     else:
                         # concat, reverse: list<T> -> list<T>
                         return_type = arg_types[0]
+            elif sig.name in ('radial_pattern', 'linear_pattern'):
+                # Pattern functions: T -> list<T> (first arg is the shape)
+                if arg_types:
+                    return_type = ListType(arg_types[0])
 
         return return_type
 

@@ -29,13 +29,13 @@ import math
 from .values import (
     Value, int_val, float_val, bool_val, string_val, list_val,
     point_val, vector_val, transform_val, solid_val, region2d_val,
-    surface_val, shell_val, path3d_val, wrap_value, unwrap_value, unwrap_values,
+    surface_val, shell_val, path3d_val, edge_list_val, wrap_value, unwrap_value, unwrap_values,
 )
 from ..types import (
     Type, ListType,
     INT, FLOAT, BOOL, STRING, UNKNOWN,
     POINT, POINT2D, POINT3D, VECTOR, VECTOR2D, VECTOR3D, TRANSFORM,
-    SOLID, REGION2D, SURFACE, SHELL,
+    SOLID, REGION2D, SURFACE, SHELL, EDGE,
     LINE_SEGMENT, ARC, CIRCLE, ELLIPSE, BEZIER, NURBS, CATMULLROM,
     PATH2D, PATH3D, PROFILE2D,
 )
@@ -113,6 +113,7 @@ class BuiltinRegistry:
         self._register_phase2_geometry_functions()
         self._register_phase3_text_functions()
         self._register_phase4_path_functions()
+        self._register_edge_selection_functions()
 
     # --- Math Functions ---
 
@@ -1481,9 +1482,20 @@ class BuiltinRegistry:
             if len(pts) < 3:
                 raise ValueError("Spline produced too few sample points")
 
+            # Check if the spline samples already form a closed loop
+            # (first and last points are the same)
+            def _points_equal(p1, p2, tol=1e-9):
+                return (abs(p1[0] - p2[0]) < tol and
+                        abs(p1[1] - p2[1]) < tol and
+                        abs(p1[2] - p2[2]) < tol)
+
+            is_closed = _points_equal(pts[0], pts[-1])
+
             # Create polygon from sample points
+            # If closed, skip the last degenerate edge (from pts[-1] back to pts[0])
             region = []
-            for i in range(len(pts)):
+            num_edges = len(pts) - 1 if is_closed else len(pts)
+            for i in range(num_edges):
                 p1 = point(pts[i][0], pts[i][1])
                 p2 = point(pts[(i + 1) % len(pts)][0], pts[(i + 1) % len(pts)][1])
                 region.append(line(p1, p2))
@@ -1964,24 +1976,32 @@ class BuiltinRegistry:
         def _sun_gear_with_hub(teeth: Value, module_mm: Value, face_width: Value,
                                helix_angle: Value, hub_diameter: Value, hub_height: Value,
                                bolt_circle: Value, num_bolts: Value, bolt_hole_diameter: Value) -> Value:
-            """Create a sun gear with integrated hub using OCC booleans for speed.
+            """Create a sun gear with flanged hub for servo horn mounting.
 
             Uses OCC BREP booleans directly (staying in OCC-land) rather than
             mesh-based booleans, which is significantly faster.
+
+            The hub design consists of:
+            1. A central boss connecting to the gear root (hub_diameter)
+            2. A mounting flange that expands to reach the bolt circle
+            3. A center counterbore to clear servo horn center protrusion
+
+            This flanged design allows small-module gears (0.75mm) to still
+            reach larger servo horn bolt circles (16-18mm).
 
             Args:
                 teeth: Number of teeth
                 module_mm: Module in mm
                 face_width: Gear face width
                 helix_angle: Helix angle in degrees
-                hub_diameter: Hub diameter in mm
-                hub_height: Hub height below gear (extends down from z=0)
+                hub_diameter: Inner hub/boss diameter (connects to gear root)
+                hub_height: Total hub height below gear (extends down from z=0)
                 bolt_circle: Bolt circle diameter for servo horn
                 num_bolts: Number of bolt holes (typically 4)
                 bolt_hole_diameter: Diameter of bolt holes
 
             Returns:
-                Complete sun gear with hub and bolt holes
+                Complete sun gear with flanged hub and bolt holes
             """
             import math
             from yapcad.contrib.figgear import make_gear_figure
@@ -2004,13 +2024,34 @@ class BuiltinRegistry:
             helix_deg = float(helix_angle.data)
             hub_d = float(hub_diameter.data)
             hub_h = float(hub_height.data)
-            bolt_r = float(bolt_circle.data) / 2.0
+            bolt_circle_d = float(bolt_circle.data)
+            bolt_r = bolt_circle_d / 2.0
             n_bolts = int(num_bolts.data)
             hole_d = float(bolt_hole_diameter.data)
 
             pitch_diameter = n_teeth * mod
             pitch_radius = pitch_diameter / 2.0
             half_height = width / 2.0
+
+            # Calculate root diameter (dedendum = 1.25 * module)
+            root_diameter = n_teeth * mod - 2.5 * mod
+
+            # Flange design parameters:
+            # - Flange extends from hub_d to bolt_circle + clearance for bolt heads
+            # - M2.5 bolt head is ~4.5mm, M2 is ~3.8mm - need ~2.5mm beyond bolt center
+            flange_od = bolt_circle_d + hole_d + 3.0  # Bolt circle + hole radius + wall
+            flange_thickness = 3.0  # 3mm thick flange is sufficient for M2.5 bolts
+
+            # Boss (inner hub) extends from gear root down, with flange at bottom
+            # If hub_d is larger than root_diameter, use hub_d; otherwise use root_d
+            boss_diameter = max(hub_d, root_diameter - 1.0)  # Slightly under root for clearance
+            boss_height = hub_h - flange_thickness  # Boss above flange
+
+            # Servo horn center protrusion clearance:
+            # - Typical XH430/XH540 horn has ~6mm dia center boss, ~2.5mm tall
+            # - Add counterbore to clear this
+            center_bore_diameter = 8.0  # 8mm clearance for horn center protrusion
+            center_bore_depth = 3.0  # 3mm deep counterbore
 
             # Generate gear profile
             profile_points, _ = make_gear_figure(
@@ -2061,17 +2102,41 @@ class BuiltinRegistry:
                 raise RuntimeError("Failed to fuse gear halves")
             gear_shape = fuse_halves.Shape()
 
-            # Create hub cylinder at z=-hub_h to z=0
-            hub_axis = gp_Ax2(gp_Pnt(0, 0, -hub_h), gp_Dir(0, 0, 1))
-            hub_shape = BRepPrimAPI_MakeCylinder(hub_axis, hub_d/2.0, hub_h).Shape()
+            # Add integral hub within gear face to fill tooth root valleys
+            # Hub radius = dedendum radius + margin to cover spline overshoot
+            # The gear profile uses spline interpolation at tooth roots, which can
+            # extend slightly beyond the theoretical dedendum circle. Add 0.2*module
+            # margin to ensure complete coverage and eliminate all visible holes.
+            dedendum_diameter = n_teeth * mod - 2.5 * mod
+            dedendum_radius = dedendum_diameter / 2.0
+            hub_margin = 0.2 * mod  # 20% of module to cover spline interpolation
+            hub_radius = dedendum_radius + hub_margin
+            gear_hub_axis = gp_Ax2(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1))
+            gear_hub_shape = BRepPrimAPI_MakeCylinder(gear_hub_axis, hub_radius, width).Shape()
+            fuse_gear_hub = BRepAlgoAPI_Fuse(gear_shape, gear_hub_shape)
+            if not fuse_gear_hub.IsDone():
+                raise RuntimeError(f"Failed to fuse gear hub (radius={hub_radius:.4f}, height={width})")
+            gear_shape = fuse_gear_hub.Shape()
 
-            # Fuse gear and hub
-            fuse_hub = BRepAlgoAPI_Fuse(gear_shape, hub_shape)
-            if not fuse_hub.IsDone():
-                raise RuntimeError("Failed to fuse gear and hub")
-            body_shape = fuse_hub.Shape()
+            # Create flanged hub:
+            # 1. Inner boss cylinder from z=-boss_height to z=0
+            if boss_height > 0:
+                boss_axis = gp_Ax2(gp_Pnt(0, 0, -boss_height), gp_Dir(0, 0, 1))
+                boss_shape = BRepPrimAPI_MakeCylinder(boss_axis, boss_diameter/2.0, boss_height).Shape()
+                fuse_boss = BRepAlgoAPI_Fuse(gear_shape, boss_shape)
+                if fuse_boss.IsDone():
+                    gear_shape = fuse_boss.Shape()
 
-            # Create and subtract bolt holes
+            # 2. Mounting flange at bottom (z=-hub_h to z=-boss_height)
+            flange_axis = gp_Ax2(gp_Pnt(0, 0, -hub_h), gp_Dir(0, 0, 1))
+            flange_shape = BRepPrimAPI_MakeCylinder(flange_axis, flange_od/2.0, flange_thickness).Shape()
+
+            fuse_flange = BRepAlgoAPI_Fuse(gear_shape, flange_shape)
+            if not fuse_flange.IsDone():
+                raise RuntimeError("Failed to fuse gear and flange")
+            body_shape = fuse_flange.Shape()
+
+            # Create and subtract bolt holes (through full hub height)
             hole_depth = width + hub_h + 2.0
             for i in range(n_bolts):
                 angle = math.radians(45.0 + i * (360.0 / n_bolts))
@@ -2083,12 +2148,14 @@ class BuiltinRegistry:
                 if cut.IsDone():
                     body_shape = cut.Shape()
 
-            # Center hole
-            center_axis = gp_Ax2(gp_Pnt(0, 0, -hub_h - 1.0), gp_Dir(0, 0, 1))
-            center_hole = BRepPrimAPI_MakeCylinder(center_axis, hole_d/2.0, hole_depth).Shape()
-            cut_center = BRepAlgoAPI_Cut(body_shape, center_hole)
-            if cut_center.IsDone():
-                body_shape = cut_center.Shape()
+            # Center counterbore for servo horn protrusion clearance
+            # This is a shallow pocket at the bottom of the hub
+            counterbore_axis = gp_Ax2(gp_Pnt(0, 0, -hub_h - 0.1), gp_Dir(0, 0, 1))
+            counterbore = BRepPrimAPI_MakeCylinder(counterbore_axis, center_bore_diameter/2.0,
+                                                   center_bore_depth + 0.1).Shape()
+            cut_counterbore = BRepAlgoAPI_Cut(body_shape, counterbore)
+            if cut_counterbore.IsDone():
+                body_shape = cut_counterbore.Shape()
 
             # Tessellate and create yapCAD solid
             brep = BrepSolid(body_shape)
@@ -2255,6 +2322,107 @@ class BuiltinRegistry:
             "split_solid",
             _make_sig("split_solid", [SOLID, POINT3D, VECTOR3D], SOLID),
             _split_solid,
+        ))
+        # --- Text Solid Functions (from assembly branch) ---
+
+        def _text_solid_fitted(text_str: Value, max_width: Value, depth: Value) -> Value:
+            """Create 3D text that fits within max_width by auto-scaling height.
+
+            This function automatically calculates the optimal character height to
+            ensure the text fits within the specified maximum width. It will not
+            go below 3mm height to maintain readability.
+
+            Args:
+                text_str: String to render
+                max_width: Maximum allowed width in mm
+                depth: Extrusion depth in mm
+
+            Returns:
+                yapCAD solid (auto-sized to fit within max_width)
+            """
+            from yapcad.text3d import text_solid_fitted
+            solid, actual_height = text_solid_fitted(text_str.data, max_width.data, depth.data)
+            return solid_val(solid)
+
+        self.register(BuiltinFunction(
+            "text_solid_fitted",
+            _make_sig("text_solid_fitted", [STRING, FLOAT, FLOAT], SOLID),
+            _text_solid_fitted,
+        ))
+
+        # --- text_on_surface: Simple way to place text on any surface ---
+
+        def _text_on_surface(
+            text_str: Value,
+            surface_center: Value,
+            surface_normal: Value,
+            up_direction: Value,
+            max_width: Value,
+            depth: Value,
+            margin: Value = None,
+            font: Value = None
+        ) -> Value:
+            """Place text on a surface, automatically handling all rotations.
+
+            Creates 3D text positioned on an arbitrary surface. The text is
+            automatically sized to fit within max_width and rotated to face
+            outward along the surface normal.
+
+            Args:
+                text_str: String to render
+                surface_center: (x, y, z) tuple - center point where text should be placed
+                surface_normal: (x, y, z) tuple - outward-pointing normal of the surface
+                up_direction: (x, y, z) tuple - "up" direction on surface (text baseline to top)
+                max_width: Maximum text width in mm
+                depth: How far text protrudes from surface in mm
+                margin: Optional margin from surface (default 0.0)
+                font: Optional font specification (path or name)
+
+            Returns:
+                yapCAD solid (text positioned and oriented on surface)
+
+            Example for front face of battery cage (+Y face):
+                text_on_surface(
+                    "DARK MATTER LAB",
+                    (0.0, 66.5, 100.0),  # center of front face at Z=100
+                    (0.0, 1.0, 0.0),     # face outward (+Y)
+                    (0.0, 0.0, 1.0),     # up is +Z
+                    180.0,               # max width
+                    1.5,                 # depth
+                    0.0,                 # margin
+                    "path/to/font.ttf"   # font
+                )
+            """
+            from yapcad.text3d import text_on_surface
+
+            # Extract tuple data from Value objects
+            center = surface_center.data
+            normal = surface_normal.data
+            up = up_direction.data
+
+            # Build kwargs for optional parameters
+            kwargs = {}
+            if margin is not None:
+                kwargs['margin'] = margin.data
+            if font is not None:
+                kwargs['font'] = font.data
+
+            return solid_val(text_on_surface(
+                text_str.data,
+                center,
+                normal,
+                up,
+                max_width.data,
+                depth.data,
+                **kwargs
+            ))
+
+        # Register with signature: text_on_surface(text, center, normal, up, max_width, depth, margin?, font?)
+        # center, normal, up are POINT3D (tuples), max_width, depth, margin are FLOAT, font is STRING
+        self.register(BuiltinFunction(
+            "text_on_surface",
+            _make_sig("text_on_surface", [STRING, POINT3D, POINT3D, POINT3D, FLOAT, FLOAT, FLOAT, STRING], SOLID),
+            _text_on_surface,
         ))
 
     # --- Fastener Functions ---
@@ -2994,6 +3162,413 @@ class BuiltinRegistry:
             "chamfer",
             _make_sig("chamfer", [SOLID, FLOAT], SOLID),
             _chamfer,
+        ))
+
+    # --- Edge Selection and Selective Fillet/Chamfer Functions ---
+
+    def _register_edge_selection_functions(self) -> None:
+        """Register BREP edge selection and selective fillet/chamfer operations."""
+
+        # Edge selection by direction
+
+        def _select_vertical_edges(brep_solid: Value, tolerance_deg: Value = None) -> Value:
+            """Select edges parallel to the Z axis (vertical).
+
+            Args:
+                brep_solid: A solid with BREP data
+                tolerance_deg: Angular tolerance in degrees (default 1.0)
+
+            Returns:
+                List of vertical edges
+            """
+            from yapcad.brep import brep_from_solid, occ_available
+            from yapcad.brep_edge_select import select_vertical_edges
+
+            if not occ_available():
+                raise RuntimeError("select_vertical_edges requires pythonocc-core")
+
+            brep = brep_from_solid(brep_solid.data)
+            if brep is None:
+                raise RuntimeError("select_vertical_edges requires a solid with BREP data")
+
+            tol = 1.0 if tolerance_deg is None else float(tolerance_deg.data)
+            edges = select_vertical_edges(brep, tol)
+            return edge_list_val(edges)
+
+        def _select_horizontal_edges(brep_solid: Value, tolerance_deg: Value = None) -> Value:
+            """Select edges perpendicular to the Z axis (horizontal).
+
+            Args:
+                brep_solid: A solid with BREP data
+                tolerance_deg: Angular tolerance in degrees (default 1.0)
+
+            Returns:
+                List of horizontal edges
+            """
+            from yapcad.brep import brep_from_solid, occ_available
+            from yapcad.brep_edge_select import select_horizontal_edges
+
+            if not occ_available():
+                raise RuntimeError("select_horizontal_edges requires pythonocc-core")
+
+            brep = brep_from_solid(brep_solid.data)
+            if brep is None:
+                raise RuntimeError("select_horizontal_edges requires a solid with BREP data")
+
+            tol = 1.0 if tolerance_deg is None else float(tolerance_deg.data)
+            edges = select_horizontal_edges(brep, tol)
+            return edge_list_val(edges)
+
+        def _select_edges_by_direction(brep_solid: Value, direction: Value, tolerance_deg: Value = None) -> Value:
+            """Select edges parallel to a given direction.
+
+            Args:
+                brep_solid: A solid with BREP data
+                direction: Direction vector (3D)
+                tolerance_deg: Angular tolerance in degrees (default 1.0)
+
+            Returns:
+                List of edges parallel to the direction
+            """
+            from yapcad.brep import brep_from_solid, occ_available
+            from yapcad.brep_edge_select import select_edges_by_direction
+
+            if not occ_available():
+                raise RuntimeError("select_edges_by_direction requires pythonocc-core")
+
+            brep = brep_from_solid(brep_solid.data)
+            if brep is None:
+                raise RuntimeError("select_edges_by_direction requires a solid with BREP data")
+
+            dir_vec = direction.data
+            tol = 1.0 if tolerance_deg is None else float(tolerance_deg.data)
+            edges = select_edges_by_direction(brep, dir_vec, tol)
+            return edge_list_val(edges)
+
+        # Edge selection by length
+
+        def _select_edges_by_length(brep_solid: Value, min_length: Value = None, max_length: Value = None) -> Value:
+            """Select edges within a length range.
+
+            Args:
+                brep_solid: A solid with BREP data
+                min_length: Minimum edge length (optional)
+                max_length: Maximum edge length (optional)
+
+            Returns:
+                List of edges within the length range
+            """
+            from yapcad.brep import brep_from_solid, occ_available
+            from yapcad.brep_edge_select import select_edges_by_length
+
+            if not occ_available():
+                raise RuntimeError("select_edges_by_length requires pythonocc-core")
+
+            brep = brep_from_solid(brep_solid.data)
+            if brep is None:
+                raise RuntimeError("select_edges_by_length requires a solid with BREP data")
+
+            min_len = None if min_length is None else float(min_length.data)
+            max_len = None if max_length is None else float(max_length.data)
+            edges = select_edges_by_length(brep, min_len, max_len)
+            return edge_list_val(edges)
+
+        # Edge selection by Z position
+
+        def _select_edges_at_z(brep_solid: Value, z_value: Value, tolerance: Value = None) -> Value:
+            """Select edges at a specific Z height.
+
+            Args:
+                brep_solid: A solid with BREP data
+                z_value: The Z coordinate to match
+                tolerance: Position tolerance (default 0.001)
+
+            Returns:
+                List of edges at the specified Z height
+            """
+            from yapcad.brep import brep_from_solid, occ_available
+            from yapcad.brep_edge_select import select_edges_at_z
+
+            if not occ_available():
+                raise RuntimeError("select_edges_at_z requires pythonocc-core")
+
+            brep = brep_from_solid(brep_solid.data)
+            if brep is None:
+                raise RuntimeError("select_edges_at_z requires a solid with BREP data")
+
+            z = float(z_value.data)
+            tol = 0.001 if tolerance is None else float(tolerance.data)
+            edges = select_edges_at_z(brep, z, tol)
+            return edge_list_val(edges)
+
+        def _select_edges_in_z_range(brep_solid: Value, z_min: Value, z_max: Value, tolerance: Value = None) -> Value:
+            """Select edges within a Z range.
+
+            Args:
+                brep_solid: A solid with BREP data
+                z_min: Minimum Z coordinate
+                z_max: Maximum Z coordinate
+                tolerance: Position tolerance (default 0.001)
+
+            Returns:
+                List of edges within the Z range
+            """
+            from yapcad.brep import brep_from_solid, occ_available
+            from yapcad.brep_edge_select import select_edges_in_z_range
+
+            if not occ_available():
+                raise RuntimeError("select_edges_in_z_range requires pythonocc-core")
+
+            brep = brep_from_solid(brep_solid.data)
+            if brep is None:
+                raise RuntimeError("select_edges_in_z_range requires a solid with BREP data")
+
+            z1 = float(z_min.data)
+            z2 = float(z_max.data)
+            tol = 0.001 if tolerance is None else float(tolerance.data)
+            edges = select_edges_in_z_range(brep, z1, z2, tol)
+            return edge_list_val(edges)
+
+        def _select_top_edges(brep_solid: Value, tolerance: Value = None) -> Value:
+            """Select edges at the maximum Z height of the solid.
+
+            Args:
+                brep_solid: A solid with BREP data
+                tolerance: Position tolerance (default 0.001)
+
+            Returns:
+                List of edges at the top of the solid
+            """
+            from yapcad.brep import brep_from_solid, occ_available
+            from yapcad.brep_edge_select import select_top_edges
+
+            if not occ_available():
+                raise RuntimeError("select_top_edges requires pythonocc-core")
+
+            brep = brep_from_solid(brep_solid.data)
+            if brep is None:
+                raise RuntimeError("select_top_edges requires a solid with BREP data")
+
+            tol = 0.001 if tolerance is None else float(tolerance.data)
+            edges = select_top_edges(brep, tol)
+            return edge_list_val(edges)
+
+        def _select_bottom_edges(brep_solid: Value, tolerance: Value = None) -> Value:
+            """Select edges at the minimum Z height of the solid.
+
+            Args:
+                brep_solid: A solid with BREP data
+                tolerance: Position tolerance (default 0.001)
+
+            Returns:
+                List of edges at the bottom of the solid
+            """
+            from yapcad.brep import brep_from_solid, occ_available
+            from yapcad.brep_edge_select import select_bottom_edges
+
+            if not occ_available():
+                raise RuntimeError("select_bottom_edges requires pythonocc-core")
+
+            brep = brep_from_solid(brep_solid.data)
+            if brep is None:
+                raise RuntimeError("select_bottom_edges requires a solid with BREP data")
+
+            tol = 0.001 if tolerance is None else float(tolerance.data)
+            edges = select_bottom_edges(brep, tol)
+            return edge_list_val(edges)
+
+        # Edge set operations
+
+        def _union_edges(edges1: Value, edges2: Value) -> Value:
+            """Combine multiple edge lists, removing duplicates.
+
+            Args:
+                edges1: First list of edges
+                edges2: Second list of edges
+
+            Returns:
+                Combined list of unique edges
+            """
+            from yapcad.brep_edge_select import union_edges
+
+            result = union_edges(edges1.data, edges2.data)
+            return edge_list_val(result)
+
+        def _intersect_edges(edges1: Value, edges2: Value) -> Value:
+            """Find edges common to both lists.
+
+            Args:
+                edges1: First list of edges
+                edges2: Second list of edges
+
+            Returns:
+                List of edges present in both input lists
+            """
+            from yapcad.brep_edge_select import intersect_edges
+
+            result = intersect_edges(edges1.data, edges2.data)
+            return edge_list_val(result)
+
+        def _subtract_edges(base_edges: Value, to_remove: Value) -> Value:
+            """Remove edges from a list.
+
+            Args:
+                base_edges: The original list of edges
+                to_remove: Edges to remove from the base list
+
+            Returns:
+                List of edges from base_edges not in to_remove
+            """
+            from yapcad.brep_edge_select import subtract_edges
+
+            result = subtract_edges(base_edges.data, to_remove.data)
+            return edge_list_val(result)
+
+        # Selective fillet and chamfer
+
+        def _fillet_edges(brep_solid: Value, edges: Value, radius: Value) -> Value:
+            """Apply fillet to selected edges only.
+
+            Args:
+                brep_solid: A solid with BREP data
+                edges: List of edges to fillet
+                radius: Fillet radius
+
+            Returns:
+                A new solid with filleted edges
+            """
+            from yapcad.brep import (
+                brep_from_solid, attach_brep_to_solid,
+                fillet_edges, occ_available
+            )
+            from yapcad.geom3d import solid
+
+            if not occ_available():
+                raise RuntimeError("fillet_edges requires pythonocc-core")
+
+            brep = brep_from_solid(brep_solid.data)
+            if brep is None:
+                raise RuntimeError("fillet_edges requires a solid with BREP data")
+
+            r = float(radius.data)
+            edge_list = edges.data
+            filleted_brep = fillet_edges(brep, edge_list, r)
+
+            surface = filleted_brep.tessellate()
+            new_solid = solid([surface], [], ['procedure', 'fillet_edges'])
+            attach_brep_to_solid(new_solid, filleted_brep)
+
+            return solid_val(new_solid)
+
+        def _chamfer_edges(brep_solid: Value, edges: Value, distance: Value) -> Value:
+            """Apply chamfer to selected edges only.
+
+            Args:
+                brep_solid: A solid with BREP data
+                edges: List of edges to chamfer
+                distance: Chamfer distance from edge
+
+            Returns:
+                A new solid with chamfered edges
+            """
+            from yapcad.brep import (
+                brep_from_solid, attach_brep_to_solid,
+                chamfer_edges, occ_available
+            )
+            from yapcad.geom3d import solid
+
+            if not occ_available():
+                raise RuntimeError("chamfer_edges requires pythonocc-core")
+
+            brep = brep_from_solid(brep_solid.data)
+            if brep is None:
+                raise RuntimeError("chamfer_edges requires a solid with BREP data")
+
+            d = float(distance.data)
+            edge_list = edges.data
+            chamfered_brep = chamfer_edges(brep, edge_list, d)
+
+            surface = chamfered_brep.tessellate()
+            new_solid = solid([surface], [], ['procedure', 'chamfer_edges'])
+            attach_brep_to_solid(new_solid, chamfered_brep)
+
+            return solid_val(new_solid)
+
+        # Register all edge selection functions
+
+        # Selection by direction
+        self.register(BuiltinFunction(
+            "select_vertical_edges",
+            _make_sig("select_vertical_edges", [SOLID, FLOAT], ListType(EDGE)),
+            _select_vertical_edges,
+        ))
+        self.register(BuiltinFunction(
+            "select_horizontal_edges",
+            _make_sig("select_horizontal_edges", [SOLID, FLOAT], ListType(EDGE)),
+            _select_horizontal_edges,
+        ))
+        self.register(BuiltinFunction(
+            "select_edges_by_direction",
+            _make_sig("select_edges_by_direction", [SOLID, VECTOR3D, FLOAT], ListType(EDGE)),
+            _select_edges_by_direction,
+        ))
+
+        # Selection by length
+        self.register(BuiltinFunction(
+            "select_edges_by_length",
+            _make_sig("select_edges_by_length", [SOLID, FLOAT, FLOAT], ListType(EDGE)),
+            _select_edges_by_length,
+        ))
+
+        # Selection by Z position
+        self.register(BuiltinFunction(
+            "select_edges_at_z",
+            _make_sig("select_edges_at_z", [SOLID, FLOAT, FLOAT], ListType(EDGE)),
+            _select_edges_at_z,
+        ))
+        self.register(BuiltinFunction(
+            "select_edges_in_z_range",
+            _make_sig("select_edges_in_z_range", [SOLID, FLOAT, FLOAT, FLOAT], ListType(EDGE)),
+            _select_edges_in_z_range,
+        ))
+        self.register(BuiltinFunction(
+            "select_top_edges",
+            _make_sig("select_top_edges", [SOLID, FLOAT], ListType(EDGE)),
+            _select_top_edges,
+        ))
+        self.register(BuiltinFunction(
+            "select_bottom_edges",
+            _make_sig("select_bottom_edges", [SOLID, FLOAT], ListType(EDGE)),
+            _select_bottom_edges,
+        ))
+
+        # Edge set operations
+        self.register(BuiltinFunction(
+            "union_edges",
+            _make_sig("union_edges", [ListType(EDGE), ListType(EDGE)], ListType(EDGE)),
+            _union_edges,
+        ))
+        self.register(BuiltinFunction(
+            "intersect_edges",
+            _make_sig("intersect_edges", [ListType(EDGE), ListType(EDGE)], ListType(EDGE)),
+            _intersect_edges,
+        ))
+        self.register(BuiltinFunction(
+            "subtract_edges",
+            _make_sig("subtract_edges", [ListType(EDGE), ListType(EDGE)], ListType(EDGE)),
+            _subtract_edges,
+        ))
+
+        # Selective fillet and chamfer
+        self.register(BuiltinFunction(
+            "fillet_edges",
+            _make_sig("fillet_edges", [SOLID, ListType(EDGE), FLOAT], SOLID),
+            _fillet_edges,
+        ))
+        self.register(BuiltinFunction(
+            "chamfer_edges",
+            _make_sig("chamfer_edges", [SOLID, ListType(EDGE), FLOAT], SOLID),
+            _chamfer_edges,
         ))
 
 

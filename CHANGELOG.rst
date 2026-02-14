@@ -8,6 +8,43 @@ Version 1.0.1 (Development)
 what's new:
 -----------
 
+  - **3D Text Support**: New ``yapcad.text3d`` module provides 3D text generation for
+    labeling parts and creating extruded or engraved text:
+
+    - ``text_solid()`` - Creates extruded 3D text as a solid
+    - ``engrave_text()`` - Cuts text into a solid surface using boolean difference
+    - ``text_to_polygons()`` - Converts text to 2D polygons for custom workflows
+    - Supports TrueType/OpenType fonts (via freetype-py) or built-in block font
+    - Auto-detects Arial font or falls back to simple printable block characters
+
+  - **Fillet and Chamfer Operations**: New BREP edge operations in ``yapcad.brep``
+    for rounding and beveling edges (requires pythonocc-core):
+
+    - ``fillet_all_edges()`` - Apply rounded fillets to all edges of a solid
+    - ``chamfer_all_edges()`` - Apply beveled chamfers to all edges of a solid
+    - ``fillet_edges()`` - Apply fillets to specific selected edges
+    - ``chamfer_edges()`` - Apply chamfers to specific selected edges
+    - Integrates with DSL via new builtins (``fillet_all``, ``chamfer_all``)
+
+  - **Edge Selection Predicates**: New ``yapcad.brep_edge_select`` module provides
+    sophisticated edge selection for selective fillet/chamfer operations:
+
+    - ``select_vertical_edges()`` - Select edges parallel to the Z axis
+    - ``select_horizontal_edges()`` - Select edges perpendicular to the Z axis
+    - ``select_edges_by_direction()`` - Select edges parallel to an arbitrary direction
+    - ``select_edges_by_length()`` - Select edges within a length range
+    - ``select_edges_at_z()`` - Select edges at a specific Z height
+    - ``select_edges_in_z_range()`` - Select edges within a Z coordinate range
+    - ``select_edges_crossing_z()`` - Select vertical edges spanning a Z value
+    - ``select_top_edges()`` - Select edges at the maximum Z height
+    - ``select_bottom_edges()`` - Select edges at the minimum Z height
+    - ``select_edges_near_point()`` - Select edges near a target point
+    - ``select_edges_in_cylinder()`` - Select edges within a cylindrical region
+    - ``filter_linear_edges()`` - Filter to keep only straight edges
+    - ``filter_curved_edges()`` - Filter to keep only curved edges
+    - Set operations: ``union_edges()``, ``intersect_edges()``, ``subtract_edges()`` for combining selections
+    - ``edge_info()`` - Query detailed geometric properties of edges
+
   - **Helical Extrusion**: New ``helical_extrude()`` function in ``yapcad.geom3d_util``
     creates smooth helical/twisted extrusions using high-resolution lofting. Ideal for
     helical gears, twisted columns, and spiral features. Requires pythonocc-core.
@@ -25,20 +62,33 @@ what's new:
     helix curves using OpenCascade's 2D parametric curve on cylindrical surface technique.
     Used internally by ``helical_extrude()`` but also available for advanced users.
 
-  - **Edge Operations**: New fillet and chamfer functions in ``yapcad.brep``:
+  - **Bezier Curve Support**: New Bezier curve primitives in ``yapcad.geom`` and
+    ``yapcad.spline`` modules for creating smooth parametric curves:
 
-    - ``fillet_all_edges()`` - Apply rounded fillets to all edges of a BREP solid
-    - ``fillet_edges()`` - Apply fillets to specific selected edges
-    - ``chamfer_all_edges()`` - Apply beveled chamfers to all edges
-    - ``chamfer_edges()`` - Apply chamfers to specific selected edges
-    - DSL builtins: ``fillet(solid, radius)`` and ``chamfer(solid, distance)``
+    - ``bezier()`` - Constructor for Bezier curves of any degree (linear, quadratic, cubic, etc.)
+    - ``bezier_point()`` - Evaluate Bezier curve at parameter t using De Casteljau's algorithm
+    - ``bezier_tangent()`` - Compute tangent vector at any point on the curve
+    - ``bezier_curve()`` - Sample Bezier curve as a polyline for rendering
+    - ``isbezier()`` - Type predicate for Bezier curve objects
+    - Full integration with ``sample()``, ``length()``, ``center()``, and ``bbox()`` functions
 
-  - **3D Text Support**: New ``yapcad.text3d`` module for creating 3D text geometry:
+  - **B-spline Curve Support**: New B-spline curve primitives for complex smooth curves
+    with local control in ``yapcad.geom`` and ``yapcad.spline`` modules:
 
-    - ``text_to_solid()`` - Generate extruded 3D text from strings
-    - ``text_to_surface()`` - Generate text as a flat surface
-    - TrueType font support via freetype-py (with block font fallback)
-    - System font discovery across macOS, Linux, and Windows
+    - ``bspline()`` - Constructor for open or closed B-spline curves with configurable degree
+    - ``bspline_point()`` - Evaluate B-spline curve at parameter t
+    - ``bspline_tangent()`` - Compute tangent vector using numerical differentiation
+    - ``bspline_curve()`` - Sample B-spline curve as a polyline
+    - ``isbspline()`` - Type predicate for B-spline curve objects
+    - Support for both open and closed curves via ``closed=True`` parameter
+    - Full integration with yapCAD geometry functions (``sample()``, ``length()``, ``center()``, ``bbox()``)
+
+  - **Curve-based 3D Operations**: New functions in ``yapcad.geom3d_util`` for creating
+    solids from curved paths:
+
+    - ``loft()`` - Create smooth solids by transitioning between 2D profiles at different Z heights
+    - ``sweep_along_path()`` - Extrude 2D profiles along Bezier or B-spline path curves
+    - Support for organic shapes, tapered forms, and complex swept geometries
 
   - **Documentation Improvements**: All new functions include comprehensive docstrings
     with parameter descriptions, return values, usage examples, and notes following

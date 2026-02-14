@@ -525,6 +525,16 @@ class SymbolTable:
             ("plane_normal", VECTOR3D, None),
         ], SOLID)  # Returns list but typed as SOLID for now (first half)
 
+        # Planet gear with integrated hub - eliminates tooth root holes
+        # Hub fills from bore to dedendum radius, full face width
+        self._register_builtin("planet_gear_with_hub", [
+            ("teeth", INT, None),
+            ("module_mm", FLOAT, None),
+            ("face_width", FLOAT, None),
+            ("helix_angle", FLOAT, None),
+            ("bore_diameter", FLOAT, None),
+        ], SOLID)
+
         # Fasteners - hex bolts and nuts from catalog
         # Metric fasteners (ISO 4014/4017 bolts, ISO 4032 nuts)
         self._register_builtin("metric_hex_bolt", [
@@ -544,6 +554,30 @@ class SymbolTable:
 
         self._register_builtin("unified_hex_nut", [
             ("size", STRING, None),           # e.g., "1/4-20", "1/2-13"
+        ], SOLID)
+
+        # Text solid generation - 3D extruded text
+        self._register_builtin("text_solid", [
+            ("text", STRING, None),           # Text string to render
+            ("height", FLOAT, None),          # Character height in mm
+            ("depth", FLOAT, None),           # Extrusion depth in mm
+        ], SOLID)
+
+        self._register_builtin("text_solid_fitted", [
+            ("text", STRING, None),           # Text string to render
+            ("max_width", FLOAT, None),       # Maximum width in mm (auto-scales height)
+            ("depth", FLOAT, None),           # Extrusion depth in mm
+        ], SOLID)
+
+        # text_on_surface - Simple way to place text on any surface
+        # Handles all coordinate frame transformations automatically
+        self._register_builtin("text_on_surface", [
+            ("text", STRING, None),           # Text string to render
+            ("surface_center", POINT3D, None), # Center point of target surface (x, y, z)
+            ("surface_normal", POINT3D, None), # Outward-pointing normal vector
+            ("up_direction", POINT3D, None),   # "Up" direction on surface (text baseline to top)
+            ("max_width", FLOAT, None),        # Maximum text width in mm
+            ("depth", FLOAT, None),            # How far text protrudes from surface
         ], SOLID)
 
         # Boolean operations (variadic)

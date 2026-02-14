@@ -1,12 +1,12 @@
 """Spline helpers for yapCAD.
 
 Provides evaluation and sampling routines for spline primitives defined in
-:mod:`yapcad.geom`, including Catmull-Rom and NURBS curves.
+:mod:`yapcad.geom`, including Bezier, B-spline, Catmull-Rom and NURBS curves.
 """
 
 from __future__ import annotations
 
-from math import pow
+from math import pow, factorial
 from typing import Iterable, List, Sequence, Tuple
 
 from yapcad.geom import point
@@ -14,6 +14,480 @@ from yapcad.geometry_utils import to_vec3
 
 Vec3 = Tuple[float, float, float]
 
+
+# =============================================================================
+# Bezier Curve Support
+# =============================================================================
+
+def is_bezier(curve) -> bool:
+    """Return ``True`` if *curve* is a Bezier curve definition."""
+
+    return isinstance(curve, list) and len(curve) == 3 and curve[0] == 'bezier'
+
+
+def _binomial(n: int, k: int) -> int:
+    """Compute binomial coefficient C(n, k) = n! / (k! * (n-k)!)."""
+    if k < 0 or k > n:
+        return 0
+    return factorial(n) // (factorial(k) * factorial(n - k))
+
+
+def _bernstein(n: int, i: int, t: float) -> float:
+    """Compute Bernstein basis polynomial B_{i,n}(t).
+
+    The Bernstein basis polynomials are:
+        B_{i,n}(t) = C(n,i) * t^i * (1-t)^(n-i)
+
+    Parameters
+    ----------
+    n : int
+        Degree of the polynomial
+    i : int
+        Index (0 <= i <= n)
+    t : float
+        Parameter value (typically in [0, 1])
+
+    Returns
+    -------
+    float
+        Value of the Bernstein polynomial at t
+    """
+    return _binomial(n, i) * (t ** i) * ((1.0 - t) ** (n - i))
+
+
+def bezier_point(control_points, t: float) -> list:
+    """Evaluate a Bezier curve at parameter t using De Casteljau's algorithm.
+
+    Parameters
+    ----------
+    control_points : list
+        List of control points (yapCAD points or coordinate tuples).
+    t : float
+        Parameter value in [0, 1]. t=0 returns first control point,
+        t=1 returns last control point.
+
+    Returns
+    -------
+    list
+        Point on the curve at parameter t as a yapCAD point.
+
+    Examples
+    --------
+    >>> cp = [point(0, 0), point(10, 20), point(30, 20), point(40, 0)]
+    >>> p = bezier_point(cp, 0.5)  # Point at middle of curve
+    """
+    pts = [to_vec3(point(p)) for p in control_points]
+    n = len(pts)
+    if n == 0:
+        raise ValueError('bezier_point requires at least one control point')
+    if n == 1:
+        return point(pts[0][0], pts[0][1], pts[0][2])
+
+    t = max(0.0, min(1.0, float(t)))
+
+    # De Casteljau's algorithm - numerically stable recursive subdivision
+    work = list(pts)
+    for level in range(n - 1, 0, -1):
+        new_work = []
+        for i in range(level):
+            x = (1.0 - t) * work[i][0] + t * work[i + 1][0]
+            y = (1.0 - t) * work[i][1] + t * work[i + 1][1]
+            z = (1.0 - t) * work[i][2] + t * work[i + 1][2]
+            new_work.append((x, y, z))
+        work = new_work
+
+    return point(work[0][0], work[0][1], work[0][2])
+
+
+def evaluate_bezier(curve, t: float) -> list:
+    """Evaluate a Bezier curve definition at parameter ``t`` in [0, 1].
+
+    Parameters
+    ----------
+    curve : list
+        A Bezier curve definition from :func:`yapcad.geom.bezier`.
+    t : float
+        Parameter value in [0, 1].
+
+    Returns
+    -------
+    list
+        Point on the curve at parameter t.
+    """
+    if not is_bezier(curve):
+        raise ValueError('curve is not a Bezier definition')
+    _, pts, _ = curve
+    return bezier_point(pts, t)
+
+
+def bezier_tangent(control_points, t: float) -> list:
+    """Compute the tangent vector of a Bezier curve at parameter t.
+
+    The tangent is the first derivative of the curve with respect to t.
+    For a Bezier curve of degree n, the derivative is a Bezier curve of
+    degree n-1 with control points: n * (P_{i+1} - P_i).
+
+    Parameters
+    ----------
+    control_points : list
+        List of control points (yapCAD points or coordinate tuples).
+    t : float
+        Parameter value in [0, 1].
+
+    Returns
+    -------
+    list
+        Tangent vector at parameter t as a yapCAD direction vector [x, y, z, 0].
+
+    Examples
+    --------
+    >>> cp = [point(0, 0), point(10, 20), point(30, 20), point(40, 0)]
+    >>> tangent = bezier_tangent(cp, 0.5)
+    """
+    pts = [to_vec3(point(p)) for p in control_points]
+    n = len(pts)
+    if n < 2:
+        # Constant point has zero derivative
+        return [0.0, 0.0, 0.0, 0.0]
+
+    # Compute derivative control points: n * (P_{i+1} - P_i)
+    degree = n - 1
+    deriv_pts = []
+    for i in range(degree):
+        dx = degree * (pts[i + 1][0] - pts[i][0])
+        dy = degree * (pts[i + 1][1] - pts[i][1])
+        dz = degree * (pts[i + 1][2] - pts[i][2])
+        deriv_pts.append(point(dx, dy, dz))
+
+    # Evaluate the derivative curve at t
+    tang = bezier_point(deriv_pts, t)
+    # Return as direction vector (w=0)
+    return [tang[0], tang[1], tang[2], 0.0]
+
+
+def bezier_curve(control_points, segments: int = 32) -> List[list]:
+    """Sample a Bezier curve as a polyline.
+
+    Parameters
+    ----------
+    control_points : list
+        List of control points (yapCAD points or coordinate tuples).
+    segments : int, optional
+        Number of line segments in the output polyline (default 32).
+        More segments = smoother curve approximation.
+
+    Returns
+    -------
+    list
+        List of points suitable for use as a yapCAD polyline.
+
+    Examples
+    --------
+    >>> cp = [point(0, 0), point(10, 20), point(30, 20), point(40, 0)]
+    >>> polyline = bezier_curve(cp, segments=32)
+    >>> # polyline can be used anywhere a yapCAD polyline is expected
+    """
+    if segments < 1:
+        raise ValueError('segments must be >= 1')
+
+    samples = []
+    for i in range(segments + 1):
+        t = i / segments
+        samples.append(bezier_point(control_points, t))
+    return samples
+
+
+def sample_bezier(curve, *, segments: int = 32) -> List[list]:
+    """Sample a Bezier curve definition into a list of points.
+
+    Parameters
+    ----------
+    curve : list
+        A Bezier curve definition from :func:`yapcad.geom.bezier`.
+    segments : int, optional
+        Number of line segments in output (default 32).
+
+    Returns
+    -------
+    list
+        List of points suitable for use as a yapCAD polyline.
+    """
+    if not is_bezier(curve):
+        raise ValueError('curve is not a Bezier definition')
+    _, pts, _ = curve
+    return bezier_curve(pts, segments)
+
+
+# =============================================================================
+# B-spline Curve Support
+# =============================================================================
+
+def is_bspline(curve) -> bool:
+    """Return ``True`` if *curve* is a B-spline curve definition."""
+
+    return isinstance(curve, list) and len(curve) == 3 and curve[0] == 'bspline'
+
+
+def _uniform_knot_vector(n: int, degree: int, closed: bool = False) -> List[float]:
+    """Generate a uniform knot vector for B-spline.
+
+    Parameters
+    ----------
+    n : int
+        Number of control points
+    degree : int
+        Degree of the B-spline
+    closed : bool
+        If True, generate periodic knot vector for closed curve
+
+    Returns
+    -------
+    list
+        Uniform knot vector
+    """
+    if closed:
+        # Periodic knot vector for closed curves
+        m = n + degree + 1
+        return [float(i - degree) / n for i in range(m)]
+    else:
+        # Clamped uniform knot vector (curve passes through endpoints)
+        # First degree+1 knots = 0, last degree+1 knots = 1
+        m = n + degree + 1
+        knots = []
+        for i in range(m):
+            if i < degree + 1:
+                knots.append(0.0)
+            elif i >= m - degree - 1:
+                knots.append(1.0)
+            else:
+                knots.append((i - degree) / (n - degree))
+        return knots
+
+
+def _bspline_basis(i: int, p: int, u: float, knots: Sequence[float]) -> float:
+    """Compute B-spline basis function N_{i,p}(u) using Cox-de Boor recursion.
+
+    Parameters
+    ----------
+    i : int
+        Basis function index
+    p : int
+        Degree
+    u : float
+        Parameter value
+    knots : sequence
+        Knot vector
+
+    Returns
+    -------
+    float
+        Value of basis function N_{i,p}(u)
+    """
+    if p == 0:
+        # Base case: N_{i,0}(u) = 1 if knots[i] <= u < knots[i+1], else 0
+        if i + 1 >= len(knots):
+            return 0.0
+        if knots[i] <= u < knots[i + 1]:
+            return 1.0
+        # Handle the special case where u equals the last knot
+        if u == knots[-1] and knots[i] <= u <= knots[i + 1]:
+            return 1.0
+        return 0.0
+
+    # Recursive case: Cox-de Boor formula
+    left = 0.0
+    denom1 = knots[i + p] - knots[i]
+    if denom1 > 1e-12:
+        left = (u - knots[i]) / denom1 * _bspline_basis(i, p - 1, u, knots)
+
+    right = 0.0
+    if i + p + 1 < len(knots):
+        denom2 = knots[i + p + 1] - knots[i + 1]
+        if denom2 > 1e-12:
+            right = (knots[i + p + 1] - u) / denom2 * _bspline_basis(i + 1, p - 1, u, knots)
+
+    return left + right
+
+
+def bspline_point(control_points, t: float, degree: int = 3, closed: bool = False) -> list:
+    """Evaluate a B-spline curve at parameter t.
+
+    Parameters
+    ----------
+    control_points : list
+        List of control points.
+    t : float
+        Parameter value in [0, 1].
+    degree : int, optional
+        Degree of B-spline (default 3 for cubic).
+    closed : bool, optional
+        If True, treat as closed (periodic) B-spline.
+
+    Returns
+    -------
+    list
+        Point on the curve at parameter t.
+    """
+    pts = [to_vec3(point(p)) for p in control_points]
+    n = len(pts)
+    if n < degree + 1:
+        raise ValueError(f'B-spline needs at least {degree + 1} control points for degree {degree}')
+
+    t = max(0.0, min(1.0, float(t)))
+
+    if closed:
+        # For closed B-spline, extend control points cyclically
+        extended_pts = pts + pts[:degree]
+        knots = _uniform_knot_vector(n, degree, closed=True)
+        # Map t to the active knot domain
+        u_min = knots[degree]
+        u_max = knots[n]
+        u = u_min + t * (u_max - u_min)
+
+        x = y = z = 0.0
+        for i in range(len(extended_pts)):
+            basis = _bspline_basis(i, degree, u, knots)
+            x += basis * extended_pts[i][0]
+            y += basis * extended_pts[i][1]
+            z += basis * extended_pts[i][2]
+    else:
+        # Clamped B-spline
+        knots = _uniform_knot_vector(n, degree, closed=False)
+        # Map t to knot domain [0, 1] (clamped knots use this range)
+        u = t
+
+        x = y = z = 0.0
+        for i in range(n):
+            basis = _bspline_basis(i, degree, u, knots)
+            x += basis * pts[i][0]
+            y += basis * pts[i][1]
+            z += basis * pts[i][2]
+
+    return point(x, y, z)
+
+
+def evaluate_bspline(curve, t: float) -> list:
+    """Evaluate a B-spline curve definition at parameter ``t`` in [0, 1].
+
+    Parameters
+    ----------
+    curve : list
+        A B-spline curve definition from :func:`yapcad.geom.bspline`.
+    t : float
+        Parameter value in [0, 1].
+
+    Returns
+    -------
+    list
+        Point on the curve at parameter t.
+    """
+    if not is_bspline(curve):
+        raise ValueError('curve is not a B-spline definition')
+    _, pts, meta = curve
+    degree = meta.get('degree', 3)
+    closed = meta.get('closed', False)
+    return bspline_point(pts, t, degree=degree, closed=closed)
+
+
+def bspline_curve(control_points, degree: int = 3, closed: bool = False,
+                  segments: int = 64) -> List[list]:
+    """Sample a B-spline curve as a polyline.
+
+    Parameters
+    ----------
+    control_points : list
+        List of control points.
+    degree : int, optional
+        Degree of B-spline (default 3).
+    closed : bool, optional
+        If True, create closed B-spline.
+    segments : int, optional
+        Number of line segments in output (default 64).
+
+    Returns
+    -------
+    list
+        List of points suitable for use as a yapCAD polyline.
+    """
+    if segments < 1:
+        raise ValueError('segments must be >= 1')
+
+    samples = []
+    for i in range(segments + 1):
+        t = i / segments
+        samples.append(bspline_point(control_points, t, degree, closed))
+
+    if closed:
+        # Ensure the curve actually closes
+        samples[-1] = samples[0]
+
+    return samples
+
+
+def sample_bspline(curve, *, segments: int = 64) -> List[list]:
+    """Sample a B-spline curve definition into a list of points.
+
+    Parameters
+    ----------
+    curve : list
+        A B-spline curve definition from :func:`yapcad.geom.bspline`.
+    segments : int, optional
+        Number of line segments in output (default 64).
+
+    Returns
+    -------
+    list
+        List of points suitable for use as a yapCAD polyline.
+    """
+    if not is_bspline(curve):
+        raise ValueError('curve is not a B-spline definition')
+    _, pts, meta = curve
+    degree = meta.get('degree', 3)
+    closed = meta.get('closed', False)
+    return bspline_curve(pts, degree=degree, closed=closed, segments=segments)
+
+
+def bspline_tangent(control_points, t: float, degree: int = 3, closed: bool = False) -> list:
+    """Compute the tangent vector of a B-spline curve at parameter t.
+
+    Uses numerical differentiation for robustness.
+
+    Parameters
+    ----------
+    control_points : list
+        List of control points.
+    t : float
+        Parameter value in [0, 1].
+    degree : int, optional
+        Degree of B-spline (default 3).
+    closed : bool, optional
+        If True, treat as closed B-spline.
+
+    Returns
+    -------
+    list
+        Tangent vector at parameter t as [x, y, z, 0].
+    """
+    h = 1e-6
+    t1 = max(0.0, t - h)
+    t2 = min(1.0, t + h)
+
+    if t1 == t2:
+        return [0.0, 0.0, 0.0, 0.0]
+
+    p1 = bspline_point(control_points, t1, degree, closed)
+    p2 = bspline_point(control_points, t2, degree, closed)
+
+    dx = (p2[0] - p1[0]) / (t2 - t1)
+    dy = (p2[1] - p1[1]) / (t2 - t1)
+    dz = (p2[2] - p1[2]) / (t2 - t1)
+
+    return [dx, dy, dz, 0.0]
+
+
+# =============================================================================
+# Catmull-Rom Spline Support
+# =============================================================================
 
 def is_catmullrom(curve) -> bool:
     """Return ``True`` if *curve* is a Catmull-Rom spline definition."""
@@ -223,9 +697,25 @@ def _nip(i: int, p: int, u: float, knots: Sequence[float]) -> float:
 
 
 __all__ = [
+    # Bezier curves
+    'is_bezier',
+    'bezier_point',
+    'bezier_curve',
+    'bezier_tangent',
+    'sample_bezier',
+    'evaluate_bezier',
+    # B-splines
+    'is_bspline',
+    'bspline_point',
+    'bspline_curve',
+    'bspline_tangent',
+    'sample_bspline',
+    'evaluate_bspline',
+    # Catmull-Rom splines
     'is_catmullrom',
     'sample_catmullrom',
     'evaluate_catmullrom',
+    # NURBS
     'is_nurbs',
     'sample_nurbs',
     'evaluate_nurbs',
