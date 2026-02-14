@@ -26,6 +26,29 @@ Example usage:
     plate = prism(50, 30, 5)
     engraved = engrave_text(plate, "V1.0", point(0, 0, 2.5),
                             vect(0, 0, 1, 0), height=4.0, depth=0.5)
+
+Fit-aware text generation:
+
+    from yapcad.text3d import (
+        validate_text_fit, text_solid_fitted,
+        calculate_text_height_for_width
+    )
+
+    # Check if text fits before creating
+    fits, width, msg = validate_text_fit("DARK MATTER LAB",
+                                         height=15, max_width=160)
+    if not fits:
+        print(f"Warning: {msg}")
+        # Auto-fit instead
+        solid, actual_height = text_solid_fitted("DARK MATTER LAB",
+                                                 max_width=160, depth=2)
+        print(f"Created text at height {actual_height:.1f}mm")
+    else:
+        solid = text_solid("DARK MATTER LAB", height=15, depth=2)
+
+    # Calculate exact height for a target width
+    height = calculate_text_height_for_width("ROBOT V1", target_width=100)
+    label = text_solid("ROBOT V1", height=height, depth=2)
 """
 
 from yapcad.geom import point, vect, epsilon, add, sub, scale3
@@ -46,6 +69,20 @@ try:
     FREETYPE_AVAILABLE = True
 except ImportError:
     FREETYPE_AVAILABLE = False
+
+# Public API
+__all__ = [
+    'text_solid',
+    'text_width',
+    'validate_text_fit',
+    'calculate_text_height_for_width',
+    'text_solid_fitted',
+    'text_on_surface',
+    'engrave_text',
+    'text_to_polygons',
+    'get_supported_characters',
+    'find_system_font',
+]
 
 # Grid dimensions for block font (5 wide x 7 tall)
 CHAR_WIDTH = 5
@@ -397,6 +434,66 @@ def find_system_font(font_name):
     return None
 
 
+def _polygon_signed_area(polygon):
+    """Calculate the signed area of a 2D polygon using the shoelace formula.
+
+    Positive area = counter-clockwise winding (outer boundary)
+    Negative area = clockwise winding (hole/inner boundary)
+
+    Args:
+        polygon: List of points forming a closed polygon
+
+    Returns:
+        Signed area (positive for CCW, negative for CW)
+    """
+    n = len(polygon)
+    if n < 3:
+        return 0.0
+
+    # Remove closing point if present for area calculation
+    if polygon[0][0] == polygon[-1][0] and polygon[0][1] == polygon[-1][1]:
+        n -= 1
+
+    area = 0.0
+    for i in range(n):
+        j = (i + 1) % n
+        area += polygon[i][0] * polygon[j][1]
+        area -= polygon[j][0] * polygon[i][1]
+
+    return area / 2.0
+
+
+def _point_in_polygon(px, py, polygon):
+    """Check if a point is inside a polygon using ray casting.
+
+    Args:
+        px, py: Point coordinates
+        polygon: List of points forming a closed polygon
+
+    Returns:
+        True if point is inside the polygon
+    """
+    n = len(polygon)
+    if n < 3:
+        return False
+
+    # Remove closing point if present
+    if polygon[0][0] == polygon[-1][0] and polygon[0][1] == polygon[-1][1]:
+        n -= 1
+
+    inside = False
+    j = n - 1
+    for i in range(n):
+        xi, yi = polygon[i][0], polygon[i][1]
+        xj, yj = polygon[j][0], polygon[j][1]
+
+        if ((yi > py) != (yj > py)) and (px < (xj - xi) * (py - yi) / (yj - yi) + xi):
+            inside = not inside
+        j = i
+
+    return inside
+
+
 def glyph_to_polygons(glyph, x_offset=0.0, scale=1.0):
     """Convert a freetype glyph outline to polygons.
 
@@ -436,6 +533,107 @@ def glyph_to_polygons(glyph, x_offset=0.0, scale=1.0):
         start = end_idx + 1
 
     return polygons
+
+
+def glyph_to_grouped_contours(glyph, x_offset=0.0, scale=1.0):
+    """Convert a freetype glyph outline to grouped contours with hole information.
+
+    This function properly identifies outer boundaries and inner holes (counters)
+    for letters like P, D, B, A, R, etc.
+
+    Args:
+        glyph: freetype.GlyphSlot object
+        x_offset: X offset in mm
+        scale: Scale factor (converts from 26.6 fixed point to mm)
+
+    Returns:
+        List of dicts, each with:
+            - 'outer': The outer boundary polygon
+            - 'holes': List of inner hole polygons
+    """
+    polygons = glyph_to_polygons(glyph, x_offset, scale)
+
+    if not polygons:
+        return []
+
+    # Calculate signed area for each polygon
+    poly_data = []
+    for poly in polygons:
+        area = _polygon_signed_area(poly)
+        # Get a representative interior point for containment testing
+        # Use centroid of first 3 points
+        cx = (poly[0][0] + poly[1][0] + poly[2][0]) / 3.0
+        cy = (poly[0][1] + poly[1][1] + poly[2][1]) / 3.0
+        poly_data.append({
+            'polygon': poly,
+            'area': area,
+            'abs_area': abs(area),
+            'centroid': (cx, cy),
+            'is_hole': None,  # To be determined
+            'parent': None    # Index of containing polygon
+        })
+
+    # Sort by absolute area (largest first) - outer contours are typically larger
+    poly_data.sort(key=lambda x: x['abs_area'], reverse=True)
+
+    # Determine parent-child relationships based on containment
+    for i, pd in enumerate(poly_data):
+        cx, cy = pd['centroid']
+        # Check if this polygon's centroid is inside any larger polygon
+        for j in range(i):  # Only check larger polygons (already sorted)
+            if _point_in_polygon(cx, cy, poly_data[j]['polygon']):
+                pd['parent'] = j
+                break  # Found immediate parent (smallest containing)
+
+    # Build grouped contours
+    # A polygon is an outer boundary if it has no parent, or its parent is a hole
+    # A polygon is a hole if it's contained in an outer boundary
+
+    # First pass: identify which polygons are outer boundaries (no parent or parent is hole)
+    for i, pd in enumerate(poly_data):
+        if pd['parent'] is None:
+            pd['is_hole'] = False  # Top-level = outer
+        # Otherwise, it will be determined based on parent
+
+    # Second pass: propagate hole/outer status
+    changed = True
+    iterations = 0
+    while changed and iterations < 100:
+        changed = False
+        iterations += 1
+        for i, pd in enumerate(poly_data):
+            if pd['is_hole'] is None and pd['parent'] is not None:
+                parent = poly_data[pd['parent']]
+                if parent['is_hole'] is not None:
+                    # Alternate: if parent is outer, this is hole; if parent is hole, this is outer
+                    pd['is_hole'] = not parent['is_hole']
+                    changed = True
+
+    # Build result: group holes with their outer boundaries
+    result = []
+    outer_to_result_idx = {}
+
+    for i, pd in enumerate(poly_data):
+        if not pd['is_hole']:
+            # This is an outer boundary
+            outer_to_result_idx[i] = len(result)
+            result.append({
+                'outer': pd['polygon'],
+                'holes': []
+            })
+
+    # Add holes to their parent outer boundaries
+    for i, pd in enumerate(poly_data):
+        if pd['is_hole'] and pd['parent'] is not None:
+            # Find the outermost non-hole ancestor
+            ancestor = pd['parent']
+            while poly_data[ancestor]['is_hole'] and poly_data[ancestor]['parent'] is not None:
+                ancestor = poly_data[ancestor]['parent']
+
+            if ancestor in outer_to_result_idx:
+                result[outer_to_result_idx[ancestor]]['holes'].append(pd['polygon'])
+
+    return result
 
 
 def _rect_to_polygon(x, y, width, height, scale, x_offset):
@@ -511,6 +709,63 @@ def text_to_polygons(text, height=5.0, spacing=1.0, font=None):
     else:
         # Fall back to block font
         return _text_to_polygons_block(text, height, spacing)
+
+
+def _text_to_grouped_glyphs_ttf(text, height, spacing, font_path):
+    """Convert text to grouped glyph contours with hole information using TrueType font.
+
+    This function properly handles letters with interior holes (counters) like
+    P, D, B, A, R, O, Q, etc.
+
+    Args:
+        text: String to convert
+        height: Character height in mm
+        spacing: Space between characters (additional space in mm)
+        font_path: Path to .ttf or .otf file
+
+    Returns:
+        List of glyph groups, where each group is a dict with:
+            - 'outer': The outer boundary polygon
+            - 'holes': List of inner hole polygons
+    """
+    if not FREETYPE_AVAILABLE:
+        return None  # Signal to fall back to block font
+
+    try:
+        face = freetype.Face(font_path)
+        face.set_char_size(100 * 64)  # 100 points
+
+        grouped_glyphs = []
+        x_offset = 0.0
+
+        mm_per_pixel = 25.4 / 72.0
+
+        # Measure reference height
+        face.load_char('H', freetype.FT_LOAD_DEFAULT | freetype.FT_LOAD_NO_BITMAP)
+        bbox = face.glyph.outline.get_bbox()
+        ref_height_pixels = (bbox.yMax - bbox.yMin) / 64.0
+        ref_height_mm = ref_height_pixels * mm_per_pixel
+        scale = height / ref_height_mm
+
+        for char in text:
+            face.load_char(char, freetype.FT_LOAD_DEFAULT | freetype.FT_LOAD_NO_BITMAP)
+            glyph = face.glyph
+
+            # Get grouped contours with hole information
+            char_groups = glyph_to_grouped_contours(glyph, x_offset, scale * mm_per_pixel)
+            grouped_glyphs.extend(char_groups)
+
+            # Advance to next character position
+            advance = glyph.advance.x / 64.0 * mm_per_pixel * scale
+            x_offset += advance + spacing
+
+        return grouped_glyphs
+
+    except Exception as e:
+        print(f"Warning: TrueType font rendering failed ({e}), using block font")
+        import traceback
+        traceback.print_exc()
+        return None
 
 
 def _text_to_polygons_ttf(text, height, spacing, font_path):
@@ -621,7 +876,8 @@ def text_solid(text, height=5.0, depth=1.0, spacing=1.0, center=None, font=None)
     """Create extruded 3D text solid.
 
     Generates a solid from the given text string by extruding each
-    character polygon in the Z direction.
+    character polygon in the Z direction. Properly handles letters with
+    interior holes (counters) like P, D, B, A, R, O, Q, etc.
 
     Args:
         text: String to render
@@ -640,31 +896,76 @@ def text_solid(text, height=5.0, depth=1.0, spacing=1.0, center=None, font=None)
     Returns:
         yapCAD solid (combined extruded text)
     """
-    polygons = text_to_polygons(text, height, spacing, font)
+    # Determine which font to use
+    use_ttf = False
+    font_path = None
 
-    if not polygons:
-        # Return empty solid for empty text
-        return solid([], [], ['procedure', f'text_solid("{text}")'])
+    if font is None:
+        if FREETYPE_AVAILABLE:
+            font_path = find_system_font("Arial")
+            use_ttf = font_path is not None
+    elif font == "block":
+        use_ttf = False
+    elif FREETYPE_AVAILABLE and os.path.exists(font):
+        font_path = font
+        use_ttf = True
+    elif FREETYPE_AVAILABLE:
+        font_path = find_system_font(font)
+        use_ttf = font_path is not None
 
-    # Extrude each polygon and combine
+    # Try to get grouped glyphs with hole information for TrueType fonts
+    grouped_glyphs = None
+    if use_ttf and font_path:
+        grouped_glyphs = _text_to_grouped_glyphs_ttf(text, height, spacing, font_path)
+
     all_surfaces = []
-    for poly in polygons:
-        try:
-            # Create surface from polygon
-            # poly2surfaceXY returns (surface, boundary_indices) tuple
-            surf_result = poly2surfaceXY(poly)
-            if isinstance(surf_result, tuple):
-                surf = surf_result[0]
-            else:
-                surf = surf_result
-            # Extrude upward
-            extruded = extrude(surf, depth, vect(0, 0, 1, 0))
-            # Extract surfaces from the extruded solid
-            if issolid(extruded):
-                all_surfaces.extend(extruded[1])
-        except (ValueError, IndexError) as e:
-            # Skip degenerate polygons
-            continue
+
+    if grouped_glyphs is not None:
+        # Use grouped glyph data with proper hole handling
+        for glyph_group in grouped_glyphs:
+            outer = glyph_group['outer']
+            holes = glyph_group['holes']
+
+            try:
+                # Create surface with holes using poly2surfaceXY
+                surf_result = poly2surfaceXY(outer, holes)
+                if isinstance(surf_result, tuple):
+                    surf = surf_result[0]
+                else:
+                    surf = surf_result
+
+                # Extrude upward
+                extruded = extrude(surf, depth, vect(0, 0, 1, 0))
+
+                # Extract surfaces from the extruded solid
+                if issolid(extruded):
+                    all_surfaces.extend(extruded[1])
+            except (ValueError, IndexError) as e:
+                # Skip degenerate glyphs
+                continue
+    else:
+        # Fall back to simple polygon processing (block font or TTF fallback)
+        polygons = text_to_polygons(text, height, spacing, font)
+
+        if not polygons:
+            return solid([], [], ['procedure', f'text_solid("{text}")'])
+
+        for poly in polygons:
+            try:
+                # Create surface from polygon
+                surf_result = poly2surfaceXY(poly)
+                if isinstance(surf_result, tuple):
+                    surf = surf_result[0]
+                else:
+                    surf = surf_result
+                # Extrude upward
+                extruded = extrude(surf, depth, vect(0, 0, 1, 0))
+                # Extract surfaces from the extruded solid
+                if issolid(extruded):
+                    all_surfaces.extend(extruded[1])
+            except (ValueError, IndexError) as e:
+                # Skip degenerate polygons
+                continue
 
     if not all_surfaces:
         return solid([], [], ['procedure', f'text_solid("{text}")'])
@@ -762,6 +1063,312 @@ def text_width(text, height=5.0, spacing=1.0, font=None):
     # Width = (n chars * char_width) + ((n-1) gaps)
     n = len(text)
     return (n * char_width) + ((n - 1) * gap)
+
+
+def validate_text_fit(text, height, max_width, spacing=1.0, font=None):
+    """Check if text will fit within a maximum width.
+
+    This function validates whether the generated text will fit within a
+    specified maximum width, useful for ensuring text fits on target surfaces
+    before creating the 3D solid.
+
+    Args:
+        text: String to validate
+        height: Character height in mm
+        max_width: Maximum allowed width in mm
+        spacing: Character spacing (default 1.0)
+        font: Font specification (same as text_solid)
+
+    Returns:
+        Tuple of (fits: bool, actual_width: float, message: str)
+            - fits: True if text fits within max_width
+            - actual_width: The calculated width of the text
+            - message: Human-readable status message
+
+    Example:
+        >>> fits, width, msg = validate_text_fit("ROBOT", height=10, max_width=50)
+        >>> if not fits:
+        ...     print(f"Warning: {msg}")
+    """
+    actual_width = text_width(text, height, spacing, font)
+    fits = actual_width <= max_width
+
+    if fits:
+        message = f"Text fits: {actual_width:.1f}mm <= {max_width:.1f}mm"
+    else:
+        overflow = actual_width - max_width
+        message = f"Text TOO WIDE: {actual_width:.1f}mm > {max_width:.1f}mm (overflow: {overflow:.1f}mm)"
+
+    return (fits, actual_width, message)
+
+
+def calculate_text_height_for_width(text, target_width, spacing=1.0, font=None):
+    """Calculate the character height needed to achieve a target text width.
+
+    Given a desired total text width, this function calculates the character
+    height that will produce text of approximately that width. Useful for
+    fitting text precisely into a known space.
+
+    Args:
+        text: String to size
+        target_width: Desired total text width in mm
+        spacing: Character spacing (default 1.0)
+        font: Font specification (same as text_solid)
+
+    Returns:
+        Float: Character height in mm that will produce the target width
+
+    Example:
+        >>> height = calculate_text_height_for_width("ROBOT V1", target_width=100)
+        >>> solid = text_solid("ROBOT V1", height=height, depth=2)
+        >>> # solid will be approximately 100mm wide
+    """
+    # Use a reference height to get the width ratio
+    ref_height = 10.0
+    ref_width = text_width(text, ref_height, spacing, font)
+
+    # Avoid division by zero
+    if ref_width < epsilon:
+        return ref_height
+
+    # Scale height proportionally to achieve target width
+    return ref_height * (target_width / ref_width)
+
+
+def text_solid_fitted(text, max_width, depth, spacing=1.0, font=None, min_height=3.0):
+    """Create 3D text that fits within max_width by auto-scaling height.
+
+    This function automatically calculates the optimal character height to
+    ensure the text fits within the specified maximum width. It will not
+    go below min_height to maintain readability.
+
+    Args:
+        text: String to render
+        max_width: Maximum allowed width in mm
+        depth: Extrusion depth in mm
+        spacing: Character spacing (default 1.0)
+        font: Font specification (same as text_solid)
+        min_height: Minimum character height in mm (default 3.0)
+
+    Returns:
+        Tuple of (solid, actual_height: float)
+            - solid: The generated yapCAD solid
+            - actual_height: The character height that was used
+
+    Example:
+        >>> solid, height = text_solid_fitted("DARK MATTER LAB", max_width=160, depth=2)
+        >>> print(f"Text created with height {height:.1f}mm")
+        >>> # solid is guaranteed to fit within 160mm width
+
+    Workflow:
+        When creating text for a surface with known dimensions, use this
+        function to ensure the text will fit:
+
+        >>> # Check if preferred size fits
+        >>> fits, width, msg = validate_text_fit("LABEL", height=15, max_width=160)
+        >>> if not fits:
+        ...     # Auto-fit instead
+        ...     solid, height = text_solid_fitted("LABEL", max_width=160, depth=2)
+        ... else:
+        ...     # Use preferred size
+        ...     solid = text_solid("LABEL", height=15, depth=2)
+    """
+    if not text:
+        # Return empty solid for empty text
+        return (solid([], [], ['procedure', 'text_solid_fitted("")']), min_height)
+
+    # Start with a reasonable height estimate based on character count
+    # Assume average character takes up about 60% of its height in width
+    height = max_width / len(text) * 1.5
+
+    # Iteratively refine to find the optimal height
+    for iteration in range(10):  # Max iterations to prevent infinite loops
+        width = text_width(text, height, spacing, font)
+
+        if width <= max_width:
+            # Text fits at this height
+            break
+
+        # Scale down height proportionally with a safety margin (95%)
+        height = height * (max_width / width) * 0.95
+
+    # Ensure we don't go below minimum height
+    height = max(height, min_height)
+
+    # Create the text solid at the calculated height
+    text_sld = text_solid(text, height, depth, spacing, font=font)
+
+    return (text_sld, height)
+
+
+def text_on_surface(
+    text: str,
+    surface_center,      # (x, y, z) center point of target surface
+    surface_normal,      # (nx, ny, nz) outward-pointing normal
+    up_direction,        # (ux, uy, uz) "up" direction on surface
+    max_width: float,    # maximum text width
+    depth: float = 1.5,  # how far text protrudes
+    margin: float = 0.0, # margin from surface (0 = touching)
+    font=None,           # font specification (same as text_solid)
+):
+    """Place text on a surface, automatically handling all rotations.
+
+    Creates 3D text positioned on an arbitrary surface. The text is automatically
+    sized to fit within max_width and rotated to face outward along the surface
+    normal, with its "up" direction aligned with the specified up_direction.
+
+    This is a convenience function that handles the complex coordinate frame
+    transformation needed to place text on non-XY-plane surfaces.
+
+    Args:
+        text: String to render
+        surface_center: (x, y, z) center point where text should be placed
+        surface_normal: (nx, ny, nz) outward-pointing normal of the surface
+        up_direction: (ux, uy, uz) "up" direction on the surface (text baseline to top)
+        max_width: Maximum text width in mm (text will be auto-scaled to fit)
+        depth: How far text protrudes from surface in mm (default 1.5)
+        margin: Gap between text back and surface (default 0 = touching)
+        font: Font specification (same as text_solid)
+
+    Returns:
+        yapCAD solid (text positioned and oriented on surface)
+
+    The text will:
+    - Face outward along surface_normal
+    - Have its "up" direction aligned with up_direction
+    - Be centered at surface_center
+    - Protrude outward by depth
+    - Fit within max_width
+
+    Example for front face of battery cage (+Y face):
+        text_on_surface(
+            "DARK MATTER LAB",
+            surface_center=(0, 66.5, 100),  # front face, centered, Z=100
+            surface_normal=(0, 1, 0),       # faces +Y
+            up_direction=(0, 0, 1),         # text stands up in Z
+            max_width=180,
+            depth=1.5
+        )
+
+    Example for top face:
+        text_on_surface(
+            "TOP",
+            surface_center=(0, 0, 50),      # top surface
+            surface_normal=(0, 0, 1),       # faces +Z (up)
+            up_direction=(0, 1, 0),         # text reads toward +Y
+            max_width=40,
+            depth=1.0
+        )
+    """
+    from yapcad.geom3d import solidbbox, translatesolid
+
+    # Convert inputs to proper format if needed
+    if isinstance(surface_center, (list, tuple)):
+        surface_center = point(surface_center[0], surface_center[1], surface_center[2])
+    if isinstance(surface_normal, (list, tuple)):
+        surface_normal = vect(surface_normal[0], surface_normal[1], surface_normal[2])
+    if isinstance(up_direction, (list, tuple)):
+        up_direction = vect(up_direction[0], up_direction[1], up_direction[2])
+
+    # Normalize the surface normal
+    n_mag = math.sqrt(surface_normal[0]**2 + surface_normal[1]**2 + surface_normal[2]**2)
+    if n_mag < epsilon:
+        raise ValueError("surface_normal has zero length")
+    n = vect(surface_normal[0]/n_mag, surface_normal[1]/n_mag, surface_normal[2]/n_mag)
+
+    # Normalize the up direction
+    u_mag = math.sqrt(up_direction[0]**2 + up_direction[1]**2 + up_direction[2]**2)
+    if u_mag < epsilon:
+        raise ValueError("up_direction has zero length")
+    up = vect(up_direction[0]/u_mag, up_direction[1]/u_mag, up_direction[2]/u_mag)
+
+    # Compute the "right" direction as cross(up, normal)
+    # This gives us the local X-axis for the text (text width direction)
+    right = [
+        up[1]*n[2] - up[2]*n[1],
+        up[2]*n[0] - up[0]*n[2],
+        up[0]*n[1] - up[1]*n[0],
+        0.0
+    ]
+    r_mag = math.sqrt(right[0]**2 + right[1]**2 + right[2]**2)
+    if r_mag < epsilon:
+        raise ValueError("up_direction and surface_normal are parallel - cannot determine text orientation")
+    right = vect(right[0]/r_mag, right[1]/r_mag, right[2]/r_mag)
+
+    # Re-orthogonalize up to ensure perpendicularity
+    # new_up = cross(normal, right)
+    new_up = [
+        n[1]*right[2] - n[2]*right[1],
+        n[2]*right[0] - n[0]*right[2],
+        n[0]*right[1] - n[1]*right[0],
+        0.0
+    ]
+    new_up_mag = math.sqrt(new_up[0]**2 + new_up[1]**2 + new_up[2]**2)
+    new_up = vect(new_up[0]/new_up_mag, new_up[1]/new_up_mag, new_up[2]/new_up_mag)
+
+    # Create text solid fitted to max_width (text is in XY plane, Z = depth direction)
+    text_sld, actual_height = text_solid_fitted(text, max_width, depth, font=font)
+
+    if not text_sld[1]:  # No surfaces (empty text)
+        return text_sld
+
+    # Get text bounding box to find its center
+    bbox = solidbbox(text_sld)
+    if not bbox:
+        return text_sld
+
+    text_center = point(
+        (bbox[0][0] + bbox[1][0]) / 2.0,
+        (bbox[0][1] + bbox[1][1]) / 2.0,
+        (bbox[0][2] + bbox[1][2]) / 2.0
+    )
+
+    # First, translate text to center it at origin
+    text_centered = translatesolid(text_sld, scale3(text_center, -1.0))
+
+    # Build the rotation matrix from local frame to target frame
+    # Local frame: X (text width), Y (text height), Z (text depth/extrusion)
+    # Target frame: right (text width), new_up (text height), n (outward normal)
+    #
+    # The rotation matrix R transforms local basis to target basis:
+    # R = [right | new_up | n] (as column vectors)
+    # This means: R * [1,0,0] = right, R * [0,1,0] = new_up, R * [0,0,1] = n
+
+    # Build 4x4 transformation matrix (rotation only)
+    R = Matrix([
+        [right[0], new_up[0], n[0], 0],
+        [right[1], new_up[1], n[1], 0],
+        [right[2], new_up[2], n[2], 0],
+        [0, 0, 0, 1]
+    ])
+
+    # Apply rotation to all surfaces
+    from yapcad.geom3d import rotatesurface
+    rotated_surfaces = []
+    for surf in text_centered[1]:
+        # Apply matrix to all vertices
+        new_verts = [R.mul(v) for v in surf[1]]
+        # Apply matrix to all normals
+        new_norms = [R.mul(nm) for nm in surf[2]]
+        # Create new surface
+        new_surf = deepcopy(surf)
+        new_surf[1] = new_verts
+        new_surf[2] = new_norms
+        rotated_surfaces.append(new_surf)
+
+    # Create rotated solid
+    from yapcad.geom3d import solid as make_solid
+    text_rotated = make_solid(rotated_surfaces, [], text_centered[3] if len(text_centered) > 3 else None)
+
+    # Translate to surface center, with margin offset along normal
+    offset = point(
+        surface_center[0] + n[0] * margin,
+        surface_center[1] + n[1] * margin,
+        surface_center[2] + n[2] * margin
+    )
+    result = translatesolid(text_rotated, offset)
+
+    return result
 
 
 def engrave_text(target_solid, text, position, normal, height=3.0, depth=0.5, spacing=1.0, font=None):

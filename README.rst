@@ -59,6 +59,11 @@ pipelines. Highlights from the 1.0 release cycle include:
   proper threading geometry.
 * **Adaptive Sweeps**: ``sweep_adaptive()`` with tangent-tracking profile orientation
   for complex path sweeps.
+* **3D Text**: ``text3d.py`` module with ``text_solid()`` for extruded text and
+  ``engrave_text()`` for cut-in text. Supports TrueType fonts (via freetype-py) with
+  automatic system font detection (Arial, Helvetica) and built-in block font fallback.
+* **Fillets and Chamfers**: ``brep.py`` edge treatment operations via ``fillet_all_edges()``
+  and ``chamfer_all_edges()`` for rounding or beveling edges on BREP solids.
 * **Helical Extrusion**: ``helical_extrude()`` creates smooth twisted extrusions with
   true helical surfaces for gears, columns, and spiral features.
 * **Pattern Generation**: ``radial_pattern()`` and ``linear_pattern()`` functions for

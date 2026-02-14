@@ -87,7 +87,7 @@ def _tessellate_brep(brep_base64: str) -> List[Tuple[Tuple[float, float, float],
     try:
         from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
         from OCC.Core.TopExp import TopExp_Explorer
-        from OCC.Core.TopAbs import TopAbs_FACE
+        from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_REVERSED
         from OCC.Core.TopLoc import TopLoc_Location
         from OCC.Core.BRep import BRep_Tool
         from OCC.Core.TopoDS import topods
@@ -119,6 +119,11 @@ def _tessellate_brep(brep_base64: str) -> List[Tuple[Tuple[float, float, float],
         if triangulation is not None:
             transform = location.Transformation()
 
+            # Check face orientation - REVERSED faces need normal negation
+            # In OCC, a REVERSED face means the face's outward normal is opposite
+            # to the geometric normal computed from the triangulation
+            is_reversed = (face.Orientation() == TopAbs_REVERSED)
+
             for i in range(1, triangulation.NbTriangles() + 1):
                 tri = triangulation.Triangle(i)
                 n1, n2, n3 = tri.Get()
@@ -130,7 +135,7 @@ def _tessellate_brep(brep_base64: str) -> List[Tuple[Tuple[float, float, float],
                     p.Transform(transform)
                     pts.append((p.X(), p.Y(), p.Z()))
 
-                # Compute face normal from triangle
+                # Compute face normal from triangle cross product
                 v1 = (pts[1][0] - pts[0][0], pts[1][1] - pts[0][1], pts[1][2] - pts[0][2])
                 v2 = (pts[2][0] - pts[0][0], pts[2][1] - pts[0][1], pts[2][2] - pts[0][2])
                 nx = v1[1]*v2[2] - v1[2]*v2[1]
@@ -141,6 +146,10 @@ def _tessellate_brep(brep_base64: str) -> List[Tuple[Tuple[float, float, float],
                     nx, ny, nz = nx/mag, ny/mag, nz/mag
                 else:
                     nx, ny, nz = 0, 0, 1
+
+                # For REVERSED faces, negate the normal to get correct outward direction
+                if is_reversed:
+                    nx, ny, nz = -nx, -ny, -nz
 
                 normal = (nx, ny, nz)
                 for pt in pts:
@@ -320,6 +329,10 @@ class FourViewWindow(pyglet.window.Window):
         self.clip_y = 0  # Y clipping plane (XZ plane)
         self.clip_z = 0  # Z clipping plane (XY plane)
         self._clip_state_names = ["off", "+", "-"]
+        self.show_normals = False  # Normal visualization mode
+        # Compute normal display length based on model size
+        model_size = max(bbox[3] - bbox[0], bbox[4] - bbox[1], bbox[5] - bbox[2])
+        self._normal_length = model_size * 0.02  # 2% of model size
         glEnable(GL_DEPTH_TEST)
         glEnable(GL_LIGHTING)
         glEnable(GL_LIGHT0)
@@ -459,6 +472,70 @@ class FourViewWindow(pyglet.window.Window):
         glDisable(GL_CLIP_PLANE1)
         glDisable(GL_CLIP_PLANE2)
 
+    def _draw_normals(self) -> None:
+        """Draw face normals as line segments from face centers."""
+        if not self.show_normals:
+            return
+
+        glDisable(GL_LIGHTING)
+        glLineWidth(1.5)
+
+        # Draw normals for each visible bucket
+        for bucket in self.bucket_names:
+            if not self.visible_buckets.get(bucket, True):
+                continue
+
+            tris = self.bucket_triangles.get(bucket, [])
+            if not tris:
+                continue
+
+            # Process triangles (3 vertices per triangle)
+            glBegin(GL_LINES)
+            for i in range(0, len(tris), 3):
+                if i + 2 >= len(tris):
+                    break
+
+                # Get the 3 vertices and their normals
+                v0, n0 = tris[i]
+                v1, n1 = tris[i + 1]
+                v2, n2 = tris[i + 2]
+
+                # Compute face center
+                cx = (v0[0] + v1[0] + v2[0]) / 3.0
+                cy = (v0[1] + v1[1] + v2[1]) / 3.0
+                cz = (v0[2] + v1[2] + v2[2]) / 3.0
+
+                # Average normal (they should all be the same for flat shading)
+                nx = (n0[0] + n1[0] + n2[0]) / 3.0
+                ny = (n0[1] + n1[1] + n2[1]) / 3.0
+                nz = (n0[2] + n1[2] + n2[2]) / 3.0
+
+                # Normalize
+                mag = (nx*nx + ny*ny + nz*nz) ** 0.5
+                if mag > 1e-10:
+                    nx, ny, nz = nx/mag, ny/mag, nz/mag
+                else:
+                    continue
+
+                # Compute endpoint
+                length = self._normal_length
+                ex = cx + nx * length
+                ey = cy + ny * length
+                ez = cz + nz * length
+
+                # Draw line from center to endpoint
+                # Base of normal: cyan
+                glColor4f(0.0, 1.0, 1.0, 1.0)
+                glVertex3f(cx, cy, cz)
+                # Tip of normal: magenta (shows direction clearly)
+                glColor4f(1.0, 0.0, 1.0, 1.0)
+                glVertex3f(ex, ey, ez)
+
+            glEnd()
+
+        glLineWidth(1.0)
+        glEnable(GL_LIGHTING)
+
     def _draw_triangles(self):
         mode = self.render_mode
 
@@ -494,6 +571,9 @@ class FourViewWindow(pyglet.window.Window):
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
             glDisable(GL_POLYGON_OFFSET_LINE)
             glEnable(GL_LIGHTING)
+
+        # Draw face normals if enabled
+        self._draw_normals()
 
         # Disable clipping planes after drawing
         self._disable_clipping_planes()
@@ -644,6 +724,10 @@ class FourViewWindow(pyglet.window.Window):
         if clip_parts:
             axis_lines.append("Clip: " + ", ".join(clip_parts))
 
+        # Show normals status if enabled
+        if self.show_normals:
+            axis_lines.append("Normals: ON (N to toggle)")
+
         if len(self.layer_names) > 1:
             layer_display = []
             for idx, layer in enumerate(self.layer_names, start=1):
@@ -718,6 +802,7 @@ class FourViewWindow(pyglet.window.Window):
             if self.clip_z != 0:
                 clip_status.append(f"Z:{self._clip_state_names[self.clip_z]}")
             clip_str = ", ".join(clip_status) if clip_status else "none"
+            normals_str = "ON" if self.show_normals else "off"
             help_lines = [
                 "Viewer Controls",
                 f"Current view: {view_name}",
@@ -732,6 +817,9 @@ class FourViewWindow(pyglet.window.Window):
                 "  X – cycle X clip (off → + → −), Y – Y clip, Z – Z clip",
                 "  C – clear all clipping planes",
                 f"  Active: {clip_str}",
+                "Normals (for diagnosing orientation):",
+                "  N – toggle face normal visualization (cyan→magenta)",
+                f"  Status: {normals_str}",
                 "Layers:",
                 "  Number keys 1-9 toggle layers, 0 resets",
                 f"  Active: {active_layers}",
@@ -822,6 +910,9 @@ class FourViewWindow(pyglet.window.Window):
             self.clip_x = 0
             self.clip_y = 0
             self.clip_z = 0
+        elif symbol == key.N:
+            # N toggles normal visualization
+            self.show_normals = not self.show_normals
 
     def on_close(self):
         for vlist in self._bucket_vertex_lists.values():

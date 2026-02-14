@@ -78,8 +78,16 @@ def write_step_analytic(obj: Sequence,
     # Export using OCC's STEPControl_Writer
     writer = STEPControl_Writer()
 
-    # Set author/organization info
-    Interface_Static.SetCVal("write.step.product.name", name)
+    # Set author/organization info (API changed in newer pythonocc)
+    try:
+        # New API (pythonocc 7.7+)
+        Interface_Static.SetCVal_s("write.step.product.name", name)
+    except (AttributeError, TypeError):
+        # Old API fallback
+        try:
+            Interface_Static.SetCVal("write.step.product.name", name)
+        except (AttributeError, TypeError):
+            pass  # Skip if neither works - product name is optional
 
     # Transfer the shape
     status = writer.Transfer(occ_shape, STEPControl_AsIs)

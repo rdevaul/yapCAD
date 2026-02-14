@@ -61,11 +61,16 @@ package format enables provenance tracking and reproducible designs.
     ``yapcad.geometry_utils``/``yapcad.triangulator`` (triangle
     helpers and ear-cut tessellation), ``yapcad.geometry_checks`` (mesh
     validation), ``yapcad.metadata`` (surface/solid provenance),
+    ``yapcad.text3d`` (3D text with TrueType font support and engraving),
+    ``yapcad.brep`` (fillets and chamfers for BREP solids),
+    ``yapcad.brep_edge_select`` (edge selection helpers for selective
+    fillet/chamfer operations),
     ``yapcad.geom3d_util.stack_solids`` and ``cutaway_solid_x`` (layout and
     section tools), ``yapcad.geom3d_util.helical_extrude`` (smooth helical
     extrusions), ``yapcad.geom_util.radial_pattern`` and ``linear_pattern``
-    (geometry array generation), ``yapcad.boolean.native`` (production-ready
-    boolean engine), and ``yapcad.io`` for validated STL/STEP export.
+    (geometry array generation for 2D/3D/solids/surfaces),
+    ``yapcad.boolean.native`` (production-ready boolean engine),
+    and ``yapcad.io`` for validated STL/STEP export.
 
 Contents
 ========

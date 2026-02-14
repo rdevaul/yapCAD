@@ -418,8 +418,48 @@ and polygon-specific computational geometry operations, notably:
 
 
 def catmullrom(points, closed=False, alpha=0.5):
-    """Return a Catmull-Rom spline definition."""
+    """Return a Catmull-Rom spline definition.
 
+    Catmull-Rom splines are interpolating splines that pass through all
+    control points, making them ideal for smooth curves through specific
+    waypoints. They provide C1 continuity (continuous first derivative).
+
+    Parameters
+    ----------
+    points : list
+        List of control points to interpolate. The spline passes through
+        all points. Requires at least 2 points.
+    closed : bool, optional
+        If True, create a closed loop connecting the last point back to
+        the first (default False).
+    alpha : float, optional
+        Tension parameter controlling curve shape (default 0.5):
+        - alpha=0.0: uniform parameterization (standard Catmull-Rom)
+        - alpha=0.5: centripetal (no loops/cusps, recommended)
+        - alpha=1.0: chordal parameterization
+
+    Returns
+    -------
+    list
+        Catmull-Rom spline definition: ``['catmullrom', [points], metadata]``
+
+    Examples
+    --------
+    >>> # Create a smooth curve through waypoints
+    >>> pts = [point(0, 0), point(10, 20), point(30, 15), point(40, 5)]
+    >>> curve = catmullrom(pts)
+
+    >>> # Create a closed loop with centripetal parameterization
+    >>> pts = [point(0, 0), point(10, 10), point(10, -10), point(0, -20)]
+    >>> loop = catmullrom(pts, closed=True, alpha=0.5)
+
+    Notes
+    -----
+    Unlike Bezier and B-splines, Catmull-Rom splines interpolate all
+    control points rather than approximating them. The centripetal
+    parameterization (alpha=0.5) is recommended as it avoids loops
+    and self-intersections in the curve.
+    """
     pts = [point(p) for p in points]
     if len(pts) < 2:
         raise ValueError('catmullrom requires at least two control points')
@@ -439,8 +479,60 @@ def iscatmullrom(obj):
 
 
 def nurbs(control_points, *, degree=3, weights=None, knots=None):
-    """Return a NURBS curve definition."""
+    """Return a NURBS curve definition.
 
+    Non-Uniform Rational B-Splines (NURBS) are the most general curve
+    representation, combining the features of B-splines with rational
+    weights to enable exact representation of conic sections (circles,
+    ellipses, etc.) and provide additional shape control.
+
+    Parameters
+    ----------
+    control_points : list
+        List of control points (minimum degree+1 points required).
+    degree : int, optional
+        Degree of the NURBS curve (default 3 for cubic).
+    weights : list of float, optional
+        Weight for each control point. Higher weights pull the curve
+        closer to that point. If None, uniform weights of 1.0 are used
+        (reduces to standard B-spline). Must match number of control points.
+    knots : list of float, optional
+        Knot vector defining parameter space partitioning. If None, an
+        open uniform knot vector is generated. Length must be
+        n + degree + 1 where n is the number of control points.
+
+    Returns
+    -------
+    list
+        NURBS curve definition: ``['nurbs', [points], metadata]``
+
+    Examples
+    --------
+    >>> # Create a NURBS curve with uniform weights (equivalent to B-spline)
+    >>> cp = [point(0, 0), point(10, 20), point(30, 20), point(40, 0)]
+    >>> curve = nurbs(cp, degree=3)
+
+    >>> # Create a weighted NURBS curve with stronger pull to middle points
+    >>> cp = [point(0, 0), point(10, 20), point(30, 20), point(40, 0)]
+    >>> weights = [1.0, 2.0, 2.0, 1.0]
+    >>> curve = nurbs(cp, degree=3, weights=weights)
+
+    >>> # Specify custom knot vector for precise control
+    >>> cp = [point(0, 0), point(10, 20), point(30, 20), point(40, 0)]
+    >>> knots = [0, 0, 0, 0, 1, 1, 1, 1]  # Clamped at endpoints
+    >>> curve = nurbs(cp, degree=3, knots=knots)
+
+    Notes
+    -----
+    NURBS are the industry standard for CAD systems because they can
+    exactly represent both free-form curves and analytical shapes like
+    circles and ellipses. The weights provide an additional degree of
+    freedom beyond B-splines, enabling precise control over curve shape.
+
+    When all weights are equal (or None), NURBS reduce to standard B-splines.
+    The knot vector controls parameter space distribution - clamped knot
+    vectors make the curve pass through the first and last control points.
+    """
     pts = [point(p) for p in control_points]
     n = len(pts)
     if n == 0:
@@ -479,6 +571,132 @@ def isnurbs(obj):
     )
 
 
+def bezier(control_points):
+    """Return a Bezier curve definition.
+
+    Creates a Bezier curve from control points. The curve passes through
+    the first and last control points, with intermediate control points
+    influencing the curve shape without being interpolated.
+
+    Parameters
+    ----------
+    control_points : list
+        List of 2-4 control points. Length determines curve degree:
+        - 2 points: linear Bezier (straight line)
+        - 3 points: quadratic Bezier
+        - 4 points: cubic Bezier (most common)
+        More than 4 points are supported for higher-degree curves.
+
+    Returns
+    -------
+    list
+        Bezier curve definition: ``['bezier', [points], {'degree': n}]``
+
+    Examples
+    --------
+    >>> # Create a cubic Bezier curve
+    >>> cp = [point(0, 0), point(10, 20), point(30, 20), point(40, 0)]
+    >>> curve = bezier(cp)
+
+    >>> # Create a quadratic Bezier curve
+    >>> cp = [point(0, 0), point(15, 30), point(30, 0)]
+    >>> curve = bezier(cp)
+
+    Notes
+    -----
+    Bezier curves are widely used in vector graphics and CAD systems.
+    The curve is tangent to the control polygon at both endpoints.
+    The degree of the curve is len(control_points) - 1.
+    """
+    pts = [point(p) for p in control_points]
+    if len(pts) < 2:
+        raise ValueError('bezier requires at least two control points')
+
+    degree = len(pts) - 1
+    return ['bezier', pts, {'degree': degree}]
+
+
+def isbezier(obj):
+    """Return ``True`` if *obj* is a Bezier curve definition."""
+
+    return (
+        isinstance(obj, list)
+        and len(obj) == 3
+        and obj[0] == 'bezier'
+        and isinstance(obj[1], list)
+        and len(obj[1]) >= 2
+        and isinstance(obj[2], dict)
+        and 'degree' in obj[2]
+    )
+
+
+def bspline(control_points, *, degree=3, closed=False):
+    """Return a B-spline curve definition.
+
+    Creates a B-spline curve from control points. B-splines provide local
+    control - moving one control point only affects a limited portion of
+    the curve, making them ideal for complex smooth curves.
+
+    Parameters
+    ----------
+    control_points : list
+        List of control points (minimum degree+1 points required).
+    degree : int, optional
+        Degree of the B-spline curve (default 3 for cubic).
+        - degree=2: quadratic B-spline
+        - degree=3: cubic B-spline (most common, C2 continuous)
+    closed : bool, optional
+        If True, create a closed (periodic) B-spline (default False).
+
+    Returns
+    -------
+    list
+        B-spline curve definition: ``['bspline', [points], metadata]``
+
+    Examples
+    --------
+    >>> # Create an open cubic B-spline
+    >>> cp = [point(0, 0), point(10, 20), point(20, -10),
+    ...       point(30, 15), point(40, 0)]
+    >>> curve = bspline(cp, degree=3)
+
+    >>> # Create a closed B-spline for smooth loop
+    >>> cp = [point(0, 0), point(10, 20), point(20, 0), point(10, -20)]
+    >>> curve = bspline(cp, degree=3, closed=True)
+
+    Notes
+    -----
+    Unlike Bezier curves which use all control points for each evaluation,
+    B-splines only use degree+1 nearby control points. This gives:
+    - Local control: changes affect only nearby curve segments
+    - Uniform smoothness along the entire curve
+    - C^(degree-1) continuity for uniform knot vectors
+
+    The B-spline is internally represented using NURBS with uniform weights.
+    """
+    pts = [point(p) for p in control_points]
+    n = len(pts)
+    if n < degree + 1:
+        raise ValueError(f'bspline requires at least {degree + 1} control points for degree {degree}')
+    if degree < 1:
+        raise ValueError('bspline degree must be >= 1')
+
+    return ['bspline', pts, {'degree': degree, 'closed': closed}]
+
+
+def isbspline(obj):
+    """Return ``True`` if *obj* is a B-spline curve definition."""
+
+    return (
+        isinstance(obj, list)
+        and len(obj) == 3
+        and obj[0] == 'bspline'
+        and isinstance(obj[1], list)
+        and isinstance(obj[2], dict)
+        and 'degree' in obj[2]
+    )
+
+
 def ellipse(center, semi_major, semi_minor, *, rotation=0.0, start=0, end=360, normal=None):
     """Return an ellipse curve definition.
 
@@ -512,9 +730,9 @@ def ellipse(center, semi_major, semi_minor, *, rotation=0.0, start=0, end=360, n
     """
     from copy import deepcopy
 
-    if not (isinstance(semi_major, (int, float)) and semi_major > 0):
+    if not (isinstance(semi_major, numbers.Number) and semi_major > 0):
         raise ValueError('semi_major must be a positive number')
-    if not (isinstance(semi_minor, (int, float)) and semi_minor > 0):
+    if not (isinstance(semi_minor, numbers.Number) and semi_minor > 0):
         raise ValueError('semi_minor must be a positive number')
     if semi_minor > semi_major:
         # Swap so semi_major is always the larger one
@@ -836,7 +1054,7 @@ def parabola(vertex, focal_length, *, rotation=0.0, start=-10.0, end=10.0, norma
     """
     from copy import deepcopy
 
-    if not (isinstance(focal_length, (int, float)) and focal_length > 0):
+    if not (isinstance(focal_length, numbers.Number) and focal_length > 0):
         raise ValueError('focal_length must be a positive number')
 
     # Convert vertex to a proper point
@@ -1113,9 +1331,9 @@ def hyperbola(center, semi_major, semi_minor, *, rotation=0.0, start=-2.0, end=2
     """
     from copy import deepcopy
 
-    if not (isinstance(semi_major, (int, float)) and semi_major > 0):
+    if not (isinstance(semi_major, numbers.Number) and semi_major > 0):
         raise ValueError('semi_major must be a positive number')
-    if not (isinstance(semi_minor, (int, float)) and semi_minor > 0):
+    if not (isinstance(semi_minor, numbers.Number) and semi_minor > 0):
         raise ValueError('semi_minor must be a positive number')
     if branch not in (1, -1):
         raise ValueError('branch must be 1 or -1')
@@ -1378,6 +1596,7 @@ def _open_uniform_knot_vector(count, degree):
 from math import *
 import mpmath as mpm
 import copy
+import numbers
 import yapcad.xform as xform
 
 ## constants
@@ -1396,7 +1615,7 @@ pi2 = 2.0*pi
 def isgoodnum(n):
     """ determine if an argument is actually a scalar number, and not boolean
     """
-    return (not isinstance(n,bool)) and isinstance(n,(int,float))
+    return (not isinstance(n,bool)) and isinstance(n,numbers.Number)
 
 ## utilty function to determine if scalars a and b are the same to
 ## within epsilon
@@ -3616,6 +3835,31 @@ def isInsideConvexPolyXY(a,poly):
 ## operations of sampling, finding centers, computing bounding boxes,
 ## and finding intersections.
 
+def _spline_length(x, samples=100):
+    """Approximate the length of a spline curve by sampling.
+
+    Parameters
+    ----------
+    x : spline curve
+        A Catmull-Rom, NURBS, Bezier, or B-spline curve definition.
+    samples : int
+        Number of sample points for length approximation.
+
+    Returns
+    -------
+    float
+        Approximate arc length of the curve.
+    """
+    total = 0.0
+    prev = sample(x, 0.0)
+    for i in range(1, samples + 1):
+        t = i / samples
+        curr = sample(x, t)
+        total += dist(prev, curr)
+        prev = curr
+    return total
+
+
 def length(x):
 
     """
@@ -3636,6 +3880,9 @@ def length(x):
         return hyperbola_length(x)
     elif ispoly(x):
         return polylength(x)
+    elif iscatmullrom(x) or isnurbs(x) or isbezier(x) or isbspline(x):
+        # For spline curves, approximate length by sampling
+        return _spline_length(x)
     elif isgeomlist(x):
         l = 0.0
         for g in x:
@@ -3663,6 +3910,10 @@ def center(x):
         return point(x[1])  # Return the center of the hyperbola
     elif ispoly(x):
         return polycenter(x)
+    elif iscatmullrom(x) or isnurbs(x) or isbezier(x) or isbspline(x):
+        # For spline curves, return the center of the bounding box
+        box = bbox(x)
+        return scale3(add(box[0], box[1]), 0.5)
     elif isgeomlist(x):
         pl = []
         for g in x:
@@ -3691,12 +3942,35 @@ def bbox(x):
         return hyperbola_bbox(x)
     elif ispoly(x):
         return polybbox(x)
+    elif iscatmullrom(x) or isnurbs(x) or isbezier(x) or isbspline(x):
+        # For spline curves, compute bbox by sampling
+        return _spline_bbox(x)
     elif isgeomlist(x):
         return geomlistbbox(x)
     else:
         raise ValueError("inappropriate type for bbox(): ",format(x))
 
-## 
+
+def _spline_bbox(x, samples=50):
+    """Compute bounding box of a spline curve by sampling.
+
+    Parameters
+    ----------
+    x : spline curve
+        A Catmull-Rom, NURBS, Bezier, or B-spline curve definition.
+    samples : int
+        Number of sample points.
+
+    Returns
+    -------
+    list
+        Bounding box as [min_point, max_point].
+    """
+    pts = [sample(x, i / samples) for i in range(samples + 1)]
+    return polybbox(pts)
+
+
+##
 def sample(x,u):
     """
     Given a figure x and a parameter u, return the point on the figure
@@ -3724,6 +3998,12 @@ def sample(x,u):
     elif isnurbs(x):
         from yapcad.spline import evaluate_nurbs
         return evaluate_nurbs(x, u)
+    elif isbezier(x):
+        from yapcad.spline import evaluate_bezier
+        return evaluate_bezier(x, u)
+    elif isbspline(x):
+        from yapcad.spline import evaluate_bspline
+        return evaluate_bspline(x, u)
     elif isgeomlist(x):
         return samplegeomlist(x,u)
     else:
@@ -3759,6 +4039,12 @@ def unsample(x,p):
     elif isnurbs(x):
         from yapcad.spline import evaluate_nurbs
         return _unsample_curve(x, p, evaluate_nurbs)
+    elif isbezier(x):
+        from yapcad.spline import evaluate_bezier
+        return _unsample_curve(x, p, evaluate_bezier)
+    elif isbspline(x):
+        from yapcad.spline import evaluate_bspline
+        return _unsample_curve(x, p, evaluate_bspline)
     elif isgeomlist(x):
         return unsamplegeomlist(x,p)
     else:

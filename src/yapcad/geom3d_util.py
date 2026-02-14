@@ -20,51 +20,82 @@ parametric soids and surfaces, and supporting functions.
 """
 
 
-def adaptive_arc_segments(radius, chord_error=0.1, min_segments=12, max_segments=360):
+def adaptive_arc_segments(radius, chord_error=None, max_chord=None, min_segments=16, max_segments=360):
     """
     Calculate the optimal number of arc segments for a given radius
-    to achieve a target maximum chord error (deviation from true circle).
+    based on maximum chord length (preferred) or chord error (legacy).
 
     This ensures that larger objects get more segments for smooth surfaces,
     while small features don't waste polygons.
 
     :param radius: radius of the circle/arc in mm
-    :param chord_error: maximum acceptable chord error in mm (default 0.1mm)
-    :param min_segments: minimum number of segments (default 12)
+    :param chord_error: (deprecated) maximum chord error/sagitta in mm.
+                        If specified, uses old algorithm for backward compatibility.
+    :param max_chord: maximum chord length in mm. If None, uses adaptive thresholds:
+                      - Large objects (R >= 50mm): 1.0mm max chord
+                      - Small objects (R <= 2.5mm): 0.1mm max chord
+                      - Medium sizes: logarithmic interpolation
+    :param min_segments: minimum number of segments (default 16)
     :param max_segments: maximum number of segments (default 360)
     :returns: optimal number of segments as an integer
 
+    **New chord-length algorithm (default):**
+    For a circle with N segments, chord length = 2*R*sin(π/N).
+    Solving for N: segments = ceil(π / arcsin(max_chord / (2*R)))
+
+    This provides much smoother cylinders:
+    - 100mm diameter (R=50mm): ~315 segments with ~1mm chords (vs 50 segments old)
+    - 5mm diameter (R=2.5mm): ~158 segments with ~0.1mm chords (vs 12 segments old)
+
+    **Legacy chord-error algorithm (when chord_error specified):**
     The chord error is the distance between the actual circle and the
-    straight line segment connecting two adjacent points. For a circle
-    of radius r and angle θ between segments:
+    straight line segment (sagitta). For a circle of radius r and angle θ:
         chord_error = r * (1 - cos(θ/2))
-
-    Solving for θ:
-        θ = 2 * arccos(1 - chord_error/r)
-        segments = 2π / θ
-
-    Example:
-        - 5mm radius: ~31 segments (for 0.1mm error)
-        - 170mm radius: ~183 segments (for 0.1mm error)
     """
-    if radius <= 0 or chord_error <= 0:
+    if radius <= 0:
         return 36  # fallback default
 
-    # Prevent math domain error when error >= radius
-    # (entire radius fits within error tolerance)
-    ratio = min(chord_error / radius, 0.999999)
+    # Legacy mode: use old chord_error algorithm if specified
+    if chord_error is not None:
+        if chord_error <= 0:
+            return 36
+        ratio = min(chord_error / radius, 0.999999)
+        theta_rad = 2 * math.acos(1 - ratio)
+        segments = int(math.ceil(2 * math.pi / theta_rad))
+        return max(min_segments, min(max_segments, segments))
 
-    # Calculate angle subtended by each segment
-    theta_rad = 2 * math.acos(1 - ratio)
+    # New mode: chord-length based resolution
+    if max_chord is None:
+        # Adaptive thresholds based on object size
+        if radius >= 50:
+            max_chord = 1.0  # Large objects: 1mm max chord
+        elif radius <= 2.5:
+            max_chord = 0.1  # Small objects: 0.1mm max chord
+        else:
+            # Logarithmic interpolation for medium sizes
+            # Maps: 2.5mm -> 0.1mm, 50mm -> 1.0mm
+            log_t = (math.log(radius) - math.log(2.5)) / (math.log(50) - math.log(2.5))
+            max_chord = 0.1 * math.pow(10, log_t)
 
-    # Calculate number of segments for full circle
-    segments = int(math.ceil(2 * math.pi / theta_rad))
+    # Safety: chord cannot exceed diameter
+    max_chord = min(max_chord, 2 * radius * 0.95)
+
+    # Calculate segments from chord length
+    # For N segments: chord = 2*R*sin(π/N)
+    # Solve: N = π / arcsin(chord/(2*R))
+    sin_half_angle = max_chord / (2 * radius)
+
+    if sin_half_angle >= 1.0:
+        return min_segments
+
+    half_angle = math.asin(sin_half_angle)
+    segments = int(math.ceil(math.pi / half_angle))
 
     # Clamp to reasonable bounds
     return max(min_segments, min(max_segments, segments))
 
 
-def adaptive_angr_from_radius(radius, chord_error=0.1, min_angr=1.0, max_angr=10.0):
+def adaptive_angr_from_radius(radius, chord_error=None, max_chord=None, min_angr=1.0, max_angr=10.0):
     """
     Calculate angular resolution (degrees per segment) adaptively based on radius.
 
@@ -72,12 +103,13 @@ def adaptive_angr_from_radius(radius, chord_error=0.1, min_angr=1.0, max_angr=10
     for functions that take 'angr' parameter instead of segment count.
 
     :param radius: radius of the circle/arc in mm
-    :param chord_error: maximum acceptable chord error in mm (default 0.1mm)
+    :param chord_error: (deprecated) maximum chord error in mm for legacy mode
+    :param max_chord: maximum chord length in mm (preferred method)
     :param min_angr: minimum angular resolution in degrees (default 1.0)
     :param max_angr: maximum angular resolution in degrees (default 10.0)
     :returns: optimal angular resolution in degrees
     """
-    segments = adaptive_arc_segments(radius, chord_error)
+    segments = adaptive_arc_segments(radius, chord_error=chord_error, max_chord=max_chord)
     angr = 360.0 / segments
     return max(min_angr, min(max_angr, angr))
 
@@ -416,131 +448,7 @@ def prism(length,width,height,center=point(0,0,0)):
             pass
     return sol
 
-def dodecahedron(diameter, center=point(0,0,0)):
-    """
-    Create a regular dodecahedron solid.
-    
-    A dodecahedron is a Platonic solid with 12 pentagonal faces, 
-    20 vertices, and 30 edges. This implementation uses the golden 
-    ratio construction.
-    
-    :param diameter: diameter of circumscribed sphere in mm
-    :param center: center point of the dodecahedron (default origin)
-    :returns: yapCAD solid with 12 pentagonal faces (36 triangles)
-    
-    Example::
-    
-        >>> d = dodecahedron(20)  # 20mm diameter dodecahedron
-        >>> write_stl(d, 'dodeca.stl')
-    """
-    call = f"yapcad.geom3d_util.dodecahedron({diameter},{center})"
-    
-    phi = (1 + math.sqrt(5)) / 2  # Golden ratio ≈ 1.618
-    
-    # Scale factor to fit within diameter
-    scale = diameter / (2 * phi)
-    
-    # 20 vertices of a regular dodecahedron
-    # Using standard golden ratio construction
-    a, b, c = 1.0, 1.0/phi, phi
-    
-    vertex_coords = [
-        # Cube vertices (±1, ±1, ±1) - indices 0-7
-        (+a, +a, +a), (+a, +a, -a), (+a, -a, +a), (+a, -a, -a),
-        (-a, +a, +a), (-a, +a, -a), (-a, -a, +a), (-a, -a, -a),
-        # (0, ±1/φ, ±φ) - indices 8-11
-        (0, +b, +c), (0, +b, -c), (0, -b, +c), (0, -b, -c),
-        # (±1/φ, ±φ, 0) - indices 12-15
-        (+b, +c, 0), (+b, -c, 0), (-b, +c, 0), (-b, -c, 0),
-        # (±φ, 0, ±1/φ) - indices 16-19
-        (+c, 0, +b), (+c, 0, -b), (-c, 0, +b), (-c, 0, -b),
-    ]
-    
-    # Scale vertices
-    verts = [[x*scale, y*scale, z*scale] for x, y, z in vertex_coords]
-    
-    # Rotate ~31.72° around Y-axis so model sits on a flat pentagonal face
-    # (default orientation would place it on an edge/vertex)
-    angle = math.radians(31.72)
-    cos_a, sin_a = math.cos(angle), math.sin(angle)
-    verts = [[v[0]*cos_a + v[2]*sin_a, v[1], -v[0]*sin_a + v[2]*cos_a] 
-             for v in verts]
-    
-    # Shift so z_min = 0 (now sitting on flat face with 5 vertices at bottom)
-    z_min = min(v[2] for v in verts)
-    verts = [[v[0], v[1], v[2] - z_min] for v in verts]
-    
-    # Apply center offset and convert to yapCAD points
-    points = [point(v[0] + center[0], v[1] + center[1], v[2] + center[2]) 
-              for v in verts]
-    
-    # 12 pentagonal faces - vertex indices in counter-clockwise order
-    pentagon_faces = [
-        [0, 8, 10, 2, 16],
-        [0, 16, 17, 1, 12],
-        [0, 12, 14, 4, 8],
-        [1, 17, 3, 11, 9],
-        [1, 9, 5, 14, 12],
-        [2, 10, 6, 15, 13],
-        [2, 13, 3, 17, 16],
-        [3, 13, 15, 7, 11],
-        [4, 18, 6, 10, 8],
-        [4, 14, 5, 19, 18],
-        [5, 9, 11, 7, 19],
-        [6, 18, 19, 7, 15],
-    ]
-    
-    # Helper to compute face normal
-    def face_normal(face_indices):
-        p0 = points[face_indices[0]]
-        p1 = points[face_indices[1]]
-        p2 = points[face_indices[2]]
-        # Cross product of two edges
-        e1 = sub(p1, p0)
-        e2 = sub(p2, p0)
-        n = cross(e1, e2)
-        # Normalize
-        mag = dist(n, point(0,0,0,1))
-        if mag > 0:
-            n = scale3(n, 1.0/mag)
-        return vect(n[0], n[1], n[2], 0)
-    
-    # Build surfaces - one per pentagonal face
-    surfaces = []
-    for face in pentagon_faces:
-        # Get vertices for this face
-        face_verts = [points[i] for i in face]
-        
-        # Compute face normal (same for all vertices in flat face)
-        n = face_normal(face)
-        face_normals = [n] * 5
-        
-        # Triangulate pentagon: fan from first vertex
-        # Creates triangles [0,1,2], [0,2,3], [0,3,4]
-        triangles = [[0, 1, 2], [0, 2, 3], [0, 3, 4]]
-        
-        # Create surface
-        surf = surface(face_verts, face_normals, triangles)
-        surf[4] = list(range(5))  # boundary
-        surf[5] = []  # no holes
-        surfaces.append(surf)
-    
-    sol = solid(surfaces, [], ['procedure', call])
-    
-    # Attach BREP if OpenCASCADE is available
-    if occ_available():
-        try:
-            from yapcad.brep import brep_from_solid
-            brep = brep_from_solid(sol)
-            if brep is not None:
-                attach_brep_to_solid(sol, brep)
-        except Exception:
-            pass
-    
-    return sol
-
-
-def circleSurface(center,radius,angr=None,zup=True,chord_error=0.1):
+def circleSurface(center,radius,angr=None,zup=True,chord_error=None,max_chord=None):
     """make a circular surface centered at ``center`` lying in the XY
     plane with normals pointing in the positive z direction if ``zup
     == True``, negative z otherwise
@@ -549,12 +457,13 @@ def circleSurface(center,radius,angr=None,zup=True,chord_error=0.1):
     :param radius: radius of circle
     :param angr: angular resolution in degrees (if None, use adaptive resolution)
     :param zup: if True, normal points +Z, else -Z
-    :param chord_error: max chord error for adaptive resolution (default 0.1mm)
+    :param chord_error: (deprecated) max chord error/sagitta for legacy mode
+    :param max_chord: maximum chord length in mm for adaptive resolution (default: size-adaptive)
     """
 
     if angr is None:
         # Use adaptive resolution based on radius
-        angr = adaptive_angr_from_radius(radius, chord_error)
+        angr = adaptive_angr_from_radius(radius, chord_error=chord_error, max_chord=max_chord)
     elif angr < 1 or angr > 45:
         raise ValueError('angular resolution must be between 1 and 45 degrees')
 
@@ -596,7 +505,7 @@ def circleSurface(center,radius,angr=None,zup=True,chord_error=0.1):
     surf[5] = []
     return surf
 
-def conic(baser,topr,height, center=point(0,0,0),angr=None,chord_error=0.1):
+def conic(baser,topr,height, center=point(0,0,0),angr=None,chord_error=None,max_chord=None):
 
     """Make a conic frustum splid, center is center of first 'base'
     circle, main axis aligns with positive z.  This function can be
@@ -620,14 +529,17 @@ def conic(baser,topr,height, center=point(0,0,0),angr=None,chord_error=0.1):
          based on the larger of baser and topr. Actual angular resolution
          will be ``360/round(360/angr)``
 
-         ``chord_error`` is the maximum chord error in mm for adaptive
-         resolution (default 0.1mm), ignored if angr is specified.
+         ``chord_error`` is the (deprecated) maximum chord error/sagitta in mm
+         for legacy mode, ignored if angr is specified.
+
+         ``max_chord`` is the maximum chord length in mm for adaptive
+         resolution (default: size-adaptive), ignored if angr is specified.
 
     """
     # Use adaptive resolution based on larger radius if angr not specified
     if angr is None:
         max_radius = max(baser, topr if topr >= epsilon else baser)
-        angr = adaptive_angr_from_radius(max_radius, chord_error)
+        angr = adaptive_angr_from_radius(max_radius, chord_error=chord_error, max_chord=max_chord)
 
     call = f"yapcad.geom3d_util.conic({baser},{topr},{height},{center},{angr})"
     if baser < epsilon:
@@ -796,7 +708,7 @@ def _make_revolution_brep(contour, zStart, zEnd, steps):
         return None
 
 
-def makeRevolutionSurface(contour,zStart,zEnd,steps,arcSamples=None,*,chord_error=0.1,return_brep=False):
+def makeRevolutionSurface(contour,zStart,zEnd,steps,arcSamples=None,*,chord_error=None,max_chord=None,return_brep=False):
     """
     Generate a surface of revolution by sampling a contour function.
 
@@ -806,7 +718,8 @@ def makeRevolutionSurface(contour,zStart,zEnd,steps,arcSamples=None,*,chord_erro
     :param steps: number of contour samples between ``zStart`` and ``zEnd``
     :param arcSamples: number of samples around the revolution arc.
                        If None (default), adaptive resolution is used.
-    :param chord_error: maximum chord error for adaptive resolution (default 0.1mm)
+    :param chord_error: (deprecated) maximum chord error/sagitta for legacy mode
+    :param max_chord: maximum chord length in mm for adaptive resolution (default: size-adaptive)
     :returns: ``['surface', vertices, normals, faces]`` list representing the surface
     """
 
@@ -824,7 +737,7 @@ def makeRevolutionSurface(contour,zStart,zEnd,steps,arcSamples=None,*,chord_erro
             z = i * zD + zStart
             r = contour(z)
             max_radius = max(max_radius, r)
-        arcSamples = adaptive_arc_segments(max_radius, chord_error)
+        arcSamples = adaptive_arc_segments(max_radius, chord_error=chord_error, max_chord=max_chord)
 
     degStep = 360.0/arcSamples
     radStep = pi2/arcSamples
@@ -1136,7 +1049,7 @@ def makeRevolutionThetaSamplingSurface(contour, zStart, zEnd, arcSamples=360,
     return surf, brep_shape
 
 
-def makeRevolutionSolid(contour, zStart, zEnd, steps, arcSamples=None, chord_error=0.1, metadata=None):
+def makeRevolutionSolid(contour, zStart, zEnd, steps, arcSamples=None, chord_error=None, max_chord=None, metadata=None):
     """
     Build a solid of revolution around the Z axis. When pythonocc-core is
     available, a native BREP is attached; otherwise we fall back to the
@@ -1144,10 +1057,11 @@ def makeRevolutionSolid(contour, zStart, zEnd, steps, arcSamples=None, chord_err
 
     :param arcSamples: number of samples around the revolution arc.
                        If None (default), adaptive resolution is used.
-    :param chord_error: maximum chord error for adaptive resolution (default 0.1mm)
+    :param chord_error: (deprecated) maximum chord error/sagitta for legacy mode
+    :param max_chord: maximum chord length in mm for adaptive resolution (default: size-adaptive)
     """
     surf, brep_shape = makeRevolutionSurface(
-        contour, zStart, zEnd, steps, arcSamples=arcSamples, chord_error=chord_error, return_brep=True
+        contour, zStart, zEnd, steps, arcSamples=arcSamples, chord_error=chord_error, max_chord=max_chord, return_brep=True
     )
     call = f"yapcad.geom3d_util.makeRevolutionSolid(contour,{zStart},{zEnd},{steps},{arcSamples})"
     construction = ['procedure', call]
@@ -1556,16 +1470,17 @@ def makeLoftSolid(lower_loop, upper_loop, *, metadata=None):
 
     
 
-def _circle_loop(center_xy, radius, minang=None, chord_error=0.1):
+def _circle_loop(center_xy, radius, minang=None, chord_error=None, max_chord=None):
     """Generate a circle loop with adaptive or fixed resolution.
 
     :param center_xy: (x, y) center coordinates
     :param radius: radius of circle
     :param minang: minimum angular resolution in degrees. If None, use adaptive.
-    :param chord_error: maximum chord error for adaptive resolution (default 0.1mm)
+    :param chord_error: (deprecated) maximum chord error/sagitta for legacy mode
+    :param max_chord: maximum chord length in mm for adaptive resolution (default: size-adaptive)
     """
     if minang is None:
-        minang = adaptive_angr_from_radius(radius, chord_error)
+        minang = adaptive_angr_from_radius(radius, chord_error=chord_error, max_chord=max_chord)
 
     arc_geom = [arc(point(center_xy[0], center_xy[1]), radius)]
     loop = geomlist2poly(arc_geom, minang=minang, minlen=0.0)
@@ -1575,14 +1490,15 @@ def _circle_loop(center_xy, radius, minang=None, chord_error=0.1):
 
 
 def tube(outer_diameter, wall_thickness, length,
-         center=None, *, base_point=None, minang=None, chord_error=0.1, include_caps=True):
+         center=None, *, base_point=None, minang=None, chord_error=None, max_chord=None, include_caps=True):
     """Create a cylindrical tube solid.
 
     ``base_point`` (or legacy ``center`` argument) identifies the base of the
     cylindrical wall, i.e. the plane where ``z == base_point[2]``.
 
     :param minang: minimum angular resolution in degrees. If None, use adaptive.
-    :param chord_error: maximum chord error for adaptive resolution (default 0.1mm)
+    :param chord_error: (deprecated) maximum chord error/sagitta for legacy mode
+    :param max_chord: maximum chord length in mm for adaptive resolution (default: size-adaptive)
     """
 
     if base_point is not None and center is not None:
@@ -1603,13 +1519,13 @@ def tube(outer_diameter, wall_thickness, length,
 
     # Use adaptive resolution based on outer radius if not specified
     if minang is None:
-        minang = adaptive_angr_from_radius(outer_radius, chord_error)
+        minang = adaptive_angr_from_radius(outer_radius, chord_error=chord_error, max_chord=max_chord)
 
     base_z = base_point[2]
     center_xy = (base_point[0], base_point[1])
 
-    base_loop_xy = _circle_loop(center_xy, outer_radius, minang)
-    inner_loop_xy = list(reversed(_circle_loop(center_xy, inner_radius, minang)))
+    base_loop_xy = _circle_loop(center_xy, outer_radius, minang, chord_error=chord_error, max_chord=max_chord)
+    inner_loop_xy = list(reversed(_circle_loop(center_xy, inner_radius, minang, chord_error=chord_error, max_chord=max_chord)))
 
     base_surface, _ = poly2surfaceXY(base_loop_xy, holepolys=[inner_loop_xy])
     base_surface = reversesurface(base_surface)
@@ -1651,14 +1567,15 @@ def tube(outer_diameter, wall_thickness, length,
 
 
 def conic_tube(bottom_outer_diameter, top_outer_diameter, wall_thickness,
-               length, center=None, *, base_point=None, minang=None, chord_error=0.1, include_caps=True):
+               length, center=None, *, base_point=None, minang=None, chord_error=None, max_chord=None, include_caps=True):
     """Create a conic tube with varying outer diameter.
 
     ``base_point`` (or ``center`` legacy argument) marks the axial base of the
     frustum (the larger-diameter end when stacked).
 
     :param minang: minimum angular resolution in degrees. If None, use adaptive.
-    :param chord_error: maximum chord error for adaptive resolution (default 0.1mm)
+    :param chord_error: (deprecated) maximum chord error/sagitta for legacy mode
+    :param max_chord: maximum chord length in mm for adaptive resolution (default: size-adaptive)
     """
 
     if base_point is not None and center is not None:
@@ -1680,16 +1597,16 @@ def conic_tube(bottom_outer_diameter, top_outer_diameter, wall_thickness,
     # Use adaptive resolution based on larger outer radius if not specified
     if minang is None:
         max_radius = max(r0_outer, r1_outer)
-        minang = adaptive_angr_from_radius(max_radius, chord_error)
+        minang = adaptive_angr_from_radius(max_radius, chord_error=chord_error, max_chord=max_chord)
 
     base_z = base_point[2]
     center_xy = (base_point[0], base_point[1])
 
-    base_outer_loop = _circle_loop(center_xy, r0_outer, minang)
-    base_inner_loop = list(reversed(_circle_loop(center_xy, r0_inner, minang)))
+    base_outer_loop = _circle_loop(center_xy, r0_outer, minang, chord_error=chord_error, max_chord=max_chord)
+    base_inner_loop = list(reversed(_circle_loop(center_xy, r0_inner, minang, chord_error=chord_error, max_chord=max_chord)))
 
-    top_outer_loop = _circle_loop(center_xy, r1_outer, minang)
-    top_inner_loop = list(reversed(_circle_loop(center_xy, r1_inner, minang)))
+    top_outer_loop = _circle_loop(center_xy, r1_outer, minang, chord_error=chord_error, max_chord=max_chord)
+    top_inner_loop = list(reversed(_circle_loop(center_xy, r1_inner, minang, chord_error=chord_error, max_chord=max_chord)))
 
     base_surface, _ = poly2surfaceXY(base_outer_loop, holepolys=[base_inner_loop])
     base_surface = reversesurface(base_surface)
@@ -3317,3 +3234,166 @@ def linear_pattern_surface(surf, count, spacing):
             result.append(translated)
 
     return result
+
+
+# =============================================================================
+# Loft and Sweep Convenience Functions
+# =============================================================================
+
+def loft(profiles, *, segments=None, metadata=None):
+    """Create a solid by lofting between 2D profiles at different Z heights.
+
+    This function creates smooth transitions between cross-sectional profiles,
+    useful for creating organic shapes, tapered forms, and complex solids.
+
+    Parameters
+    ----------
+    profiles : list
+        List of 2D polylines/profiles at different Z heights. Each profile
+        should be a list of points forming a closed polygon. Must have at
+        least 2 profiles, and all profiles must have the same number of points.
+    segments : int, optional
+        Not currently used; reserved for future multi-profile interpolation.
+    metadata : dict, optional
+        Optional metadata dictionary to attach to the solid.
+
+    Returns
+    -------
+    solid
+        A yapCAD solid created by lofting between the profiles.
+
+    Examples
+    --------
+    >>> # Create a tapered cylinder (cone frustum)
+    >>> from yapcad.geom import arc, point
+    >>> from yapcad.geom_util import geomlist2poly
+    >>>
+    >>> # Circle at z=0 with radius 10
+    >>> profile1 = geomlist2poly([arc(point(0, 0, 0), 10)], minang=10)
+    >>> # Smaller circle at z=50 with radius 5
+    >>> profile2 = geomlist2poly([arc(point(0, 0, 50), 5)], minang=10)
+    >>> # Move profile2 to z=50
+    >>> profile2 = [point(p[0], p[1], 50) for p in profile2]
+    >>>
+    >>> tapered = loft([profile1, profile2])
+
+    >>> # Create a shape from Bezier curves
+    >>> from yapcad.geom import bezier
+    >>> from yapcad.spline import bezier_curve
+    >>>
+    >>> # Create bezier-based profile at z=0
+    >>> cp1 = [point(0, 0), point(10, 20), point(30, 20), point(40, 0), point(0, 0)]
+    >>> profile1 = bezier_curve(cp1, segments=32)
+    >>> # Transform profile to z=30
+    >>> profile2 = [point(p[0]*0.5+10, p[1]*0.5, 30) for p in profile1]
+    >>>
+    >>> organic_shape = loft([profile1, profile2])
+
+    Notes
+    -----
+    - Profiles should have matching vertex counts for best results
+    - The function uses `makeLoftSolid` internally
+    - For more than 2 profiles, intermediate lofts are created and combined
+    """
+    if not profiles or len(profiles) < 2:
+        raise ValueError('loft requires at least 2 profiles')
+
+    # Handle simple 2-profile case
+    if len(profiles) == 2:
+        lower = profiles[0]
+        upper = profiles[1]
+        return makeLoftSolid(lower, upper, metadata=metadata)
+
+    # For multiple profiles, create sequential lofts
+    # This is a simplified approach - a more sophisticated version
+    # would use OCC BRepOffsetAPI_ThruSections for all profiles at once
+    from yapcad.geom3d import solid_boolean
+
+    result = None
+    for i in range(len(profiles) - 1):
+        segment = makeLoftSolid(profiles[i], profiles[i + 1], metadata=metadata)
+        if result is None:
+            result = segment
+        else:
+            # Union with previous segments
+            result = solid_boolean(result, segment, 'union')
+
+    return result
+
+
+def sweep_along_path(profile, path, *, segments=32, metadata=None):
+    """Sweep a 2D profile along a 3D path curve.
+
+    This is a convenience wrapper around `sweep_profile_along_path` that
+    accepts various path representations including Bezier curves and B-splines.
+
+    Parameters
+    ----------
+    profile : list or region2d
+        A 2D profile (closed polyline) to sweep. The profile should be
+        defined in the XY plane centered at the origin.
+    path : list
+        A 3D path curve, which can be:
+        - A polyline (list of 3D points)
+        - A Bezier curve definition (from `bezier()`)
+        - A B-spline curve definition (from `bspline()`)
+        - A Catmull-Rom spline (from `catmullrom()`)
+    segments : int, optional
+        Number of segments when sampling spline paths (default 32).
+    metadata : dict, optional
+        Optional metadata dictionary to attach to the solid.
+
+    Returns
+    -------
+    solid
+        A yapCAD solid created by sweeping the profile along the path.
+
+    Examples
+    --------
+    >>> # Sweep a circle along a Bezier curve
+    >>> from yapcad.geom import bezier, arc, point
+    >>> from yapcad.geom_util import geomlist2poly
+    >>> from yapcad.spline import bezier_curve
+    >>>
+    >>> # Create circular profile
+    >>> circle_profile = geomlist2poly([arc(point(0, 0), 2)], minang=10)
+    >>>
+    >>> # Create curved path using Bezier
+    >>> path_cp = [point(0, 0, 0), point(20, 0, 10), point(40, 20, 10), point(60, 20, 0)]
+    >>> path_curve = bezier(path_cp)
+    >>>
+    >>> # Create swept tube
+    >>> tube = sweep_along_path(circle_profile, path_curve, segments=64)
+
+    Notes
+    -----
+    - Profile should be centered at origin in XY plane
+    - The sweep follows the tangent of the path for orientation
+    - For complex paths, use more segments for smoother results
+    """
+    from yapcad.geom import isbezier, isbspline, iscatmullrom, isnurbs, ispoly
+    from yapcad.spline import sample_bezier, sample_bspline
+
+    # Convert spline paths to polylines
+    if isbezier(path):
+        path_poly = sample_bezier(path, segments=segments)
+    elif isbspline(path):
+        path_poly = sample_bspline(path, segments=segments)
+    elif iscatmullrom(path):
+        from yapcad.spline import sample_catmullrom
+        path_poly = sample_catmullrom(path, segments_per_span=segments // 4)
+    elif isnurbs(path):
+        from yapcad.spline import sample_nurbs
+        path_poly = sample_nurbs(path, samples=segments)
+    elif ispoly(path):
+        path_poly = path
+    else:
+        # Assume it's a list of points
+        path_poly = list(path)
+
+    # Use adaptive sweep for better quality
+    try:
+        return sweep_adaptive(profile, path_poly, threshold=5.0, metadata=metadata)
+    except RuntimeError:
+        # Fallback to basic sweep if OCC not available
+        return sweep_profile_along_path(profile, path_poly, metadata=metadata)

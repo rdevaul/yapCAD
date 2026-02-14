@@ -350,6 +350,9 @@ SHELL = SurfaceType("shell")
 # Tier 5: Solids
 SOLID = SolidType("solid")
 
+# BREP types
+EDGE = GeometricPrimitiveType("edge", dimension=None)  # BREP edge type
+
 # Special types
 DICT = DictType()
 NONE = NoneType()
@@ -402,6 +405,9 @@ BUILTIN_TYPES: Dict[str, Type] = {
 
     # Tier 5: Solids
     "solid": SOLID,
+
+    # BREP types
+    "edge": EDGE,
 
     # Generic
     "dict": DICT,

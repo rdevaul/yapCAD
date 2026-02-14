@@ -656,6 +656,13 @@ def fillet_edges(brep_solid: BrepSolid, edges: list, radius: float) -> BrepSolid
 
     for brep_edge in edges:
         edge = brep_edge.shape if isinstance(brep_edge, BrepEdge) else brep_edge
+        # Cast to TopoDS_Edge if needed (edges from TopTools_IndexedMapOfShape
+        # are TopoDS_Shape, not TopoDS_Edge)
+        if topods is not None:
+            try:
+                edge = topods.Edge(edge)
+            except Exception:
+                continue
         try:
             fillet_maker.Add(radius, edge)
         except Exception:
@@ -698,6 +705,13 @@ def chamfer_edges(brep_solid: BrepSolid, edges: list, distance: float) -> BrepSo
 
     for brep_edge in edges:
         edge = brep_edge.shape if isinstance(brep_edge, BrepEdge) else brep_edge
+        # Cast to TopoDS_Edge if needed (edges from TopTools_IndexedMapOfShape
+        # are TopoDS_Shape, not TopoDS_Edge)
+        if topods is not None:
+            try:
+                edge = topods.Edge(edge)
+            except Exception:
+                continue
         try:
             # Add symmetric chamfer (single distance)
             chamfer_maker.Add(distance, edge)

@@ -15,7 +15,7 @@ from ..types import (
     OptionalTypeWrapper, FunctionType,
     INT, FLOAT, BOOL, STRING,
     POINT, POINT2D, POINT3D, VECTOR, VECTOR2D, VECTOR3D, TRANSFORM,
-    SOLID, REGION2D, SURFACE, SHELL,
+    SOLID, REGION2D, SURFACE, SHELL, EDGE,
 )
 
 
@@ -125,6 +125,11 @@ def path3d_val(path_data: Any) -> Value:
     """Create a path3d value (3D curve/spine for sweeps)."""
     from ..types import PATH3D
     return Value(path_data, PATH3D)
+
+
+def edge_list_val(edge_list_data: Any) -> Value:
+    """Create an edge list value (list of BREP edges)."""
+    return Value(edge_list_data, ListType(EDGE))
 
 
 # Type checking utilities
