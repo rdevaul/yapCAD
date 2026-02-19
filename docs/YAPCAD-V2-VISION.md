@@ -358,7 +358,7 @@ The GEL framing makes collaborative editing more natural than in traditional CAD
 
 1. **Packaging:** Dual-path — conda-only for developers, Docker+OpenClaw for deployment. Both first-class.
 2. **FEA solvers:** Support both FEniCS and CalculiX. Both already have preliminary integration in `yapcad.package.analysis`.
-3. **Skill marketplace:** Open ecosystem with cryptographic signing. Will become its own project eventually. Garrett is working on a vision document for this.
+3. **Skill marketplace:** Open ecosystem with cryptographic signing. Will become its own project — the "Dark Matter Skill Universe" (see Garrett's `DARK-MATTER-SKILL-UNIVERSE.md`). Marketplace serves both agent skills AND signed `.ycpkg` packages. Git-backed with Git Actions for automated security checks. Reference implementation: `github.com/rdevaul/skill-signer`. **Critical requirement:** yapCAD package signing (`yapcad.package.signing`) must align with the skill-signer infrastructure — one identity, one key, signs both. Test on Gitea before going public.
 4. **Package format:** Extend existing `.ycpkg` with mechatronics, manufacturing hints, and mini-skills. The package is a living design document, not just a geometry container.
 5. **Collaborative editing:** Yes, with git-integrated version control. Conflicts become parallel explorations (consistent with GEL). Real-time CRDT is a stretch goal.
 
