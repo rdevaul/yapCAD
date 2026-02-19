@@ -358,7 +358,14 @@ The GEL framing makes collaborative editing more natural than in traditional CAD
 
 1. **Packaging:** Dual-path — conda-only for developers, Docker+OpenClaw for deployment. Both first-class.
 2. **FEA solvers:** Support both FEniCS and CalculiX. Both already have preliminary integration in `yapcad.package.analysis`.
-3. **Skill marketplace:** Open ecosystem with cryptographic signing. Will become its own project — the "Dark Matter Skill Universe" (see Garrett's `DARK-MATTER-SKILL-UNIVERSE.md`). Marketplace serves both agent skills AND signed `.ycpkg` packages. Git-backed with Git Actions for automated security checks. Reference implementation: `github.com/rdevaul/skill-signer`. **Critical requirement:** yapCAD package signing (`yapcad.package.signing`) must align with the skill-signer infrastructure — one identity, one key, signs both. Test on Gitea before going public.
+3. **Skill marketplace:** Open ecosystem with cryptographic signing. Will become its own project — the "Dark Matter Skill Universe" (see Garrett's `DARK-MATTER-SKILL-UNIVERSE.md`). Marketplace serves both agent skills AND signed `.ycpkg` packages. Reference implementation: `github.com/rdevaul/skill-signer`. **Critical requirement:** yapCAD package signing (`yapcad.package.signing`) must align with the skill-signer infrastructure — one identity, one key, signs both.
+
+   **Multi-repo architecture:** The client maintains a configurable list of signed skill/package repositories. Each repo is an independent source — Gitea (DML internal), GitHub, GitLab, or hypothetically IPFS. The client doesn't care about the backend; it just needs a common protocol for discovery, download, and signature verification. This means:
+   - DML team uses internal Gitea repos during development
+   - Public releases go to GitHub/GitLab repos
+   - Multiple repos can be active simultaneously (like apt sources or conda channels)
+   - Git Actions on each repo handle automated security checks on upload
+   - Test the full workflow on Gitea first, then expand to public repos
 4. **Package format:** Extend existing `.ycpkg` with mechatronics, manufacturing hints, and mini-skills. The package is a living design document, not just a geometry container.
 5. **Collaborative editing:** Yes, with git-integrated version control. Conflicts become parallel explorations (consistent with GEL). Real-time CRDT is a stretch goal.
 
