@@ -1,8 +1,9 @@
-# Skill Repository Protocol — Draft v0.1
+# Skill Repository Protocol — Draft v0.2
 
 **Status:** Draft
 **Authors:** Rich DeVaul, Jarvis, Garrett
 **Date:** 2026-02-19
+**Updated:** 2026-02-19 (v0.2 — resolved open questions, added two-tier PKI, dependency resolution, ClawHub integration)
 
 ---
 
@@ -101,8 +102,17 @@ Per-package metadata. This is what gets signed.
     "yapcad": ">=2.0.0",
     "openclaw": ">=2026.2"
   },
+  "depends": [
+    {
+      "name": "cad3d",
+      "version": ">=1.0.0 <2.0.0",
+      "signer": "garrett@dml",
+      "key_hash": "sha256:a1b2c3..."
+    }
+  ],
   "artifact": "yapcad-printing-1.0.0.tar.gz",
   "artifact_sha256": "a1b2c3d4...",
+  "external_artifacts": [],
   "files": {
     "SKILL.md": "sha256:...",
     "scripts/slice.py": "sha256:...",
@@ -292,6 +302,126 @@ Packages use semver (`MAJOR.MINOR.PATCH`). The registry can contain multiple ver
 - Bug fixes → patch bump
 - The registry retains all versions (git history provides full lineage)
 
+## Large Artifacts
+
+In-repo artifacts are limited to **50MB**. For larger assets (trained models, large meshes, compiled binaries), use the `external_artifacts` field in `MANIFEST.json`:
+
+```json
+"external_artifacts": [
+  {
+    "name": "trained-model.onnx",
+    "url": "https://releases.example.com/model-v1.0.0.onnx",
+    "sha256": "e5f6a7b8...",
+    "size": 128000000,
+    "required": true
+  }
+]
+```
+
+**Client behavior:**
+1. Download external artifacts after verifying the manifest signature
+2. Verify SHA256 of each downloaded artifact against the manifest
+3. If any required artifact fails verification, reject the entire package
+4. Cache external artifacts locally (keyed by SHA256) to avoid re-downloads
+
+This keeps the git repo lean while still providing hash-verified integrity for large files.
+
+## Two-Tier PKI
+
+The signing infrastructure uses a **cold root key** and **hot operational keys** to balance security with automation.
+
+### Key Hierarchy
+
+```
+Root Key (COLD — offline, air-gapped)
+├── Signs: signer public keys (onboarding)
+├── Signs: CI registry key (delegation)
+├── Signs: revocations (emergency)
+│
+├── Signer Keys (WARM — developer machines)
+│   ├── garrett@dml — signs packages
+│   ├── rich@dml — signs packages
+│   ├── jarvis@dml — signs packages (agent)
+│   └── jeremy@dml — signs packages
+│
+└── CI Registry Key (HOT — runs in CI)
+    └── Signs: registry.json only
+```
+
+### Key Lifecycle
+
+1. **Root key generation:** Ed25519 keypair, generated offline, private key stored on hardware token or air-gapped machine. Public key distributed in repo as `keys/_root.pub`.
+2. **Signer onboarding:** Developer generates keypair, submits `.pub` to repo. Root key signs a certificate binding `signer-id` to public key. Certificate stored as `keys/<signer-id>.cert.json`.
+3. **CI key delegation:** Root key signs a restricted certificate for the CI key — only valid for signing `registry.json`, not packages.
+4. **Key rotation:** New key generated, root signs new cert, old key added to revocation list.
+
+### Revocation
+
+A `revocations.json` file in the repo root, **signed by the root key**:
+
+```json
+{
+  "version": 1,
+  "signed_by": "_root",
+  "revocations": [
+    {
+      "key_hash": "sha256:abc123...",
+      "signer": "compromised@dml",
+      "revoked_at": "2026-03-15T00:00:00Z",
+      "reason": "Key compromise"
+    }
+  ],
+  "signature": "base64-encoded-root-signature"
+}
+```
+
+**Client behavior:**
+1. Fetch `revocations.json` on every registry refresh
+2. Verify the root signature on the revocations file
+3. Reject any package signed by a revoked key, even if previously trusted
+4. Cache revocations with a short TTL (15 minutes) to limit exposure window
+
+If the CI key is compromised: root key publishes a revocation, rotates the CI key, and re-signs the registry. Since the CI key can only sign `registry.json` (not packages), the blast radius is limited to registry tampering — package signatures remain valid.
+
+## Dependency Resolution
+
+Packages can declare dependencies on other signed packages using semver ranges with signer pinning.
+
+### Dependency Specification
+
+```json
+"depends": [
+  {
+    "name": "cad3d",
+    "version": ">=2.2.0 <3.0.0",
+    "signer": "bob@mcbobster.com",
+    "key_hash": "sha256:abc123..."
+  }
+]
+```
+
+- **`name`** — Package name in the registry
+- **`version`** — Semver range (npm-style: `>=`, `<`, `^`, `~`)
+- **`signer`** — Required signer identity. Prevents name-squatting attacks where a different repo publishes a same-named package.
+- **`key_hash`** — SHA256 of the signer's public key. Belt-and-suspenders: even if the signer ID is spoofed, the key must match.
+
+### Resolution Algorithm
+
+1. Build dependency graph from root package
+2. For each dependency, find the highest version in configured repos that satisfies the range AND matches the signer+key_hash
+3. Detect cycles (error) and diamonds (resolve to highest compatible version)
+4. Download and verify all dependencies before installing root package
+
+### Depth Limit
+
+Maximum dependency depth: **3 levels**. Skills should be composable but not deeply nested. If you need more than 3 levels, refactor.
+
+### Conflict Resolution
+
+If two packages depend on different versions of the same dependency:
+- If ranges overlap → use highest version in the intersection
+- If ranges are incompatible → error, require user to choose
+
 ## Security Considerations
 
 1. **No code execution during install.** Skills are static files (SKILL.md, scripts, configs). No `postinstall` hooks.
@@ -329,14 +459,72 @@ Packages use semver (`MAJOR.MINOR.PATCH`). The registry can contain multiple ver
 | Git Actions | CI for verification + registry generation | To be implemented |
 | `repos.yaml` | Client repo configuration | To be defined |
 
-## Open Questions
+## Rate Limiting
 
-1. **Large artifacts:** Git isn't great for large binary files. Use Git LFS? Or keep artifacts under a size limit (e.g., 50MB) and use releases/attachments for larger ones?
-2. **Registry signing:** Should `registry.json` itself be signed (by a repo maintainer key)? Prevents tampering at the transport layer.
-3. **Dependency resolution:** Should packages declare dependencies on other packages? If so, how deep does the resolver go?
-4. **Rate limiting:** Public repos may need rate limiting on API access. GitHub already handles this; Gitea needs configuration.
-5. **Alignment with ClawHub:** The existing `clawhub` CLI already does discovery/install. Should we extend it, or build a new client?
+### Client-side
+- Default: **60 requests/minute** per repo
+- Registry refresh: **1 hour** cache TTL (configurable)
+- Revocation refresh: **15 minute** cache TTL (not configurable below this)
+- Exponential backoff on 429 responses
 
+### Server-side (Gitea)
+- Configure in `app.ini`: `[api]` section, `MAX_RESPONSE_ITEMS` and rate limiting middleware
+- Recommended: 100 req/min per IP for anonymous, 300 req/min for authenticated
+- GitHub: handled automatically by their API rate limits (60/hr anonymous, 5000/hr authenticated)
+
+## ClawHub Integration
+
+The protocol extends the existing `clawhub` CLI rather than replacing it. ClawHub becomes a client implementation that speaks the skill repo protocol, with backward compatibility for existing unsigned skills.
+
+### New Commands
+
+```bash
+# Repo management
+clawhub repo add <name> <url> [--type gitea|github|gitlab] [--trust <signer-id>...]
+clawhub repo remove <name>
+clawhub repo list
+
+# Search across all configured repos (signed + unsigned)
+clawhub search <query> [--signed-only] [--type skill|ycpkg]
+
+# Install with signature awareness
+clawhub install <package>                    # Requires signature from trusted signer
+clawhub install <package> --allow-unsigned   # ⚠️ WARNING: installing unsigned skill
+clawhub install <package>@2.1.0             # Pin version
+
+# Verification
+clawhub verify <package>                     # Check signatures of installed package
+clawhub verify --all                         # Verify all installed packages
+
+# Publishing (for skill authors)
+clawhub publish <dir> --sign-as <signer-id>  # Sign and push to configured repo
+```
+
+### Backward Compatibility
+
+- Existing ClawHub registry treated as an **unsigned repo source** at lowest priority
+- `clawhub install` from ClawHub registry requires `--allow-unsigned` flag
+- Warning displayed: `⚠️ This skill is unsigned and unverified. Install at your own risk.`
+- Skills installed from signed repos get a `✅ Verified` badge in `clawhub list`
+- Migration path: ClawHub skill authors can sign their existing skills and publish to a signed repo
+
+### Trust Precedence
+
+When the same package exists in multiple repos:
+1. Signed + trusted signer → auto-install
+2. Signed + known signer → prompt for approval
+3. Signed + unknown signer → show in search, flag as unverified
+4. Unsigned (ClawHub legacy) → only with `--allow-unsigned`
+
+## Resolved Design Decisions
+
+| # | Question | Decision | Rationale |
+|---|----------|----------|-----------|
+| 1 | Large artifacts | 50MB in-repo limit + `external_artifacts` with SHA256 | Keeps git lean; hash verification for integrity |
+| 2 | Registry signing | Yes, by hot CI key with two-tier PKI | Prevents transport-layer tampering; revocation via cold root key limits blast radius |
+| 3 | Dependencies | Semver ranges + signer/key_hash pinning, 3-level depth limit | Enables skill composition without copying; signer pinning prevents name-squatting |
+| 4 | Rate limiting | Client 60 req/min, Gitea 100-300 req/min | Reasonable defaults; exponential backoff on 429 |
+| 5 | ClawHub alignment | Extend `clawhub` CLI with repo/verify/signing commands | Wider adoption; backward compat with `--allow-unsigned`; avoid ecosystem fragmentation |
 ---
 
 *This protocol is designed to be the simplest thing that works, layered on infrastructure that already exists (git). Complexity can be added later — IPFS backends, on-chain PKI, payment rails — without changing the client-facing protocol.*
