@@ -978,6 +978,39 @@ def makeRevolutionSurface(contour,zStart,zEnd,steps,arcSamples=None,*,chord_erro
             sF.append([k1,k2,k3])
             sF.append([k1,k3,k4])
         
+    # ── Flat disc caps for open ends (r > 0 at endpoints) ──────────
+    # When the contour doesn't reach r=0 at zStart or zEnd, the surface
+    # is open (a tube). Add flat disc caps to close it into a solid.
+    if not need_start_cap and r_start >= epsilon:
+        # Bottom disc cap: center vertex at (0,0,zStart), fan to first ring
+        cap_center = [0.0, 0.0, zStart, 1.0]
+        cap_normal = [0.0, 0.0, -1.0, 0.0]  # outward = -Z for bottom
+        center_idx, sV, sN = addVertex(cap_center, cap_normal, sV, sN)
+        for j in range(arcSamples):
+            j_next = (j + 1) % arcSamples
+            # Ring vertices at z=zStart
+            p1 = [angle_cos[j] * r_start, angle_sin[j] * r_start, zStart, 1.0]
+            p2 = [angle_cos[j_next] * r_start, angle_sin[j_next] * r_start, zStart, 1.0]
+            k1, sV, sN = addVertex(p1, cap_normal, sV, sN)
+            k2, sV, sN = addVertex(p2, cap_normal, sV, sN)
+            # Wind CW from outside (looking at -Z face)
+            sF.append([center_idx, k2, k1])
+
+    if not need_end_cap and r_end >= epsilon:
+        # Top disc cap: center vertex at (0,0,zEnd), fan to last ring
+        cap_center = [0.0, 0.0, zEnd, 1.0]
+        cap_normal = [0.0, 0.0, 1.0, 0.0]  # outward = +Z for top
+        center_idx, sV, sN = addVertex(cap_center, cap_normal, sV, sN)
+        for j in range(arcSamples):
+            j_next = (j + 1) % arcSamples
+            # Ring vertices at z=zEnd
+            p1 = [angle_cos[j] * r_end, angle_sin[j] * r_end, zEnd, 1.0]
+            p2 = [angle_cos[j_next] * r_end, angle_sin[j_next] * r_end, zEnd, 1.0]
+            k1, sV, sN = addVertex(p1, cap_normal, sV, sN)
+            k2, sV, sN = addVertex(p2, cap_normal, sV, sN)
+            # Wind CCW from outside (looking at +Z face)
+            sF.append([center_idx, k1, k2])
+
     surf = surface(sV,sN,sF)
 
     if not return_brep:
