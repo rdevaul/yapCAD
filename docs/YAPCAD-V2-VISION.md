@@ -1,6 +1,6 @@
 # yapCAD 2.0 — Vision Document
 
-**Status:** Draft v0.1
+**Status:** Draft v0.2
 **Authors:** Rich DeVaul, Jarvis
 **Date:** 2026-02-19
 
@@ -45,6 +45,9 @@ This is the GEL philosophy made concrete: **design as parallel search, fabricati
 │  ┌──────────────────────────────────────────┐   │
 │  │  Assembly  │  Kinematics  │  Collision    │   │
 │  └──────────────────────────────────────────┘   │
+│  ┌──────────────────────────────────────────┐   │
+│  │  Package (.ycpkg)  │  FEA (FEniCS/Calc.) │   │
+│  └──────────────────────────────────────────┘   │
 └────────────────────┬────────────────────────────┘
                      │
 ┌────────────────────┴────────────────────────────┐
@@ -76,13 +79,25 @@ All solid geometry constructors produce manifold, watertight meshes. The OCC BRE
 
 ### 4. Skills as the Extension Model
 
-yapCAD 2.0 ships with a curated set of **signed agent skills** that provide domain-specific intelligence. Skills are the mechanism for extending the platform — not plugins, not extensions, not arbitrary code. Skills are cryptographically signed, sandboxed, and versioned.
+yapCAD 2.0 ships with a curated set of **signed agent skills** that provide domain-specific intelligence. Skills are cryptographically signed, sandboxed, and versioned. The skill ecosystem is **open** — anyone can publish signed skills to the marketplace, not just DML. This marketplace will eventually become its own project, open to any signed skill (not limited to yapCAD).
+
+### 5. Packages as Living Design Documents
+
+The `.ycpkg` package format is the unit of design. A package isn't just geometry — it bundles DSL source, requirements, FEA/testing specs, assembly constraints, and (in 2.0) mechatronics linkages, manufacturing hints, and **mini-skills** that guide users through domain-specific design processes.
+
+**Mini-skills** are package-embedded agent instructions that turn a parametric design into an interactive design tool. Examples:
+- A **bicycle frame** package with a mini-skill that interviews the user about rider dimensions, terrain, and use case to derive tube angles and lengths
+- A **sounding rocket** package with a mini-skill that guides the user through propulsion, structural, and aero requirements to produce a complete multi-stage design
+- A **pressure vessel** package with a mini-skill that walks through material selection, working pressure, and safety factor to size wall thickness and dome geometry
+
+This makes yapCAD packages not just reusable parts, but reusable *design processes*.
 
 ## Bundled Skills
 
 ### `yapcad-install`
 **Purpose:** Bootstrap and maintain a yapCAD environment.
 - Conda environment setup (pythonocc, trimesh, dependencies)
+- Docker container setup (bundled with OpenClaw)
 - Version checking and updates
 - Environment validation (OCC available? Blender available? Printers configured?)
 - First-run tutorial and capability inventory
@@ -115,12 +130,15 @@ yapCAD 2.0 ships with a curated set of **signed agent skills** that provide doma
 
 ### `yapcad-fea`
 **Purpose:** Finite element analysis and simulation.
-- Mesh generation from solid geometry (tetrahedral, hex)
+- Mesh generation from solid geometry (gmsh integration, tetrahedral/hex)
 - Linear static analysis (stress, strain, displacement)
 - Thermal analysis
 - Modal analysis (natural frequencies)
-- Integration with external solvers (CalculiX, FEniCS, Elmer)
+- Dual solver support: **FEniCS** (existing integration) and **CalculiX** (existing integration)
+- Face naming for boundary condition assignment
 - Results visualization and design-space sensitivity analysis
+
+*Note: yapCAD already has preliminary FEniCS and CalculiX integration in `src/yapcad/package/analysis/`. The 2.0 skill wraps this existing infrastructure with agent-friendly interfaces.*
 
 ### `yapcad-dfm`
 **Purpose:** Design for manufacture — bridging design and fabrication.
@@ -161,6 +179,69 @@ yapCAD 2.0 ships with a curated set of **signed agent skills** that provide doma
 - Direct Python API as primary interface — still supported, but agent-mediated workflow is the default
 - Tessellated-only geometry path — OCC BREP is default, tessellation is for visualization only
 
+### Packaging & Distribution
+
+Two supported installation paths:
+
+1. **conda-only:** `conda install -c dml yapcad` — installs the full environment including pythonocc, trimesh, and all dependencies. Recommended for development and direct use.
+
+2. **Docker container (bundled with OpenClaw):** A complete containerized environment with yapCAD service, web workbench, and OpenClaw agent runtime pre-configured. Recommended for deployment and team use. Pull and run — no environment setup required.
+
+Both paths deliver the same capabilities. Docker is the "it just works" option; conda is the "I want to hack on it" option.
+
+## The `.ycpkg` Package Format
+
+The yapCAD package (`.ycpkg`) is the fundamental unit of shareable design. It already supports geometry, DSL source, and FEA/testing specifications. For 2.0, the format extends to include:
+
+### Current Capabilities
+- Multi-entity geometry (solids, surfaces, assemblies)
+- DSL source with parametric commands
+- FEA specifications (boundary conditions, loads, materials)
+- Validation tests (requirements as executable checks)
+- Package signing (existing `yapcad.package.signing` module)
+
+### 2.0 Extensions
+- **Mechatronics metadata:** Kinematic chain definitions, joint limits, actuator specs
+- **Manufacturing hints:** Preferred orientation, support strategy, material constraints, fit tolerances
+- **Mini-skills:** Embedded agent instructions (natural language + structured prompts) that guide domain-specific design processes
+- **Design lineage:** Links to parent designs, variant relationships, exploration history
+- **Version control hooks:** Integration with git for checkpoint/merge workflows
+
+### Mini-Skills in Packages
+
+A mini-skill is a structured prompt embedded in a `.ycpkg` that tells an agent how to use the package interactively. It includes:
+
+```yaml
+mini_skill:
+  name: "Pressure Vessel Designer"
+  description: "Interactive design tool for cylindrical pressure vessels"
+  interview:
+    - question: "What is the working pressure (MPa)?"
+      parameter: working_pressure
+      type: float
+      range: [0.1, 200]
+    - question: "What material family?"
+      parameter: material
+      type: choice
+      options: [aluminum, titanium, steel, composite]
+    - question: "What is the target internal volume (liters)?"
+      parameter: volume
+      type: float
+      range: [0.1, 10000]
+  validation:
+    - check: wall_thickness > 2.0mm
+    - check: safety_factor >= 2.5
+    - check: manifold(outer_shell)
+  workflow:
+    - step: derive_dimensions
+    - step: generate_geometry
+    - step: run_fea
+    - step: validate_requirements
+    - step: propose_to_user
+```
+
+This turns any parametric package into an **interactive design wizard** — the agent asks the right questions, fills in the parameters, validates the result, and presents it to the human.
+
 ## The Web Workbench
 
 The workbench is where human and agent collaborate. It's a browser application, not a desktop app. It runs locally (no cloud dependency) but is accessible from any device on the network.
@@ -178,12 +259,23 @@ The chat panel isn't a generic chatbot — it's geometry-aware:
 - Agent can trigger evaluation, rendering, validation
 - Agent proposes design alternatives with visual diffs
 - Human can accept, reject, or redirect with natural language
+- **Mini-skills** activate when a package with embedded skills is loaded
 
 ### Session Authentication
 - JWT tokens, generated conversationally (no login page)
 - 4-hour TTL, HMAC-SHA256
 - Multi-user: each team member gets their own session
 - DSL sandbox: `python {}` and `native {}` blocks rejected for untrusted users
+
+### Collaborative Editing
+
+Multiple agents and humans can edit the same design simultaneously. This requires:
+- **Version control integration:** Design changes are periodically checkpointed to git
+- **Conflict resolution:** Conflicting edits can be merged (if compatible) or kept as parallel explorations in the design space — consistent with the GEL philosophy that divergent designs are features, not bugs
+- **Operational transform or CRDT:** For real-time collaborative editing of DSL source (stretch goal — initial implementation may use lock-based turn-taking)
+- **Design branching:** Explicit support for forking a design into variants, with the option to merge back or maintain as a design family
+
+The GEL framing makes collaborative editing more natural than in traditional CAD: when two people take a design in different directions, the result is a richer design family, not a merge conflict.
 
 ## DSL Evolution for 2.0
 
@@ -216,6 +308,8 @@ The chat panel isn't a generic chatbot — it's geometry-aware:
 - [x] Assembly system (datums, mates, kinematics, collision)
 - [x] Web viewer with 3-column layout
 - [x] REST API service
+- [x] FEA integration (FEniCS + CalculiX in `yapcad.package.analysis`)
+- [x] Package signing (`yapcad.package.signing`)
 - [ ] OCC as default engine with deprecation warnings for fallbacks
 - [ ] `lathe()`, `dome()`, `rounded_cylinder()` primitives
 
@@ -226,24 +320,32 @@ The chat panel isn't a generic chatbot — it's geometry-aware:
 - [ ] Signed skill loading and sandbox enforcement
 - [ ] Multi-file project management
 
-### Phase 3: Skills
+### Phase 3: Skills & Packaging
 - [ ] Skill packaging format and signing infrastructure
+- [ ] Open skill marketplace (eventually its own project)
 - [ ] `yapcad-install` skill
 - [ ] `yapcad-cad3d` skill (wraps DSL + geometry operations)
 - [ ] `yapcad-printing` skill (wraps existing print pipeline)
 - [ ] `yapcad-geometry2d` skill
+- [ ] Docker container distribution (yapCAD + OpenClaw bundled)
+- [ ] conda package (`conda install -c dml yapcad`)
 
-### Phase 4: GEL Integration
+### Phase 4: GEL Integration & Collaboration
 - [ ] Parallel design exploration framework
 - [ ] Requirements-as-tests infrastructure
 - [ ] Design family management (versioning, comparison, selection)
 - [ ] Agent-mediated design review workflow
+- [ ] Git-integrated version control for designs
+- [ ] Collaborative editing (branching, merging, parallel variants)
 
-### Phase 5: Advanced Skills
+### Phase 5: Advanced Skills & Package Extensions
 - [ ] `yapcad-mechatronics` skill
-- [ ] `yapcad-fea` skill (solver integration)
+- [ ] `yapcad-fea` skill (agent-friendly wrapper around existing solvers)
 - [ ] `yapcad-dfm` skill
-- [ ] External tool integration (FreeCAD, KiCad, CalculiX)
+- [ ] Mini-skill embedding in `.ycpkg` packages
+- [ ] `.ycpkg` extensions: mechatronics linkages, manufacturing hints, design lineage
+- [ ] External tool integration (FreeCAD, KiCad)
+- [ ] Package-embedded design wizards (bicycle frame, rocket, pressure vessel examples)
 
 ## What yapCAD 2.0 Is NOT
 
@@ -252,14 +354,15 @@ The chat panel isn't a generic chatbot — it's geometry-aware:
 - **Not model-specific.** Works with any LLM backend via OpenClaw (Claude, GPT, Qwen, local models). The GEL thesis applies to any capable model.
 - **Not just for experts.** The agent lowers the floor — natural language intent → validated geometry. The DSL raises the ceiling — full parametric control for those who want it.
 
-## Open Questions
+## Decisions Made
 
-1. **Packaging:** pip install with conda bootstrap? conda-only? Docker image?
-2. **FEA solver:** Bundle CalculiX? Use FEniCS? Both?
-3. **Skill marketplace:** DML-only skills, or open ecosystem with signing?
-4. **File format:** Should yapCAD define a project format (.yapcad) that bundles DSL + requirements + assembly + print config?
-5. **Collaborative editing:** Multiple agents/humans editing the same design simultaneously?
+1. **Packaging:** Dual-path — conda-only for developers, Docker+OpenClaw for deployment. Both first-class.
+2. **FEA solvers:** Support both FEniCS and CalculiX. Both already have preliminary integration in `yapcad.package.analysis`.
+3. **Skill marketplace:** Open ecosystem with cryptographic signing. Will become its own project eventually. Garrett is working on a vision document for this.
+4. **Package format:** Extend existing `.ycpkg` with mechatronics, manufacturing hints, and mini-skills. The package is a living design document, not just a geometry container.
+5. **Collaborative editing:** Yes, with git-integrated version control. Conflicts become parallel explorations (consistent with GEL). Real-time CRDT is a stretch goal.
 
 ---
 
-*This document will evolve. Update it as decisions are made and scope is refined.*
+*This is a living document. Update it as decisions are made and scope is refined.*
+*v0.1 → v0.2: Integrated Rich's answers on packaging (conda + Docker), FEA (both solvers), marketplace (open + signed), .ycpkg extensions (mini-skills), and collaborative editing (git-integrated, GEL-aligned).*
