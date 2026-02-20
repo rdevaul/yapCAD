@@ -14,10 +14,20 @@ export interface ChatMessage {
   timestamp: number;
 }
 
+export const AVAILABLE_MODELS = [
+  { id: 'anthropic/claude-opus-4-6',    label: 'Opus 4.6 (best)' },
+  { id: 'anthropic/claude-sonnet-4-6',  label: 'Sonnet 4.6 (fast)' },
+  { id: 'qwen3:235b',                   label: 'Qwen3 235B (local)' },
+  { id: 'qwen3-coder:480b',             label: 'Qwen3 Coder 480B (local)' },
+] as const;
+
+export const DEFAULT_MODEL = 'anthropic/claude-opus-4-6';
+
 interface UseChatOptions {
   gatewayUrl: string;
   token: string;
   dslSource: string;
+  model?: string;
 }
 
 interface UseChatReturn {
@@ -60,7 +70,7 @@ function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-export function useChat({ gatewayUrl, token, dslSource }: UseChatOptions): UseChatReturn {
+export function useChat({ gatewayUrl, token, dslSource, model = DEFAULT_MODEL }: UseChatOptions): UseChatReturn {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -118,7 +128,7 @@ export function useChat({ gatewayUrl, token, dslSource }: UseChatOptions): UseCh
           'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({
-          model: 'anthropic/claude-sonnet-4-6',
+          model,
           messages: apiMessages,
           stream: true,
           max_tokens: 2048,
@@ -188,7 +198,7 @@ export function useChat({ gatewayUrl, token, dslSource }: UseChatOptions): UseCh
       setIsStreaming(false);
       abortRef.current = null;
     }
-  }, [messages, isStreaming, token, dslSource, gatewayUrl]);
+  }, [messages, isStreaming, token, dslSource, gatewayUrl, model]);
 
   const clear = useCallback(() => {
     setMessages([]);

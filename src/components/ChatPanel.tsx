@@ -5,7 +5,7 @@
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { useChat } from '../hooks/useChat';
+import { useChat, AVAILABLE_MODELS, DEFAULT_MODEL } from '../hooks/useChat';
 
 interface ChatPanelProps {
   dslSource?: string;
@@ -14,6 +14,7 @@ interface ChatPanelProps {
 
 const GATEWAY_URL_KEY = 'yapcad-chat-gateway-url';
 const GATEWAY_TOKEN_KEY = 'yapcad-chat-token';
+const CHAT_MODEL_KEY = 'yapcad-chat-model';
 const DEFAULT_GATEWAY = '/openclaw';
 
 // Extract DSL code blocks from assistant message
@@ -84,6 +85,9 @@ export function ChatPanel({ dslSource = '', onDSLUpdate }: ChatPanelProps) {
   const [token, setToken] = useState(() =>
     localStorage.getItem(GATEWAY_TOKEN_KEY) || ''
   );
+  const [model, setModel] = useState(() =>
+    localStorage.getItem(CHAT_MODEL_KEY) || DEFAULT_MODEL
+  );
   const [showSettings, setShowSettings] = useState(false);
   const [inputValue, setInputValue] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -93,6 +97,7 @@ export function ChatPanel({ dslSource = '', onDSLUpdate }: ChatPanelProps) {
     gatewayUrl,
     token,
     dslSource,
+    model,
   });
 
   // Scroll to bottom on new content
@@ -100,12 +105,14 @@ export function ChatPanel({ dslSource = '', onDSLUpdate }: ChatPanelProps) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const handleSaveSettings = useCallback((url: string, tok: string) => {
+  const handleSaveSettings = useCallback((url: string, tok: string, mdl: string) => {
     const cleanUrl = url.replace(/\/$/, '');
     setGatewayUrl(cleanUrl);
     setToken(tok);
+    setModel(mdl);
     localStorage.setItem(GATEWAY_URL_KEY, cleanUrl);
     localStorage.setItem(GATEWAY_TOKEN_KEY, tok);
+    localStorage.setItem(CHAT_MODEL_KEY, mdl);
     setShowSettings(false);
   }, []);
 
@@ -134,6 +141,7 @@ export function ChatPanel({ dslSource = '', onDSLUpdate }: ChatPanelProps) {
       <SettingsPanel
         initialUrl={gatewayUrl}
         initialToken={token}
+        initialModel={model}
         onSave={handleSaveSettings}
         onCancel={() => setShowSettings(false)}
       />
@@ -148,6 +156,9 @@ export function ChatPanel({ dslSource = '', onDSLUpdate }: ChatPanelProps) {
       <div style={styles.header}>
         <span style={styles.statusDot(isConfigured)} title={isConfigured ? 'Connected' : 'Not configured'} />
         <span style={styles.title}>Agent Chat</span>
+        <span style={styles.modelBadge}>
+          {AVAILABLE_MODELS.find(m => m.id === model)?.label.split(' ')[0] ?? 'Opus'}
+        </span>
         <div style={styles.headerActions}>
           {messages.length > 0 && (
             <button style={styles.iconBtn} onClick={clear} title="Clear conversation">
@@ -248,16 +259,19 @@ export function ChatPanel({ dslSource = '', onDSLUpdate }: ChatPanelProps) {
 function SettingsPanel({
   initialUrl,
   initialToken,
+  initialModel,
   onSave,
   onCancel,
 }: {
   initialUrl: string;
   initialToken: string;
-  onSave: (url: string, token: string) => void;
+  initialModel: string;
+  onSave: (url: string, token: string, model: string) => void;
   onCancel: () => void;
 }) {
   const [url, setUrl] = useState(initialUrl);
   const [tok, setTok] = useState(initialToken);
+  const [mdl, setMdl] = useState(initialModel);
 
   return (
     <div style={styles.container}>
@@ -265,12 +279,22 @@ function SettingsPanel({
         <span style={styles.title}>Chat Settings</span>
       </div>
       <div style={styles.settingsBody}>
+        <label style={styles.settingsLabel}>Model</label>
+        <select
+          style={styles.settingsInput}
+          value={mdl}
+          onChange={e => setMdl(e.target.value)}
+        >
+          {AVAILABLE_MODELS.map(m => (
+            <option key={m.id} value={m.id}>{m.label}</option>
+          ))}
+        </select>
         <label style={styles.settingsLabel}>Gateway URL</label>
         <input
           style={styles.settingsInput}
           value={url}
           onChange={e => setUrl(e.target.value)}
-          placeholder="http://localhost:18789"
+          placeholder="/openclaw"
         />
         <label style={styles.settingsLabel}>Auth Token</label>
         <input
@@ -281,11 +305,11 @@ function SettingsPanel({
           placeholder="OpenClaw gateway token"
         />
         <div style={styles.settingsHint}>
-          Find your token: <code>openclaw status</code> → gateway auth token
+          Find your token: <code>openclaw --profile Jarvis status</code> → gateway auth token
         </div>
         <div style={styles.settingsBtns}>
           <button style={styles.cancelBtn} onClick={onCancel}>Cancel</button>
-          <button style={styles.saveBtn} onClick={() => onSave(url, tok)}>Save</button>
+          <button style={styles.saveBtn} onClick={() => onSave(url, tok, mdl)}>Save</button>
         </div>
       </div>
     </div>
@@ -316,6 +340,15 @@ const styles = {
     color: '#ccc',
     fontWeight: 500,
     flex: 1,
+  },
+  modelBadge: {
+    fontSize: '10px',
+    color: '#7c7cf8',
+    backgroundColor: '#1e1e38',
+    padding: '2px 6px',
+    borderRadius: '3px',
+    fontWeight: 600,
+    letterSpacing: '0.03em',
   },
   statusDot: (active: boolean) => ({
     width: '7px',

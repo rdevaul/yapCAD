@@ -53,11 +53,15 @@ document.head.appendChild(styleSheet);
 // Seed chat config from env vars (only if not already set by user)
 const envToken = import.meta.env.VITE_OPENCLAW_TOKEN as string | undefined;
 const envGateway = import.meta.env.VITE_OPENCLAW_GATEWAY as string | undefined;
+const envModel = import.meta.env.VITE_OPENCLAW_DEFAULT_MODEL as string | undefined;
 if (envToken && !localStorage.getItem('yapcad-chat-token')) {
   localStorage.setItem('yapcad-chat-token', envToken);
 }
 if (envGateway && !localStorage.getItem('yapcad-chat-gateway-url')) {
   localStorage.setItem('yapcad-chat-gateway-url', envGateway);
+}
+if (envModel && !localStorage.getItem('yapcad-chat-model')) {
+  localStorage.setItem('yapcad-chat-model', envModel);
 }
 
 // Mount app
