@@ -1,0 +1,62 @@
+schema: ycpkg-spec-v0.1
+id: aca0381d-dd7d-46ee-9bd0-52f179e66d11
+name: Hydra Robot
+version: 0.1.0
+description: Modular reconfigurable robot - starfish configuration with 4 arms, 2
+  grippers, 1 wheel
+created:
+  timestamp: '2026-02-12T00:27:47.672601+00:00'
+generator:
+  tool: yapCAD-DSL
+  version: 1.0.0rc1
+  dsl:
+    module: hydra_robot
+    commands:
+    - BODY
+    - CONNECTORS
+    - ARMS
+    - EFFECTORS
+    source_signature: sha256:8e924c365713b9b9cf53c3192a6c03c0699ef4a5a4b79474506490454cdd9201
+units: mm
+tags:
+- robot
+- modular
+- wireless-power
+- hydra
+layers:
+  body:
+    name: body
+    color: '#6688aa'
+    material: aluminum
+  connector:
+    name: connector
+    color: '#cc8844'
+    material: copper
+  arm:
+    name: arm
+    color: '#999999'
+    material: steel
+  effector:
+    name: effector
+    color: '#44aa66'
+    material: plastic
+geometry:
+  primary:
+    path: geometry/primary.json
+    schema: yapcad-geometry-json-v0.1
+    entities:
+    - e9f222d0-327a-4204-bb53-3c7dcf46d8f8
+    - bde759ef-31ae-4853-b37a-c697a0697859
+    - 3ae73a12-7593-43c9-8eb2-bf7bd9f88205
+    - 7aa776bd-8831-4843-a02a-0590fc5750ad
+    - 44882a2d-849f-4ca1-af82-67f8ef8f9c82
+    - 5fc4b4af-a1e9-4382-8f20-1127388b3e64
+    - eeac00f1-6798-43e5-ada4-1a9a55d2ef4b
+    - 48ed80ec-3505-46ab-b7a3-eb621dcc5d9d
+    hash: sha256:547c172f0ec7afe2a353b9db70c65fbbd93c5feb8364e610570bba6dd988fd7f
+attachments:
+- id: dsl-source
+  path: attachments/source.dsl
+  hash: sha256:8e924c365713b9b9cf53c3192a6c03c0699ef4a5a4b79474506490454cdd9201
+  format: dsl
+  purpose: DSL source code

@@ -1,0 +1,37 @@
+{
+  "name": "yapcad-web-viewer",
+  "version": "0.2.0",
+  "description": "Web-based viewer for yapCAD geometry packages",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "serve": "npx serve public -p 3000"
+  },
+  "dependencies": {
+    "@monaco-editor/react": "^4.7.0",
+    "@react-three/drei": "^9.88.0",
+    "@react-three/fiber": "^8.15.0",
+    "@types/js-yaml": "^4.0.9",
+    "idb-keyval": "^6.2.1",
+    "js-yaml": "^4.1.1",
+    "jszip": "^3.10.1",
+    "monaco-editor": "^0.55.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "three": "^0.160.0",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "@types/archiver": "^7.0.0",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "@types/three": "^0.160.0",
+    "@types/uuid": "^9.0.0",
+    "@vitejs/plugin-react": "^4.2.0",
+    "archiver": "^7.0.1",
+    "typescript": "^5.3.0",
+    "vite": "^5.0.0"
+  }
+}
