@@ -1,7 +1,14 @@
 /**
  * Streaming chat hook for yapCAD workbench.
- * Connects to the OpenClaw gateway's /v1/chat/completions SSE endpoint.
- * DSL source is injected as context in the system prompt.
+ *
+ * Two modes:
+ *   1. AGENT SESSION (default): Routes through a named OpenClaw agent session
+ *      via x-openclaw-agent-id + x-openclaw-session-key headers.
+ *      The session maintains its own history, memory, and tool access.
+ *      Only the new user message is sent each turn.
+ *
+ *   2. STATELESS (legacy): Raw /v1/chat/completions with full local history.
+ *      Used when sessionKey is empty/null.
  */
 
 import { useState, useCallback, useRef } from 'react';
@@ -15,19 +22,25 @@ export interface ChatMessage {
 }
 
 export const AVAILABLE_MODELS = [
-  { id: 'anthropic/claude-opus-4-6',    label: 'Opus 4.6 (best)' },
-  { id: 'anthropic/claude-sonnet-4-6',  label: 'Sonnet 4.6 (fast)' },
-  { id: 'qwen3:235b',                   label: 'Qwen3 235B (local)' },
-  { id: 'qwen3-coder:480b',             label: 'Qwen3 Coder 480B (local)' },
+  { id: 'anthropic/claude-opus-4-6',   label: 'Opus 4.6 (best)' },
+  { id: 'anthropic/claude-sonnet-4-6', label: 'Sonnet 4.6 (fast)' },
+  { id: 'qwen3:235b',                  label: 'Qwen3 235B (local)' },
+  { id: 'qwen3-coder:480b',            label: 'Qwen3 Coder 480B (local)' },
 ] as const;
 
-export const DEFAULT_MODEL = 'anthropic/claude-opus-4-6';
+export const DEFAULT_MODEL    = 'anthropic/claude-opus-4-6';
+export const DEFAULT_AGENT_ID  = 'jarvis-rich';
+export const DEFAULT_SESSION_KEY = 'agent:jarvis-rich:yapcad';
 
 interface UseChatOptions {
   gatewayUrl: string;
   token: string;
   dslSource: string;
   model?: string;
+  /** OpenClaw agent id to route to (e.g. "jarvis-rich"). Empty = stateless mode. */
+  agentId?: string;
+  /** Full session key (e.g. "agent:jarvis-rich:yapcad"). Empty = stateless mode. */
+  sessionKey?: string;
 }
 
 interface UseChatReturn {
@@ -38,7 +51,8 @@ interface UseChatReturn {
   clear: () => void;
 }
 
-const SYSTEM_PROMPT = `You are Jarvis, an AI engineering assistant embedded in the yapCAD workbench.
+// ── Stateless (legacy) system prompt ──────────────────────────────────────────
+const STATELESS_SYSTEM_PROMPT = `You are Jarvis, an AI engineering assistant embedded in the yapCAD workbench.
 You help users design 3D geometry using the yapCAD DSL language.
 
 The yapCAD DSL supports:
@@ -47,60 +61,69 @@ The yapCAD DSL supports:
 - Transforms: translate(solid, [x,y,z]), rotate(solid, angle, axis), scale(solid, [x,y,z])
 - Revolution: lathe(profile, steps) — creates watertight revolution solid
 - Assembly: assembly(name, parts), datum(name, type, pos, dir), mate(a, b, type)
-- Variables and parametric commands: command name(params...) { ... }
+- Parametric commands: command name(params...) -> type: ... emit result
 
 When you provide DSL code, always wrap it in \`\`\`dsl fences so it can be applied to the editor.
 Be concise. Focus on geometry and engineering. Suggest improvements proactively.`;
 
-function buildSystemPrompt(dslSource: string): string {
-  if (!dslSource.trim()) {
-    return SYSTEM_PROMPT;
-  }
-  return `${SYSTEM_PROMPT}
+function buildStatelessSystemPrompt(dslSource: string): string {
+  if (!dslSource.trim()) return STATELESS_SYSTEM_PROMPT;
+  return `${STATELESS_SYSTEM_PROMPT}
 
 Current DSL source in the editor:
 \`\`\`dsl
 ${dslSource}
+\`\`\``;
+}
+
+// ── Agent session: DSL context prepended to user turn ─────────────────────────
+function buildAgentUserMessage(text: string, dslSource: string): string {
+  if (!dslSource.trim()) return text;
+  return `[yapCAD Editor Context]
+\`\`\`dsl
+${dslSource}
 \`\`\`
 
-You can suggest modifications or improvements to this code. The user can apply DSL blocks you provide.`;
+${text}`;
 }
 
 function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-export function useChat({ gatewayUrl, token, dslSource, model = DEFAULT_MODEL }: UseChatOptions): UseChatReturn {
+export function useChat({
+  gatewayUrl,
+  token,
+  dslSource,
+  model = DEFAULT_MODEL,
+  agentId = DEFAULT_AGENT_ID,
+  sessionKey = DEFAULT_SESSION_KEY,
+}: UseChatOptions): UseChatReturn {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
+  const useAgentSession = !!(agentId && sessionKey);
+
   const send = useCallback(async (text: string) => {
     if (!text.trim() || isStreaming) return;
     if (!token) {
-      setError('No OpenClaw token configured. Add it in chat settings.');
+      setError('No OpenClaw token configured. Add it in chat settings (⚙).');
       return;
     }
 
-    // Abort any in-flight request
-    if (abortRef.current) {
-      abortRef.current.abort();
-    }
+    if (abortRef.current) abortRef.current.abort();
     const controller = new AbortController();
     abortRef.current = controller;
-
     setError(null);
 
-    // Add user message
     const userMsg: ChatMessage = {
       id: generateId(),
       role: 'user',
       content: text,
       timestamp: Date.now(),
     };
-
-    // Add pending assistant message
     const assistantId = generateId();
     const assistantMsg: ChatMessage = {
       id: assistantId,
@@ -113,25 +136,45 @@ export function useChat({ gatewayUrl, token, dslSource, model = DEFAULT_MODEL }:
     setMessages(prev => [...prev, userMsg, assistantMsg]);
     setIsStreaming(true);
 
-    // Build messages array for API
-    const apiMessages = [
-      { role: 'system', content: buildSystemPrompt(dslSource) },
-      ...messages.map(m => ({ role: m.role, content: m.content })),
-      { role: 'user', content: text },
-    ];
+    // Build the messages payload
+    let apiMessages: { role: string; content: string }[];
+
+    if (useAgentSession) {
+      // Agent session mode: only send the new user message.
+      // DSL context is prepended to the content so the agent sees the editor state.
+      // The session maintains history, memory, and tool access server-side.
+      apiMessages = [
+        { role: 'user', content: buildAgentUserMessage(text, dslSource) },
+      ];
+    } else {
+      // Stateless mode: send full local history with system prompt.
+      apiMessages = [
+        { role: 'system', content: buildStatelessSystemPrompt(dslSource) },
+        ...messages.map(m => ({ role: m.role, content: m.content })),
+        { role: 'user', content: text },
+      ];
+    }
+
+    // Build headers
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+    };
+
+    if (useAgentSession) {
+      headers['x-openclaw-agent-id']   = agentId;
+      headers['x-openclaw-session-key'] = sessionKey;
+    }
 
     try {
       const resp = await fetch(`${gatewayUrl}/v1/chat/completions`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
+        headers,
         body: JSON.stringify({
           model,
           messages: apiMessages,
           stream: true,
-          max_tokens: 2048,
+          max_tokens: 4096,
         }),
         signal: controller.signal,
       });
@@ -168,19 +211,16 @@ export function useChat({ gatewayUrl, token, dslSource, model = DEFAULT_MODEL }:
               accumulated += delta;
               setMessages(prev =>
                 prev.map(m =>
-                  m.id === assistantId
-                    ? { ...m, content: accumulated }
-                    : m
+                  m.id === assistantId ? { ...m, content: accumulated } : m
                 )
               );
             }
           } catch {
-            // malformed chunk, skip
+            // malformed SSE chunk, skip
           }
         }
       }
 
-      // Finalize — clear pending flag
       setMessages(prev =>
         prev.map(m =>
           m.id === assistantId
@@ -192,13 +232,12 @@ export function useChat({ gatewayUrl, token, dslSource, model = DEFAULT_MODEL }:
       if (err instanceof Error && err.name === 'AbortError') return;
       const msg = err instanceof Error ? err.message : 'Unknown error';
       setError(msg);
-      // Remove the pending assistant message on error
       setMessages(prev => prev.filter(m => m.id !== assistantId));
     } finally {
       setIsStreaming(false);
       abortRef.current = null;
     }
-  }, [messages, isStreaming, token, dslSource, gatewayUrl, model]);
+  }, [messages, isStreaming, token, dslSource, gatewayUrl, model, agentId, sessionKey, useAgentSession]);
 
   const clear = useCallback(() => {
     setMessages([]);

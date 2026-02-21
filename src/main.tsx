@@ -63,6 +63,13 @@ if (envGateway && !localStorage.getItem('yapcad-chat-gateway-url')) {
 if (envModel && !localStorage.getItem('yapcad-chat-model')) {
   localStorage.setItem('yapcad-chat-model', envModel);
 }
+// Seed agent session defaults (only if not already set by user)
+if (!localStorage.getItem('yapcad-chat-agent-id')) {
+  localStorage.setItem('yapcad-chat-agent-id', 'jarvis-rich');
+}
+if (!localStorage.getItem('yapcad-chat-session-key')) {
+  localStorage.setItem('yapcad-chat-session-key', 'agent:jarvis-rich:yapcad');
+}
 
 // Mount app
 const root = ReactDOM.createRoot(document.getElementById('root')!);
