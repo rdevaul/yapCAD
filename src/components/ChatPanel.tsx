@@ -16,6 +16,11 @@ import {
   DEFAULT_AGENT_ID,
   DEFAULT_SESSION_KEY,
 } from '../hooks/useChat';
+import CommandPalette from './CommandPalette';
+import { SkillEditor } from './SkillEditor';
+
+interface SkillParam { name: string; default: string; unit: string; }
+interface Skill { name: string; description: string; category: string; promptTemplate: string; params: SkillParam[]; }
 
 interface ChatPanelProps {
   dslSource?: string;
@@ -99,9 +104,22 @@ export function ChatPanel({ dslSource = '', onDSLUpdate }: ChatPanelProps) {
   const [inputValue, setInputValue] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Image attachment
+  const [imageAttachment, setImageAttachment] = useState<{
+    preview: string; base64: string; mimeType: string;
+  } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Slash command palette
+  const [showPalette, setShowPalette] = useState(false);
+  const paletteFilter = inputValue.startsWith('/') ? inputValue.slice(1) : '';
+
+  // Skill editor
+  const [editingSkill, setEditingSkill] = useState<Skill | null>(null);
+
   const agentMode = !!(agentId && sessionKey);
 
-  const { messages, isStreaming, error, send, clear } = useChat({
+  const { messages, isStreaming, error, send, cancel, clear } = useChat({
     gatewayUrl,
     token,
     dslSource,
@@ -126,16 +144,53 @@ export function ChatPanel({ dslSource = '', onDSLUpdate }: ChatPanelProps) {
     setShowSettings(false);
   }, []);
 
+  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const dataUrl = ev.target?.result as string;
+      const base64 = dataUrl.split(',')[1];
+      setImageAttachment({ preview: dataUrl, base64, mimeType: file.type });
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  }, []);
+
   const handleSend = useCallback(async () => {
     const text = inputValue.trim();
     if (!text || isStreaming) return;
     setInputValue('');
-    await send(text);
-  }, [inputValue, isStreaming, send]);
+    setShowPalette(false);
+    const img = imageAttachment;
+    setImageAttachment(null);
+    await send(text, img ?? undefined);
+  }, [inputValue, isStreaming, send, imageAttachment]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Escape') { setShowPalette(false); return; }
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
   }, [handleSend]);
+
+  const handleCommandSelect = useCallback((cmd: string) => {
+    setInputValue('');
+    setShowPalette(false);
+    if (cmd === '/new') { clear(); }
+    else if (cmd === '/status') { send('/status'); }
+    else if (cmd === '/compact') { send('/compact'); }
+    else if (cmd === '/help') { send('/help'); }
+  }, [clear, send]);
+
+  const handleSkillSelect = useCallback((skill: Skill) => {
+    setShowPalette(false);
+    setInputValue('');
+    setEditingSkill(skill);
+  }, []);
+
+  const handleSkillSubmit = useCallback((prompt: string) => {
+    setEditingSkill(null);
+    send(prompt);
+  }, [send]);
 
   const handleApplyDSL = useCallback((code: string) => {
     onDSLUpdate?.(code);
@@ -236,9 +291,14 @@ export function ChatPanel({ dslSource = '', onDSLUpdate }: ChatPanelProps) {
                   {msg.pending && <span style={styles.cursor}>▊</span>}
                 </>
               ) : (
-                <span style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                  {msg.content}
-                </span>
+                <>
+                  {msg.imagePreview && (
+                    <img src={msg.imagePreview} style={styles.messageImage} alt="attachment" />
+                  )}
+                  <span style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                    {msg.content}
+                  </span>
+                </>
               )}
             </div>
           </div>
@@ -248,28 +308,77 @@ export function ChatPanel({ dslSource = '', onDSLUpdate }: ChatPanelProps) {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input */}
-      <div style={styles.inputContainer}>
-        <input
-          style={styles.input(isConfigured)}
-          type="text"
-          value={inputValue}
-          onChange={e => setInputValue(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={isConfigured
-            ? (agentMode ? 'Message Jarvis...' : 'Ask about this geometry...')
-            : 'Configure token first'}
-          disabled={!isConfigured || isStreaming}
-          autoComplete="off"
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/gif,image/webp"
+        style={{ display: 'none' }}
+        onChange={handleFileSelect}
+      />
+
+      {/* Skill editor modal */}
+      {editingSkill && (
+        <SkillEditor
+          skill={editingSkill}
+          onSubmit={handleSkillSubmit}
+          onClose={() => setEditingSkill(null)}
         />
-        <button
-          style={styles.sendBtn(isConfigured && !isStreaming && !!inputValue.trim())}
-          onClick={handleSend}
-          disabled={!isConfigured || isStreaming || !inputValue.trim()}
-          title="Send (Enter)"
-        >
-          {isStreaming ? '⏸' : '▶'}
-        </button>
+      )}
+
+      {/* Input area */}
+      <div style={{ position: 'relative', flexShrink: 0 }}>
+        {/* Command palette */}
+        {showPalette && (
+          <CommandPalette
+            filter={paletteFilter}
+            onSelectCommand={handleCommandSelect}
+            onSelectSkill={handleSkillSelect}
+            onDismiss={() => setShowPalette(false)}
+          />
+        )}
+
+        {/* Image preview strip */}
+        {imageAttachment && (
+          <div style={styles.imagePreview}>
+            <img src={imageAttachment.preview} style={styles.imageThumb} alt="attachment" />
+            <button style={styles.removeImageBtn} onClick={() => setImageAttachment(null)} title="Remove">✕</button>
+          </div>
+        )}
+
+        <div style={styles.inputContainer}>
+          <button
+            style={styles.attachBtn}
+            onClick={() => fileInputRef.current?.click()}
+            title="Attach image"
+            disabled={!isConfigured}
+          >📎</button>
+          <input
+            style={styles.input(isConfigured)}
+            type="text"
+            value={inputValue}
+            onChange={e => {
+              setInputValue(e.target.value);
+              setShowPalette(e.target.value.startsWith('/'));
+            }}
+            onKeyDown={handleKeyDown}
+            placeholder={isConfigured
+              ? (agentMode ? 'Message Jarvis... (/ for commands)' : 'Ask about this geometry...')
+              : 'Configure token first'}
+            disabled={!isConfigured}
+            autoComplete="off"
+          />
+          {isStreaming ? (
+            <button style={styles.stopBtn} onClick={cancel} title="Stop generation">◼ Stop</button>
+          ) : (
+            <button
+              style={styles.sendBtn(isConfigured && !isStreaming && !!inputValue.trim())}
+              onClick={handleSend}
+              disabled={!isConfigured || isStreaming || !inputValue.trim()}
+              title="Send (Enter)"
+            >▶</button>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -421,4 +530,19 @@ const styles = {
     border: 'none', borderRadius: '5px', cursor: 'pointer' } as React.CSSProperties,
   saveBtn: { padding: '7px 14px', fontSize: '12px', backgroundColor: '#3b82f6', color: '#fff',
     border: 'none', borderRadius: '5px', cursor: 'pointer' } as React.CSSProperties,
+  // New styles for image attach, stop button, command palette
+  imagePreview: { display: 'flex', alignItems: 'center', gap: '6px', padding: '4px 8px',
+    backgroundColor: '#1a1a2e', borderTop: '1px solid #2a2a42' } as React.CSSProperties,
+  imageThumb: { width: '48px', height: '48px', objectFit: 'cover' as const,
+    borderRadius: '4px', border: '1px solid #3b3b5a' } as React.CSSProperties,
+  removeImageBtn: { background: 'none', border: 'none', color: '#888',
+    cursor: 'pointer', fontSize: '14px', padding: '2px' } as React.CSSProperties,
+  attachBtn: { padding: '7px 9px', fontSize: '13px', backgroundColor: '#23233a',
+    border: '1px solid #3b3b5a', borderRadius: '5px', cursor: 'pointer',
+    color: '#888', flexShrink: 0 } as React.CSSProperties,
+  stopBtn: { padding: '7px 12px', fontSize: '12px', backgroundColor: '#7f1d1d',
+    color: '#fca5a5', border: '1px solid #991b1b', borderRadius: '5px',
+    cursor: 'pointer', flexShrink: 0, fontWeight: 600 } as React.CSSProperties,
+  messageImage: { maxWidth: '200px', maxHeight: '150px', borderRadius: '4px',
+    border: '1px solid #3b3b5a', marginBottom: '4px', display: 'block' } as React.CSSProperties,
 };

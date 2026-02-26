@@ -304,14 +304,25 @@ export function App() {
     
     multiViewRef.current = viewers;
     
+    // Double-RAF ensures browser layout is fully resolved before reading dimensions.
+    // Single RAF fires before layout is complete for imperatively-inserted elements.
     requestAnimationFrame(() => {
-      if (multiViewRef.current) {
-        Object.values(multiViewRef.current).forEach(viewer => {
-          viewer.handleResize();
-        });
-        window.dispatchEvent(new Event('resize'));
-      }
+      requestAnimationFrame(() => {
+        if (multiViewRef.current) {
+          Object.values(multiViewRef.current).forEach(viewer => {
+            viewer.handleResize();
+          });
+          window.dispatchEvent(new Event('resize'));
+        }
+      });
     });
+
+    // Belt-and-suspenders: also retry after 200ms for slow layout environments
+    setTimeout(() => {
+      if (multiViewRef.current) {
+        Object.values(multiViewRef.current).forEach(viewer => viewer.handleResize());
+      }
+    }, 200);
   }, []);
   
   // Initialize viewer when container is ready
@@ -622,32 +633,26 @@ export function App() {
           />
         </div>
         
-        {/* 3D Viewer */}
-        <div 
-          ref={viewerContainerRef}
-          style={{
-            flex: 1,
-            minWidth: 0,
-            minHeight: 0,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: '#666',
-            fontSize: '16px',
-            overflow: 'hidden',
-            position: 'relative',
-            ...(viewMode === '4-up' ? {
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
-              gridTemplateRows: '1fr 1fr',
-              gap: '2px',
-              alignItems: 'stretch',
-              justifyContent: 'stretch',
-              alignContent: 'stretch',
-              justifyItems: 'stretch',
-            } : {}),
-          }}
-        >
+        {/* 3D Viewer — wrapper keeps React overlays out of the imperative viewer container */}
+        <div style={{ flex: 1, minWidth: 0, minHeight: 0, position: 'relative', overflow: 'hidden' }}>
+
+          {/* Imperative viewer container — NO React children, only Three.js canvases */}
+          <div 
+            ref={viewerContainerRef}
+            style={{
+              position: 'absolute',
+              inset: 0,
+              overflow: 'hidden',
+              ...(viewMode === '4-up' ? {
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gridTemplateRows: '1fr 1fr',
+                gap: '2px',
+              } : {}),
+            }}
+          />
+
+          {/* React-managed overlays — absolutely positioned, never interfere with viewer grid */}
           {!selectedPackage && !isEvaluating && (
             <div style={{
               position: 'absolute',
@@ -660,6 +665,7 @@ export function App() {
               pointerEvents: 'none',
               flexDirection: 'column',
               gap: '12px',
+              zIndex: 10,
             }}>
               <div>Select a package or write DSL code to view</div>
             </div>
@@ -675,6 +681,7 @@ export function App() {
               color: '#4c9f38',
               fontSize: '16px',
               pointerEvents: 'none',
+              zIndex: 10,
             }}>
               ⏳ Evaluating DSL...
             </div>

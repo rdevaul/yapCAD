@@ -17,6 +17,7 @@ export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  imagePreview?: string;   // ADD: base64 data URL for display in chat history
   pending?: boolean;
   timestamp: number;
 }
@@ -47,7 +48,8 @@ interface UseChatReturn {
   messages: ChatMessage[];
   isStreaming: boolean;
   error: string | null;
-  send: (text: string) => Promise<void>;
+  send: (text: string, image?: { base64: string; mimeType: string }) => Promise<void>;
+  cancel: () => void;   // ADD
   clear: () => void;
 }
 
@@ -106,7 +108,7 @@ export function useChat({
 
   const useAgentSession = !!(agentId && sessionKey);
 
-  const send = useCallback(async (text: string) => {
+  const send = useCallback(async (text: string, image?: { base64: string; mimeType: string }) => {
     if (!text.trim() || isStreaming) return;
     if (!token) {
       setError('No OpenClaw token configured. Add it in chat settings (⚙).');
@@ -122,6 +124,7 @@ export function useChat({
       id: generateId(),
       role: 'user',
       content: text,
+      imagePreview: image ? `data:${image.mimeType};base64,${image.base64}` : undefined,
       timestamp: Date.now(),
     };
     const assistantId = generateId();
@@ -143,15 +146,41 @@ export function useChat({
       // Agent session mode: only send the new user message.
       // DSL context is prepended to the content so the agent sees the editor state.
       // The session maintains history, memory, and tool access server-side.
-      apiMessages = [
-        { role: 'user', content: buildAgentUserMessage(text, dslSource) },
-      ];
+      if (image) {
+        apiMessages = [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: image.mimeType, data: image.base64 } },
+            { type: 'text', text: buildAgentUserMessage(text, dslSource) },
+          ] as unknown as string,
+        }];
+      } else {
+        apiMessages = [
+          { role: 'user', content: buildAgentUserMessage(text, dslSource) },
+        ];
+      }
     } else {
       // Stateless mode: send full local history with system prompt.
+      const contentItems: any[] = [];
+      if (image) {
+        contentItems.push({
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: image.mimeType,
+            data: image.base64,
+          },
+        });
+      }
+      contentItems.push({
+        type: 'text',
+        text: text,
+      });
+
       apiMessages = [
         { role: 'system', content: buildStatelessSystemPrompt(dslSource) },
         ...messages.map(m => ({ role: m.role, content: m.content })),
-        { role: 'user', content: text },
+        { role: 'user', content: JSON.stringify(contentItems) },
       ];
     }
 
@@ -239,10 +268,14 @@ export function useChat({
     }
   }, [messages, isStreaming, token, dslSource, gatewayUrl, model, agentId, sessionKey, useAgentSession]);
 
+  const cancel = useCallback(() => {
+    abortRef.current?.abort();
+  }, []);
+
   const clear = useCallback(() => {
     setMessages([]);
     setError(null);
   }, []);
 
-  return { messages, isStreaming, error, send, clear };
+  return { messages, isStreaming, error, send, cancel, clear };
 }

@@ -46,10 +46,8 @@ export function CommandSelector({ source, backendUrl, onEvaluate, isEvaluating }
       const cmds: CommandInfo[] = data.commands || [];
       setCommands(cmds);
 
-      // Auto-select first command if none selected or selection no longer valid
       if (cmds.length > 0 && (!selectedCommand || !cmds.find(c => c.name === selectedCommand))) {
         setSelectedCommand(cmds[0].name);
-        // Initialize param values with defaults
         const defaults: Record<string, string> = {};
         for (const p of cmds[0].params) {
           defaults[p.name] = p.default !== null && p.default !== undefined ? String(p.default) : '';
@@ -64,19 +62,16 @@ export function CommandSelector({ source, backendUrl, onEvaluate, isEvaluating }
     }
   }, [source, backendUrl, selectedCommand]);
 
-  // Debounce parsing: 800ms after source changes
   useEffect(() => {
     const timer = setTimeout(parseCommands, 800);
     return () => clearTimeout(timer);
   }, [parseCommands]);
 
-  // When selected command changes, update param defaults
   useEffect(() => {
     const cmd = commands.find(c => c.name === selectedCommand);
     if (cmd) {
       const defaults: Record<string, string> = {};
       for (const p of cmd.params) {
-        // Keep existing value if user already typed something, else use default
         defaults[p.name] = paramValues[p.name] ?? (p.default !== null && p.default !== undefined ? String(p.default) : '');
       }
       setParamValues(defaults);
@@ -86,7 +81,6 @@ export function CommandSelector({ source, backendUrl, onEvaluate, isEvaluating }
 
   const handleEvaluate = () => {
     if (!selectedCommand || isEvaluating) return;
-    // Convert param strings to typed values
     const cmd = commands.find(c => c.name === selectedCommand);
     const params: Record<string, unknown> = {};
     if (cmd) {
@@ -103,146 +97,141 @@ export function CommandSelector({ source, backendUrl, onEvaluate, isEvaluating }
   };
 
   const selectedCmd = commands.find(c => c.name === selectedCommand);
-
-  const styles = {
-    container: {
-      display: 'flex',
-      flexDirection: 'column' as const,
-      gap: '6px',
-      padding: '8px 12px',
-      background: '#1e1e3a',
-      borderTop: '1px solid #333',
-    },
-    topRow: {
-      display: 'flex',
-      alignItems: 'center',
-      gap: '8px',
-    },
-    select: {
-      flex: 1,
-      padding: '6px 8px',
-      background: '#2a2a4a',
-      color: '#eee',
-      border: '1px solid #444',
-      borderRadius: '4px',
-      fontSize: '13px',
-      fontFamily: 'monospace',
-      cursor: 'pointer',
-    },
-    evalButton: {
-      padding: '6px 16px',
-      background: '#2d7d46',
-      color: '#fff',
-      border: 'none',
-      borderRadius: '4px',
-      fontSize: '13px',
-      fontWeight: 'bold' as const,
-      cursor: 'pointer',
-      whiteSpace: 'nowrap' as const,
-      opacity: 1,
-    },
-    evalButtonDisabled: {
-      opacity: 0.5,
-      cursor: 'not-allowed',
-    },
-    paramsRow: {
-      display: 'flex',
-      flexWrap: 'wrap' as const,
-      gap: '6px',
-      alignItems: 'center',
-    },
-    paramGroup: {
-      display: 'flex',
-      alignItems: 'center',
-      gap: '3px',
-    },
-    paramLabel: {
-      fontSize: '11px',
-      color: '#aaa',
-      fontFamily: 'monospace',
-    },
-    paramInput: {
-      width: '60px',
-      padding: '3px 6px',
-      background: '#2a2a4a',
-      color: '#eee',
-      border: '1px solid #444',
-      borderRadius: '3px',
-      fontSize: '12px',
-      fontFamily: 'monospace',
-    },
-    paramType: {
-      fontSize: '10px',
-      color: '#666',
-      fontFamily: 'monospace',
-    },
-    noCommands: {
-      fontSize: '12px',
-      color: '#666',
-      fontStyle: 'italic' as const,
-    },
-    error: {
-      fontSize: '11px',
-      color: '#ff6b6b',
-    },
-    parsing: {
-      fontSize: '11px',
-      color: '#666',
-    },
-  };
+  const hasParams = selectedCmd && selectedCmd.params.length > 0;
 
   return (
-    <div style={styles.container}>
-      <div style={styles.topRow}>
+    <div style={{
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '4px',
+      padding: '6px 10px',
+      background: '#1e1e3a',
+      borderTop: '1px solid #2a2a50',
+      flexShrink: 0,
+    }}>
+
+      {/* Row 1: Command selector + status */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minHeight: '28px' }}>
         {commands.length > 0 ? (
           <select
-            style={styles.select}
+            style={{
+              flex: 1,
+              padding: '4px 6px',
+              background: '#2a2a4a',
+              color: '#eee',
+              border: '1px solid #444',
+              borderRadius: '4px',
+              fontSize: '12px',
+              fontFamily: 'monospace',
+              cursor: 'pointer',
+              minWidth: 0,
+            }}
             value={selectedCommand}
             onChange={e => setSelectedCommand(e.target.value)}
           >
             {commands.map(cmd => (
+              /* Show only command name — params shown separately below */
               <option key={cmd.name} value={cmd.name}>
-                {cmd.name}({cmd.params.map(p => p.name).join(', ')})
+                {cmd.name}
               </option>
             ))}
           </select>
         ) : (
-          <span style={styles.noCommands}>
-            {isParsing ? '⏳ Parsing...' : source.trim() ? 'No commands found' : 'Write DSL above'}
+          <span style={{ flex: 1, fontSize: '11px', color: '#555', fontStyle: 'italic' }}>
+            {isParsing ? '⏳ Parsing…' : source.trim() ? 'No commands found' : 'Load DSL to see commands'}
           </span>
         )}
-        <button
-          style={{
-            ...styles.evalButton,
-            ...(isEvaluating || !selectedCommand ? styles.evalButtonDisabled : {}),
-          }}
-          onClick={handleEvaluate}
-          disabled={isEvaluating || !selectedCommand}
-          title="Ctrl+Enter"
-        >
-          {isEvaluating ? '⏳' : '▶'} Evaluate
-        </button>
+
+        {/* Param count badge */}
+        {selectedCmd && selectedCmd.params.length > 0 && (
+          <span style={{ fontSize: '10px', color: '#666', whiteSpace: 'nowrap' }}>
+            {selectedCmd.params.length} params
+          </span>
+        )}
       </div>
 
-      {selectedCmd && selectedCmd.params.length > 0 && (
-        <div style={styles.paramsRow}>
+      {/* Row 2: Parameters — compact 2-column grid, scrollable if tall */}
+      {hasParams && (
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr',
+          gap: '3px 8px',
+          maxHeight: '110px',
+          overflowY: 'auto',
+          padding: '2px 0',
+        }}>
           {selectedCmd.params.map(p => (
-            <div key={p.name} style={styles.paramGroup}>
-              <span style={styles.paramLabel}>{p.name}</span>
-              <span style={styles.paramType}>:{p.type}</span>
+            <div key={p.name} style={{ display: 'flex', alignItems: 'center', gap: '3px', minWidth: 0 }}>
+              <label
+                title={`${p.name}: ${p.type}`}
+                style={{
+                  fontSize: '10px',
+                  color: '#999',
+                  fontFamily: 'monospace',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  flexShrink: 1,
+                  minWidth: '30px',
+                  cursor: 'default',
+                }}
+              >
+                {p.name}
+              </label>
               <input
-                style={styles.paramInput}
+                style={{
+                  flex: 1,
+                  minWidth: '40px',
+                  maxWidth: '70px',
+                  padding: '2px 4px',
+                  background: '#2a2a4a',
+                  color: '#eee',
+                  border: '1px solid #444',
+                  borderRadius: '3px',
+                  fontSize: '11px',
+                  fontFamily: 'monospace',
+                }}
                 value={paramValues[p.name] ?? ''}
                 onChange={e => setParamValues(prev => ({ ...prev, [p.name]: e.target.value }))}
                 placeholder={p.default !== null ? String(p.default) : ''}
                 onKeyDown={e => { if (e.key === 'Enter') handleEvaluate(); }}
+                title={`${p.name}: ${p.type}${p.default !== null ? ` = ${p.default}` : ''}`}
               />
             </div>
           ))}
         </div>
       )}
 
-      {parseError && <div style={styles.error}>{parseError}</div>}
+      {/* Row 3: Error message */}
+      {parseError && (
+        <div style={{ fontSize: '10px', color: '#ff6b6b', lineHeight: 1.3 }}>
+          {parseError}
+        </div>
+      )}
+
+      {/* Row 4: Evaluate button — full width, always at bottom */}
+      <button
+        style={{
+          width: '100%',
+          padding: '6px 0',
+          background: isEvaluating || !selectedCommand ? '#1e3d2a' : '#2d7d46',
+          color: isEvaluating || !selectedCommand ? '#5a8a6a' : '#fff',
+          border: 'none',
+          borderRadius: '4px',
+          fontSize: '13px',
+          fontWeight: 'bold',
+          cursor: isEvaluating || !selectedCommand ? 'not-allowed' : 'pointer',
+          letterSpacing: '0.3px',
+          transition: 'background 0.15s',
+          flexShrink: 0,
+        }}
+        onClick={handleEvaluate}
+        disabled={isEvaluating || !selectedCommand}
+        title="Ctrl+Enter"
+      >
+        {isEvaluating ? '⏳  Evaluating…' : '▶  Evaluate'}
+      </button>
+
     </div>
   );
 }
