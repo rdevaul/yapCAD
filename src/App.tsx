@@ -352,6 +352,9 @@ export function App() {
       }
       
       if (!viewerRef.current) {
+        // Clear any leftover imperative DOM nodes from 4-up mode (quadrant divs)
+        // before appending the single viewer's canvas.
+        viewerContainerRef.current.innerHTML = '';
         viewerRef.current = new YapCADViewer({
           container: viewerContainerRef.current,
           antialias: true,
