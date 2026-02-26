@@ -56,8 +56,16 @@ const setupViewCamera = (viewer: YapCADViewer, viewType: string) => {
 
 export function App() {
   const [selectedPackage, setSelectedPackage] = useState<PackageEntry | null>(null);
-  const [currentLightingPreset, setCurrentLightingPreset] = useState('studio');
-  const [currentRenderMode, setCurrentRenderMode] = useState('solid');
+  // Per-mode render settings — each view mode remembers its own lighting + render style.
+  // Button state always reflects the active mode; switching modes restores that mode's settings.
+  const [lightingPresets, setLightingPresets] = useState<Record<'single' | '4-up', string>>({
+    single: 'studio',
+    '4-up': 'studio',
+  });
+  const [renderModes, setRenderModes] = useState<Record<'single' | '4-up', string>>({
+    single: 'solid',
+    '4-up': 'solid',
+  });
   const [leftColumnWidth, setLeftColumnWidth] = useState(() => {
     const saved = localStorage.getItem('yapcad-left-col-width');
     return saved ? parseInt(saved, 10) : 320;
@@ -69,6 +77,9 @@ export function App() {
   const [layers, setLayers] = useState<string[]>([]);
   const [layerVisibility, setLayerVisibility] = useState<Record<string, boolean>>({});
   const [viewMode, setViewMode] = useState<'single' | '4-up'>('single');
+  // Derived — always reflect the active mode's settings in the toolbar buttons
+  const currentLightingPreset = lightingPresets[viewMode];
+  const currentRenderMode = renderModes[viewMode];
   
   // DSL Editor state
   const [backendUrl, setBackendUrl] = useState(() => {
@@ -92,6 +103,10 @@ export function App() {
   // Persists last-loaded geometry across view mode switches (single ↔ 4-up).
   // Viewer disposal wipes the Three.js scene; this ref lets us restore it.
   const lastEntitiesRef = useRef<GeometryEntity[] | null>(null);
+  // Refs for per-mode render settings — read by initializeMultiView's RAF closure
+  // (which has [] deps and can't capture updating state directly).
+  const lightingPresetsRef = useRef<Record<'single' | '4-up', string>>({ single: 'studio', '4-up': 'studio' });
+  const renderModesRef = useRef<Record<'single' | '4-up', string>>({ single: 'solid', '4-up': 'solid' });
   const multiViewRef = useRef<{
     perspective: YapCADViewer;
     front: YapCADViewer;
@@ -323,7 +338,12 @@ export function App() {
         if (!multiViewRef.current) return;
         Object.values(multiViewRef.current).forEach(v => v.handleResize());
         window.dispatchEvent(new Event('resize'));
-        // Restore last geometry into the freshly-created viewers
+        // Restore this mode's render settings (read from refs — closure has [] deps)
+        Object.values(multiViewRef.current).forEach(v => {
+          v.setLightingPreset(lightingPresetsRef.current['4-up']);
+          v.setRenderMode(renderModesRef.current['4-up']);
+        });
+        // Restore last geometry
         if (lastEntitiesRef.current) {
           Object.values(multiViewRef.current).forEach(v => {
             v.loadGeometry(lastEntitiesRef.current!);
@@ -360,7 +380,10 @@ export function App() {
           antialias: true,
         });
         viewerRef.current.start();
-        // Restore last geometry into the freshly-created viewer
+        // Restore this mode's render settings
+        viewerRef.current.setLightingPreset(lightingPresetsRef.current['single']);
+        viewerRef.current.setRenderMode(renderModesRef.current['single']);
+        // Restore last geometry
         if (lastEntitiesRef.current) {
           viewerRef.current.loadGeometry(lastEntitiesRef.current);
           viewerRef.current.fitToGeometry();
@@ -417,18 +440,26 @@ export function App() {
     if (viewMode === 'single' && viewerRef.current) {
       viewerRef.current.setLightingPreset(preset);
     } else if (viewMode === '4-up' && multiViewRef.current) {
-      Object.values(multiViewRef.current).forEach(viewer => viewer.setLightingPreset(preset));
+      Object.values(multiViewRef.current).forEach(v => v.setLightingPreset(preset));
     }
-    setCurrentLightingPreset(preset);
+    setLightingPresets(prev => {
+      const next = { ...prev, [viewMode]: preset };
+      lightingPresetsRef.current = next;
+      return next;
+    });
   }, [viewMode]);
 
   const handleRenderModeChange = useCallback((mode: string) => {
     if (viewMode === 'single' && viewerRef.current) {
       viewerRef.current.setRenderMode(mode);
     } else if (viewMode === '4-up' && multiViewRef.current) {
-      Object.values(multiViewRef.current).forEach(viewer => viewer.setRenderMode(mode));
+      Object.values(multiViewRef.current).forEach(v => v.setRenderMode(mode));
     }
-    setCurrentRenderMode(mode);
+    setRenderModes(prev => {
+      const next = { ...prev, [viewMode]: mode };
+      renderModesRef.current = next;
+      return next;
+    });
   }, [viewMode]);
 
   const handleClipPlaneChange = useCallback((
