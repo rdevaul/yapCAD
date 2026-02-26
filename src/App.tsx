@@ -89,6 +89,9 @@ export function App() {
   
   const viewerContainerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<YapCADViewer | null>(null);
+  // Persists last-loaded geometry across view mode switches (single ↔ 4-up).
+  // Viewer disposal wipes the Three.js scene; this ref lets us restore it.
+  const lastEntitiesRef = useRef<GeometryEntity[] | null>(null);
   const multiViewRef = useRef<{
     perspective: YapCADViewer;
     front: YapCADViewer;
@@ -117,6 +120,34 @@ export function App() {
       setIsConnected(false);
     }
   }, [backendUrl]);
+
+  // Load entities into whichever viewer(s) are currently active + persist for mode switches.
+  // Uses refs directly so it's stable across renders (safe to call from RAF callbacks).
+  const applyToActiveViewers = useCallback((entities: GeometryEntity[]) => {
+    lastEntitiesRef.current = entities;
+
+    const updateLayers = (viewer: YapCADViewer) => {
+      const newLayers = viewer.getLayers();
+      setLayers(newLayers);
+      const vis: Record<string, boolean> = {};
+      for (const l of newLayers) vis[l] = true;
+      setLayerVisibility(vis);
+    };
+
+    if (viewerRef.current) {
+      viewerRef.current.loadGeometry(entities);
+      viewerRef.current.fitToGeometry();
+      updateLayers(viewerRef.current);
+    } else if (multiViewRef.current) {
+      Object.values(multiViewRef.current).forEach(v => {
+        v.loadGeometry(entities);
+        v.fitToGeometry();
+      });
+      updateLayers(multiViewRef.current.perspective);
+    }
+  // setLayers and setLayerVisibility are stable; refs are always current → no deps needed
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleDSLEvaluate = useCallback(async (source: string) => {
     return handleCommandEvaluate(extractCommandName(source), {});
@@ -188,26 +219,7 @@ export function App() {
         });
       }
 
-      if (viewMode === 'single' && viewerRef.current) {
-        viewerRef.current.loadGeometry(entities);
-        viewerRef.current.fitToGeometry();
-        const newLayers = viewerRef.current.getLayers();
-        setLayers(newLayers);
-        const vis: Record<string, boolean> = {};
-        for (const l of newLayers) vis[l] = true;
-        setLayerVisibility(vis);
-      } else if (viewMode === '4-up' && multiViewRef.current) {
-        Object.values(multiViewRef.current).forEach(viewer => {
-          viewer.loadGeometry(entities);
-          viewer.fitToGeometry();
-        });
-        const newLayers = multiViewRef.current.perspective.getLayers();
-        setLayers(newLayers);
-        const vis: Record<string, boolean> = {};
-        for (const l of newLayers) vis[l] = true;
-        setLayerVisibility(vis);
-      }
-
+      applyToActiveViewers(entities);
       setSelectedPackage(null);
       setIsConnected(true);
       
@@ -219,7 +231,8 @@ export function App() {
     } finally {
       setIsEvaluating(false);
     }
-  }, [backendUrl, dslSource, viewMode]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [backendUrl, dslSource, applyToActiveViewers]);
 
   const handleEditorChatSplitChange = useCallback((split: number) => {
     setEditorChatSplit(split);
@@ -305,22 +318,25 @@ export function App() {
     multiViewRef.current = viewers;
     
     // Double-RAF ensures browser layout is fully resolved before reading dimensions.
-    // Single RAF fires before layout is complete for imperatively-inserted elements.
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        if (multiViewRef.current) {
-          Object.values(multiViewRef.current).forEach(viewer => {
-            viewer.handleResize();
+        if (!multiViewRef.current) return;
+        Object.values(multiViewRef.current).forEach(v => v.handleResize());
+        window.dispatchEvent(new Event('resize'));
+        // Restore last geometry into the freshly-created viewers
+        if (lastEntitiesRef.current) {
+          Object.values(multiViewRef.current).forEach(v => {
+            v.loadGeometry(lastEntitiesRef.current!);
+            v.fitToGeometry();
           });
-          window.dispatchEvent(new Event('resize'));
         }
       });
     });
 
-    // Belt-and-suspenders: also retry after 200ms for slow layout environments
+    // Belt-and-suspenders: retry resize after 200ms for slow layout environments
     setTimeout(() => {
       if (multiViewRef.current) {
-        Object.values(multiViewRef.current).forEach(viewer => viewer.handleResize());
+        Object.values(multiViewRef.current).forEach(v => v.handleResize());
       }
     }, 200);
   }, []);
@@ -341,6 +357,11 @@ export function App() {
           antialias: true,
         });
         viewerRef.current.start();
+        // Restore last geometry into the freshly-created viewer
+        if (lastEntitiesRef.current) {
+          viewerRef.current.loadGeometry(lastEntitiesRef.current);
+          viewerRef.current.fitToGeometry();
+        }
       }
     } else {
       if (viewerRef.current) {
@@ -379,26 +400,11 @@ export function App() {
       layer: e.layer,
     }));
     
-    if (viewMode === 'single' && viewerRef.current) {
-      viewerRef.current.loadGeometry(entities);
-      viewerRef.current.fitToGeometry();
-      const newLayers = viewerRef.current.getLayers();
-      setLayers(newLayers);
-      const vis: Record<string, boolean> = {};
-      for (const l of newLayers) vis[l] = true;
-      setLayerVisibility(vis);
-    } else if (viewMode === '4-up' && multiViewRef.current) {
-      Object.values(multiViewRef.current).forEach(viewer => {
-        viewer.loadGeometry(entities);
-        viewer.fitToGeometry();
-      });
-      const newLayers = multiViewRef.current.perspective.getLayers();
-      setLayers(newLayers);
-      const vis: Record<string, boolean> = {};
-      for (const l of newLayers) vis[l] = true;
-      setLayerVisibility(vis);
-    }
-  }, [selectedPackage, viewMode]);
+    applyToActiveViewers(entities);
+  // viewMode intentionally excluded: viewer restoration on mode switch is handled
+  // inside initializeMultiView (RAF) and the viewer-init useEffect below.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPackage, applyToActiveViewers]);
   
   const handleSelect = useCallback((pkg: PackageEntry | null) => {
     setSelectedPackage(pkg);
