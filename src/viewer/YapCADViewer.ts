@@ -25,6 +25,24 @@ export interface ViewerOptions {
   orthographic?: boolean;
 }
 
+export interface Measurement {
+  id: string;
+  type: 'point-to-point';
+  pointA: THREE.Vector3;
+  pointB: THREE.Vector3;
+  distance: number; // mm
+}
+
+export interface BoundingBoxInfo {
+  width: number;   // X extent, mm
+  height: number;  // Y extent, mm
+  depth: number;   // Z extent, mm
+  center: { x: number; y: number; z: number };
+}
+
+export type MeasureUnit = 'mm' | 'in';
+export type MeasureChangeCallback = (measurements: Measurement[]) => void;
+
 export class YapCADViewer {
   private scene: THREE.Scene;
   private camera: THREE.Camera;
@@ -44,6 +62,16 @@ export class YapCADViewer {
   private resizeObserver: ResizeObserver | null = null;
   private scaleGroup: THREE.Group = new THREE.Group();
   private showGrid: boolean = true;
+
+  // --- Measurement state ---
+  private measureMode: boolean = false;
+  private measureUnit: 'mm' | 'in' = 'mm';
+  private measurements: Measurement[] = [];
+  private measureGroup: THREE.Group = new THREE.Group();
+  private pendingPoint: THREE.Vector3 | null = null;   // first click, waiting for second
+  private pendingMarker: THREE.Mesh | null = null;
+  private measureChangeCallback: MeasureChangeCallback | null = null;
+  private _boundMeasureClick: ((e: MouseEvent) => void) | null = null;
 
   constructor(private options: ViewerOptions) {
     // Scene
@@ -89,6 +117,7 @@ export class YapCADViewer {
     this.setupResizeHandler();
     this.createScaleGrid();
     this.scene.add(this.scaleGroup);
+    this.scene.add(this.measureGroup);
   }
 
   private setupLights(): void {
@@ -738,11 +767,290 @@ export class YapCADViewer {
     this.renderer.setSize(clientWidth, clientHeight);
   }
 
+  // ─────────────────────────────────────────────────────────────────
+  //  MEASUREMENT API
+  // ─────────────────────────────────────────────────────────────────
+
+  /**
+   * Enable or disable measurement mode.
+   * In measure mode, mouse clicks raycast against mesh surfaces instead of
+   * driving OrbitControls. Two clicks define a point-to-point measurement.
+   */
+  setMeasureMode(enabled: boolean): void {
+    if (this.measureMode === enabled) return;
+    this.measureMode = enabled;
+
+    if (enabled) {
+      // Disable orbit so clicks aren't consumed by camera drag
+      this.controls.enabled = false;
+      this.options.container.style.cursor = 'crosshair';
+
+      this._boundMeasureClick = (e: MouseEvent) => this._onMeasureClick(e);
+      this.renderer.domElement.addEventListener('click', this._boundMeasureClick);
+    } else {
+      this.controls.enabled = true;
+      this.options.container.style.cursor = '';
+
+      if (this._boundMeasureClick) {
+        this.renderer.domElement.removeEventListener('click', this._boundMeasureClick);
+        this._boundMeasureClick = null;
+      }
+      // Remove pending marker if the user left a first point dangling
+      this._clearPendingPoint();
+    }
+  }
+
+  getMeasureMode(): boolean {
+    return this.measureMode;
+  }
+
+  /**
+   * Register a callback invoked whenever the measurements list changes.
+   */
+  onMeasureChange(cb: MeasureChangeCallback): void {
+    this.measureChangeCallback = cb;
+  }
+
+  /** Return a copy of the current measurements array. */
+  getMeasurements(): Measurement[] {
+    return [...this.measurements];
+  }
+
+  /** Delete a single measurement by id. */
+  deleteMeasurement(id: string): void {
+    const idx = this.measurements.findIndex(m => m.id === id);
+    if (idx === -1) return;
+    this.measurements.splice(idx, 1);
+    this._rebuildMeasureGroup();
+    this.measureChangeCallback?.(this.getMeasurements());
+  }
+
+  /** Delete all measurements. */
+  clearMeasurements(): void {
+    this.measurements = [];
+    this._clearPendingPoint();
+    this._rebuildMeasureGroup();
+    this.measureChangeCallback?.(this.getMeasurements());
+  }
+
+  /**
+   * Return bounding-box dimensions of all visible geometry, in mm.
+   */
+  getBoundingBoxInfo(): BoundingBoxInfo | null {
+    if (this.boundingBox.isEmpty()) return null;
+    const size = this.boundingBox.getSize(new THREE.Vector3());
+    const center = this.boundingBox.getCenter(new THREE.Vector3());
+    return {
+      width: Math.round(size.x * 100) / 100,
+      height: Math.round(size.y * 100) / 100,
+      depth: Math.round(size.z * 100) / 100,
+      center: {
+        x: Math.round(center.x * 100) / 100,
+        y: Math.round(center.y * 100) / 100,
+        z: Math.round(center.z * 100) / 100,
+      },
+    };
+  }
+
+  /**
+   * Format a raw mm distance for display in the current unit.
+   */
+  formatDist(mm: number): string {
+    if (this.measureUnit === 'in') {
+      return `${(mm / 25.4).toFixed(3)}"`;
+    }
+    return `${mm.toFixed(2)} mm`;
+  }
+
+  /**
+   * Get current display unit.
+   */
+  getMeasureUnit(): 'mm' | 'in' {
+    return this.measureUnit;
+  }
+
+  /**
+   * Switch display unit and rebuild all measurement labels.
+   */
+  setMeasureUnit(unit: 'mm' | 'in'): void {
+    if (this.measureUnit === unit) return;
+    this.measureUnit = unit;
+    this._rebuildMeasureGroup();
+    this.measureChangeCallback?.(this.getMeasurements());
+  }
+
+  // ─── Private measurement helpers ────────────────────────────────
+
+  private _onMeasureClick(e: MouseEvent): void {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const ndc = new THREE.Vector2(
+      ((e.clientX - rect.left) / rect.width) * 2 - 1,
+      -((e.clientY - rect.top) / rect.height) * 2 + 1,
+    );
+
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(ndc, this.camera);
+
+    // Only raycast against actual geometry meshes (not measurement overlays)
+    const intersects = raycaster.intersectObjects(this.meshes, false);
+    if (intersects.length === 0) return;
+
+    const hit = intersects[0].point.clone();
+
+    if (this.pendingPoint === null) {
+      // First click — store point and show a marker
+      this.pendingPoint = hit;
+      this.pendingMarker = this._makePointMarker(hit, 0xffcc00);
+      this.measureGroup.add(this.pendingMarker);
+    } else {
+      // Second click — create measurement
+      const pointA = this.pendingPoint.clone();
+      const pointB = hit;
+      const distance = Math.round(pointA.distanceTo(pointB) * 100) / 100;
+
+      const m: Measurement = {
+        id: `m_${Date.now()}`,
+        type: 'point-to-point',
+        pointA,
+        pointB,
+        distance,
+      };
+      this.measurements.push(m);
+
+      this._clearPendingPoint();
+      this._addMeasurementVisuals(m);
+      this.measureChangeCallback?.(this.getMeasurements());
+    }
+  }
+
+  private _clearPendingPoint(): void {
+    if (this.pendingMarker) {
+      this.measureGroup.remove(this.pendingMarker);
+      this.pendingMarker.geometry.dispose();
+      (this.pendingMarker.material as THREE.Material).dispose();
+      this.pendingMarker = null;
+    }
+    this.pendingPoint = null;
+  }
+
+  /**
+   * Compute a reasonable world-unit size for measurement decorations,
+   * proportional to the geometry's bounding-box diagonal.
+   * Rule of thumb: markers ~0.5% of diagonal, labels ~3% of diagonal.
+   */
+  private _bbScale(): number {
+    if (this.boundingBox.isEmpty()) return 10;
+    return this.boundingBox.getSize(new THREE.Vector3()).length();
+  }
+
+  private _makePointMarker(pos: THREE.Vector3, color: number): THREE.Mesh {
+    const r = Math.max(0.5, this._bbScale() * 0.005); // 0.5% of diagonal, min 0.5mm
+    const geo = new THREE.SphereGeometry(r, 8, 6);
+    const mat = new THREE.MeshBasicMaterial({ color, depthTest: false });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.copy(pos);
+    mesh.renderOrder = 999;
+    return mesh;
+  }
+
+  private _makeLabelSprite(text: string, pos: THREE.Vector3): THREE.Sprite {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d')!;
+    const fontSize = 28;
+    const padding = 10;
+
+    ctx.font = `bold ${fontSize}px Arial`;
+    const textWidth = ctx.measureText(text).width;
+    canvas.width = textWidth + padding * 2;
+    canvas.height = fontSize + padding * 2;
+
+    // Background
+    ctx.fillStyle = 'rgba(20,20,40,0.88)';
+    ctx.beginPath();
+    ctx.roundRect(0, 0, canvas.width, canvas.height, 6);
+    ctx.fill();
+
+    // Text
+    ctx.font = `bold ${fontSize}px Arial`;
+    ctx.fillStyle = '#ffffff';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, padding, canvas.height / 2);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    const mat = new THREE.SpriteMaterial({ map: texture, depthTest: false });
+    const sprite = new THREE.Sprite(mat);
+    sprite.position.copy(pos);
+
+    // Label height = 3% of bounding-box diagonal; width scales with canvas aspect ratio.
+    // This keeps labels small enough to read without drowning the geometry.
+    const labelH = Math.max(2, this._bbScale() * 0.03);
+    const aspect = canvas.width / canvas.height;
+    sprite.scale.set(labelH * aspect, labelH, 1);
+    sprite.renderOrder = 1000;
+    return sprite;
+  }
+
+  private _addMeasurementVisuals(m: Measurement): void {
+    // Endpoint markers (white for finalised)
+    const markerA = this._makePointMarker(m.pointA, 0x44aaff);
+    const markerB = this._makePointMarker(m.pointB, 0x44aaff);
+    markerA.userData.measureId = m.id;
+    markerB.userData.measureId = m.id;
+    this.measureGroup.add(markerA, markerB);
+
+    // Dashed line between points
+    const lineMat = new THREE.LineDashedMaterial({
+      color: 0x44aaff,
+      dashSize: 8,
+      gapSize: 4,
+      depthTest: false,
+    });
+    const lineGeo = new THREE.BufferGeometry().setFromPoints([m.pointA, m.pointB]);
+    const line = new THREE.Line(lineGeo, lineMat);
+    line.computeLineDistances();
+    line.renderOrder = 998;
+    line.userData.measureId = m.id;
+    this.measureGroup.add(line);
+
+    // Midpoint label — formatted in current unit
+    const mid = m.pointA.clone().lerp(m.pointB, 0.5);
+    const label = this._makeLabelSprite(this.formatDist(m.distance), mid);
+    label.userData.measureId = m.id;
+    this.measureGroup.add(label);
+  }
+
+  /** Rebuild all measurement visuals from scratch (used after deletion). */
+  private _rebuildMeasureGroup(): void {
+    // Remove all objects tagged with measureId (don't remove pending marker)
+    const toRemove = this.measureGroup.children.filter(
+      o => o.userData.measureId !== undefined
+    );
+    for (const obj of toRemove) {
+      this.measureGroup.remove(obj);
+      if ((obj as THREE.Mesh).geometry) (obj as THREE.Mesh).geometry.dispose();
+      const mat = (obj as THREE.Mesh | THREE.Sprite).material;
+      if (mat) {
+        if (Array.isArray(mat)) mat.forEach(m => m.dispose());
+        else (mat as THREE.Material).dispose();
+      }
+    }
+    // Re-add visuals for remaining measurements
+    for (const m of this.measurements) {
+      this._addMeasurementVisuals(m);
+    }
+  }
+
   /**
    * Dispose of all resources.
    */
   dispose(): void {
     this.stop();
+
+    // Clean up measurements
+    if (this.measureMode) this.setMeasureMode(false);
+    this.clearMeasurements();
+    this.scene.remove(this.measureGroup);
+
     this.clearGeometry();
 
     // Dispose materials

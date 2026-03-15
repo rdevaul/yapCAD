@@ -29,9 +29,31 @@ export const AVAILABLE_MODELS = [
   { id: 'qwen3-coder:480b',            label: 'Qwen3 Coder 480B (local)' },
 ] as const;
 
+/**
+ * Known DML team members → their OpenClaw agent ID.
+ * Each agent has its own workspace, memory, and session history.
+ * The agent ID determines which per-user context Jarvis loads.
+ */
+export const KNOWN_USERS: Record<string, string> = {
+  rich:    'jarvis-rich',
+  garrett: 'jarvis-garrett',
+  jeremy:  'jarvis-jeremy',
+  umair:   'jarvis-umair',
+  yang:    'jarvis-yang',
+};
+
 export const DEFAULT_MODEL    = 'anthropic/claude-opus-4-6';
-export const DEFAULT_AGENT_ID  = 'jarvis-rich';
-export const DEFAULT_SESSION_KEY = 'agent:jarvis-rich:yapcad';
+export const DEFAULT_USER     = 'rich';
+export const DEFAULT_AGENT_ID = KNOWN_USERS[DEFAULT_USER];
+export const DEFAULT_SESSION_KEY = `agent:${DEFAULT_AGENT_ID}:yapcad`;
+
+/** Derive agent ID and session key from a username */
+export function resolveUserSession(userName: string): { agentId: string; sessionKey: string } {
+  const normalized = userName.trim().toLowerCase();
+  const agentId = KNOWN_USERS[normalized] ?? `jarvis-${normalized}`;
+  const sessionKey = `agent:${agentId}:yapcad`;
+  return { agentId, sessionKey };
+}
 
 interface UseChatOptions {
   gatewayUrl: string;

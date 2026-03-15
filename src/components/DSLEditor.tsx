@@ -13,6 +13,7 @@ interface DSLEditorProps {
   onExternalSourceConsumed?: () => void; // Called after consuming externalSource
   isEvaluating: boolean;
   evaluationError: string | null;
+  initialSource?: string; // Initial source content for the tab
 }
 
 const styles = {
@@ -96,21 +97,25 @@ const DSL_LANGUAGE_CONFIG = {
   ],
 };
 
-export function DSLEditor({ onEvaluate, onSourceChange, externalSource, onExternalSourceConsumed, isEvaluating, evaluationError }: DSLEditorProps) {
+export function DSLEditor({ onEvaluate, onSourceChange, externalSource, onExternalSourceConsumed, isEvaluating, evaluationError, initialSource }: DSLEditorProps) {
   const [source, setSource] = useState<string>('');
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Load saved source from localStorage on mount
+  // Load initial source from props (tab state) or localStorage on mount
   useEffect(() => {
-    const saved = localStorage.getItem('yapcad-dsl-source');
-    if (saved) {
-      setSource(saved);
-      onSourceChange?.(saved);
+    if (initialSource != null) {
+      setSource(initialSource);
+      onSourceChange?.(initialSource);
     } else {
-      // Default content for new users
-      const defaultContent = `# Welcome to yapCAD DSL Editor!
+      const saved = localStorage.getItem('yapcad-dsl-source');
+      if (saved) {
+        setSource(saved);
+        onSourceChange?.(saved);
+      } else {
+        // Default content for new users
+        const defaultContent = `# Welcome to yapCAD DSL Editor!
 # Uses Python-style indentation (colon + indent, no braces)
 
 command myBox() -> solid:
@@ -118,8 +123,9 @@ command myBox() -> solid:
     emit b
 
 # Press Ctrl+Enter to evaluate, or click the "Evaluate" button`;
-      setSource(defaultContent);
-      onSourceChange?.(defaultContent);
+        setSource(defaultContent);
+        onSourceChange?.(defaultContent);
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

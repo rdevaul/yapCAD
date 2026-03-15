@@ -13,8 +13,9 @@ import {
   useChat,
   AVAILABLE_MODELS,
   DEFAULT_MODEL,
-  DEFAULT_AGENT_ID,
-  DEFAULT_SESSION_KEY,
+  DEFAULT_USER,
+  KNOWN_USERS,
+  resolveUserSession,
 } from '../hooks/useChat';
 import CommandPalette from './CommandPalette';
 import { SkillEditor } from './SkillEditor';
@@ -22,16 +23,26 @@ import { SkillEditor } from './SkillEditor';
 interface SkillParam { name: string; default: string; unit: string; }
 interface Skill { name: string; description: string; category: string; promptTemplate: string; params: SkillParam[]; }
 
+interface EvalContext {
+  command: string;
+  result: {
+    success: boolean;
+    error_message: string | null;
+    volume: number | null;
+    elapsed_ms: number;
+  };
+}
+
 interface ChatPanelProps {
   dslSource?: string;
   onDSLUpdate?: (source: string) => void;
+  evalContextRef?: React.MutableRefObject<EvalContext | null>;
 }
 
 const GATEWAY_URL_KEY   = 'yapcad-chat-gateway-url';
 const GATEWAY_TOKEN_KEY = 'yapcad-chat-token';
 const CHAT_MODEL_KEY    = 'yapcad-chat-model';
-const AGENT_ID_KEY      = 'yapcad-chat-agent-id';
-const SESSION_KEY_KEY   = 'yapcad-chat-session-key';
+const CHAT_USER_KEY     = 'yapcad-chat-user';
 const DEFAULT_GATEWAY   = '/openclaw';
 
 // ── DSL block extraction ───────────────────────────────────────────────────────
@@ -88,17 +99,18 @@ function MessageContent({
 
 // ── Main panel ────────────────────────────────────────────────────────────────
 
-export function ChatPanel({ dslSource = '', onDSLUpdate }: ChatPanelProps) {
+export function ChatPanel({ dslSource = '', onDSLUpdate, evalContextRef }: ChatPanelProps) {
   const [gatewayUrl, setGatewayUrl] = useState(() =>
     localStorage.getItem(GATEWAY_URL_KEY) || DEFAULT_GATEWAY);
   const [token, setToken] = useState(() =>
     localStorage.getItem(GATEWAY_TOKEN_KEY) || '');
   const [model, setModel] = useState(() =>
     localStorage.getItem(CHAT_MODEL_KEY) || DEFAULT_MODEL);
-  const [agentId, setAgentId] = useState(() =>
-    localStorage.getItem(AGENT_ID_KEY) || DEFAULT_AGENT_ID);
-  const [sessionKey, setSessionKey] = useState(() =>
-    localStorage.getItem(SESSION_KEY_KEY) || DEFAULT_SESSION_KEY);
+  const [userName, setUserName] = useState(() =>
+    localStorage.getItem(CHAT_USER_KEY) || DEFAULT_USER);
+
+  // Derived from userName — these are never stored separately
+  const { agentId, sessionKey } = resolveUserSession(userName);
 
   const [showSettings, setShowSettings] = useState(false);
   const [inputValue, setInputValue] = useState('');
@@ -133,14 +145,13 @@ export function ChatPanel({ dslSource = '', onDSLUpdate }: ChatPanelProps) {
   }, [messages]);
 
   const handleSaveSettings = useCallback((
-    url: string, tok: string, mdl: string, aid: string, sk: string
+    url: string, tok: string, mdl: string, user: string
   ) => {
     const cleanUrl = url.replace(/\/$/, '');
     setGatewayUrl(cleanUrl);  localStorage.setItem(GATEWAY_URL_KEY,   cleanUrl);
     setToken(tok);            localStorage.setItem(GATEWAY_TOKEN_KEY, tok);
     setModel(mdl);            localStorage.setItem(CHAT_MODEL_KEY,    mdl);
-    setAgentId(aid);          localStorage.setItem(AGENT_ID_KEY,      aid);
-    setSessionKey(sk);        localStorage.setItem(SESSION_KEY_KEY,   sk);
+    setUserName(user);        localStorage.setItem(CHAT_USER_KEY,     user);
     setShowSettings(false);
   }, []);
 
@@ -164,8 +175,24 @@ export function ChatPanel({ dslSource = '', onDSLUpdate }: ChatPanelProps) {
     setShowPalette(false);
     const img = imageAttachment;
     setImageAttachment(null);
-    await send(text, img ?? undefined);
-  }, [inputValue, isStreaming, send, imageAttachment]);
+
+    // Prepend eval context if available (Task 4: eval result feedback to chat)
+    let messageText = text;
+    if (evalContextRef?.current) {
+      const { command, result } = evalContextRef.current;
+      if (result.success) {
+        const volStr = result.volume != null ? ` | volume=${result.volume.toFixed(1)}mm³` : '';
+        messageText = `[Eval: SUCCESS | cmd=${command}${volStr} | time=${result.elapsed_ms.toFixed(0)}ms]\n${text}`;
+      } else {
+        const errStr = result.error_message || 'unknown error';
+        messageText = `[Eval: ERROR | cmd=${command} | ${errStr}]\n${text}`;
+      }
+      // Clear after consuming
+      evalContextRef.current = null;
+    }
+
+    await send(messageText, img ?? undefined);
+  }, [inputValue, isStreaming, send, imageAttachment, evalContextRef]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Escape') { setShowPalette(false); return; }
@@ -202,8 +229,7 @@ export function ChatPanel({ dslSource = '', onDSLUpdate }: ChatPanelProps) {
         initialUrl={gatewayUrl}
         initialToken={token}
         initialModel={model}
-        initialAgentId={agentId}
-        initialSessionKey={sessionKey}
+        initialUserName={userName}
         onSave={handleSaveSettings}
         onCancel={() => setShowSettings(false)}
       />
@@ -221,8 +247,8 @@ export function ChatPanel({ dslSource = '', onDSLUpdate }: ChatPanelProps) {
           {agentMode ? 'Jarvis' : 'Agent Chat'}
         </span>
         {agentMode ? (
-          <span style={styles.sessionBadge} title={`Session: ${sessionKey}`}>
-            🧠 {sessionKey.split(':').slice(-1)[0]}
+          <span style={styles.sessionBadge} title={`Agent: ${agentId} | Session: ${sessionKey}`}>
+            🧠 {userName}
           </span>
         ) : (
           <span style={styles.modelBadge}>
@@ -387,23 +413,24 @@ export function ChatPanel({ dslSource = '', onDSLUpdate }: ChatPanelProps) {
 // ── Settings panel ────────────────────────────────────────────────────────────
 
 function SettingsPanel({
-  initialUrl, initialToken, initialModel, initialAgentId, initialSessionKey,
+  initialUrl, initialToken, initialModel, initialUserName,
   onSave, onCancel,
 }: {
   initialUrl: string;
   initialToken: string;
   initialModel: string;
-  initialAgentId: string;
-  initialSessionKey: string;
-  onSave: (url: string, token: string, model: string, agentId: string, sessionKey: string) => void;
+  initialUserName: string;
+  onSave: (url: string, token: string, model: string, userName: string) => void;
   onCancel: () => void;
 }) {
-  const [url, setUrl]         = useState(initialUrl);
-  const [tok, setTok]         = useState(initialToken);
-  const [mdl, setMdl]         = useState(initialModel);
-  const [aid, setAid]         = useState(initialAgentId);
-  const [sk, setSk]           = useState(initialSessionKey);
-  const agentMode             = !!(aid && sk);
+  const [url, setUrl]   = useState(initialUrl);
+  const [tok, setTok]   = useState(initialToken);
+  const [mdl, setMdl]   = useState(initialModel);
+  const [user, setUser] = useState(initialUserName);
+
+  const knownUsers = Object.keys(KNOWN_USERS);
+  const isKnown    = knownUsers.includes(user.trim().toLowerCase());
+  const { agentId, sessionKey } = resolveUserSession(user);
 
   return (
     <div style={styles.container}>
@@ -412,17 +439,30 @@ function SettingsPanel({
       </div>
       <div style={styles.settingsBody}>
 
-        <div style={styles.settingsSection}>AGENT SESSION</div>
-        <label style={styles.settingsLabel}>Agent ID</label>
-        <input style={styles.settingsInput} value={aid} onChange={e => setAid(e.target.value)}
-          placeholder="jarvis-rich" />
-        <label style={styles.settingsLabel}>Session Key</label>
-        <input style={styles.settingsInput} value={sk} onChange={e => setSk(e.target.value)}
-          placeholder="agent:jarvis-rich:yapcad" />
+        <div style={styles.settingsSection}>IDENTITY</div>
+        <label style={styles.settingsLabel}>Your Name</label>
+        <div style={{ display: 'flex', gap: '6px' }}>
+          <select
+            style={{ ...styles.settingsInput, flex: 1 }}
+            value={isKnown ? user.trim().toLowerCase() : '__custom'}
+            onChange={e => { if (e.target.value !== '__custom') setUser(e.target.value); }}
+          >
+            {knownUsers.map(u => (
+              <option key={u} value={u}>{u.charAt(0).toUpperCase() + u.slice(1)}</option>
+            ))}
+            {!isKnown && <option value="__custom">{user} (custom)</option>}
+          </select>
+          <input
+            style={{ ...styles.settingsInput, flex: 1 }}
+            value={user}
+            onChange={e => setUser(e.target.value)}
+            placeholder="your name"
+          />
+        </div>
         <div style={styles.settingsHint}>
-          {agentMode
-            ? '✅ Agent session active — Jarvis has full memory, workspace, and tools.'
-            : '⚠️ Clear both fields to fall back to stateless completions mode.'}
+          {isKnown
+            ? `✅ Agent: ${agentId} → Session: ${sessionKey}`
+            : `⚠️ Unknown user — will create session: ${sessionKey}`}
         </div>
 
         <div style={styles.settingsSection}>CONNECTION</div>
@@ -442,7 +482,7 @@ function SettingsPanel({
 
         <div style={styles.settingsBtns}>
           <button style={styles.cancelBtn} onClick={onCancel}>Cancel</button>
-          <button style={styles.saveBtn} onClick={() => onSave(url, tok, mdl, aid, sk)}>Save</button>
+          <button style={styles.saveBtn} onClick={() => onSave(url, tok, mdl, user)}>Save</button>
         </div>
       </div>
     </div>

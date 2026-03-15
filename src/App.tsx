@@ -11,18 +11,15 @@ import { ClippingControls } from './components/ClippingControls';
 import { ResizeHandle } from './components/ResizeHandle';
 import { LayerPanel } from './components/LayerPanel';
 import { DSLEditor } from './components/DSLEditor';
-import { CommandSelector } from './components/CommandSelector';
+import { TabBar } from './components/TabBar';
+import { ParameterPanel } from './components/ParameterPanel';
 import { ChatPanel } from './components/ChatPanel';
 import { SessionBar } from './components/SessionBar';
 import { FileBar } from './components/FileBar';
-
-/** Extract the first command name from DSL source */
-function extractCommandName(source: string): string {
-  const match = source.match(/command\s+(\w+)/);
-  return match ? match[1] : 'main';
-}
+import { useTabState } from './hooks/useTabState';
+import { useWsEval, type EvalResult } from './hooks/useWsEval';
 import { ResizableSplit } from './components/ResizableSplit';
-import { YapCADViewer, type GeometryEntity } from './viewer';
+import { YapCADViewer, type GeometryEntity, type Measurement, type BoundingBoxInfo, type MeasureUnit } from './viewer';
 import { loadYapCADGeometry } from './yapcad-loader';
 import type { PackageEntry } from './types/package';
 
@@ -80,6 +77,12 @@ export function App() {
   // Derived — always reflect the active mode's settings in the toolbar buttons
   const currentLightingPreset = lightingPresets[viewMode];
   const currentRenderMode = renderModes[viewMode];
+
+  // Measurement state
+  const [measureMode, setMeasureMode] = useState(false);
+  const [measureUnit, setMeasureUnitState] = useState<MeasureUnit>('mm');
+  const [measurements, setMeasurements] = useState<Measurement[]>([]);
+  const [bboxInfo, setBboxInfo] = useState<BoundingBoxInfo | null>(null);
   
   // DSL Editor state
   const [backendUrl, setBackendUrl] = useState(() => {
@@ -88,15 +91,83 @@ export function App() {
   });
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [evaluationError, setEvaluationError] = useState<string | null>(null);
-  const [dslSource, setDslSource] = useState('');
   const [isConnected, setIsConnected] = useState(false);
   const [editorChatSplit, setEditorChatSplit] = useState(() => {
     const saved = localStorage.getItem('yapcad-editor-chat-split');
     return saved ? parseFloat(saved) : 0.6;
   });
-  
+
+  // ── Tab state ──────────────────────────────────────────────────────────────
+  const {
+    tabs, activeTab, activeTabId,
+    addTab, closeTab, switchTab, renameTab,
+    updateSource, parseCommands, selectCommand, updateParam,
+    loadExternalSource,
+  } = useTabState({ backendUrl });
+
+  // Derived dslSource from active tab (for chat context and other consumers)
+  const dslSource = activeTab?.source ?? '';
+
+  // ── WebSocket eval hook ────────────────────────────────────────────────────
+  const wsEval = useWsEval({ backendUrl });
+
+  // ── Eval result state (for parameter panel + chat feedback) ────────────────
+  const [lastEvalResult, setLastEvalResult] = useState<EvalResult | null>(null);
+  const lastEvalContextRef = useRef<{ command: string; result: EvalResult } | null>(null);
+
   // FileBar: external source to push into editor
   const [externalSource, setExternalSource] = useState<string | null>(null);
+
+  // FileBar: unsaved-changes gate (prevents ?file= load stomping dirty editor)
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+
+  // WBS file requested via ?file= query param — handed to FileBar for loading
+  const [pendingWbsFile, setPendingWbsFile] = useState<string | null>(null);
+
+  // On mount: check for ?file=wbs://... query param
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const file = params.get('file');
+    if (file && file.startsWith('wbs://')) {
+      if (hasUnsavedChanges) {
+        const ok = window.confirm(
+          `You have unsaved changes. Discard them and open "${file}"?`
+        );
+        if (!ok) return;
+      }
+      setPendingWbsFile(file);
+      // Clean the URL so a page refresh doesn't re-trigger the load
+      const url = new URL(window.location.href);
+      url.searchParams.delete('file');
+      window.history.replaceState({}, '', url.toString());
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // BroadcastChannel listener — receives 'open-file' messages from the WBS dashboard
+  // when the user clicks '⬡ DSL' on a part row while this tab is already open.
+  useEffect(() => {
+    let ch: BroadcastChannel | null = null;
+    try {
+      ch = new BroadcastChannel('yapcad-wbs');
+      ch.onmessage = (ev) => {
+        if (ev.data?.type === 'open-file' && typeof ev.data.path === 'string') {
+          const path = ev.data.path as string;
+          if (!path.startsWith('wbs://')) return;
+          if (hasUnsavedChanges) {
+            const ok = window.confirm(
+              `You have unsaved changes. Discard them and open "${path}"?`
+            );
+            if (!ok) return;
+          }
+          setPendingWbsFile(path);
+        }
+      };
+    } catch (e) {
+      console.warn('BroadcastChannel not available:', e);
+    }
+    return () => { ch?.close(); };
+  }, [hasUnsavedChanges]);
   
   const viewerContainerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<YapCADViewer | null>(null);
@@ -153,6 +224,7 @@ export function App() {
       viewerRef.current.loadGeometry(entities);
       viewerRef.current.fitToGeometry();
       updateLayers(viewerRef.current);
+      setBboxInfo(viewerRef.current.getBoundingBoxInfo());
     } else if (multiViewRef.current) {
       Object.values(multiViewRef.current).forEach(v => {
         v.loadGeometry(entities);
@@ -162,6 +234,12 @@ export function App() {
     }
   // setLayers and setLayerVisibility are stable; refs are always current → no deps needed
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Extract first command name for full-editor evaluate
+  const extractCommandName = useCallback((source: string): string => {
+    const match = source.match(/command\s+(\w+)/);
+    return match ? match[1] : 'main';
   }, []);
 
   const handleDSLEvaluate = useCallback(async (source: string) => {
@@ -174,30 +252,26 @@ export function App() {
     setEvaluationError(null);
     
     try {
-      const response = await fetch(`${backendUrl}/dsl/eval`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          source: dslSource,
-          command,
-          parameters,
-          format: 'json'
-        }),
-        signal: typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(300000) : undefined
-      });
+      // Use WebSocket eval (with REST fallback)
+      const evalResult = await wsEval.eval(dslSource, command, parameters);
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Server error (${response.status}): ${errorText}`);
+      // Record latency for tier detection
+      wsEval.recordLatency(command, evalResult.elapsed_ms);
+
+      // Store eval result for parameter panel + chat feedback
+      setLastEvalResult(evalResult);
+      lastEvalContextRef.current = { command, result: evalResult };
+
+      if (!evalResult.success) {
+        throw new Error(evalResult.error_message || 'DSL evaluation failed');
       }
 
-      const responseJson = await response.json();
-      
-      if (!responseJson.success) {
-        throw new Error(responseJson.error_message || 'DSL evaluation failed');
+      if (!evalResult.geometry) {
+        throw new Error('No geometry returned');
       }
       
-      const result = loadYapCADGeometry(responseJson.geometry);
+      // Cast to YapCADDocument — the backend returns this structure
+      const result = loadYapCADGeometry(evalResult.geometry as unknown as Parameters<typeof loadYapCADGeometry>[0]);
       const entities: GeometryEntity[] = [];
       
       for (const solid of result.solids) {
@@ -239,6 +313,7 @@ export function App() {
       setIsConnected(true);
       
     } catch (error) {
+      if (error instanceof Error && error.message === 'Cancelled') return;
       console.error('DSL evaluation failed:', error);
       const errorMessage = error instanceof Error ? error.message : String(error);
       setEvaluationError(errorMessage);
@@ -247,7 +322,31 @@ export function App() {
       setIsEvaluating(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [backendUrl, dslSource, applyToActiveViewers]);
+  }, [backendUrl, dslSource, applyToActiveViewers, wsEval]);
+
+  // ── Tab source change → re-parse commands ──────────────────────────────────
+  const handleTabSourceChange = useCallback((source: string) => {
+    if (!activeTab) return;
+    updateSource(activeTab.id, source);
+    // Debounced re-parse is handled by a useEffect below
+  }, [activeTab, updateSource]);
+
+  // Debounced command parsing when active tab source changes
+  const parseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!activeTab) return;
+    if (parseTimerRef.current) clearTimeout(parseTimerRef.current);
+    parseTimerRef.current = setTimeout(() => {
+      parseCommands(activeTab.id, activeTab.source);
+    }, 800);
+    return () => { if (parseTimerRef.current) clearTimeout(parseTimerRef.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab?.id, activeTab?.source, backendUrl]);
+
+  // ── Parameter panel eval trigger ───────────────────────────────────────────
+  const handleParamEval = useCallback((command: string, parameters: Record<string, unknown>) => {
+    handleCommandEvaluate(command, parameters);
+  }, [handleCommandEvaluate]);
 
   const handleEditorChatSplitChange = useCallback((split: number) => {
     setEditorChatSplit(split);
@@ -257,7 +356,9 @@ export function App() {
   // FileBar handlers
   const handleFileLoad = useCallback((source: string, _filename: string) => {
     setExternalSource(source);
-  }, []);
+    // Also load into active tab
+    loadExternalSource(source);
+  }, [loadExternalSource]);
 
   const handleExternalSourceConsumed = useCallback(() => {
     setExternalSource(null);
@@ -327,6 +428,12 @@ export function App() {
       }
       
       viewer.start();
+      // Wire up measurement callback — merges measurements from all 4 viewers
+      viewer.onMeasureChange(() => {
+        if (!multiViewRef.current) return;
+        const all: Measurement[] = Object.values(multiViewRef.current).flatMap(v => v.getMeasurements());
+        setMeasurements([...all]);
+      });
       viewers[quad.name] = viewer;
     });
     
@@ -383,6 +490,10 @@ export function App() {
         // Restore this mode's render settings
         viewerRef.current.setLightingPreset(lightingPresetsRef.current['single']);
         viewerRef.current.setRenderMode(renderModesRef.current['single']);
+        // Wire up measurement callback
+        viewerRef.current.onMeasureChange((ms) => {
+          setMeasurements([...ms]);
+        });
         // Restore last geometry
         if (lastEntitiesRef.current) {
           viewerRef.current.loadGeometry(lastEntitiesRef.current);
@@ -542,6 +653,50 @@ export function App() {
     }
     setLayerVisibility(vis);
   }, [layers, viewMode]);
+
+  // Measurement handlers — single view: one viewer; 4-up: all four viewers
+  const _allViewers = useCallback((): YapCADViewer[] => {
+    if (viewerRef.current) return [viewerRef.current];
+    if (multiViewRef.current) return Object.values(multiViewRef.current);
+    return [];
+  }, []);
+
+  const handleToggleMeasure = useCallback(() => {
+    const viewers = _allViewers();
+    if (viewers.length === 0) return;
+    const next = !measureMode;
+    viewers.forEach(v => v.setMeasureMode(next));
+    setMeasureMode(next);
+  }, [measureMode, _allViewers]);
+
+  const handleDeleteMeasurement = useCallback((id: string) => {
+    _allViewers().forEach(v => v.deleteMeasurement(id));
+  }, [_allViewers]);
+
+  const handleClearMeasurements = useCallback(() => {
+    _allViewers().forEach(v => v.clearMeasurements());
+    setMeasurements([]);
+  }, [_allViewers]);
+
+  const handleUnitToggle = useCallback(() => {
+    const next: MeasureUnit = measureUnit === 'mm' ? 'in' : 'mm';
+    _allViewers().forEach(v => v.setMeasureUnit(next));
+    setMeasureUnitState(next);
+    // Refresh measurements list (labels rebuilt in viewer, update React state too)
+    const all = _allViewers().flatMap(v => v.getMeasurements());
+    setMeasurements([...all]);
+  }, [measureUnit, _allViewers]);
+
+  // Format a raw mm value for display in the measurement panel
+  const fmtDist = useCallback((mm: number): string => {
+    if (measureUnit === 'in') return `${(mm / 25.4).toFixed(3)}"`;
+    return `${mm.toFixed(2)} mm`;
+  }, [measureUnit]);
+
+  const fmtBbox = useCallback((mm: number): string => {
+    if (measureUnit === 'in') return `${(mm / 25.4).toFixed(3)}"`;
+    return `${mm.toFixed(1)} mm`;
+  }, [measureUnit]);
   
   return (
     <div style={{
@@ -566,6 +721,9 @@ export function App() {
         <FileBar
           currentSource={dslSource}
           onFileLoad={handleFileLoad}
+          onUnsavedChange={setHasUnsavedChanges}
+          pendingWbsFile={pendingWbsFile}
+          onPendingWbsFileConsumed={() => setPendingWbsFile(null)}
         />
         
         {/* Session Bar */}
@@ -584,30 +742,56 @@ export function App() {
           onSplitChange={handleEditorChatSplitChange}
           style={{ flex: 1 }}
         >
-          {/* DSL Editor + Command Selector */}
+          {/* Tab Bar + DSL Editor + Parameter Panel */}
           <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+            {/* Tab Bar */}
+            <TabBar
+              tabs={tabs}
+              activeTabId={activeTabId}
+              onSwitch={switchTab}
+              onClose={closeTab}
+              onAdd={addTab}
+              onRename={renameTab}
+            />
+            
+            {/* DSL Editor */}
             <div style={{ flex: 1, overflow: 'hidden' }}>
               <DSLEditor
                 onEvaluate={handleDSLEvaluate}
-                onSourceChange={setDslSource}
+                onSourceChange={handleTabSourceChange}
                 externalSource={externalSource}
                 onExternalSourceConsumed={handleExternalSourceConsumed}
                 isEvaluating={isEvaluating}
                 evaluationError={evaluationError}
+                key={activeTabId}
+                initialSource={activeTab?.source}
               />
             </div>
-            <CommandSelector
-              source={dslSource}
-              backendUrl={backendUrl}
-              onEvaluate={handleCommandEvaluate}
+            
+            {/* Parameter Panel */}
+            <ParameterPanel
+              commands={activeTab?.commands ?? []}
+              selectedCommand={activeTab?.selectedCommand ?? ''}
+              paramValues={activeTab?.paramValues ?? {}}
+              onSelectCommand={(cmd) => activeTab && selectCommand(activeTab.id, cmd)}
+              onParamChange={(cmd, param, val) => activeTab && updateParam(activeTab.id, cmd, param, val)}
+              onEval={handleParamEval}
               isEvaluating={isEvaluating}
+              evalResult={lastEvalResult}
+              latencyTier={wsEval.getLatencyTier(activeTab?.selectedCommand ?? '')}
+              parseError={activeTab?.parseError ?? ''}
+              isParsing={activeTab?.isParsing ?? false}
             />
           </div>
           
-          {/* Chat Panel */}
+          {/* Chat Panel — with eval context ref for feedback */}
           <ChatPanel
             dslSource={dslSource}
-            onDSLUpdate={(source) => setExternalSource(source)}
+            onDSLUpdate={(source) => {
+              setExternalSource(source);
+              loadExternalSource(source);
+            }}
+            evalContextRef={lastEvalContextRef}
           />
         </ResizableSplit>
       </div>
@@ -661,6 +845,23 @@ export function App() {
             onClick={() => setViewMode(viewMode === 'single' ? '4-up' : 'single')}
           >
             {viewMode === 'single' ? '4-Up' : 'Single'} View
+          </button>
+
+          <button
+            title={measureMode ? 'Exit Measure mode (click 2 points to measure distance)' : 'Enter Measure mode (click 2 points to measure distance)'}
+            style={{
+              padding: '6px 12px',
+              fontSize: '13px',
+              backgroundColor: measureMode ? '#f59e0b' : '#333',
+              color: measureMode ? '#1a1a00' : '#eee',
+              border: measureMode ? '1px solid #fbbf24' : 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontWeight: measureMode ? 600 : 400,
+            }}
+            onClick={handleToggleMeasure}
+          >
+            📏 {measureMode ? 'Measuring…' : 'Measure'}
           </button>
         </div>
         
@@ -724,6 +925,111 @@ export function App() {
               zIndex: 10,
             }}>
               ⏳ Evaluating DSL...
+            </div>
+          )}
+
+          {/* Measurement Panel — bottom-right overlay */}
+          {(measureMode || measurements.length > 0 || bboxInfo) && (
+            <div style={{
+              position: 'absolute',
+              bottom: '16px',
+              right: '16px',
+              zIndex: 20,
+              backgroundColor: 'rgba(15,15,30,0.92)',
+              border: '1px solid #334',
+              borderRadius: '8px',
+              padding: '12px 14px',
+              minWidth: '240px',
+              maxWidth: '320px',
+              color: '#ccd',
+              fontSize: '13px',
+              pointerEvents: 'all',
+            }}>
+              {/* Header row: title + unit toggle + clear */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
+                <span style={{ fontWeight: 600, color: '#f59e0b', fontSize: '12px', letterSpacing: '0.05em', textTransform: 'uppercase', flex: 1 }}>
+                  📏 Measurements
+                </span>
+                {/* mm / in toggle */}
+                <div style={{ display: 'flex', borderRadius: '4px', overflow: 'hidden', border: '1px solid #445', fontSize: '11px' }}>
+                  {(['mm', 'in'] as const).map(u => (
+                    <button
+                      key={u}
+                      onClick={handleUnitToggle}
+                      style={{
+                        padding: '2px 7px',
+                        background: measureUnit === u ? '#334' : 'transparent',
+                        color: measureUnit === u ? '#aaccff' : '#556',
+                        border: 'none',
+                        cursor: 'pointer',
+                        fontWeight: measureUnit === u ? 600 : 400,
+                      }}
+                    >
+                      {u}
+                    </button>
+                  ))}
+                </div>
+                {measurements.length > 0 && (
+                  <button
+                    onClick={handleClearMeasurements}
+                    style={{ background: 'none', border: 'none', color: '#556', cursor: 'pointer', fontSize: '11px', padding: '0' }}
+                    title="Clear all measurements"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+
+              {/* Bounding box info */}
+              {bboxInfo && (
+                <div style={{ marginBottom: measurements.length > 0 ? '10px' : 0, paddingBottom: measurements.length > 0 ? '10px' : 0, borderBottom: measurements.length > 0 ? '1px solid #223' : 'none' }}>
+                  <div style={{ color: '#556', fontSize: '10px', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Bounding Box</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '4px' }}>
+                    {(['width', 'height', 'depth'] as const).map(dim => (
+                      <div key={dim} style={{ textAlign: 'center', backgroundColor: '#111828', borderRadius: '4px', padding: '4px 6px' }}>
+                        <div style={{ fontSize: '10px', color: '#445', textTransform: 'uppercase', marginBottom: '2px' }}>{dim === 'width' ? 'W' : dim === 'height' ? 'H' : 'D'}</div>
+                        <div style={{ fontWeight: 600, color: '#99bbdd', fontFamily: 'monospace', fontSize: '12px' }}>{fmtBbox(bboxInfo[dim])}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Hint when in measure mode with no measurements yet */}
+              {measureMode && measurements.length === 0 && (
+                <div style={{ color: '#f59e0b', fontSize: '12px', textAlign: 'center', padding: '6px 0', opacity: 0.85 }}>
+                  Click a surface point to start
+                </div>
+              )}
+
+              {/* Measurements list */}
+              {measurements.map((m, i) => (
+                <div
+                  key={m.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '5px 6px',
+                    marginBottom: '3px',
+                    backgroundColor: '#111828',
+                    borderRadius: '4px',
+                    borderLeft: '2px solid #44aaff',
+                  }}
+                >
+                  <span style={{ fontSize: '12px', color: '#aac' }}>
+                    <span style={{ color: '#445', marginRight: '6px' }}>#{i + 1}</span>
+                    <span style={{ fontWeight: 600, color: '#ddf', fontFamily: 'monospace' }}>{fmtDist(m.distance)}</span>
+                  </span>
+                  <button
+                    onClick={() => handleDeleteMeasurement(m.id)}
+                    style={{ background: 'none', border: 'none', color: '#445', cursor: 'pointer', fontSize: '14px', lineHeight: 1, padding: '0 2px' }}
+                    title="Delete"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
             </div>
           )}
         </div>
