@@ -199,7 +199,7 @@ class Interpreter:
         if ctx.emit_result is None:
             return ExecutionResult(
                 success=False,
-                error_message="Command did not emit any geometry",
+                error_message="Command did not emit any value",
                 provenance=provenance,
             )
 

@@ -110,6 +110,7 @@ class BuiltinRegistry:
         self._register_query_functions()
         self._register_utility_functions()
         self._register_fillet_chamfer_functions()
+        self._register_io_functions()
         self._register_phase2_geometry_functions()
         self._register_phase3_text_functions()
         self._register_phase4_path_functions()
@@ -2171,7 +2172,34 @@ class BuiltinRegistry:
             _sun_gear_with_hub,
         ))
 
-    # --- Phase 2 Geometry Functions ---
+    def _register_io_functions(self) -> None:
+        """Register I/O functions for importing external geometry."""
+
+        def _import_stl(path: Value) -> Value:
+            """Import an STL file as a yapCAD solid.
+
+            Args:
+                path: Path to the STL file (string)
+
+            Returns:
+                A solid containing the imported mesh geometry.
+            """
+            from yapcad.io.stl import import_stl as _io_import_stl
+            import os
+            stl_path = path.data
+            if not os.path.isabs(stl_path):
+                # Resolve relative to current working directory
+                stl_path = os.path.abspath(stl_path)
+            solid_data = _io_import_stl(stl_path)
+            return solid_val(solid_data)
+
+        self.register(BuiltinFunction(
+            "import_stl",
+            _make_sig("import_stl", [STRING], SOLID),
+            _import_stl,
+        ))
+
+        # --- Phase 2 Geometry Functions ---
 
     def _register_phase2_geometry_functions(self) -> None:
         """Register Phase 2 geometry primitives from geom3d_util."""

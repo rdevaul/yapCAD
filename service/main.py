@@ -5,7 +5,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .routes.dsl import router as dsl_router
 from .routes.geometry import router as geometry_router
+from .routes.profile import router as profile_router
+from .routes.render import router as render_router
 from .routes.system import router as system_router
+from .routes.ws import router as ws_router
 
 
 def create_app() -> FastAPI:
@@ -23,6 +26,9 @@ def create_app() -> FastAPI:
     app.include_router(system_router)
     app.include_router(dsl_router)
     app.include_router(geometry_router)
+    app.include_router(profile_router)
+    app.include_router(render_router)
+    app.include_router(ws_router)
 
     return app
 

@@ -427,6 +427,11 @@ class SymbolTable:
             ("height", FLOAT, None),
         ], SOLID)
 
+        # STL/geometry import
+        self._register_builtin("import_stl", [
+            ("path", STRING, None),
+        ], SOLID)
+
         # Involute gear - creates a proper gear profile
         self._register_builtin("involute_gear", [
             ("teeth", INT, None),

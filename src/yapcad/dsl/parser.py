@@ -1074,13 +1074,18 @@ class Parser:
     # =========================================================================
 
     def _parse_parameter(self) -> Parameter:
-        """Parse a function parameter."""
+        """Parse a function parameter, optionally with @ui(...) decorator."""
         start = self._current()
         name = self._consume(TokenType.IDENTIFIER, "parameter name").value
 
         type_annotation = None
         if self._match(TokenType.COLON):
             type_annotation = self._parse_type()
+
+        # Parse optional @ui(...) decorator on parameter
+        ui_hint = None
+        if self._check(TokenType.AT):
+            ui_hint = self._parse_param_ui_hint()
 
         default_value = None
         if self._match(TokenType.ASSIGN):
@@ -1090,8 +1095,48 @@ class Parser:
             span=self._span_from(start),
             name=name,
             type_annotation=type_annotation,
-            default_value=default_value
+            default_value=default_value,
+            ui_hint=ui_hint,
         )
+
+    def _parse_param_ui_hint(self) -> dict:
+        """Parse @ui(...) decorator on a parameter.
+
+        Returns a dict of keyword arguments, e.g.:
+            @ui(kind="slider", min=0.0, max=10.0) -> {"kind": "slider", "min": 0.0, "max": 10.0}
+        """
+        self._advance()  # consume '@'
+        name_tok = self._consume(TokenType.IDENTIFIER, "'ui' after '@'")
+        if name_tok.value != "ui":
+            self._error(f"Expected '@ui' decorator on parameter, got '@{name_tok.value}'")
+
+        self._consume(TokenType.LPAREN, "'(' after '@ui'")
+        hint: dict = {}
+        if not self._check(TokenType.RPAREN):
+            # Parse keyword arguments: key=value, ...
+            while True:
+                key_tok = self._consume(TokenType.IDENTIFIER, "keyword argument name")
+                self._consume(TokenType.ASSIGN, "'=' in @ui keyword argument")
+                val_expr = self._parse_expression()
+                # Evaluate literal values directly
+                hint[key_tok.value] = self._ui_hint_value(val_expr)
+                if not self._match(TokenType.COMMA):
+                    break
+        self._consume(TokenType.RPAREN, "')' closing @ui")
+        return hint
+
+    def _ui_hint_value(self, expr) -> Any:
+        """Extract a literal value from an expression for @ui hints."""
+        from .ast import Literal, ListLiteral, UnaryOp
+        if isinstance(expr, Literal):
+            return expr.value
+        if isinstance(expr, UnaryOp) and isinstance(expr.operand, Literal):
+            if expr.operator == TokenType.MINUS:
+                return -expr.operand.value
+        if isinstance(expr, ListLiteral):
+            return [self._ui_hint_value(e) for e in expr.elements]
+        # For non-literal expressions (like function refs), store as string
+        return str(getattr(expr, 'name', repr(expr)))
 
     def _parse_decorator(self) -> Decorator:
         """Parse a decorator."""

@@ -20,9 +20,23 @@ class DslEvalRequest(BaseModel):
 class DslEvalResponse(BaseModel):
     success: bool
     geometry: Optional[Dict[str, Any]] = None
+    scalar_result: Optional[Dict[str, Any]] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
     provenance: Optional[Dict[str, Any]] = None
     require_failures: List[Dict[str, Any]] = Field(default_factory=list)
+    error_message: Optional[str] = None
+
+
+class DslUiEvalRequest(BaseModel):
+    source: str = Field(..., description="DSL source code")
+    command: str = Field(..., description="Command/function to run")
+    parameters: Dict[str, Any] = Field(default_factory=dict)
+
+
+class DslUiEvalResponse(BaseModel):
+    success: bool
+    values: Optional[List[Any]] = None
+    type: Optional[str] = None
     error_message: Optional[str] = None
 
 

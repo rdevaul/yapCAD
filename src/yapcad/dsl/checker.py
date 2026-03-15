@@ -335,11 +335,29 @@ class TypeChecker:
         )
 
         if not self.symbols.define(symbol):
-            self._error(
-                f"Variable '{stmt.name}' is already defined in this scope",
-                stmt.span,
-                "E211"
-            )
+            # If this is an untyped re-declaration (name = expr with no colon annotation),
+            # treat it as a reassignment — update the existing symbol's type rather than
+            # raising E211. Typed re-declarations (name: type = expr) are still errors.
+            if stmt.type_annotation is None:
+                # Reassignment: update symbol type to new inferred type
+                existing = self.symbols.lookup(stmt.name)
+                if existing is not None:
+                    # Check type compatibility — new type must match existing
+                    if not existing.type.is_assignable_from(var_type) and existing.type != UNKNOWN:
+                        self._error(
+                            f"Cannot reassign variable '{stmt.name}': "
+                            f"type '{var_type}' is not compatible with '{existing.type}'",
+                            stmt.initializer.span,
+                            "E210"
+                        )
+                    # else: compatible reassignment, silently allow
+                # else: symbol table inconsistency, ignore
+            else:
+                self._error(
+                    f"Variable '{stmt.name}' is already defined in this scope",
+                    stmt.span,
+                    "E211"
+                )
 
     def _check_assignment_statement(self, stmt: AssignmentStatement) -> None:
         """Check an assignment statement."""
