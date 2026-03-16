@@ -1,6 +1,6 @@
 /**
  * SketchViewer — Canvas2D renderer for yapCAD sketch entities.
- * Renders polylines (sampled curves) and control points for splines.
+ * Renders polylines (sampled curves) and control point handles for splines.
  * Supports interactive dragging of control points when interactive=true.
  */
 
@@ -18,55 +18,54 @@ interface SketchViewerProps {
   onControlPointsChanged?: (points: number[][]) => void;
 }
 
-const PAD = 32;           // canvas padding in px
-const CTRL_RADIUS = 6;    // control point handle radius
-const HIT_RADIUS = 10;    // hit test radius for dragging
+const PAD = 40;
+const CTRL_RADIUS = 7;
+const HIT_RADIUS = 12;
+
+// ── coordinate transform ────────────────────────────────────────────────────
+
+function makeTransform(bbox: number[] | undefined, w: number, h: number) {
+  const xmin = bbox?.[0] ?? 0;
+  const ymin = bbox?.[1] ?? 0;
+  const xmax = bbox?.[2] ?? 1;
+  const ymax = bbox?.[3] ?? 1;
+  const dw = xmax - xmin || 1;
+  const dh = ymax - ymin || 1;
+  const drawW = w - PAD * 2;
+  const drawH = h - PAD * 2;
+  const scale = Math.min(drawW / dw, drawH / dh);
+  // Centre the drawing in the available space
+  const ox = PAD + (drawW - dw * scale) / 2;
+  const oy = PAD + (drawH - dh * scale) / 2;
+
+  // Canvas: Y grows DOWN. Model: Y grows UP. Flip around canvas centre.
+  const toCanvas = (x: number, y: number): [number, number] => [
+    ox + (x - xmin) * scale,
+    h - oy - (y - ymin) * scale,
+  ];
+  const fromCanvas = (cx: number, cy: number): [number, number] => [
+    (cx - ox) / scale + xmin,
+    (h - oy - cy) / scale + ymin,
+  ];
+
+  return { toCanvas, fromCanvas, scale, xmin, ymin, xmax, ymax };
+}
+
+// ── component ───────────────────────────────────────────────────────────────
 
 export function SketchViewer({
   sketch,
   width = 600,
-  height = 320,
+  height = 360,
   interactive = false,
   onControlPointsChanged,
 }: SketchViewerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  // Mutable state for drag — kept in a ref to avoid re-render on every mousemove
-  const dragState = useRef<{
-    dragging: boolean;
-    pointIdx: number;
-    ctrlPts: number[][];
-    toCanvas: (p: number[]) => [number, number];
-    fromCanvas: (x: number, y: number) => number[];
+  const dragRef = useRef<{
+    active: boolean;
+    idx: number;
+    pts: number[][];
   } | null>(null);
-
-  // ── coordinate helpers ────────────────────────────────────────────────────
-
-  function buildTransform(bbox: number[] | undefined, w: number, h: number) {
-    // bbox = [xmin, ymin, xmax, ymax]
-    const xmin = bbox?.[0] ?? 0;
-    const ymin = bbox?.[1] ?? 0;
-    const xmax = bbox?.[2] ?? 1;
-    const ymax = bbox?.[3] ?? 1;
-    const dw = xmax - xmin || 1;
-    const dh = ymax - ymin || 1;
-    const drawW = w - PAD * 2;
-    const drawH = h - PAD * 2;
-    const scale = Math.min(drawW / dw, drawH / dh);
-    // centre the drawing
-    const offX = PAD + (drawW - dw * scale) / 2;
-    const offY = PAD + (drawH - dh * scale) / 2;
-
-    const toCanvas = (p: number[]): [number, number] => [
-      offX + (p[0] - xmin) * scale,
-      // flip Y: canvas Y grows down, model Y grows up
-      h - (offY + (p[1] - ymin) * scale),
-    ];
-    const fromCanvas = (cx: number, cy: number): number[] => [
-      (cx - offX) / scale + xmin,
-      ((h - cy) - offY) / scale + ymin,
-    ];
-    return { toCanvas, fromCanvas, scale, xmin, ymin, xmax, ymax };
-  }
 
   // ── draw ─────────────────────────────────────────────────────────────────
 
@@ -78,94 +77,129 @@ export function SketchViewer({
 
     const w = canvas.width;
     const h = canvas.height;
-    const { toCanvas, xmin, ymin, xmax, ymax } = buildTransform(sketch.boundingBox, w, h);
 
-    // Background
+    if (w === 0 || h === 0) return;
+
+    const { toCanvas, xmin, ymin, xmax, ymax, scale } = makeTransform(sketch.boundingBox, w, h);
+
+    // ── background
     ctx.fillStyle = '#0d0d1a';
     ctx.fillRect(0, 0, w, h);
 
-    // Subtle grid
-    ctx.strokeStyle = '#1e1e32';
+    // ── subtle grid
+    ctx.strokeStyle = '#1e1e38';
     ctx.lineWidth = 1;
-    const gridStep = 10;
-    const { toCanvas: tc0 } = buildTransform(sketch.boundingBox, w, h);
-    for (let x = Math.ceil(xmin / gridStep) * gridStep; x <= xmax; x += gridStep) {
-      const [cx] = tc0([x, ymin]);
+    const rawStep = (xmax - xmin) / 5;
+    const gridStep = Math.pow(10, Math.floor(Math.log10(rawStep)));
+    for (let x = Math.ceil(xmin / gridStep) * gridStep; x <= xmax + gridStep * 0.001; x += gridStep) {
+      const [cx] = toCanvas(x, ymin);
       ctx.beginPath(); ctx.moveTo(cx, PAD); ctx.lineTo(cx, h - PAD); ctx.stroke();
     }
-    for (let y = Math.ceil(ymin / gridStep) * gridStep; y <= ymax; y += gridStep) {
-      const [, cy] = tc0([xmin, y]);
+    for (let y = Math.ceil(ymin / gridStep) * gridStep; y <= ymax + gridStep * 0.001; y += gridStep) {
+      const [, cy] = toCanvas(xmin, y);
       ctx.beginPath(); ctx.moveTo(PAD, cy); ctx.lineTo(w - PAD, cy); ctx.stroke();
     }
 
-    // Polylines (sampled curve)
+    // ── axes
+    ctx.strokeStyle = '#2a2a50';
+    ctx.lineWidth = 1.5;
+    const [ax0] = toCanvas(xmin, 0);
+    const [ax1] = toCanvas(xmax, 0);
+    const [, ay] = toCanvas(0, 0);
+    if (ay >= PAD && ay <= h - PAD) {
+      ctx.beginPath(); ctx.moveTo(PAD, ay); ctx.lineTo(w - PAD, ay); ctx.stroke();
+    }
+    void ax0; void ax1;
+
+    // ── polylines (sampled curve) ──────────────────────────────────────────
     for (const polyline of sketch.polylines) {
-      if (!polyline.length) continue;
+      if (polyline.length < 2) continue;
       ctx.beginPath();
       ctx.strokeStyle = '#00d4ff';
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 2.5;
       ctx.lineJoin = 'round';
-      const [sx, sy] = toCanvas(polyline[0]);
+      ctx.lineCap = 'round';
+      const [sx, sy] = toCanvas(polyline[0][0], polyline[0][1]);
       ctx.moveTo(sx, sy);
       for (let i = 1; i < polyline.length; i++) {
-        const [px, py] = toCanvas(polyline[i]);
+        const [px, py] = toCanvas(polyline[i][0], polyline[i][1]);
         ctx.lineTo(px, py);
       }
       ctx.stroke();
     }
 
-    // Control points from primitives
-    const primitives = sketch.primitives ?? [];
-    for (const prim of primitives) {
+    // ── control points ────────────────────────────────────────────────────
+    for (const prim of sketch.primitives ?? []) {
       if (!['catmullrom', 'nurbs', 'bezier'].includes(prim.kind)) continue;
-      const ctrlPts = ctrlOverride ?? (prim.points as number[][]);
-      if (!ctrlPts?.length) continue;
+      // Use override if dragging, else primitive points (homogeneous 4D [x,y,z,w])
+      const rawPts = ctrlOverride ?? (prim.points as number[][]);
+      if (!rawPts?.length) continue;
 
-      // Dashed polyline connecting control points
-      ctx.setLineDash([4, 4]);
-      ctx.strokeStyle = '#ff8c0066';
+      // Dashed hull line
+      ctx.setLineDash([5, 4]);
+      ctx.strokeStyle = 'rgba(255, 140, 0, 0.4)';
       ctx.lineWidth = 1;
       ctx.beginPath();
-      const [sx, sy] = toCanvas(ctrlPts[0]);
-      ctx.moveTo(sx, sy);
-      for (let i = 1; i < ctrlPts.length; i++) {
-        const [px, py] = toCanvas(ctrlPts[i]);
-        ctx.lineTo(px, py);
+      const [hx0, hy0] = toCanvas(rawPts[0][0], rawPts[0][1]);
+      ctx.moveTo(hx0, hy0);
+      for (let i = 1; i < rawPts.length; i++) {
+        const [hx, hy] = toCanvas(rawPts[i][0], rawPts[i][1]);
+        ctx.lineTo(hx, hy);
       }
       ctx.stroke();
       ctx.setLineDash([]);
 
-      // Control point handles
-      for (let i = 0; i < ctrlPts.length; i++) {
-        const [px, py] = toCanvas(ctrlPts[i]);
+      // Handles
+      for (let i = 0; i < rawPts.length; i++) {
+        const [px, py] = toCanvas(rawPts[i][0], rawPts[i][1]);
         ctx.beginPath();
         ctx.arc(px, py, CTRL_RADIUS, 0, Math.PI * 2);
         ctx.fillStyle = '#ff8c00';
         ctx.fill();
-        ctx.strokeStyle = '#ffffff';
+        ctx.strokeStyle = '#fff';
         ctx.lineWidth = 1.5;
         ctx.stroke();
+
+        // Index label
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 10px monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(String(i), px, py);
       }
     }
 
-    // Bounding box label
+    // ── info label ─────────────────────────────────────────────────────────
     const dw = (xmax - xmin).toFixed(1);
-    const dh = (ymax - ymin).toFixed(1);
-    ctx.fillStyle = '#556';
+    const dh_val = (ymax - ymin).toFixed(1);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillStyle = '#445';
     ctx.font = '11px monospace';
-    ctx.fillText(`${dw} × ${dh} mm`, PAD, h - 8);
+    ctx.fillText(`${dw} × ${dh_val} mm  |  scale: ${scale.toFixed(2)}px/mm`, PAD, h - 10);
 
-    // Command name
+    // kind label
+    const kind = sketch.primitives?.[0]?.kind ?? 'sketch';
     ctx.fillStyle = '#7c7cf8';
-    ctx.font = 'bold 11px monospace';
-    ctx.fillText(sketch.name ?? 'sketch', PAD, 18);
+    ctx.font = 'bold 12px monospace';
+    ctx.fillText(kind.toUpperCase(), PAD, 20);
+
   }, [sketch]);
 
   useEffect(() => { draw(); }, [draw]);
 
+  // ── resize observer — redraw if container resizes ─────────────────────────
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ro = new ResizeObserver(() => draw());
+    ro.observe(canvas);
+    return () => ro.disconnect();
+  }, [draw]);
+
   // ── interaction ───────────────────────────────────────────────────────────
 
-  const getPrimCtrlPts = (): number[][] | null => {
+  const getCtrlPts = (): number[][] | null => {
     for (const prim of sketch.primitives ?? []) {
       if (['catmullrom', 'nurbs', 'bezier'].includes(prim.kind) && prim.points?.length) {
         return (prim.points as number[][]).map(p => [...p]);
@@ -174,54 +208,66 @@ export function SketchViewer({
     return null;
   };
 
-  const handleMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+  const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!interactive) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    const my = e.clientY - rect.top;
-    const { toCanvas, fromCanvas } = buildTransform(sketch.boundingBox, canvas.width, canvas.height);
-    const ctrlPts = getPrimCtrlPts();
-    if (!ctrlPts) return;
-
-    for (let i = 0; i < ctrlPts.length; i++) {
-      const [cx, cy] = toCanvas(ctrlPts[i]);
+    const mx = (e.clientX - rect.left) * (canvas.width / rect.width);
+    const my = (e.clientY - rect.top) * (canvas.height / rect.height);
+    const { toCanvas } = makeTransform(sketch.boundingBox, canvas.width, canvas.height);
+    const pts = getCtrlPts();
+    if (!pts) return;
+    for (let i = 0; i < pts.length; i++) {
+      const [cx, cy] = toCanvas(pts[i][0], pts[i][1]);
       if (Math.hypot(mx - cx, my - cy) <= HIT_RADIUS) {
-        dragState.current = { dragging: true, pointIdx: i, ctrlPts, toCanvas, fromCanvas };
-        break;
+        dragRef.current = { active: true, idx: i, pts };
+        e.preventDefault();
+        return;
       }
     }
-  }, [interactive, sketch]);
+  };
 
-  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!dragState.current?.dragging) return;
+  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!dragRef.current?.active) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    const my = e.clientY - rect.top;
-    const { fromCanvas, ctrlPts, pointIdx } = dragState.current;
-    const newPos = fromCanvas(mx, my);
-    const updated = ctrlPts.map((p, i) => i === pointIdx ? [newPos[0], newPos[1], p[2] ?? 0, p[3] ?? 1] : p);
-    dragState.current.ctrlPts = updated;
+    const mx = (e.clientX - rect.left) * (canvas.width / rect.width);
+    const my = (e.clientY - rect.top) * (canvas.height / rect.height);
+    const { fromCanvas } = makeTransform(sketch.boundingBox, canvas.width, canvas.height);
+    const [nx, ny] = fromCanvas(mx, my);
+    const { idx, pts } = dragRef.current;
+    const updated = pts.map((p, i) =>
+      i === idx ? [nx, ny, p[2] ?? 0, p[3] ?? 1] : p
+    );
+    dragRef.current.pts = updated;
     draw(updated);
-  }, [draw]);
+  };
 
-  const handleMouseUp = useCallback(() => {
-    if (!dragState.current?.dragging) return;
-    const pts = dragState.current.ctrlPts;
-    dragState.current = null;
+  const handleMouseUp = () => {
+    if (!dragRef.current?.active) return;
+    const pts = dragRef.current.pts;
+    dragRef.current = null;
     onControlPointsChanged?.(pts);
-  }, [onControlPointsChanged]);
+  };
 
   return (
-    <div style={styles.wrapper}>
+    <div style={{
+      width: '100%', height: '100%',
+      display: 'flex', alignItems: 'stretch', justifyContent: 'stretch',
+      backgroundColor: '#0d0d1a',
+    }}>
       <canvas
         ref={canvasRef}
         width={width}
         height={height}
-        style={{ ...styles.canvas, cursor: interactive ? 'crosshair' : 'default' }}
+        style={{
+          display: 'block',
+          width: '100%',
+          height: '100%',
+          cursor: interactive ? 'crosshair' : 'default',
+        }}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
@@ -230,19 +276,3 @@ export function SketchViewer({
     </div>
   );
 }
-
-const styles = {
-  wrapper: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#0d0d1a',
-    borderRadius: '6px',
-    overflow: 'hidden',
-    border: '1px solid #2a2a48',
-  } as React.CSSProperties,
-  canvas: {
-    display: 'block',
-    maxWidth: '100%',
-  } as React.CSSProperties,
-};
