@@ -66,6 +66,8 @@ export function SketchViewer({
     idx: number;
     pts: number[][];
   } | null>(null);
+  // Track current canvas buffer size independently of props
+  const sizeRef = useRef({ w: width, h: height });
 
   // ── draw ─────────────────────────────────────────────────────────────────
 
@@ -188,12 +190,30 @@ export function SketchViewer({
 
   useEffect(() => { draw(); }, [draw]);
 
-  // ── resize observer — redraw if container resizes ─────────────────────────
+  // ── resize observer — update canvas buffer size and redraw ───────────────
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ro = new ResizeObserver(() => draw());
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width: w, height: h } = entry.contentRect;
+        if (w > 0 && h > 0) {
+          canvas.width = Math.round(w);
+          canvas.height = Math.round(h);
+          sizeRef.current = { w: canvas.width, h: canvas.height };
+          draw();
+        }
+      }
+    });
     ro.observe(canvas);
+    // Set initial size from actual rendered dimensions
+    const { clientWidth, clientHeight } = canvas;
+    if (clientWidth > 0 && clientHeight > 0) {
+      canvas.width = clientWidth;
+      canvas.height = clientHeight;
+      sizeRef.current = { w: clientWidth, h: clientHeight };
+    }
+    draw();
     return () => ro.disconnect();
   }, [draw]);
 
@@ -260,8 +280,6 @@ export function SketchViewer({
     }}>
       <canvas
         ref={canvasRef}
-        width={width}
-        height={height}
         style={{
           display: 'block',
           width: '100%',
