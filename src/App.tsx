@@ -505,11 +505,10 @@ export function App() {
 
       if (type === 'point2d' || p.ui_hint?.widget === 'point2d') {
         const arr = Array.isArray(val) ? val as number[] : [0, 0];
-        const x = Number(arr[0]).toFixed(4).replace(/\.?0+$/, '');
-        const y = Number(arr[1]).toFixed(4).replace(/\.?0+$/, '');
-        newDefault = `point2d(${x}, ${y})`;
+        const fmt = (n: number) => Number(n).toFixed(6).replace(/\.?0+$/, '') || '0';
+        newDefault = `point2d(${fmt(arr[0])}, ${fmt(arr[1])})`;
       } else if (type === 'float') {
-        newDefault = Number(val).toFixed(4).replace(/\.?0+$/, '');
+        newDefault = Number(val).toFixed(6).replace(/\.?0+$/, '') || '0';
       } else if (type === 'int') {
         newDefault = String(Math.round(Number(val)));
       } else if (type === 'bool') {
@@ -518,16 +517,26 @@ export function App() {
         continue;
       }
 
-      // Replace the default expression for this param in the DSL source.
-      // Matches:  paramName: type @ui(...) = <old_default>
-      // or:       paramName: type = <old_default>
-      // The default ends at comma or closing paren of param list.
-      const paramPattern = new RegExp(
-        `(\\b${p.name}\\s*:[^=\\n]+?=\\s*)` +  // param name: type ... =
-        `([^,)\\n]+)`,                           // old default value
-        'g'
-      );
-      source = source.replace(paramPattern, `$1${newDefault}`);
+      // Strategy: find the param line by locating "  paramName:" then find
+      // the LAST "= <expr>" on that logical line (which may span to a comma
+      // or closing paren). We do a line-by-line rewrite to avoid regex
+      // confusion from @ui(...) annotations containing "=" and parens.
+      const lines = source.split('\n');
+      const paramLineRe = new RegExp(`^(\\s*${p.name}\\s*:)`);
+      for (let i = 0; i < lines.length; i++) {
+        if (!paramLineRe.test(lines[i])) continue;
+        // Find the last '=' on this line (after @ui annotation if present)
+        const eqIdx = lines[i].lastIndexOf('=');
+        if (eqIdx === -1) continue;
+        // Preserve everything up to and including '= ', then write new default.
+        // Keep any trailing comma.
+        const prefix = lines[i].slice(0, eqIdx + 1);
+        const suffix = lines[i].slice(eqIdx + 1).trimStart();
+        const trailingComma = suffix.trimEnd().endsWith(',') ? ',' : '';
+        lines[i] = `${prefix} ${newDefault}${trailingComma}`;
+        break;
+      }
+      source = lines.join('\n');
     }
 
     // Write back to the editor
