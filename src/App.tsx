@@ -488,8 +488,32 @@ export function App() {
 
   // ── Parameter panel eval trigger ───────────────────────────────────────────
   const handleParamEval = useCallback((command: string, parameters: Record<string, unknown>) => {
-    handleCommandEvaluate(command, parameters);
-  }, [handleCommandEvaluate]);
+    if (!activeTab) { handleCommandEvaluate(command, parameters); return; }
+
+    // Merge in shared param values from sibling commands for any params that
+    // are null/undefined in the current command's slot. This ensures that
+    // params synced via drag (batchUpdateParams) are always available even
+    // if the target command's own paramValues slot still has null defaults.
+    const cmdDef = activeTab.commands.find(c => c.name === command);
+    const merged: Record<string, unknown> = { ...parameters };
+
+    if (cmdDef) {
+      for (const p of cmdDef.params) {
+        if (merged[p.name] != null) continue; // already have a value
+        // Look for this param name in other commands' param stores
+        for (const sibling of activeTab.commands) {
+          if (sibling.name === command) continue;
+          const sibVal = activeTab.paramValues[sibling.name]?.[p.name];
+          if (sibVal != null) {
+            merged[p.name] = sibVal;
+            break;
+          }
+        }
+      }
+    }
+
+    handleCommandEvaluate(command, merged);
+  }, [activeTab, handleCommandEvaluate]);
 
   const handleEditorChatSplitChange = useCallback((split: number) => {
     setEditorChatSplit(split);
