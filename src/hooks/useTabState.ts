@@ -303,7 +303,17 @@ export function useTabState({ backendUrl }: UseTabStateOptions) {
     setTabs(prev => prev.map(t => {
       if (t.id !== tabId) return t;
       const paramValues = { ...t.paramValues };
+      // Update the target command
       paramValues[command] = { ...paramValues[command], [paramName]: value };
+      // Sync to any other command in this tab that has a param with the same name
+      // (enables shared control points across spline_profile / lathe_solid / etc.)
+      for (const cmd of t.commands) {
+        if (cmd.name === command) continue;
+        const hasParam = cmd.params.some(p => p.name === paramName);
+        if (hasParam) {
+          paramValues[cmd.name] = { ...paramValues[cmd.name], [paramName]: value };
+        }
+      }
       return { ...t, paramValues };
     }));
   }, []);
