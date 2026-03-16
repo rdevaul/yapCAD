@@ -27,11 +27,18 @@ const SAMPLES_PER_SEGMENT = 16;
 
 // ── Client-side Catmull-Rom sampler ──────────────────────────────────────────
 // Centripetal (alpha=0.5) parametrisation — matches yapCAD default.
+// Uses the Barry-Goldman algorithm with correct knot intervals.
+
+function lerp(a: number, b: number, t: number, t0: number, t1: number): number {
+  const d = t1 - t0;
+  if (Math.abs(d) < 1e-10) return a;
+  return a + (b - a) * (t - t0) / d;
+}
 
 function catmullRomSample(pts: number[][], alpha = 0.5, closed = false): [number, number][] {
   if (pts.length < 2) return pts.map(p => [p[0], p[1]]);
 
-  // Build extended point list: duplicate endpoints for tangents
+  // Duplicate endpoints so every original point is interior to a 4-point window
   const P: number[][] = closed
     ? [pts[pts.length - 1], ...pts, pts[0], pts[1]]
     : [pts[0], ...pts, pts[pts.length - 1]];
@@ -41,32 +48,39 @@ function catmullRomSample(pts: number[][], alpha = 0.5, closed = false): [number
   for (let seg = 0; seg < P.length - 3; seg++) {
     const p0 = P[seg], p1 = P[seg + 1], p2 = P[seg + 2], p3 = P[seg + 3];
 
-    // Centripetal knot spacing
-    const t01 = Math.pow(Math.hypot(p1[0] - p0[0], p1[1] - p0[1]), alpha);
-    const t12 = Math.pow(Math.hypot(p2[0] - p1[0], p2[1] - p1[1]), alpha);
-    const t23 = Math.pow(Math.hypot(p3[0] - p2[0], p3[1] - p2[1]), alpha);
-    const t0 = 0, t1 = t0 + t01, t2 = t1 + t12, t3 = t2 + t23;
+    // Centripetal knot intervals: dt = dist^alpha
+    const dt01 = Math.pow(Math.hypot(p1[0] - p0[0], p1[1] - p0[1]), alpha) || 1e-4;
+    const dt12 = Math.pow(Math.hypot(p2[0] - p1[0], p2[1] - p1[1]), alpha) || 1e-4;
+    const dt23 = Math.pow(Math.hypot(p3[0] - p2[0], p3[1] - p2[1]), alpha) || 1e-4;
+
+    // Knot values (accumulate from 0 at p0)
+    const t0 = 0;
+    const t1 = t0 + dt01;
+    const t2 = t1 + dt12;
+    const t3 = t2 + dt23;
 
     const n = SAMPLES_PER_SEGMENT;
-    for (let i = seg === 0 ? 0 : 1; i <= n; i++) {
+    // Parametric range for this segment is [t1, t2]
+    for (let i = (seg === 0 ? 0 : 1); i <= n; i++) {
       const t = t1 + (t2 - t1) * (i / n);
 
-      // Barry–Goldman algorithm
-      const A1x = t01 < 1e-10 ? p0[0] : (t1 - t) / t01 * p0[0] + (t - t0) / t01 * p1[0];
-      const A1y = t01 < 1e-10 ? p0[1] : (t1 - t) / t01 * p0[1] + (t - t0) / t01 * p1[1];
-      const A2x = t12 < 1e-10 ? p1[0] : (t2 - t) / t12 * p1[0] + (t - t1) / t12 * p2[0];
-      const A2y = t12 < 1e-10 ? p1[1] : (t2 - t) / t12 * p1[1] + (t - t1) / t12 * p2[1];
-      const A3x = t23 < 1e-10 ? p2[0] : (t3 - t) / t23 * p2[0] + (t - t2) / t23 * p3[0];
-      const A3y = t23 < 1e-10 ? p2[1] : (t3 - t) / t23 * p2[1] + (t - t2) / t23 * p3[1];
+      // Level 1: lerp adjacent pairs
+      const A1x = lerp(p0[0], p1[0], t, t0, t1);
+      const A1y = lerp(p0[1], p1[1], t, t0, t1);
+      const A2x = lerp(p1[0], p2[0], t, t1, t2);
+      const A2y = lerp(p1[1], p2[1], t, t1, t2);
+      const A3x = lerp(p2[0], p3[0], t, t2, t3);
+      const A3y = lerp(p2[1], p3[1], t, t2, t3);
 
-      const B1x = t12 < 1e-10 ? A1x : (t2 - t) / t12 * A1x + (t - t0) / t12 * A2x;
-      const B1y = t12 < 1e-10 ? A1y : (t2 - t) / t12 * A1y + (t - t0) / t12 * A2y;
-      const B2x = t23 < 1e-10 ? A2x : (t3 - t) / t23 * A2x + (t - t1) / t23 * A3x;
-      const B2y = t23 < 1e-10 ? A2y : (t3 - t) / t23 * A2y + (t - t1) / t23 * A3y;
+      // Level 2: lerp A values using outer intervals
+      const B1x = lerp(A1x, A2x, t, t0, t2);
+      const B1y = lerp(A1y, A2y, t, t0, t2);
+      const B2x = lerp(A2x, A3x, t, t1, t3);
+      const B2y = lerp(A2y, A3y, t, t1, t3);
 
-      const denom = t2 - t1;
-      const Cx = denom < 1e-10 ? B1x : (t2 - t) / denom * B1x + (t - t1) / denom * B2x;
-      const Cy = denom < 1e-10 ? B1y : (t2 - t) / denom * B1y + (t - t1) / denom * B2y;
+      // Level 3: final lerp over the segment interval
+      const Cx = lerp(B1x, B2x, t, t1, t2);
+      const Cy = lerp(B1y, B2y, t, t1, t2);
 
       result.push([Cx, Cy]);
     }
