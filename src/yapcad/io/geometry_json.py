@@ -108,6 +108,19 @@ def _serialize_surface(surface: list, metadata_override: Optional[Dict[str, Any]
 
 
 def _serialize_solid(solid: list, surface_cache: Dict[str, Dict[str, Any]], metadata_override: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    # If this is a BREP-only solid (empty tessellation), tessellate it now
+    # so the frontend has mesh data to render.
+    if not solid[1]:
+        try:
+            from yapcad.brep import brep_from_solid
+            brep = brep_from_solid(solid)
+            if brep is not None:
+                surface = brep.tessellate(deflection=0.3)
+                if surface and surface[0] == 'surface':
+                    solid[1] = [surface]
+        except Exception:
+            pass
+
     solid_id = ensure_solid_id(solid)
     metadata = get_solid_metadata(solid, create=True)
     if metadata_override:
