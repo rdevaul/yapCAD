@@ -65,7 +65,7 @@ function SketchViewerContainer({
   sketchEntities: SketchEntity[];
   activeTab: ReturnType<typeof useTabState>['activeTab'];
   updateParam: ReturnType<typeof useTabState>['updateParam'];
-  handleCommandEvaluate: (command: string, parameters: Record<string, unknown>) => Promise<void>;
+  handleCommandEvaluate: (command: string, parameters: Record<string, unknown>, opts?: { silent?: boolean }) => Promise<void>;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ width: 600, height: 400 });
@@ -85,7 +85,8 @@ function SketchViewerContainer({
     return () => ro.disconnect();
   }, []);
 
-  // Handle control point drag → map each point back to its point2d param by index
+  // Handle control point drag → map each point back to its point2d param by index,
+  // then re-eval the active command AND any sibling commands that share the same params.
   const handleControlPointsChanged = useCallback((newPoints: number[][]) => {
     if (!activeTab) return;
     const cmd = activeTab.selectedCommand;
@@ -106,14 +107,35 @@ function SketchViewerContainer({
     newPoints.forEach((pt, i) => {
       if (i < point2dParams.length) {
         const paramName = point2dParams[i].name;
-        // Store as [x, y, 0, 1] homogeneous — matches yapCAD point format
         const homogeneous = [pt[0], pt[1], pt[2] ?? 0, pt[3] ?? 1];
         updatedParams[paramName] = homogeneous;
         updateParam(activeTab.id, cmd, paramName, homogeneous);
       }
     });
 
+    // Re-eval the active command (updates 2D sketch view)
     handleCommandEvaluate(cmd, updatedParams);
+
+    // Also re-eval any sibling commands that share these param names
+    // (e.g. lathe_solid shares p0..p4 with spline_profile → update 3D view)
+    const sharedParamNames = new Set(point2dParams.map(p => p.name));
+    for (const sibling of activeTab.commands) {
+      if (sibling.name === cmd) continue;
+      const siblingSharesParams = sibling.params.some(p => sharedParamNames.has(p.name));
+      if (siblingSharesParams) {
+        const siblingParams: Record<string, unknown> = { ...(activeTab.paramValues[sibling.name] ?? {}) };
+        // Inject updated point values
+        newPoints.forEach((pt, i) => {
+          if (i < point2dParams.length) {
+            const paramName = point2dParams[i].name;
+            if (sibling.params.some(p => p.name === paramName)) {
+              siblingParams[paramName] = [pt[0], pt[1], pt[2] ?? 0, pt[3] ?? 1];
+            }
+          }
+        });
+        handleCommandEvaluate(sibling.name, siblingParams, { silent: true });
+      }
+    }
   }, [activeTab, updateParam, handleCommandEvaluate]);
 
   // Render the first sketch entity (multi-sketch support can come later)
@@ -358,9 +380,10 @@ export function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [backendUrl, viewMode]);
 
-  const handleCommandEvaluate = useCallback(async (command: string, parameters: Record<string, unknown>) => {
-    setIsEvaluating(true);
-    setEvaluationError(null);
+  const handleCommandEvaluate = useCallback(async (command: string, parameters: Record<string, unknown>, opts?: { silent?: boolean }) => {
+    const silent = opts?.silent ?? false;
+    if (!silent) setIsEvaluating(true);
+    if (!silent) setEvaluationError(null);
     
     try {
       // Use WebSocket eval (with REST fallback)
@@ -431,27 +454,28 @@ export function App() {
         primitives: s.primitives,
         metadata: s.metadata,
       }));
-      setSketchEntities(newSketches);
-
-      // Auto-switch pane: if only sketches (no 3D geometry), show 2D; if only 3D, show 3D
-      if (newSketches.length > 0 && entities.length === 0) {
-        setViewerPane('2d');
-      } else if (entities.length > 0 && newSketches.length === 0) {
-        setViewerPane('3d');
+      if (!silent) {
+        setSketchEntities(newSketches);
+        // Auto-switch pane: if only sketches (no 3D geometry), show 2D; if only 3D, show 3D
+        if (newSketches.length > 0 && entities.length === 0) {
+          setViewerPane('2d');
+        } else if (entities.length > 0 && newSketches.length === 0) {
+          setViewerPane('3d');
+        }
+        setSelectedPackage(null);
+        setIsConnected(true);
       }
-      // If both exist, keep current pane
-
-      setSelectedPackage(null);
-      setIsConnected(true);
       
     } catch (error) {
       if (error instanceof Error && error.message === 'Cancelled') return;
-      console.error('DSL evaluation failed:', error);
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      setEvaluationError(errorMessage);
-      setIsConnected(false);
+      if (!silent) {
+        console.error('DSL evaluation failed:', error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        setEvaluationError(errorMessage);
+        setIsConnected(false);
+      }
     } finally {
-      setIsEvaluating(false);
+      if (!silent) setIsEvaluating(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [backendUrl, dslSource, applyToActiveViewers, wsEval]);
