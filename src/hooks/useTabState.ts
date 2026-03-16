@@ -24,6 +24,8 @@ export interface CommandParam {
     max?: number;
     step?: number;
     kind?: string;
+    widget?: string;
+    label?: string;
   };
 }
 

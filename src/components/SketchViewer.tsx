@@ -12,6 +12,8 @@ export type SketchEntity = LoadedSketch;
 
 interface SketchViewerProps {
   sketch: SketchEntity;
+  /** Optional override for control point positions (from live param values) */
+  controlPoints?: number[][];
   width?: number;
   height?: number;
   interactive?: boolean;
@@ -55,6 +57,7 @@ function makeTransform(bbox: number[] | undefined, w: number, h: number) {
 
 export function SketchViewer({
   sketch,
+  controlPoints,
   width = 600,
   height = 360,
   interactive = false,
@@ -133,8 +136,8 @@ export function SketchViewer({
     // ── control points ────────────────────────────────────────────────────
     for (const prim of sketch.primitives ?? []) {
       if (!['catmullrom', 'nurbs', 'bezier'].includes(prim.kind)) continue;
-      // Use override if dragging, else primitive points (homogeneous 4D [x,y,z,w])
-      const rawPts = ctrlOverride ?? (prim.points as number[][]);
+      // Priority: drag override > external controlPoints prop > eval primitives
+      const rawPts = ctrlOverride ?? controlPoints ?? (prim.points as number[][]);
       if (!rawPts?.length) continue;
 
       // Dashed hull line
@@ -220,6 +223,10 @@ export function SketchViewer({
   // ── interaction ───────────────────────────────────────────────────────────
 
   const getCtrlPts = (): number[][] | null => {
+    // Prefer externally provided control points (from live param values)
+    if (controlPoints && controlPoints.length > 0) {
+      return controlPoints.map(p => [...p]);
+    }
     for (const prim of sketch.primitives ?? []) {
       if (['catmullrom', 'nurbs', 'bezier'].includes(prim.kind) && prim.points?.length) {
         return (prim.points as number[][]).map(p => [...p]);

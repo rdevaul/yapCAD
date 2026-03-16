@@ -85,34 +85,59 @@ function SketchViewerContainer({
     return () => ro.disconnect();
   }, []);
 
-  // Handle control point drag → update param panel + re-eval
+  // Handle control point drag → map each point back to its point2d param by index
   const handleControlPointsChanged = useCallback((newPoints: number[][]) => {
     if (!activeTab) return;
     const cmd = activeTab.selectedCommand;
     if (!cmd) return;
 
-    // Look for a parameter that looks like control points (list[point])
     const cmdDef = activeTab.commands.find(c => c.name === cmd);
     if (!cmdDef) return;
 
-    const cpParam = cmdDef.params.find(
-      p => p.name === 'control_points' || p.name === 'points' || p.name === 'pts'
+    // Find all point2d params in declaration order
+    const point2dParams = cmdDef.params.filter(
+      p => p.type === 'point2d' || p.ui_hint?.widget === 'point2d'
     );
-    if (cpParam) {
-      // Format as string representation of list of points for the DSL param
-      const serialized = JSON.stringify(newPoints);
-      updateParam(activeTab.id, cmd, cpParam.name, serialized);
-    }
 
-    // Re-evaluate with updated points
-    const params = { ...(activeTab.paramValues[cmd] ?? {}) };
-    // Also inject the new points directly
-    params['control_points'] = newPoints;
-    handleCommandEvaluate(cmd, params);
+    if (point2dParams.length === 0) return;
+
+    // Map each dragged control point back to its DSL param by index
+    const updatedParams: Record<string, unknown> = { ...(activeTab.paramValues[cmd] ?? {}) };
+    newPoints.forEach((pt, i) => {
+      if (i < point2dParams.length) {
+        const paramName = point2dParams[i].name;
+        // Store as [x, y, 0, 1] homogeneous — matches yapCAD point format
+        const homogeneous = [pt[0], pt[1], pt[2] ?? 0, pt[3] ?? 1];
+        updatedParams[paramName] = homogeneous;
+        updateParam(activeTab.id, cmd, paramName, homogeneous);
+      }
+    });
+
+    handleCommandEvaluate(cmd, updatedParams);
   }, [activeTab, updateParam, handleCommandEvaluate]);
 
   // Render the first sketch entity (multi-sketch support can come later)
   const entity = sketchEntities[0];
+
+  // Extract current point2d param values to pass as control point overrides
+  const liveControlPoints = (() => {
+    if (!activeTab) return undefined;
+    const cmd = activeTab.selectedCommand;
+    if (!cmd) return undefined;
+    const cmdDef = activeTab.commands.find(c => c.name === cmd);
+    if (!cmdDef) return undefined;
+    const point2dParams = cmdDef.params.filter(
+      p => p.type === 'point2d' || (p.ui_hint as Record<string, unknown>)?.widget === 'point2d'
+    );
+    if (point2dParams.length === 0) return undefined;
+    const paramVals = activeTab.paramValues[cmd] ?? {};
+    return point2dParams.map(p => {
+      const v = paramVals[p.name];
+      if (Array.isArray(v)) return v as number[];
+      // Fall back to default from eval primitives
+      return null;
+    }).filter(Boolean) as number[][];
+  })();
 
   return (
     <div
@@ -122,6 +147,7 @@ function SketchViewerContainer({
       {entity && (
         <SketchViewer
           sketch={entity}
+          controlPoints={liveControlPoints && liveControlPoints.length > 0 ? liveControlPoints : undefined}
           width={size.width}
           height={size.height}
           interactive={true}

@@ -101,6 +101,42 @@ function ParamWidget({
 }) {
   const type = param.type.toLowerCase();
 
+  // point2d → (x, y) coordinate pair inputs
+  if (type === 'point2d' || param.ui_hint?.widget === 'point2d') {
+    // Value is [x, y, z, w] homogeneous or [x, y] — normalise to [x, y]
+    const arr = Array.isArray(value) ? value as number[] :
+                Array.isArray(param.default) ? param.default as number[] : [0, 0];
+    const px = Number(arr[0] ?? 0);
+    const py = Number(arr[1] ?? 0);
+    const label = (param.ui_hint as Record<string, unknown>)?.label as string ?? param.name;
+
+    return (
+      <div style={{ ...styles.paramRow, alignItems: 'flex-start', flexDirection: 'column', gap: '4px' }}>
+        <label style={{ ...styles.paramLabel, color: '#ff8c00', fontWeight: 600 }}>
+          {label}
+        </label>
+        <div style={{ display: 'flex', gap: '6px', paddingLeft: '8px' }}>
+          <label style={{ ...styles.paramLabel, color: '#888', fontSize: '10px', width: 'auto' }}>x</label>
+          <input
+            type="number"
+            value={px}
+            step={0.5}
+            onChange={e => onChange([parseFloat(e.target.value) || 0, py, 0, 1])}
+            style={{ ...styles.numberInput, width: '60px' }}
+          />
+          <label style={{ ...styles.paramLabel, color: '#888', fontSize: '10px', width: 'auto' }}>y</label>
+          <input
+            type="number"
+            value={py}
+            step={0.5}
+            onChange={e => onChange([px, parseFloat(e.target.value) || 0, 0, 1])}
+            style={{ ...styles.numberInput, width: '60px' }}
+          />
+        </div>
+      </div>
+    );
+  }
+
   // Bool → checkbox
   if (type === 'bool') {
     return (
