@@ -68,6 +68,22 @@ const styles = {
     fontSize: '12px',
     fontFamily: 'monospace',
     whiteSpace: 'pre-wrap' as const,
+    maxHeight: '120px',
+    overflowY: 'auto' as const,
+    position: 'relative' as const,
+  },
+  errorDismiss: {
+    position: 'absolute' as const,
+    top: '6px',
+    right: '8px',
+    background: 'none',
+    border: 'none',
+    color: '#ff6666',
+    cursor: 'pointer',
+    fontSize: '14px',
+    lineHeight: 1,
+    padding: '0 2px',
+    opacity: 0.7,
   },
 };
 
@@ -100,6 +116,7 @@ const DSL_LANGUAGE_CONFIG = {
 export function DSLEditor({ onEvaluate, onSourceChange, externalSource, onExternalSourceConsumed, isEvaluating, evaluationError, initialSource }: DSLEditorProps) {
   const [source, setSource] = useState<string>('');
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [dismissedError, setDismissedError] = useState<string | null>(null);
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -334,9 +351,15 @@ command myBox() -> solid:
         />
       </div>
       
-      {evaluationError && (
+      {evaluationError && evaluationError !== dismissedError && (
         <div style={styles.errorPanel}>
-          <strong>Evaluation Error:</strong>
+          <button
+            style={styles.errorDismiss}
+            onClick={() => setDismissedError(evaluationError)}
+            title="Dismiss"
+            aria-label="Dismiss error"
+          >✕</button>
+          <strong>Evaluation Error:</strong>{' '}
           {evaluationError}
         </div>
       )}

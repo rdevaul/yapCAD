@@ -107,6 +107,20 @@ export interface LoadedSolid {
   boundingBox?: THREE.Box3;
 }
 
+export interface LoadedSketch {
+  id: string;
+  type: 'sketch';
+  name?: string | null;
+  boundingBox?: number[];
+  polylines: number[][][];
+  primitives?: Array<{
+    kind: string;
+    points: number[][];
+    params: Record<string, unknown>;
+  }>;
+  metadata?: Record<string, unknown>;
+}
+
 export interface LoaderResult {
   /** Original document preserved for round-trip */
   document: YapCADDocument;
@@ -114,6 +128,8 @@ export interface LoaderResult {
   solids: LoadedSolid[];
   /** Standalone surfaces not part of a solid */
   surfaces: LoadedSurface[];
+  /** Sketch entities (2D curves, splines) */
+  sketches: LoadedSketch[];
   /** Computed bounding box of all geometry */
   boundingBox: THREE.Box3;
   /** Unique layers found in the document */
@@ -164,9 +180,12 @@ export function loadYapCADGeometry(json: YapCADDocument | string): LoaderResult 
   }
   
   // Find standalone surfaces (not part of any solid)
+  const sketchEntities: YapCADEntity[] = [];
   for (const entity of doc.entities) {
     if (entity.type === 'surface' && !surfacesInSolids.has(entity.id)) {
       standaloneSurfaces.push(entity);
+    } else if (entity.type === 'sketch') {
+      sketchEntities.push(entity);
     }
   }
   
@@ -255,10 +274,26 @@ export function loadYapCADGeometry(json: YapCADDocument | string): LoaderResult 
     }
   }
   
+  // Process sketch entities
+  const loadedSketches: LoadedSketch[] = [];
+  for (const entity of sketchEntities) {
+    const raw = entity as unknown as Record<string, unknown>;
+    loadedSketches.push({
+      id: entity.id,
+      type: 'sketch',
+      name: entity.name,
+      boundingBox: entity.boundingBox ?? undefined,
+      polylines: (raw.polylines as number[][][]) ?? [],
+      primitives: (raw.primitives as LoadedSketch['primitives']) ?? [],
+      metadata: entity.metadata as unknown as Record<string, unknown>,
+    });
+  }
+
   return {
     document: doc,
     solids: loadedSolids,
     surfaces: loadedStandaloneSurfaces,
+    sketches: loadedSketches,
     boundingBox: overallBox,
     layers,
     materialIds,

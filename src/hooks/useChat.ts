@@ -11,7 +11,7 @@
  *      Used when sessionKey is empty/null.
  */
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 
 export interface ChatMessage {
   id: string;
@@ -123,10 +123,30 @@ export function useChat({
   agentId = DEFAULT_AGENT_ID,
   sessionKey = DEFAULT_SESSION_KEY,
 }: UseChatOptions): UseChatReturn {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // Persist display messages across page reloads, keyed on session
+  const storageKey = `yapcad-chat-history:${sessionKey || 'stateless'}`;
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+    try {
+      const saved = localStorage.getItem(storageKey);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+
+  // Keep localStorage in sync whenever messages change
+  useEffect(() => {
+    try {
+      // Keep only the last 200 messages to avoid unbounded growth
+      const toStore = messages.slice(-200);
+      localStorage.setItem(storageKey, JSON.stringify(toStore));
+    } catch {
+      // localStorage full or unavailable — silently ignore
+    }
+  }, [messages, storageKey]);
 
   const useAgentSession = !!(agentId && sessionKey);
 
@@ -297,7 +317,8 @@ export function useChat({
   const clear = useCallback(() => {
     setMessages([]);
     setError(null);
-  }, []);
+    try { localStorage.removeItem(storageKey); } catch { /* ignore */ }
+  }, [storageKey]);
 
   return { messages, isStreaming, error, send, cancel, clear };
 }

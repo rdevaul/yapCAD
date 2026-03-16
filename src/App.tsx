@@ -16,11 +16,12 @@ import { ParameterPanel } from './components/ParameterPanel';
 import { ChatPanel } from './components/ChatPanel';
 import { SessionBar } from './components/SessionBar';
 import { FileBar } from './components/FileBar';
+import { SketchViewer, type SketchEntity } from './components/SketchViewer';
 import { useTabState } from './hooks/useTabState';
 import { useWsEval, type EvalResult } from './hooks/useWsEval';
 import { ResizableSplit } from './components/ResizableSplit';
 import { YapCADViewer, type GeometryEntity, type Measurement, type BoundingBoxInfo, type MeasureUnit } from './viewer';
-import { loadYapCADGeometry } from './yapcad-loader';
+import { loadYapCADGeometry, type LoadedSketch } from './yapcad-loader';
 import type { PackageEntry } from './types/package';
 
 // Helper function to set up different view angles
@@ -50,6 +51,86 @@ const setupViewCamera = (viewer: YapCADViewer, viewType: string) => {
   
   (camera as THREE.PerspectiveCamera | THREE.OrthographicCamera).updateProjectionMatrix();
 };
+
+/**
+ * Wrapper that measures its container and renders SketchViewer at the right size.
+ * Also handles interactive control-point editing → parameter update → re-eval.
+ */
+function SketchViewerContainer({
+  sketchEntities,
+  activeTab,
+  updateParam,
+  handleCommandEvaluate,
+}: {
+  sketchEntities: SketchEntity[];
+  activeTab: ReturnType<typeof useTabState>['activeTab'];
+  updateParam: ReturnType<typeof useTabState>['updateParam'];
+  handleCommandEvaluate: (command: string, parameters: Record<string, unknown>) => Promise<void>;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState({ width: 600, height: 400 });
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        if (width > 0 && height > 0) setSize({ width, height });
+      }
+    });
+    ro.observe(containerRef.current);
+    // Initial read
+    const { clientWidth, clientHeight } = containerRef.current;
+    if (clientWidth > 0 && clientHeight > 0) setSize({ width: clientWidth, height: clientHeight });
+    return () => ro.disconnect();
+  }, []);
+
+  // Handle control point drag → update param panel + re-eval
+  const handleControlPointsChanged = useCallback((newPoints: number[][]) => {
+    if (!activeTab) return;
+    const cmd = activeTab.selectedCommand;
+    if (!cmd) return;
+
+    // Look for a parameter that looks like control points (list[point])
+    const cmdDef = activeTab.commands.find(c => c.name === cmd);
+    if (!cmdDef) return;
+
+    const cpParam = cmdDef.params.find(
+      p => p.name === 'control_points' || p.name === 'points' || p.name === 'pts'
+    );
+    if (cpParam) {
+      // Format as string representation of list of points for the DSL param
+      const serialized = JSON.stringify(newPoints);
+      updateParam(activeTab.id, cmd, cpParam.name, serialized);
+    }
+
+    // Re-evaluate with updated points
+    const params = { ...(activeTab.paramValues[cmd] ?? {}) };
+    // Also inject the new points directly
+    params['control_points'] = newPoints;
+    handleCommandEvaluate(cmd, params);
+  }, [activeTab, updateParam, handleCommandEvaluate]);
+
+  // Render the first sketch entity (multi-sketch support can come later)
+  const entity = sketchEntities[0];
+
+  return (
+    <div
+      ref={containerRef}
+      style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}
+    >
+      {entity && (
+        <SketchViewer
+          sketch={entity}
+          width={size.width}
+          height={size.height}
+          interactive={true}
+          onControlPointsChanged={handleControlPointsChanged}
+        />
+      )}
+    </div>
+  );
+}
 
 export function App() {
   const [selectedPackage, setSelectedPackage] = useState<PackageEntry | null>(null);
@@ -84,6 +165,10 @@ export function App() {
   const [measurements, setMeasurements] = useState<Measurement[]>([]);
   const [bboxInfo, setBboxInfo] = useState<BoundingBoxInfo | null>(null);
   
+  // Sketch / 2D view state
+  const [sketchEntities, setSketchEntities] = useState<SketchEntity[]>([]);
+  const [viewerPane, setViewerPane] = useState<'3d' | '2d'>('3d');
+
   // DSL Editor state
   const [backendUrl, setBackendUrl] = useState(() => {
     const saved = localStorage.getItem('yapcad-backend-url');
@@ -309,6 +394,27 @@ export function App() {
       }
 
       applyToActiveViewers(entities);
+
+      // Collect sketch entities for the 2D viewer
+      const newSketches: SketchEntity[] = result.sketches.map((s: LoadedSketch) => ({
+        id: s.id,
+        type: 'sketch' as const,
+        name: s.name,
+        boundingBox: s.boundingBox,
+        polylines: s.polylines,
+        primitives: s.primitives,
+        metadata: s.metadata,
+      }));
+      setSketchEntities(newSketches);
+
+      // Auto-switch pane: if only sketches (no 3D geometry), show 2D; if only 3D, show 3D
+      if (newSketches.length > 0 && entities.length === 0) {
+        setViewerPane('2d');
+      } else if (entities.length > 0 && newSketches.length === 0) {
+        setViewerPane('3d');
+      }
+      // If both exist, keep current pane
+
       setSelectedPackage(null);
       setIsConnected(true);
       
@@ -847,6 +953,26 @@ export function App() {
             {viewMode === 'single' ? '4-Up' : 'Single'} View
           </button>
 
+          {/* 2D / 3D toggle — only show when sketch entities are available */}
+          {sketchEntities.length > 0 && (
+            <button
+              style={{
+                padding: '6px 12px',
+                fontSize: '13px',
+                backgroundColor: viewerPane === '2d' ? '#8b5cf6' : '#333',
+                color: '#eee',
+                border: viewerPane === '2d' ? '1px solid #a78bfa' : 'none',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontWeight: viewerPane === '2d' ? 600 : 400,
+              }}
+              onClick={() => setViewerPane(viewerPane === '2d' ? '3d' : '2d')}
+              title={viewerPane === '2d' ? 'Switch to 3D viewer' : 'Switch to 2D sketch viewer'}
+            >
+              {viewerPane === '2d' ? '✏️ 2D' : '📐 2D'}
+            </button>
+          )}
+
           <button
             title={measureMode ? 'Exit Measure mode (click 2 points to measure distance)' : 'Enter Measure mode (click 2 points to measure distance)'}
             style={{
@@ -874,17 +1000,18 @@ export function App() {
           />
         </div>
         
-        {/* 3D Viewer — wrapper keeps React overlays out of the imperative viewer container */}
+        {/* Viewer area — 3D or 2D depending on pane selection */}
         <div style={{ flex: 1, minWidth: 0, minHeight: 0, position: 'relative', overflow: 'hidden' }}>
 
-          {/* Imperative viewer container — NO React children, only Three.js canvases */}
+          {/* 3D Imperative viewer container — hidden when 2D pane is active */}
           <div 
             ref={viewerContainerRef}
             style={{
               position: 'absolute',
               inset: 0,
               overflow: 'hidden',
-              ...(viewMode === '4-up' ? {
+              display: viewerPane === '2d' ? 'none' : undefined,
+              ...(viewMode === '4-up' && viewerPane !== '2d' ? {
                 display: 'grid',
                 gridTemplateColumns: '1fr 1fr',
                 gridTemplateRows: '1fr 1fr',
@@ -893,8 +1020,18 @@ export function App() {
             }}
           />
 
+          {/* 2D Sketch Viewer — shown when 2D pane is active and sketches exist */}
+          {viewerPane === '2d' && sketchEntities.length > 0 && (
+            <SketchViewerContainer
+              sketchEntities={sketchEntities}
+              activeTab={activeTab}
+              updateParam={updateParam}
+              handleCommandEvaluate={handleCommandEvaluate}
+            />
+          )}
+
           {/* React-managed overlays — absolutely positioned, never interfere with viewer grid */}
-          {!selectedPackage && !isEvaluating && (
+          {viewerPane === '3d' && !selectedPackage && !isEvaluating && sketchEntities.length === 0 && (
             <div style={{
               position: 'absolute',
               inset: 0,
