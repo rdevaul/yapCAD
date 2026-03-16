@@ -23,6 +23,57 @@ interface SketchViewerProps {
 const PAD = 40;
 const CTRL_RADIUS = 7;
 const HIT_RADIUS = 12;
+const SAMPLES_PER_SEGMENT = 16;
+
+// ── Client-side Catmull-Rom sampler ──────────────────────────────────────────
+// Centripetal (alpha=0.5) parametrisation — matches yapCAD default.
+
+function catmullRomSample(pts: number[][], alpha = 0.5, closed = false): [number, number][] {
+  if (pts.length < 2) return pts.map(p => [p[0], p[1]]);
+
+  // Build extended point list: duplicate endpoints for tangents
+  const P: number[][] = closed
+    ? [pts[pts.length - 1], ...pts, pts[0], pts[1]]
+    : [pts[0], ...pts, pts[pts.length - 1]];
+
+  const result: [number, number][] = [];
+
+  for (let seg = 0; seg < P.length - 3; seg++) {
+    const p0 = P[seg], p1 = P[seg + 1], p2 = P[seg + 2], p3 = P[seg + 3];
+
+    // Centripetal knot spacing
+    const t01 = Math.pow(Math.hypot(p1[0] - p0[0], p1[1] - p0[1]), alpha);
+    const t12 = Math.pow(Math.hypot(p2[0] - p1[0], p2[1] - p1[1]), alpha);
+    const t23 = Math.pow(Math.hypot(p3[0] - p2[0], p3[1] - p2[1]), alpha);
+    const t0 = 0, t1 = t0 + t01, t2 = t1 + t12, t3 = t2 + t23;
+
+    const n = SAMPLES_PER_SEGMENT;
+    for (let i = seg === 0 ? 0 : 1; i <= n; i++) {
+      const t = t1 + (t2 - t1) * (i / n);
+
+      // Barry–Goldman algorithm
+      const A1x = t01 < 1e-10 ? p0[0] : (t1 - t) / t01 * p0[0] + (t - t0) / t01 * p1[0];
+      const A1y = t01 < 1e-10 ? p0[1] : (t1 - t) / t01 * p0[1] + (t - t0) / t01 * p1[1];
+      const A2x = t12 < 1e-10 ? p1[0] : (t2 - t) / t12 * p1[0] + (t - t1) / t12 * p2[0];
+      const A2y = t12 < 1e-10 ? p1[1] : (t2 - t) / t12 * p1[1] + (t - t1) / t12 * p2[1];
+      const A3x = t23 < 1e-10 ? p2[0] : (t3 - t) / t23 * p2[0] + (t - t2) / t23 * p3[0];
+      const A3y = t23 < 1e-10 ? p2[1] : (t3 - t) / t23 * p2[1] + (t - t2) / t23 * p3[1];
+
+      const B1x = t12 < 1e-10 ? A1x : (t2 - t) / t12 * A1x + (t - t0) / t12 * A2x;
+      const B1y = t12 < 1e-10 ? A1y : (t2 - t) / t12 * A1y + (t - t0) / t12 * A2y;
+      const B2x = t23 < 1e-10 ? A2x : (t3 - t) / t23 * A2x + (t - t1) / t23 * A3x;
+      const B2y = t23 < 1e-10 ? A2y : (t3 - t) / t23 * A2y + (t - t1) / t23 * A3y;
+
+      const denom = t2 - t1;
+      const Cx = denom < 1e-10 ? B1x : (t2 - t) / denom * B1x + (t - t1) / denom * B2x;
+      const Cy = denom < 1e-10 ? B1y : (t2 - t) / denom * B1y + (t - t1) / denom * B2y;
+
+      result.push([Cx, Cy]);
+    }
+  }
+
+  return result;
+}
 
 // ── coordinate transform ────────────────────────────────────────────────────
 
@@ -117,7 +168,15 @@ export function SketchViewer({
     void ax0; void ax1;
 
     // ── polylines (sampled curve) ──────────────────────────────────────────
-    for (const polyline of sketch.polylines) {
+    // If we have live control points, re-sample client-side so the curve
+    // updates immediately during drag and after param edits (before re-eval).
+    const activePts = ctrlOverride ?? controlPoints;
+    const polylinesToDraw: [number, number][][] =
+      activePts && activePts.length >= 2
+        ? [catmullRomSample(activePts)]
+        : sketch.polylines.map(pl => pl.map(p => [p[0], p[1]] as [number, number]));
+
+    for (const polyline of polylinesToDraw) {
       if (polyline.length < 2) continue;
       ctx.beginPath();
       ctx.strokeStyle = '#00d4ff';
