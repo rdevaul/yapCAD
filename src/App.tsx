@@ -59,12 +59,14 @@ const setupViewCamera = (viewer: YapCADViewer, viewType: string) => {
 function SketchViewerContainer({
   sketchEntities,
   activeTab,
-  updateParam,
+  updateParam: _updateParam,
+  batchUpdateParams,
   handleCommandEvaluate,
 }: {
   sketchEntities: SketchEntity[];
   activeTab: ReturnType<typeof useTabState>['activeTab'];
   updateParam: ReturnType<typeof useTabState>['updateParam'];
+  batchUpdateParams: ReturnType<typeof useTabState>['batchUpdateParams'];
   handleCommandEvaluate: (command: string, parameters: Record<string, unknown>, opts?: { silent?: boolean }) => Promise<void>;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -102,41 +104,26 @@ function SketchViewerContainer({
 
     if (point2dParams.length === 0) return;
 
-    // Map each dragged control point back to its DSL param by index
+    // Build all point updates at once and write atomically via batchUpdateParams.
+    // This avoids React stale-closure batching where N separate updateParam calls
+    // each read the previous snapshot, causing later writes to overwrite sync state.
+    const pointUpdates: Record<string, unknown> = {};
     const updatedParams: Record<string, unknown> = { ...(activeTab.paramValues[cmd] ?? {}) };
     newPoints.forEach((pt, i) => {
       if (i < point2dParams.length) {
         const paramName = point2dParams[i].name;
         const homogeneous = [pt[0], pt[1], pt[2] ?? 0, pt[3] ?? 1];
+        pointUpdates[paramName] = homogeneous;
         updatedParams[paramName] = homogeneous;
-        updateParam(activeTab.id, cmd, paramName, homogeneous);
       }
     });
+    // Single batched write — syncs atomically to all sibling commands
+    batchUpdateParams(activeTab.id, cmd, pointUpdates);
 
-    // Re-eval the active command (updates 2D sketch view)
+    // Lazy eval: only re-eval the active command (updates 2D view).
+    // Sibling commands pull current params when explicitly evaluated.
     handleCommandEvaluate(cmd, updatedParams);
-
-    // Also re-eval any sibling commands that share these param names
-    // (e.g. lathe_solid shares p0..p4 with spline_profile → update 3D view)
-    const sharedParamNames = new Set(point2dParams.map(p => p.name));
-    for (const sibling of activeTab.commands) {
-      if (sibling.name === cmd) continue;
-      const siblingSharesParams = sibling.params.some(p => sharedParamNames.has(p.name));
-      if (siblingSharesParams) {
-        const siblingParams: Record<string, unknown> = { ...(activeTab.paramValues[sibling.name] ?? {}) };
-        // Inject updated point values
-        newPoints.forEach((pt, i) => {
-          if (i < point2dParams.length) {
-            const paramName = point2dParams[i].name;
-            if (sibling.params.some(p => p.name === paramName)) {
-              siblingParams[paramName] = [pt[0], pt[1], pt[2] ?? 0, pt[3] ?? 1];
-            }
-          }
-        });
-        handleCommandEvaluate(sibling.name, siblingParams, { silent: true });
-      }
-    }
-  }, [activeTab, updateParam, handleCommandEvaluate]);
+  }, [activeTab, batchUpdateParams, handleCommandEvaluate]);
 
   // Render the first sketch entity (multi-sketch support can come later)
   const entity = sketchEntities[0];
@@ -234,7 +221,7 @@ export function App() {
   const {
     tabs, activeTab, activeTabId,
     addTab, closeTab, switchTab, renameTab,
-    updateSource, parseCommands, selectCommand, updateParam,
+    updateSource, parseCommands, selectCommand, updateParam, batchUpdateParams,
     loadExternalSource,
   } = useTabState({ backendUrl });
 
@@ -1076,6 +1063,7 @@ export function App() {
               sketchEntities={sketchEntities}
               activeTab={activeTab}
               updateParam={updateParam}
+              batchUpdateParams={batchUpdateParams}
               handleCommandEvaluate={handleCommandEvaluate}
             />
           )}

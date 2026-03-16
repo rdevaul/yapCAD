@@ -303,15 +303,33 @@ export function useTabState({ backendUrl }: UseTabStateOptions) {
     setTabs(prev => prev.map(t => {
       if (t.id !== tabId) return t;
       const paramValues = { ...t.paramValues };
-      // Update the target command
       paramValues[command] = { ...paramValues[command], [paramName]: value };
-      // Sync to any other command in this tab that has a param with the same name
-      // (enables shared control points across spline_profile / lathe_solid / etc.)
       for (const cmd of t.commands) {
         if (cmd.name === command) continue;
-        const hasParam = cmd.params.some(p => p.name === paramName);
-        if (hasParam) {
+        if (cmd.params.some(p => p.name === paramName)) {
           paramValues[cmd.name] = { ...paramValues[cmd.name], [paramName]: value };
+        }
+      }
+      return { ...t, paramValues };
+    }));
+  }, []);
+
+  // Batch-update multiple params in one setState call — use this when updating
+  // several params at once (e.g. all control points from a drag) to avoid
+  // React batching issues where each call reads stale state.
+  const batchUpdateParams = useCallback((tabId: string, command: string, updates: Record<string, unknown>) => {
+    setTabs(prev => prev.map(t => {
+      if (t.id !== tabId) return t;
+      const paramValues = { ...t.paramValues };
+      // Apply all updates to the target command at once
+      paramValues[command] = { ...paramValues[command], ...updates };
+      // Sync each updated param to sibling commands
+      for (const [paramName, value] of Object.entries(updates)) {
+        for (const cmd of t.commands) {
+          if (cmd.name === command) continue;
+          if (cmd.params.some(p => p.name === paramName)) {
+            paramValues[cmd.name] = { ...paramValues[cmd.name], [paramName]: value };
+          }
         }
       }
       return { ...t, paramValues };
@@ -339,6 +357,7 @@ export function useTabState({ backendUrl }: UseTabStateOptions) {
     parseCommands,
     selectCommand,
     updateParam,
+    batchUpdateParams,
     loadExternalSource,
   };
 }
