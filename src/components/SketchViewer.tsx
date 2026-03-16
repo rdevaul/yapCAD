@@ -136,6 +136,8 @@ export function SketchViewer({
   } | null>(null);
   // Track current canvas buffer size independently of props
   const sizeRef = useRef({ w: width, h: height });
+  // Live bbox used by both draw() and hit-test — kept in sync so both use same transform
+  const bboxRef = useRef<number[] | undefined>(undefined);
 
   // ── draw ─────────────────────────────────────────────────────────────────
 
@@ -150,27 +152,26 @@ export function SketchViewer({
 
     if (w === 0 || h === 0) return;
 
-    // When live control points are active, compute bbox from them so the
-    // canvas auto-scales to fit — avoids clipping when points move outside
-    // the stored bbox from the last eval.
+    // Compute live bbox from current control points (includes spline overshoot)
+    // and store in bboxRef so hit-test uses the same transform.
     const activePtsForBbox = ctrlOverride ?? controlPoints;
-    let liveBbox = sketch.boundingBox;
     if (activePtsForBbox && activePtsForBbox.length > 0) {
       const xs = activePtsForBbox.map(p => p[0]);
       const ys = activePtsForBbox.map(p => p[1]);
-      // Also include the sampled curve to account for spline overshoot
       const sampled = catmullRomSample(activePtsForBbox);
       const cxs = sampled.map(p => p[0]);
       const cys = sampled.map(p => p[1]);
-      liveBbox = [
+      bboxRef.current = [
         Math.min(...xs, ...cxs),
         Math.min(...ys, ...cys),
         Math.max(...xs, ...cxs),
         Math.max(...ys, ...cys),
       ];
+    } else {
+      bboxRef.current = sketch.boundingBox;
     }
 
-    const { toCanvas, xmin, ymin, xmax, ymax, scale } = makeTransform(liveBbox, w, h);
+    const { toCanvas, xmin, ymin, xmax, ymax, scale } = makeTransform(bboxRef.current, w, h);
 
     // ── background
     ctx.fillStyle = '#0d0d1a';
@@ -335,7 +336,7 @@ export function SketchViewer({
     const rect = canvas.getBoundingClientRect();
     const mx = (e.clientX - rect.left) * (canvas.width / rect.width);
     const my = (e.clientY - rect.top) * (canvas.height / rect.height);
-    const { toCanvas } = makeTransform(sketch.boundingBox, canvas.width, canvas.height);
+    const { toCanvas } = makeTransform(bboxRef.current, canvas.width, canvas.height);
     const pts = getCtrlPts();
     if (!pts) return;
     for (let i = 0; i < pts.length; i++) {
@@ -355,7 +356,7 @@ export function SketchViewer({
     const rect = canvas.getBoundingClientRect();
     const mx = (e.clientX - rect.left) * (canvas.width / rect.width);
     const my = (e.clientY - rect.top) * (canvas.height / rect.height);
-    const { fromCanvas } = makeTransform(sketch.boundingBox, canvas.width, canvas.height);
+    const { fromCanvas } = makeTransform(bboxRef.current, canvas.width, canvas.height);
     const [nx, ny] = fromCanvas(mx, my);
     const { idx, pts } = dragRef.current;
     const updated = pts.map((p, i) =>
