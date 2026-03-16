@@ -487,6 +487,55 @@ export function App() {
   }, [activeTab?.id, activeTab?.source, backendUrl]);
 
   // ── Parameter panel eval trigger ───────────────────────────────────────────
+  // Rewrite DSL source defaults for the given command with current param values.
+  // Handles point2d(x, y) and float/int/bool literals.
+  const handleSetDefaults = useCallback((command: string, params: Record<string, unknown>) => {
+    if (!activeTab) return;
+    let source = activeTab.source;
+
+    const cmdDef = activeTab.commands.find(c => c.name === command);
+    if (!cmdDef) return;
+
+    for (const p of cmdDef.params) {
+      const val = params[p.name];
+      if (val == null) continue;
+
+      const type = p.type.toLowerCase();
+      let newDefault: string;
+
+      if (type === 'point2d' || p.ui_hint?.widget === 'point2d') {
+        const arr = Array.isArray(val) ? val as number[] : [0, 0];
+        const x = Number(arr[0]).toFixed(4).replace(/\.?0+$/, '');
+        const y = Number(arr[1]).toFixed(4).replace(/\.?0+$/, '');
+        newDefault = `point2d(${x}, ${y})`;
+      } else if (type === 'float') {
+        newDefault = Number(val).toFixed(4).replace(/\.?0+$/, '');
+      } else if (type === 'int') {
+        newDefault = String(Math.round(Number(val)));
+      } else if (type === 'bool') {
+        newDefault = val ? 'True' : 'False';
+      } else {
+        continue;
+      }
+
+      // Replace the default expression for this param in the DSL source.
+      // Matches:  paramName: type @ui(...) = <old_default>
+      // or:       paramName: type = <old_default>
+      // The default ends at comma or closing paren of param list.
+      const paramPattern = new RegExp(
+        `(\\b${p.name}\\s*:[^=\\n]+?=\\s*)` +  // param name: type ... =
+        `([^,)\\n]+)`,                           // old default value
+        'g'
+      );
+      source = source.replace(paramPattern, `$1${newDefault}`);
+    }
+
+    // Write back to the editor
+    updateSource(activeTab.id, source);
+    // Re-parse so the workbench picks up the new defaults
+    parseCommands(activeTab.id, source);
+  }, [activeTab, updateSource, parseCommands]);
+
   const handleParamEval = useCallback((command: string, parameters: Record<string, unknown>) => {
     if (!activeTab) { handleCommandEvaluate(command, parameters); return; }
 
@@ -943,6 +992,7 @@ export function App() {
               onSelectCommand={(cmd) => activeTab && selectCommand(activeTab.id, cmd)}
               onParamChange={(cmd, param, val) => activeTab && updateParam(activeTab.id, cmd, param, val)}
               onEval={handleParamEval}
+              onSetDefaults={handleSetDefaults}
               isEvaluating={isEvaluating}
               evalResult={lastEvalResult}
               latencyTier={wsEval.getLatencyTier(activeTab?.selectedCommand ?? '')}

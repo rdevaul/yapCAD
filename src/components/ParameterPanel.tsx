@@ -22,6 +22,7 @@ interface ParameterPanelProps {
   onSelectCommand: (command: string) => void;
   onParamChange: (command: string, param: string, value: unknown) => void;
   onEval: (command: string, parameters: Record<string, unknown>) => void;
+  onSetDefaults?: (command: string, params: Record<string, unknown>) => void;
   isEvaluating: boolean;
   evalResult: EvalResult | null;
   latencyTier: LatencyTier;
@@ -265,6 +266,7 @@ export function ParameterPanel({
   onSelectCommand,
   onParamChange,
   onEval,
+  onSetDefaults,
   isEvaluating,
   evalResult,
   latencyTier,
@@ -379,18 +381,40 @@ export function ParameterPanel({
         </div>
       )}
 
-      {/* Row 5: Evaluate button */}
-      <button
-        style={{
-          ...styles.evalButton,
-          ...(isEvaluating || !selectedCommand ? styles.evalButtonDisabled : {}),
-        }}
-        onClick={handleManualEval}
-        disabled={isEvaluating || !selectedCommand}
-        title="Ctrl+Enter"
-      >
-        {isEvaluating ? '⏳  Evaluating…' : '▶  Evaluate'}
-      </button>
+      {/* Row 5: Evaluate button + Set as defaults */}
+      <div style={{ display: 'flex', gap: '6px' }}>
+        <button
+          style={{
+            ...styles.evalButton,
+            flex: 1,
+            ...(isEvaluating || !selectedCommand ? styles.evalButtonDisabled : {}),
+          }}
+          onClick={handleManualEval}
+          disabled={isEvaluating || !selectedCommand}
+          title="Ctrl+Enter"
+        >
+          {isEvaluating ? '⏳  Evaluating…' : '▶  Evaluate'}
+        </button>
+        {onSetDefaults && hasParams && (
+          <button
+            style={{
+              padding: '8px 10px',
+              fontSize: '12px',
+              backgroundColor: '#1a2a1a',
+              color: '#4ade80',
+              border: '1px solid #2a4a2a',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+              flexShrink: 0,
+            }}
+            onClick={() => onSetDefaults(selectedCommand, currentParamValues)}
+            title="Bake current parameter values into the DSL source as new defaults"
+          >
+            ✦ Set defaults
+          </button>
+        )}
+      </div>
     </div>
   );
 }
