@@ -51,19 +51,46 @@ def _scalar_type_name(value: Any) -> str:
     return "unknown"
 
 
+def _is_curve_value(geom: Any) -> bool:
+    """Check if value is a yapCAD curve structure (catmullrom, bezier, nurbs, etc.)"""
+    return (
+        isinstance(geom, list)
+        and len(geom) >= 2
+        and isinstance(geom[0], str)
+        and geom[0] in ("catmullrom", "bezier", "nurbs", "line_segment", "arc",
+                         "circle", "ellipse", "parabola", "hyperbola", "path2d",
+                         "path3d", "profile2d", "region2d", "loop3d")
+    )
+
+
 def _normalize_emitted_geometry(geom: Any):
     if geom is None:
         return []
 
-    # Single entity
-    if issolid(geom) or issurface(geom) or isgeomlist(geom):
+    # Single solid/surface
+    if issolid(geom) or issurface(geom):
+        return [geom]
+
+    # Curve/spline value — treat as a geomlist of control points for serialization
+    # The control points are in geom[1]
+    if _is_curve_value(geom):
+        pts = geom[1]
+        if isgeomlist(pts):
+            return [pts]
+        return []
+
+    # geomlist (list of points/vectors/segments)
+    if isgeomlist(geom):
         return [geom]
 
     # List of entities
     if isinstance(geom, list) and geom and all(
-        (issolid(g) or issurface(g) or isgeomlist(g)) for g in geom
+        (issolid(g) or issurface(g) or isgeomlist(g) or _is_curve_value(g)) for g in geom
     ):
-        return geom
+        result = []
+        for g in geom:
+            result.extend(_normalize_emitted_geometry(g))
+        return result
 
     raise ValueError(f"Unsupported emitted geometry type: {type(geom).__name__}")
 

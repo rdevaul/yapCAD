@@ -411,6 +411,9 @@ BUILTIN_TYPES: Dict[str, Type] = {
 
     # Generic
     "dict": DICT,
+    # list without type arg resolves to list<unknown> — checker handles list[T] as GenericType
+    # but bare 'list' in SimpleType context needs a fallback entry
+    "list": ListType(UNKNOWN),
 }
 
 
