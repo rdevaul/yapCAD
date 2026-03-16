@@ -150,7 +150,27 @@ export function SketchViewer({
 
     if (w === 0 || h === 0) return;
 
-    const { toCanvas, xmin, ymin, xmax, ymax, scale } = makeTransform(sketch.boundingBox, w, h);
+    // When live control points are active, compute bbox from them so the
+    // canvas auto-scales to fit — avoids clipping when points move outside
+    // the stored bbox from the last eval.
+    const activePtsForBbox = ctrlOverride ?? controlPoints;
+    let liveBbox = sketch.boundingBox;
+    if (activePtsForBbox && activePtsForBbox.length > 0) {
+      const xs = activePtsForBbox.map(p => p[0]);
+      const ys = activePtsForBbox.map(p => p[1]);
+      // Also include the sampled curve to account for spline overshoot
+      const sampled = catmullRomSample(activePtsForBbox);
+      const cxs = sampled.map(p => p[0]);
+      const cys = sampled.map(p => p[1]);
+      liveBbox = [
+        Math.min(...xs, ...cxs),
+        Math.min(...ys, ...cys),
+        Math.max(...xs, ...cxs),
+        Math.max(...ys, ...cys),
+      ];
+    }
+
+    const { toCanvas, xmin, ymin, xmax, ymax, scale } = makeTransform(liveBbox, w, h);
 
     // ── background
     ctx.fillStyle = '#0d0d1a';
