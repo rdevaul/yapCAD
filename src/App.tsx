@@ -539,10 +539,10 @@ export function App() {
       source = lines.join('\n');
     }
 
-    // Write back to the editor
-    updateSource(activeTab.id, source);
-    // Re-parse so the workbench picks up the new defaults
-    parseCommands(activeTab.id, source);
+    // Push updated source through the external source path so the editor
+    // textarea visually reflects the change (same mechanism as chat DSL updates).
+    setExternalSource(source);
+    loadExternalSource(source);   // updates tab state + triggers re-parse
   }, [activeTab, updateSource, parseCommands]);
 
   const handleParamEval = useCallback((command: string, parameters: Record<string, unknown>) => {
