@@ -1574,9 +1574,138 @@ class BuiltinRegistry:
             return solid_val(extrude_region2d(profile.data, height.data))
 
         def _revolve(profile: Value, axis: Value, angle: Value) -> Value:
-            """Revolve a 2D region around an axis."""
+            """Revolve a 2D region around an axis to create a solid.
+
+            Uses OCC BRepPrimAPI_MakeRevol when available; falls back to
+            sampling the region boundary and calling makeRevolutionSolid.
+
+            Args:
+                profile: A region2d — the 2D profile to revolve (in XZ plane,
+                         X = radius from axis, Z = height). Must lie entirely
+                         at X >= 0.
+                axis: A vector3d defining the revolution axis direction.
+                angle: Angle of revolution in degrees (360 for full solid).
+            """
+            import math
+            from yapcad.brep import occ_available, BrepSolid, attach_brep_to_solid
+            from yapcad.geom3d_util import solid as make_solid_obj
+
+            region = profile.data
+            angle_deg = float(angle.data) if not isinstance(angle.data, (list, tuple)) else 360.0
+            angle_rad = math.radians(angle_deg)
+
+            # Try OCC path first
+            if occ_available():
+                try:
+                    from OCC.Core.gp import gp_Pnt, gp_Ax1, gp_Dir  # type: ignore
+                    from OCC.Core.BRepBuilderAPI import (  # type: ignore
+                        BRepBuilderAPI_MakeWire,
+                        BRepBuilderAPI_MakeEdge,
+                        BRepBuilderAPI_MakeFace,
+                    )
+                    from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeRevol  # type: ignore
+                    from yapcad.geom import isline, isarc, iscircle, isgeomlist
+
+                    # Flatten region2d: may be a plain geomlist (list of segments)
+                    # or a list-of-geomlist (region with holes, where [0] is the outer boundary).
+                    # A line is also a geomlist, so check specifically for the holes-case:
+                    # that's when region[0] is a geomlist but NOT itself a line/arc/etc.
+                    outer = region
+                    if region and isgeomlist(region[0]) and not isline(region[0]):
+                        outer = region[0]
+
+                    # Collect boundary points from the outer profile
+                    wire_maker = BRepBuilderAPI_MakeWire()
+
+                    def _pt_to_gp(p):
+                        # Region2d points: [x, y, z, w] where x=radius, y=height (XY plane)
+                        # Map to OCC: (r, 0, z) so revolution is around Z axis
+                        r = float(p[0])
+                        z = float(p[1])
+                        return gp_Pnt(r, 0.0, z)
+
+                    # Collect profile points (open polyline)
+                    profile_pts = []
+                    for seg in outer:
+                        if isline(seg):
+                            if not profile_pts:
+                                profile_pts.append(_pt_to_gp(seg[0]))
+                            profile_pts.append(_pt_to_gp(seg[1]))
+
+                    if len(profile_pts) < 2:
+                        raise ValueError("region2d contains no line segments for revolve")
+
+                    # Close the profile: add edges back to the axis (r=0) to form
+                    # a closed face that can be revolved.
+                    # top close: last point → (0, 0, z_top)
+                    # axis close: (0, 0, z_top) → (0, 0, z_bottom)
+                    # bottom close: (0, 0, z_bottom) → first point
+                    z_bottom = profile_pts[0].Z()
+                    z_top = profile_pts[-1].Z()
+                    axis_top = gp_Pnt(0.0, 0.0, z_top)
+                    axis_bottom = gp_Pnt(0.0, 0.0, z_bottom)
+
+                    # Build wire: profile edges + closing edges
+                    for a, b in zip(profile_pts[:-1], profile_pts[1:]):
+                        wire_maker.Add(BRepBuilderAPI_MakeEdge(a, b).Edge())
+                    wire_maker.Add(BRepBuilderAPI_MakeEdge(profile_pts[-1], axis_top).Edge())
+                    if abs(z_top - z_bottom) > 1e-6:
+                        wire_maker.Add(BRepBuilderAPI_MakeEdge(axis_top, axis_bottom).Edge())
+                    wire_maker.Add(BRepBuilderAPI_MakeEdge(axis_bottom, profile_pts[0]).Edge())
+
+                    wire = wire_maker.Wire()
+                    face_builder = BRepBuilderAPI_MakeFace(wire)
+                    if not face_builder.IsDone():
+                        raise ValueError("BRepBuilderAPI_MakeFace failed for revolve profile")
+                    face = face_builder.Face()
+
+                    # Build the revolution axis from the vector3d
+                    av = axis.data
+                    ax1 = gp_Ax1(gp_Pnt(0.0, 0.0, 0.0), gp_Dir(float(av[0]), float(av[1]), float(av[2])))
+                    revol = BRepPrimAPI_MakeRevol(face, ax1, angle_rad)
+                    shape = revol.Shape()
+
+                    # Wrap into a yapCAD solid (empty tessellation + BREP)
+                    from yapcad.geom3d import solid as make_solid_fn
+                    sld = make_solid_fn([], [], [])   # empty solid
+                    attach_brep_to_solid(sld, BrepSolid(shape))
+                    return solid_val(sld)
+                except Exception as exc:
+                    import sys, traceback
+                    print(f"OCC revolve failed: {exc}", file=sys.stderr)
+                    traceback.print_exc(file=sys.stderr)
+
+            # Tessellation fallback: sample the region boundary as r(z) profile
+            from yapcad.geom import isline, isgeomlist
             from yapcad.geom3d_util import makeRevolutionSolid
-            return solid_val(makeRevolutionSolid(profile.data, axis.data, angle.data))
+
+            outer = region[0] if (region and isgeomlist(region[0])) else region
+            pts = []
+            for seg in outer:
+                if isline(seg):
+                    p = seg[0]
+                    pts.append((float(p[0]), float(p[2]) if len(p) > 2 else 0.0))
+            if pts:
+                pts.append(pts[0])  # close
+            zvals = sorted(set(z for _, z in pts))
+            if len(zvals) < 2:
+                raise ValueError("revolve fallback: profile has insufficient Z range")
+
+            # Build r(z) callable from the boundary polyline
+            import numpy as _np
+            _pts_arr = _np.array(pts)
+            _r_vals = _pts_arr[:, 0]
+            _z_vals = _pts_arr[:, 1]
+            def _contour(z):
+                return float(_np.interp(z, _z_vals, _r_vals))
+
+            sld = makeRevolutionSolid(
+                _contour,
+                float(min(zvals)),
+                float(max(zvals)),
+                steps=64,
+            )
+            return solid_val(sld)
 
         def _sweep(profile: Value, spine: Value) -> Value:
             """Sweep a 2D profile along a 3D path to create a solid.
