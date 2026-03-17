@@ -145,6 +145,16 @@ export function useTabState({ backendUrl }: UseTabStateOptions) {
   // Track in-flight parse requests for cancellation
   const parseAbortRef = useRef<Map<string, AbortController>>(new Map());
 
+  // ── Undo stacks — refs so mutations don't cause re-renders ─────────────────
+  // paramHistoryRef: tabId → stack of paramValues snapshots
+  const paramHistoryRef = useRef<Map<string, Array<Record<string, Record<string, unknown>>>>>(new Map());
+  // closedTabsRef: stack of recently closed TabState objects
+  const closedTabsRef = useRef<TabState[]>([]);
+  const MAX_HISTORY = 20;
+
+  // undoCount: reactive counter so canUndo() triggers re-renders when stacks change
+  const [undoCount, setUndoCount] = useState(0);
+
   // Persist on change
   useEffect(() => {
     saveTabs(tabs, activeTabId);
@@ -152,6 +162,22 @@ export function useTabState({ backendUrl }: UseTabStateOptions) {
 
   // Active tab helper
   const activeTab = tabs.find(t => t.id === activeTabId) ?? tabs[0];
+
+  // ── Undo helpers ────────────────────────────────────────────────────────────
+
+  const pushParamHistory = useCallback((tabId: string, snapshot: Record<string, Record<string, unknown>>) => {
+    const stack = paramHistoryRef.current.get(tabId) ?? [];
+    stack.push(JSON.parse(JSON.stringify(snapshot))); // deep clone
+    if (stack.length > MAX_HISTORY) stack.shift();
+    paramHistoryRef.current.set(tabId, stack);
+    setUndoCount(n => n + 1);
+  }, []);
+
+  // Public: let App.tsx push a snapshot before handleSetDefaults rewrites source
+  const pushParamSnapshotForTab = useCallback((tabId: string) => {
+    const tab = tabs.find(t => t.id === tabId);
+    if (tab) pushParamHistory(tabId, tab.paramValues);
+  }, [tabs, pushParamHistory]);
 
   // ── Tab operations ──────────────────────────────────────────────────────────
 
@@ -166,6 +192,13 @@ export function useTabState({ backendUrl }: UseTabStateOptions) {
   const closeTab = useCallback((tabId: string) => {
     setTabs(prev => {
       if (prev.length <= 1) return prev; // Don't close last tab
+      const closing = prev.find(t => t.id === tabId);
+      if (closing) {
+        const stack = closedTabsRef.current;
+        stack.push(closing);
+        if (stack.length > 10) stack.shift();
+        setUndoCount(n => n + 1);
+      }
       const filtered = prev.filter(t => t.id !== tabId);
       // If closing active tab, switch to adjacent
       if (activeTabId === tabId) {
@@ -300,41 +333,108 @@ export function useTabState({ backendUrl }: UseTabStateOptions) {
   // ── Parameter updates ───────────────────────────────────────────────────────
 
   const updateParam = useCallback((tabId: string, command: string, paramName: string, value: unknown) => {
-    setTabs(prev => prev.map(t => {
-      if (t.id !== tabId) return t;
-      const paramValues = { ...t.paramValues };
-      paramValues[command] = { ...paramValues[command], [paramName]: value };
-      for (const cmd of t.commands) {
-        if (cmd.name === command) continue;
-        if (cmd.params.some(p => p.name === paramName)) {
-          paramValues[cmd.name] = { ...paramValues[cmd.name], [paramName]: value };
-        }
-      }
-      return { ...t, paramValues };
-    }));
-  }, []);
-
-  // Batch-update multiple params in one setState call — use this when updating
-  // several params at once (e.g. all control points from a drag) to avoid
-  // React batching issues where each call reads stale state.
-  const batchUpdateParams = useCallback((tabId: string, command: string, updates: Record<string, unknown>) => {
-    setTabs(prev => prev.map(t => {
-      if (t.id !== tabId) return t;
-      const paramValues = { ...t.paramValues };
-      // Apply all updates to the target command at once
-      paramValues[command] = { ...paramValues[command], ...updates };
-      // Sync each updated param to sibling commands
-      for (const [paramName, value] of Object.entries(updates)) {
+    setTabs(prev => {
+      const currentTab = prev.find(t => t.id === tabId);
+      if (currentTab) pushParamHistory(tabId, currentTab.paramValues);
+      return prev.map(t => {
+        if (t.id !== tabId) return t;
+        const paramValues = { ...t.paramValues };
+        paramValues[command] = { ...paramValues[command], [paramName]: value };
         for (const cmd of t.commands) {
           if (cmd.name === command) continue;
           if (cmd.params.some(p => p.name === paramName)) {
             paramValues[cmd.name] = { ...paramValues[cmd.name], [paramName]: value };
           }
         }
+        return { ...t, paramValues };
+      });
+    });
+  }, [pushParamHistory]);
+
+  // Batch-update multiple params in one setState call — use this when updating
+  // several params at once (e.g. all control points from a drag) to avoid
+  // React batching issues where each call reads stale state.
+  const batchUpdateParams = useCallback((tabId: string, command: string, updates: Record<string, unknown>) => {
+    setTabs(prev => {
+      const currentTab = prev.find(t => t.id === tabId);
+      if (currentTab) pushParamHistory(tabId, currentTab.paramValues);
+      return prev.map(t => {
+        if (t.id !== tabId) return t;
+        const paramValues = { ...t.paramValues };
+        // Apply all updates to the target command at once
+        paramValues[command] = { ...paramValues[command], ...updates };
+        // Sync each updated param to sibling commands
+        for (const [paramName, value] of Object.entries(updates)) {
+          for (const cmd of t.commands) {
+            if (cmd.name === command) continue;
+            if (cmd.params.some(p => p.name === paramName)) {
+              paramValues[cmd.name] = { ...paramValues[cmd.name], [paramName]: value };
+            }
+          }
+        }
+        return { ...t, paramValues };
+      });
+    });
+  }, [pushParamHistory]);
+
+  // ── Reset params to DSL defaults ───────────────────────────────────────────
+
+  const resetParamDefaults = useCallback((tabId: string, command: string) => {
+    setTabs(prev => {
+      const currentTab = prev.find(t => t.id === tabId);
+      if (currentTab) pushParamHistory(tabId, currentTab.paramValues);
+      return prev.map(t => {
+        if (t.id !== tabId) return t;
+        const cmdDef = t.commands.find(c => c.name === command);
+        if (!cmdDef) return t;
+        const defaults: Record<string, unknown> = {};
+        for (const p of cmdDef.params) {
+          defaults[p.name] = p.default;
+        }
+        return {
+          ...t,
+          paramValues: {
+            ...t.paramValues,
+            [command]: defaults,
+          },
+        };
+      });
+    });
+  }, [pushParamHistory]);
+
+  // ── Undo ────────────────────────────────────────────────────────────────────
+
+  const undoLastAction = useCallback((): boolean => {
+    // First priority: undo param change on active tab
+    if (activeTabId) {
+      const stack = paramHistoryRef.current.get(activeTabId) ?? [];
+      if (stack.length > 0) {
+        const prev = stack.pop()!;
+        setTabs(t => t.map(tab =>
+          tab.id === activeTabId ? { ...tab, paramValues: prev } : tab
+        ));
+        // Keep undoCount accurate — decrement since we popped
+        setUndoCount(n => Math.max(0, n - 1));
+        return true;
       }
-      return { ...t, paramValues };
-    }));
-  }, []);
+    }
+    // Second priority: reopen last closed tab
+    const stack = closedTabsRef.current;
+    if (stack.length > 0) {
+      const restored = stack.pop()!;
+      setTabs(prev => [...prev, restored]);
+      setActiveTabId(restored.id);
+      setUndoCount(n => Math.max(0, n - 1));
+      return true;
+    }
+    return false;
+  }, [activeTabId]);
+
+  const canUndo = useCallback((): boolean => {
+    if (undoCount <= 0) return false;
+    const paramStack = activeTabId ? (paramHistoryRef.current.get(activeTabId) ?? []) : [];
+    return paramStack.length > 0 || closedTabsRef.current.length > 0;
+  }, [activeTabId, undoCount]);
 
   // ── External source loading (from FileBar) ─────────────────────────────────
 
@@ -358,6 +458,11 @@ export function useTabState({ backendUrl }: UseTabStateOptions) {
     selectCommand,
     updateParam,
     batchUpdateParams,
+    resetParamDefaults,
     loadExternalSource,
+    undoLastAction,
+    canUndo,
+    pushParamSnapshotForTab,
+    undoCount,
   };
 }

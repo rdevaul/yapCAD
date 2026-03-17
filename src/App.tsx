@@ -16,7 +16,7 @@ import { ParameterPanel } from './components/ParameterPanel';
 import { ChatPanel } from './components/ChatPanel';
 import { SessionBar } from './components/SessionBar';
 import { FileBar } from './components/FileBar';
-import { SketchViewer, type SketchEntity } from './components/SketchViewer';
+import { SketchViewer, type SketchEntity, type CircleParamInfo } from './components/SketchViewer';
 import { useTabState } from './hooks/useTabState';
 import { useWsEval, type EvalResult } from './hooks/useWsEval';
 import { ResizableSplit } from './components/ResizableSplit';
@@ -59,7 +59,7 @@ const setupViewCamera = (viewer: YapCADViewer, viewType: string) => {
 function SketchViewerContainer({
   sketchEntities,
   activeTab,
-  updateParam: _updateParam,
+  updateParam,
   batchUpdateParams,
   handleCommandEvaluate,
 }: {
@@ -104,9 +104,6 @@ function SketchViewerContainer({
 
     if (point2dParams.length === 0) return;
 
-    // Build all point updates at once and write atomically via batchUpdateParams.
-    // This avoids React stale-closure batching where N separate updateParam calls
-    // each read the previous snapshot, causing later writes to overwrite sync state.
     const pointUpdates: Record<string, unknown> = {};
     const updatedParams: Record<string, unknown> = { ...(activeTab.paramValues[cmd] ?? {}) };
     newPoints.forEach((pt, i) => {
@@ -117,13 +114,44 @@ function SketchViewerContainer({
         updatedParams[paramName] = homogeneous;
       }
     });
-    // Single batched write — syncs atomically to all sibling commands
     batchUpdateParams(activeTab.id, cmd, pointUpdates);
-
-    // Lazy eval: only re-eval the active command (updates 2D view).
-    // Sibling commands pull current params when explicitly evaluated.
     handleCommandEvaluate(cmd, updatedParams);
   }, [activeTab, batchUpdateParams, handleCommandEvaluate]);
+
+  // Handle circle radius drag → update param + re-eval on mouseup
+  const handleCircleRadiusChanged = useCallback((paramName: string, radius: number) => {
+    if (!activeTab) return;
+    const cmd = activeTab.selectedCommand;
+    if (!cmd) return;
+    const cmdDef = activeTab.commands.find(c => c.name === cmd);
+    const paramDef = cmdDef?.params.find(p => p.name === paramName);
+    const unit = (paramDef?.ui_hint as Record<string, unknown>)?.unit as string ?? 'radius';
+    const paramValue = unit === 'diameter' ? radius * 2 : radius;
+    updateParam(activeTab.id, cmd, paramName, paramValue);
+    const updatedParams = { ...(activeTab.paramValues[cmd] ?? {}), [paramName]: paramValue };
+    handleCommandEvaluate(cmd, updatedParams);
+  }, [activeTab, updateParam, handleCommandEvaluate]);
+
+  // Extract circle_r params from the active command definition
+  const circleParams: CircleParamInfo[] | undefined = (() => {
+    if (!activeTab) return undefined;
+    const cmd = activeTab.selectedCommand;
+    if (!cmd) return undefined;
+    const cmdDef = activeTab.commands.find(c => c.name === cmd);
+    if (!cmdDef) return undefined;
+    const params = cmdDef.params.filter(
+      p => (p.ui_hint as Record<string, unknown>)?.widget === 'circle_r'
+    );
+    if (params.length === 0) return undefined;
+    return params.map(p => ({
+      paramName: p.name,
+      snapMode: (p.ui_hint as Record<string, unknown>)?.snap as string ?? 'none',
+      label: (p.ui_hint as Record<string, unknown>)?.label as string ?? p.name,
+      unit: ((p.ui_hint as Record<string, unknown>)?.unit as string ?? 'radius') === 'diameter'
+        ? 'diameter' as const
+        : 'radius' as const,
+    }));
+  })();
 
   // Render the first sketch entity (multi-sketch support can come later)
   const entity = sketchEntities[0];
@@ -143,7 +171,6 @@ function SketchViewerContainer({
     return point2dParams.map(p => {
       const v = paramVals[p.name];
       if (Array.isArray(v)) return v as number[];
-      // Fall back to default from eval primitives
       return null;
     }).filter(Boolean) as number[][];
   })();
@@ -161,6 +188,8 @@ function SketchViewerContainer({
           height={size.height}
           interactive={true}
           onControlPointsChanged={handleControlPointsChanged}
+          circleParams={circleParams}
+          onCircleRadiusChanged={handleCircleRadiusChanged}
         />
       )}
     </div>
@@ -222,7 +251,8 @@ export function App() {
     tabs, activeTab, activeTabId,
     addTab, closeTab, switchTab, renameTab,
     updateSource, parseCommands, selectCommand, updateParam, batchUpdateParams,
-    loadExternalSource,
+    resetParamDefaults, loadExternalSource,
+    undoLastAction, canUndo, pushParamSnapshotForTab,
   } = useTabState({ backendUrl });
 
   // Derived dslSource from active tab (for chat context and other consumers)
@@ -450,18 +480,36 @@ export function App() {
           : [];
 
         if (bboxParams.length > 0) {
+          // Seed the live-values accumulator with the current committed param values
+          // so that non-dragged params are available immediately on first drag.
+          const t0 = activeTabRef.current;
+          if (t0) {
+            for (const p of bboxParams) {
+              bboxLiveValuesRef.current[`${command}::${p.name}`] =
+                (t0.paramValues[command]?.[p.name] as number) ?? p.value;
+            }
+          }
+
           viewerRef.current.setBboxGizmos(
             bboxParams,
             (name, value) => {
+              // onDrag: update live ref and param display only — no eval (can be expensive)
+              bboxLiveValuesRef.current[`${command}::${name}`] = value;
               const t = activeTabRef.current;
               if (t) updateParam(t.id, command, name, value);
             },
             (name, value) => {
+              // onDragEnd: write final value into live ref, then eval once with all current values
+              bboxLiveValuesRef.current[`${command}::${name}`] = value;
               const t = activeTabRef.current;
               if (!t) return;
               updateParam(t.id, command, name, value);
-              const mergedParams = { ...(t.paramValues[command] ?? {}), [name]: value };
-              handleCommandEvaluateRef.current(command, mergedParams);
+              // Build params from live ref — avoids reading stale React state
+              const liveParams: Record<string, unknown> = {};
+              for (const p of bboxParams) {
+                liveParams[p.name] = bboxLiveValuesRef.current[`${command}::${p.name}`] ?? p.value;
+              }
+              handleCommandEvaluateRef.current(command, liveParams);
             },
           );
         } else {
@@ -509,6 +557,10 @@ export function App() {
   const handleCommandEvaluateRef = useRef(handleCommandEvaluate);
   useEffect(() => { handleCommandEvaluateRef.current = handleCommandEvaluate; }, [handleCommandEvaluate]);
 
+  // Live accumulator for in-flight bbox drag values — avoids reading stale React state.
+  // Keyed as `${command}::${paramName}` → current drag value.
+  const bboxLiveValuesRef = useRef<Record<string, number>>({});
+
   // ── Tab source change → re-parse commands ──────────────────────────────────
   const handleTabSourceChange = useCallback((source: string) => {
     if (!activeTab) return;
@@ -533,6 +585,7 @@ export function App() {
   // Handles point2d(x, y) and float/int/bool literals.
   const handleSetDefaults = useCallback((command: string, params: Record<string, unknown>) => {
     if (!activeTab) return;
+    pushParamSnapshotForTab(activeTab.id); // push undo snapshot before rewriting source
     let source = activeTab.source;
 
     const cmdDef = activeTab.commands.find(c => c.name === command);
@@ -614,6 +667,46 @@ export function App() {
 
     handleCommandEvaluate(command, merged);
   }, [activeTab, handleCommandEvaluate]);
+
+  const handleResetDefaults = useCallback((command: string) => {
+    if (!activeTab) return;
+    resetParamDefaults(activeTab.id, command);
+    // Re-evaluate with reset params so the viewer updates immediately
+    const cmdDef = activeTab.commands.find(c => c.name === command);
+    if (!cmdDef) return;
+    const resetParams: Record<string, unknown> = {};
+    for (const p of cmdDef.params) {
+      resetParams[p.name] = p.default;
+    }
+    handleCommandEvaluate(command, resetParams);
+  }, [activeTab, resetParamDefaults, handleCommandEvaluate]);
+
+  const handleUndo = useCallback(() => {
+    const did = undoLastAction();
+    if (did && activeTab?.selectedCommand) {
+      // Small delay to let state settle before eval
+      setTimeout(() => {
+        if (activeTab?.selectedCommand) {
+          handleParamEval(activeTab.selectedCommand, activeTab.paramValues[activeTab.selectedCommand] ?? {});
+        }
+      }, 50);
+    }
+  }, [undoLastAction, activeTab, handleParamEval]);
+
+  // Keyboard shortcut: Ctrl+Z / Cmd+Z for undo
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        // Don't intercept if focus is inside a text input or the code editor
+        const tag = (e.target as HTMLElement)?.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+        e.preventDefault();
+        handleUndo();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [handleUndo]);
 
   const handleEditorChatSplitChange = useCallback((split: number) => {
     setEditorChatSplit(split);
@@ -1011,15 +1104,39 @@ export function App() {
         >
           {/* Tab Bar + DSL Editor + Parameter Panel */}
           <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-            {/* Tab Bar */}
-            <TabBar
-              tabs={tabs}
-              activeTabId={activeTabId}
-              onSwitch={switchTab}
-              onClose={closeTab}
-              onAdd={addTab}
-              onRename={renameTab}
-            />
+            {/* Tab Bar + Undo button */}
+            <div style={{ display: 'flex', alignItems: 'stretch', flexShrink: 0 }}>
+              <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+                <TabBar
+                  tabs={tabs}
+                  activeTabId={activeTabId}
+                  onSwitch={switchTab}
+                  onClose={closeTab}
+                  onAdd={addTab}
+                  onRename={renameTab}
+                />
+              </div>
+              {canUndo() && (
+                <button
+                  onClick={handleUndo}
+                  title="Undo last action (Ctrl+Z)"
+                  style={{
+                    padding: '4px 8px',
+                    fontSize: '11px',
+                    backgroundColor: 'transparent',
+                    color: '#94a3b8',
+                    border: 'none',
+                    borderLeft: '1px solid #2a2a4a',
+                    borderBottom: '1px solid #2a2a4a',
+                    cursor: 'pointer',
+                    flexShrink: 0,
+                    background: '#15152a',
+                  }}
+                >
+                  ↩ Undo
+                </button>
+              )}
+            </div>
             
             {/* DSL Editor */}
             <div style={{ flex: 1, overflow: 'hidden' }}>
@@ -1044,6 +1161,7 @@ export function App() {
               onParamChange={(cmd, param, val) => activeTab && updateParam(activeTab.id, cmd, param, val)}
               onEval={handleParamEval}
               onSetDefaults={handleSetDefaults}
+              onResetDefaults={handleResetDefaults}
               isEvaluating={isEvaluating}
               evalResult={lastEvalResult}
               latencyTier={wsEval.getLatencyTier(activeTab?.selectedCommand ?? '')}

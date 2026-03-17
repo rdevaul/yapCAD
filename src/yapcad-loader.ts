@@ -117,6 +117,8 @@ export interface LoadedSketch {
     kind: string;
     points: number[][];
     params: Record<string, unknown>;
+    /** Optional pass-through metadata (e.g. parametric tagging). */
+    meta?: Record<string, unknown>;
   }>;
   metadata?: Record<string, unknown>;
 }

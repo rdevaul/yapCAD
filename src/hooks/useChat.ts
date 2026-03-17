@@ -51,6 +51,10 @@ export const DEFAULT_SESSION_KEY = `agent:${DEFAULT_AGENT_ID}:yapcad`;
 export function resolveUserSession(userName: string): { agentId: string; sessionKey: string } {
   const normalized = userName.trim().toLowerCase();
   const agentId = KNOWN_USERS[normalized] ?? `jarvis-${normalized}`;
+  // Use a named :yapcad session so the workbench chat has its own context,
+  // separate from the Discord DM session. This is the correct architecture —
+  // the workbench is a different surface with different context (DSL source,
+  // eval results, etc.) and should not share session state with Discord.
   const sessionKey = `agent:${agentId}:yapcad`;
   return { agentId, sessionKey };
 }

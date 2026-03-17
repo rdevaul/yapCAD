@@ -2,6 +2,7 @@
  * SketchViewer — Canvas2D renderer for yapCAD sketch entities.
  * Renders polylines (sampled curves) and control point handles for splines.
  * Supports interactive dragging of control points when interactive=true.
+ * Also supports circle radius drag handles for circle_r params.
  */
 
 import { useRef, useEffect, useCallback } from 'react';
@@ -9,6 +10,14 @@ import type { LoadedSketch } from '../yapcad-loader';
 
 // Re-export as SketchEntity for App.tsx compatibility
 export type SketchEntity = LoadedSketch;
+
+export interface CircleParamInfo {
+  paramName: string;
+  snapMode?: string;
+  label?: string;
+  /** "radius" (default) or "diameter" — controls how the drag value maps to the param */
+  unit?: 'radius' | 'diameter';
+}
 
 interface SketchViewerProps {
   sketch: SketchEntity;
@@ -18,16 +27,101 @@ interface SketchViewerProps {
   height?: number;
   interactive?: boolean;
   onControlPointsChanged?: (points: number[][]) => void;
+  /** circle_r param declarations in declaration order */
+  circleParams?: CircleParamInfo[];
+  /** Called on mouseup after a circle radius drag */
+  onCircleRadiusChanged?: (paramName: string, radius: number) => void;
 }
 
 const PAD = 40;
 const CTRL_RADIUS = 7;
 const HIT_RADIUS = 12;
+const CIRCLE_HANDLE_SIZE = 9;  // half-diagonal of the diamond
+const CIRCLE_HANDLE_HIT = 14;
 const SAMPLES_PER_SEGMENT = 16;
 
+// ── Snapping ─────────────────────────────────────────────────────────────────
+
+/** M3-M10 tap drill diameters in mm */
+const METRIC_TAP_DIAMETERS = [2.5, 3.3, 4.2, 5.0, 6.75, 8.5];
+/** Common unified clearance hole diameters in mm (1/4-20, 5/16-18, 3/8-16, 1/2-13) */
+const UNIFIED_CLEARANCE_DIAMETERS = [6.8, 8.4, 10.0, 13.5];
+
+function snapRadius(r: number, snapMode: string | undefined): number {
+  const mode = snapMode ?? 'none';
+  if (mode === 'mm') {
+    // Round to nearest 0.5mm on diameter (0.25mm on radius) — 1mm diameter steps
+    const dia = r * 2;
+    return Math.round(dia) / 2;
+  }
+  if (mode === '0.5mm') {
+    // Round to nearest 1mm on radius = 2mm on diameter
+    return Math.round(r);
+  }
+  if (mode === 'metric_tap') {
+    const dia = r * 2;
+    let closest = METRIC_TAP_DIAMETERS[0];
+    let bestDist = Math.abs(dia - closest);
+    for (const d of METRIC_TAP_DIAMETERS) {
+      const dist = Math.abs(dia - d);
+      if (dist < bestDist) { bestDist = dist; closest = d; }
+    }
+    return closest / 2;
+  }
+  if (mode === 'unified_clearance') {
+    const dia = r * 2;
+    let closest = UNIFIED_CLEARANCE_DIAMETERS[0];
+    let bestDist = Math.abs(dia - closest);
+    for (const d of UNIFIED_CLEARANCE_DIAMETERS) {
+      const dist = Math.abs(dia - d);
+      if (dist < bestDist) { bestDist = dist; closest = d; }
+    }
+    return closest / 2;
+  }
+  return r;
+}
+
+// ── Native circle primitive extraction ───────────────────────────────────────
+
+interface NativeCircle {
+  cx: number;
+  cy: number;
+  r: number;
+  paramName: string;   // from primitive.meta.param
+  label?: string;      // from primitive.meta.label
+}
+
+/**
+ * Extract tagged circle primitives from a sketch.
+ * Replaces the old polyline-fitting detectCircles + matchCirclesToParams approach.
+ *
+ * geometry_json serialises full circles as:
+ *   { kind: "circle", center: [x, y, z, w], radius: r, orientation: n, meta: { param: "...", label: "..." } }
+ * Note: center and radius are top-level fields (NOT nested under params).
+ */
+function extractCirclePrimitives(sketch: LoadedSketch): NativeCircle[] {
+  if (!sketch.primitives) return [];
+  const result: NativeCircle[] = [];
+  for (const prim of sketch.primitives) {
+    if (prim.kind !== 'circle') continue;
+    const paramName = (prim.meta as any)?.param as string | undefined;
+    if (!paramName) continue;  // skip untagged circles
+    // center and radius are top-level fields in the JSON (not under params)
+    const center = (prim as any).center as number[] | undefined;
+    const radius  = (prim as any).radius  as number  | undefined;
+    if (center == null || radius == null) continue;
+    result.push({
+      cx: center[0],
+      cy: center[1],
+      r: radius,
+      paramName,
+      label: (prim.meta as any)?.label as string | undefined,
+    });
+  }
+  return result;
+}
+
 // ── Client-side Catmull-Rom sampler ──────────────────────────────────────────
-// Centripetal (alpha=0.5) parametrisation — matches yapCAD default.
-// Uses the Barry-Goldman algorithm with correct knot intervals.
 
 function lerp(a: number, b: number, t: number, t0: number, t1: number): number {
   const d = t1 - t0;
@@ -38,7 +132,6 @@ function lerp(a: number, b: number, t: number, t0: number, t1: number): number {
 function catmullRomSample(pts: number[][], alpha = 0.5, closed = false): [number, number][] {
   if (pts.length < 2) return pts.map(p => [p[0], p[1]]);
 
-  // Duplicate endpoints so every original point is interior to a 4-point window
   const P: number[][] = closed
     ? [pts[pts.length - 1], ...pts, pts[0], pts[1]]
     : [pts[0], ...pts, pts[pts.length - 1]];
@@ -48,23 +141,19 @@ function catmullRomSample(pts: number[][], alpha = 0.5, closed = false): [number
   for (let seg = 0; seg < P.length - 3; seg++) {
     const p0 = P[seg], p1 = P[seg + 1], p2 = P[seg + 2], p3 = P[seg + 3];
 
-    // Centripetal knot intervals: dt = dist^alpha
     const dt01 = Math.pow(Math.hypot(p1[0] - p0[0], p1[1] - p0[1]), alpha) || 1e-4;
     const dt12 = Math.pow(Math.hypot(p2[0] - p1[0], p2[1] - p1[1]), alpha) || 1e-4;
     const dt23 = Math.pow(Math.hypot(p3[0] - p2[0], p3[1] - p2[1]), alpha) || 1e-4;
 
-    // Knot values (accumulate from 0 at p0)
     const t0 = 0;
     const t1 = t0 + dt01;
     const t2 = t1 + dt12;
     const t3 = t2 + dt23;
 
     const n = SAMPLES_PER_SEGMENT;
-    // Parametric range for this segment is [t1, t2]
     for (let i = (seg === 0 ? 0 : 1); i <= n; i++) {
       const t = t1 + (t2 - t1) * (i / n);
 
-      // Level 1: lerp adjacent pairs
       const A1x = lerp(p0[0], p1[0], t, t0, t1);
       const A1y = lerp(p0[1], p1[1], t, t0, t1);
       const A2x = lerp(p1[0], p2[0], t, t1, t2);
@@ -72,13 +161,11 @@ function catmullRomSample(pts: number[][], alpha = 0.5, closed = false): [number
       const A3x = lerp(p2[0], p3[0], t, t2, t3);
       const A3y = lerp(p2[1], p3[1], t, t2, t3);
 
-      // Level 2: lerp A values using outer intervals
       const B1x = lerp(A1x, A2x, t, t0, t2);
       const B1y = lerp(A1y, A2y, t, t0, t2);
       const B2x = lerp(A2x, A3x, t, t1, t3);
       const B2y = lerp(A2y, A3y, t, t1, t3);
 
-      // Level 3: final lerp over the segment interval
       const Cx = lerp(B1x, B2x, t, t1, t2);
       const Cy = lerp(B1y, B2y, t, t1, t2);
 
@@ -101,11 +188,9 @@ function makeTransform(bbox: number[] | undefined, w: number, h: number) {
   const drawW = w - PAD * 2;
   const drawH = h - PAD * 2;
   const scale = Math.min(drawW / dw, drawH / dh);
-  // Centre the drawing in the available space
   const ox = PAD + (drawW - dw * scale) / 2;
   const oy = PAD + (drawH - dh * scale) / 2;
 
-  // Canvas: Y grows DOWN. Model: Y grows UP. Flip around canvas centre.
   const toCanvas = (x: number, y: number): [number, number] => [
     ox + (x - xmin) * scale,
     h - oy - (y - ymin) * scale,
@@ -118,6 +203,28 @@ function makeTransform(bbox: number[] | undefined, w: number, h: number) {
   return { toCanvas, fromCanvas, scale, xmin, ymin, xmax, ymax };
 }
 
+// ── drag state types ──────────────────────────────────────────────────────────
+
+type ControlPointDrag = {
+  kind: 'controlPoint';
+  active: boolean;
+  idx: number;
+  pts: number[][];
+};
+
+type CircleDrag = {
+  kind: 'circleDrag';
+  active: boolean;
+  cx: number;       // model coords
+  cy: number;
+  originalR: number;
+  currentR: number;
+  paramName: string;
+  snapMode?: string;
+};
+
+type DragState = ControlPointDrag | CircleDrag | null;
+
 // ── component ───────────────────────────────────────────────────────────────
 
 export function SketchViewer({
@@ -127,21 +234,24 @@ export function SketchViewer({
   height = 360,
   interactive = false,
   onControlPointsChanged,
+  circleParams,
+  onCircleRadiusChanged,
 }: SketchViewerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const dragRef = useRef<{
-    active: boolean;
-    idx: number;
-    pts: number[][];
-  } | null>(null);
-  // Track current canvas buffer size independently of props
+  const dragRef = useRef<DragState>(null);
   const sizeRef = useRef({ w: width, h: height });
-  // Live bbox used by both draw() and hit-test — kept in sync so both use same transform
   const bboxRef = useRef<number[] | undefined>(undefined);
+
+  // Live circle drag radius — updated every mousemove
+  const circleDragLiveRef = useRef<{
+    cx: number; cy: number; r: number; paramName: string; snapMode?: string;
+  } | null>(null);
 
   // ── draw ─────────────────────────────────────────────────────────────────
 
-  const draw = useCallback((ctrlOverride?: number[][]) => {
+  const draw = useCallback((ctrlOverride?: number[][], circleDragPreview?: {
+    cx: number; cy: number; r: number;
+  }) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -149,11 +259,9 @@ export function SketchViewer({
 
     const w = canvas.width;
     const h = canvas.height;
-
     if (w === 0 || h === 0) return;
 
-    // Compute live bbox from current control points (includes spline overshoot)
-    // and store in bboxRef so hit-test uses the same transform.
+    // Compute bbox
     const activePtsForBbox = ctrlOverride ?? controlPoints;
     if (activePtsForBbox && activePtsForBbox.length > 0) {
       const xs = activePtsForBbox.map(p => p[0]);
@@ -177,7 +285,7 @@ export function SketchViewer({
     ctx.fillStyle = '#0d0d1a';
     ctx.fillRect(0, 0, w, h);
 
-    // ── subtle grid
+    // ── grid
     ctx.strokeStyle = '#1e1e38';
     ctx.lineWidth = 1;
     const rawStep = (xmax - xmin) / 5;
@@ -202,22 +310,28 @@ export function SketchViewer({
     }
     void ax0; void ax1;
 
-    // ── polylines (sampled curve) ──────────────────────────────────────────
-    // If we have live control points, re-sample client-side so the curve
-    // updates immediately during drag and after param edits (before re-eval).
+    // ── extract native circle primitives (replaces polyline-fitting) ─────
+    const nativeCircles = extractCirclePrimitives(sketch);
+    // Build a Set of paramNames being dragged for quick lookup
+    const draggingParam = dragRef.current?.kind === 'circleDrag' ? dragRef.current.paramName : null;
+
+    // ── polylines ──────────────────────────────────────────────────────────
     const activePts = ctrlOverride ?? controlPoints;
     const polylinesToDraw: [number, number][][] =
       activePts && activePts.length >= 2
         ? [catmullRomSample(activePts)]
         : sketch.polylines.map(pl => pl.map(p => [p[0], p[1]] as [number, number]));
 
-    for (const polyline of polylinesToDraw) {
+    for (let plIdx = 0; plIdx < polylinesToDraw.length; plIdx++) {
+      const polyline = polylinesToDraw[plIdx];
       if (polyline.length < 2) continue;
+
       ctx.beginPath();
       ctx.strokeStyle = '#00d4ff';
       ctx.lineWidth = 2.5;
       ctx.lineJoin = 'round';
       ctx.lineCap = 'round';
+      ctx.setLineDash([]);
       const [sx, sy] = toCanvas(polyline[0][0], polyline[0][1]);
       ctx.moveTo(sx, sy);
       for (let i = 1; i < polyline.length; i++) {
@@ -227,14 +341,34 @@ export function SketchViewer({
       ctx.stroke();
     }
 
-    // ── control points ────────────────────────────────────────────────────
+    // ── circle drag preview ring ──────────────────────────────────────────
+    if (circleDragPreview) {
+      const [pcx, pcy] = toCanvas(circleDragPreview.cx, circleDragPreview.cy);
+      const pr = circleDragPreview.r * scale;
+
+      // Dashed preview ring in cyan
+      ctx.beginPath();
+      ctx.arc(pcx, pcy, pr, 0, Math.PI * 2);
+      ctx.strokeStyle = '#00ffcc';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 4]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Label new radius
+      const label = `r=${circleDragPreview.r.toFixed(2)}mm  ⌀${(circleDragPreview.r * 2).toFixed(2)}mm`;
+      ctx.fillStyle = '#00ffcc';
+      ctx.font = 'bold 11px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(label, pcx, pcy - pr - 8);
+    }
+
+    // ── spline control points ─────────────────────────────────────────────
     for (const prim of sketch.primitives ?? []) {
       if (!['catmullrom', 'nurbs', 'bezier'].includes(prim.kind)) continue;
-      // Priority: drag override > external controlPoints prop > eval primitives
       const rawPts = ctrlOverride ?? controlPoints ?? (prim.points as number[][]);
       if (!rawPts?.length) continue;
 
-      // Dashed hull line
       ctx.setLineDash([5, 4]);
       ctx.strokeStyle = 'rgba(255, 140, 0, 0.4)';
       ctx.lineWidth = 1;
@@ -248,7 +382,6 @@ export function SketchViewer({
       ctx.stroke();
       ctx.setLineDash([]);
 
-      // Handles
       for (let i = 0; i < rawPts.length; i++) {
         const [px, py] = toCanvas(rawPts[i][0], rawPts[i][1]);
         ctx.beginPath();
@@ -259,7 +392,6 @@ export function SketchViewer({
         ctx.lineWidth = 1.5;
         ctx.stroke();
 
-        // Index label
         ctx.fillStyle = '#fff';
         ctx.font = 'bold 10px monospace';
         ctx.textAlign = 'center';
@@ -268,26 +400,69 @@ export function SketchViewer({
       }
     }
 
+    // ── native circle primitives — draw outlines + drag handles ──────────
+    for (const nc of nativeCircles) {
+      const [scx, scy] = toCanvas(nc.cx, nc.cy);
+      const sr = nc.r * scale;
+
+      // Draw the circle outline (dashed for bolt-circle param, solid for others)
+      ctx.beginPath();
+      ctx.arc(scx, scy, sr, 0, Math.PI * 2);
+      if (nc.paramName === 'bolt_circle_mm') {
+        ctx.setLineDash([8, 5]);
+        ctx.strokeStyle = 'rgba(150, 150, 255, 0.7)';
+      } else {
+        ctx.setLineDash([]);
+        ctx.strokeStyle = 'rgba(80, 180, 255, 0.85)';
+      }
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Diamond drag handle at 3-o'clock
+      const isDragging = draggingParam === nc.paramName;
+      const [hx, hy] = toCanvas(nc.cx + nc.r, nc.cy);
+      const s = CIRCLE_HANDLE_SIZE;
+      ctx.beginPath();
+      ctx.moveTo(hx,     hy - s);
+      ctx.lineTo(hx + s, hy);
+      ctx.lineTo(hx,     hy + s);
+      ctx.lineTo(hx - s, hy);
+      ctx.closePath();
+      ctx.fillStyle = isDragging ? '#00ffcc' : '#ff8c00';
+      ctx.fill();
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      // "R" label on handle
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 9px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('R', hx, hy);
+    }
+
     // ── info label ─────────────────────────────────────────────────────────
     const dw = (xmax - xmin).toFixed(1);
     const dh_val = (ymax - ymin).toFixed(1);
+    ctx.setLineDash([]);
     ctx.textAlign = 'left';
     ctx.textBaseline = 'alphabetic';
     ctx.fillStyle = '#445';
     ctx.font = '11px monospace';
     ctx.fillText(`${dw} × ${dh_val} mm  |  scale: ${scale.toFixed(2)}px/mm`, PAD, h - 10);
 
-    // kind label
     const kind = sketch.primitives?.[0]?.kind ?? 'sketch';
     ctx.fillStyle = '#7c7cf8';
     ctx.font = 'bold 12px monospace';
     ctx.fillText(kind.toUpperCase(), PAD, 20);
 
-  }, [sketch]);
+  }, [sketch, circleParams]);
 
   useEffect(() => { draw(); }, [draw]);
 
-  // ── resize observer — update canvas buffer size and redraw ───────────────
+  // ── resize observer ───────────────────────────────────────────────────────
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -303,7 +478,6 @@ export function SketchViewer({
       }
     });
     ro.observe(canvas);
-    // Set initial size from actual rendered dimensions
     const { clientWidth, clientHeight } = canvas;
     if (clientWidth > 0 && clientHeight > 0) {
       canvas.width = clientWidth;
@@ -317,7 +491,6 @@ export function SketchViewer({
   // ── interaction ───────────────────────────────────────────────────────────
 
   const getCtrlPts = (): number[][] | null => {
-    // Prefer externally provided control points (from live param values)
     if (controlPoints && controlPoints.length > 0) {
       return controlPoints.map(p => [...p]);
     }
@@ -336,17 +509,48 @@ export function SketchViewer({
     const rect = canvas.getBoundingClientRect();
     const mx = (e.clientX - rect.left) * (canvas.width / rect.width);
     const my = (e.clientY - rect.top) * (canvas.height / rect.height);
-    const { toCanvas } = makeTransform(bboxRef.current, canvas.width, canvas.height);
+    const { toCanvas, fromCanvas } = makeTransform(bboxRef.current, canvas.width, canvas.height);
+
+    // ── Check native circle drag handles first ────────────────────────────
+    if (onCircleRadiusChanged) {
+      const nativeCircles = extractCirclePrimitives(sketch);
+      for (const nc of nativeCircles) {
+        const [hx, hy] = toCanvas(nc.cx + nc.r, nc.cy);
+        if (Math.hypot(mx - hx, my - hy) <= CIRCLE_HANDLE_HIT) {
+          // Look up snapMode from circleParams prop (if provided)
+          const cp = circleParams?.find(p => p.paramName === nc.paramName);
+          dragRef.current = {
+            kind: 'circleDrag',
+            active: true,
+            cx: nc.cx,
+            cy: nc.cy,
+            originalR: nc.r,
+            currentR: nc.r,
+            paramName: nc.paramName,
+            snapMode: cp?.snapMode,
+          };
+          circleDragLiveRef.current = {
+            cx: nc.cx, cy: nc.cy, r: nc.r,
+            paramName: nc.paramName, snapMode: cp?.snapMode,
+          };
+          e.preventDefault();
+          return;
+        }
+      }
+    }
+
+    // ── Check spline control points ───────────────────────────────────────
     const pts = getCtrlPts();
     if (!pts) return;
     for (let i = 0; i < pts.length; i++) {
       const [cx, cy] = toCanvas(pts[i][0], pts[i][1]);
       if (Math.hypot(mx - cx, my - cy) <= HIT_RADIUS) {
-        dragRef.current = { active: true, idx: i, pts };
+        dragRef.current = { kind: 'controlPoint', active: true, idx: i, pts };
         e.preventDefault();
         return;
       }
     }
+    void fromCanvas;
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -357,20 +561,62 @@ export function SketchViewer({
     const mx = (e.clientX - rect.left) * (canvas.width / rect.width);
     const my = (e.clientY - rect.top) * (canvas.height / rect.height);
     const { fromCanvas } = makeTransform(bboxRef.current, canvas.width, canvas.height);
-    const [nx, ny] = fromCanvas(mx, my);
-    const { idx, pts } = dragRef.current;
-    const updated = pts.map((p, i) =>
-      i === idx ? [nx, ny, p[2] ?? 0, p[3] ?? 1] : p
-    );
-    dragRef.current.pts = updated;
-    draw(updated);
+
+    if (dragRef.current.kind === 'circleDrag') {
+      const drag = dragRef.current;
+      const [nx, ny] = fromCanvas(mx, my);
+      let newR = Math.hypot(nx - drag.cx, ny - drag.cy);
+      newR = Math.max(0.1, newR);
+      newR = snapRadius(newR, drag.snapMode);
+
+      drag.currentR = newR;
+      circleDragLiveRef.current = { cx: drag.cx, cy: drag.cy, r: newR, paramName: drag.paramName, snapMode: drag.snapMode };
+
+      // Redraw with preview
+      draw(undefined, { cx: drag.cx, cy: drag.cy, r: newR });
+      return;
+    }
+
+    if (dragRef.current.kind === 'controlPoint') {
+      const [nx, ny] = fromCanvas(mx, my);
+      const { idx, pts } = dragRef.current;
+      const updated = pts.map((p, i) =>
+        i === idx ? [nx, ny, p[2] ?? 0, p[3] ?? 1] : p
+      );
+      dragRef.current.pts = updated;
+      draw(updated);
+    }
   };
 
   const handleMouseUp = () => {
     if (!dragRef.current?.active) return;
-    const pts = dragRef.current.pts;
+
+    if (dragRef.current.kind === 'circleDrag') {
+      const live = circleDragLiveRef.current;
+      if (live) {
+        onCircleRadiusChanged?.(live.paramName, live.r);
+      }
+      dragRef.current = null;
+      circleDragLiveRef.current = null;
+      draw(); // redraw without preview
+      return;
+    }
+
+    if (dragRef.current.kind === 'controlPoint') {
+      const pts = dragRef.current.pts;
+      dragRef.current = null;
+      onControlPointsChanged?.(pts);
+      return;
+    }
+
     dragRef.current = null;
-    onControlPointsChanged?.(pts);
+  };
+
+  // ── cursor style ──────────────────────────────────────────────────────────
+  const getCursor = () => {
+    if (!interactive) return 'default';
+    if (dragRef.current?.kind === 'circleDrag') return 'ew-resize';
+    return 'crosshair';
   };
 
   return (
@@ -385,7 +631,7 @@ export function SketchViewer({
           display: 'block',
           width: '100%',
           height: '100%',
-          cursor: interactive ? 'crosshair' : 'default',
+          cursor: getCursor(),
         }}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}

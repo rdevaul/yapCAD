@@ -11,7 +11,7 @@
  * Triggers debounced eval on parameter change, shows eval status.
  */
 
-import { useCallback, useRef, useEffect } from 'react';
+import { useCallback, useRef, useEffect, useState } from 'react';
 import type { CommandInfo, CommandParam } from '../hooks/useTabState';
 import type { EvalResult, LatencyTier } from '../hooks/useWsEval';
 
@@ -23,6 +23,7 @@ interface ParameterPanelProps {
   onParamChange: (command: string, param: string, value: unknown) => void;
   onEval: (command: string, parameters: Record<string, unknown>) => void;
   onSetDefaults?: (command: string, params: Record<string, unknown>) => void;
+  onResetDefaults?: (command: string) => void;
   isEvaluating: boolean;
   evalResult: EvalResult | null;
   latencyTier: LatencyTier;
@@ -155,6 +156,55 @@ function ParamWidget({
     );
   }
 
+  // Float with circle_r widget → show diameter display + number input
+  if (type === 'float' && (param.ui_hint as Record<string, unknown>)?.widget === 'circle_r') {
+    const numValue = Number(value ?? param.default ?? 0);
+    const dia = numValue * 2;
+    const uiLabel = (param.ui_hint as Record<string, unknown>)?.label as string ?? param.name;
+    const snapMode = (param.ui_hint as Record<string, unknown>)?.snap as string;
+
+    return (
+      <div style={{ ...styles.paramRow, alignItems: 'flex-start', flexDirection: 'column', gap: '3px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', width: '100%' }}>
+          <label style={{ ...styles.paramLabel, color: '#ff8c00', fontWeight: 600, maxWidth: '120px' }}
+            title={`${param.name}: circle radius (mm)`}>
+            ◈ {uiLabel}
+          </label>
+          <span style={{ fontSize: '10px', color: '#888', fontFamily: 'monospace', marginLeft: 'auto' }}>
+            ⌀{dia.toFixed(2)} mm
+          </span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', paddingLeft: '8px', width: '100%' }}>
+          <label style={{ fontSize: '9px', color: '#666', whiteSpace: 'nowrap' }}>r =</label>
+          <input
+            type="number"
+            value={numValue}
+            step={0.1}
+            min={0.1}
+            onChange={e => onChange(parseFloat(e.target.value) || 0)}
+            style={{ ...styles.numberInput, width: '65px' }}
+          />
+          <span style={{ fontSize: '9px', color: '#666' }}>mm</span>
+          {snapMode && snapMode !== 'none' && (
+            <span style={{
+              fontSize: '8px', color: '#555', fontFamily: 'monospace',
+              padding: '1px 4px', border: '1px solid #333', borderRadius: '2px',
+              whiteSpace: 'nowrap', marginLeft: '2px',
+            }}>
+              {snapMode}
+            </span>
+          )}
+          <span style={{
+            fontSize: '9px', color: '#666', marginLeft: '2px', whiteSpace: 'nowrap',
+          }}
+            title="Drag the orange diamond handle on the canvas to resize">
+            ⬡ drag
+          </span>
+        </div>
+      </div>
+    );
+  }
+
   // Float → number input + optional slider
   if (type === 'float') {
     const numValue = Number(value ?? param.default ?? 0);
@@ -267,6 +317,7 @@ export function ParameterPanel({
   onParamChange,
   onEval,
   onSetDefaults,
+  onResetDefaults,
   isEvaluating,
   evalResult,
   latencyTier,
@@ -274,6 +325,7 @@ export function ParameterPanel({
   isParsing,
 }: ParameterPanelProps) {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [justSaved, setJustSaved] = useState(false);
 
   const selectedCmd = commands.find(c => c.name === selectedCommand);
   const hasParams = selectedCmd && selectedCmd.params.length > 0;
@@ -400,18 +452,43 @@ export function ParameterPanel({
             style={{
               padding: '8px 10px',
               fontSize: '12px',
-              backgroundColor: '#1a2a1a',
-              color: '#4ade80',
-              border: '1px solid #2a4a2a',
+              backgroundColor: justSaved ? '#166534' : '#1a2a1a',
+              color: justSaved ? '#bbf7d0' : '#4ade80',
+              border: justSaved ? '1px solid #4ade80' : '1px solid #2a4a2a',
               borderRadius: '4px',
               cursor: 'pointer',
               whiteSpace: 'nowrap',
               flexShrink: 0,
+              transition: 'all 0.15s ease',
             }}
-            onClick={() => onSetDefaults(selectedCommand, currentParamValues)}
+            onClick={() => {
+              onSetDefaults(selectedCommand, currentParamValues);
+              setJustSaved(true);
+              setTimeout(() => setJustSaved(false), 900);
+            }}
             title="Bake current parameter values into the DSL source as new defaults"
           >
-            ✦ Set defaults
+            {justSaved ? '✓ Saved!' : '✦ Set defaults'}
+          </button>
+        )}
+        {onResetDefaults && hasParams && (
+          <button
+            style={{
+              padding: '8px 10px',
+              fontSize: '12px',
+              backgroundColor: '#1a1a2a',
+              color: '#94a3b8',
+              border: '1px solid #2a2a50',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+              flexShrink: 0,
+              transition: 'all 0.15s ease',
+            }}
+            onClick={() => onResetDefaults(selectedCommand)}
+            title="Reset all parameters to their DSL default values"
+          >
+            ↺ Reset
           </button>
         )}
       </div>
