@@ -561,6 +561,13 @@ class SymbolTable:
             ("size", STRING, None),           # e.g., "1/4-20", "1/2-13"
         ], SOLID)
 
+        self._register_builtin("sierpinski_tetrahedron", [
+            ("width", FLOAT, None),       # bounding box X extent (mm)
+            ("height", FLOAT, None),      # bounding box Y extent (mm)
+            ("depth", FLOAT, None),       # bounding box Z extent (mm)
+            ("iterations", INT, None),    # recursion depth (1-4)
+        ], SOLID)
+
         # Text solid generation - 3D extruded text
         self._register_builtin("text_solid", [
             ("text", STRING, None),           # Text string to render

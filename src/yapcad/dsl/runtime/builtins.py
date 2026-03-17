@@ -2661,6 +2661,125 @@ class BuiltinRegistry:
             _unified_hex_nut,
         ))
 
+        # --- Sierpinski Tetrahedron ---
+
+        def _sierpinski_tetrahedron(width: Value, height: Value, depth: Value, iterations: Value) -> Value:
+            """Create a Sierpinski tetrahedron fractal solid.
+
+            Args:
+                width: Bounding box X extent (mm)
+                height: Bounding box Y extent (mm)
+                depth: Bounding box Z extent (mm)
+                iterations: Recursion depth (1-4)
+
+            Returns:
+                yapCAD solid representing the Sierpinski tetrahedron
+            """
+            w = float(width.data)
+            h = float(height.data)
+            d = float(depth.data)
+            iters = int(iterations.data)
+            iters = max(1, min(4, iters))
+
+            # Starting tetrahedron vertices for bounding box (w, h, d)
+            v0 = [0.0, 0.0, 0.0]
+            v1 = [w, 0.0, 0.0]
+            v2 = [w / 2.0, h, 0.0]
+            v3 = [w / 2.0, h / 2.0, d]
+
+            def midpoint(a, b):
+                return [(a[i] + b[i]) / 2.0 for i in range(3)]
+
+            def subdivide(verts, depth_remaining):
+                """Recursively subdivide a tetrahedron, returning leaf tet vertices."""
+                if depth_remaining == 0:
+                    return [verts]
+                p0, p1, p2, p3 = verts
+                m01 = midpoint(p0, p1)
+                m02 = midpoint(p0, p2)
+                m03 = midpoint(p0, p3)
+                m12 = midpoint(p1, p2)
+                m13 = midpoint(p1, p3)
+                m23 = midpoint(p2, p3)
+                children = [
+                    [p0, m01, m02, m03],
+                    [p1, m01, m12, m13],
+                    [p2, m02, m12, m23],
+                    [p3, m03, m13, m23],
+                ]
+                result = []
+                for child in children:
+                    result.extend(subdivide(child, depth_remaining - 1))
+                return result
+
+            leaf_tets = subdivide([v0, v1, v2, v3], iters)
+
+            from yapcad.brep import occ_available, BrepSolid, attach_brep_to_solid
+            from yapcad.geom3d import solid as make_solid_fn
+            from yapcad.geom3d import solid_boolean
+
+            if occ_available():
+                try:
+                    from OCC.Core.gp import gp_Pnt
+                    from OCC.Core.BRepBuilderAPI import (
+                        BRepBuilderAPI_MakePolygon,
+                        BRepBuilderAPI_MakeFace,
+                        BRepBuilderAPI_Sewing,
+                    )
+                    from OCC.Core.BRep import BRep_Builder
+                    from OCC.Core.TopoDS import TopoDS_Solid
+
+                    def make_tet_solid(verts):
+                        pts = [gp_Pnt(*v) for v in verts]
+                        faces_idx = [(0, 1, 2), (0, 1, 3), (0, 2, 3), (1, 2, 3)]
+                        sewing = BRepBuilderAPI_Sewing()
+                        for fi in faces_idx:
+                            poly = BRepBuilderAPI_MakePolygon()
+                            for i in fi:
+                                poly.Add(pts[i])
+                            poly.Close()
+                            face = BRepBuilderAPI_MakeFace(poly.Wire())
+                            if face.IsDone():
+                                sewing.Add(face.Face())
+                        sewing.Perform()
+                        shell = sewing.SewedShape()
+                        builder = BRep_Builder()
+                        solid_shape = TopoDS_Solid()
+                        builder.MakeSolid(solid_shape)
+                        builder.Add(solid_shape, shell)
+                        return solid_shape
+
+                    occ_solids = [make_tet_solid(t) for t in leaf_tets]
+
+                    # Union all leaf solids together
+                    result_shape = occ_solids[0]
+                    for i in range(1, len(occ_solids)):
+                        sld_a = make_solid_fn([], [], [])
+                        attach_brep_to_solid(sld_a, BrepSolid(result_shape))
+                        sld_b = make_solid_fn([], [], [])
+                        attach_brep_to_solid(sld_b, BrepSolid(occ_solids[i]))
+                        unioned = solid_boolean(sld_a, sld_b, 'union')
+                        from yapcad.brep import brep_from_solid
+                        brep = brep_from_solid(unioned)
+                        result_shape = brep.shape if brep is not None else result_shape
+
+                    result = make_solid_fn([], [], [])
+                    attach_brep_to_solid(result, BrepSolid(result_shape))
+                    return solid_val(result)
+                except Exception as exc:
+                    import sys, traceback
+                    print(f"OCC sierpinski_tetrahedron failed: {exc}", file=sys.stderr)
+                    traceback.print_exc(file=sys.stderr)
+
+            # Fallback: return empty solid if OCC unavailable
+            return solid_val(make_solid_fn([], [], []))
+
+        self.register(BuiltinFunction(
+            "sierpinski_tetrahedron",
+            _make_sig("sierpinski_tetrahedron", [FLOAT, FLOAT, FLOAT, INT], SOLID),
+            _sierpinski_tetrahedron,
+        ))
+
     # --- Boolean Functions ---
 
     def _register_boolean_functions(self) -> None:
