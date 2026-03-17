@@ -22,6 +22,21 @@ command spline_profile(
 command lathe_solid() -> solid:
     let profile: catmullrom = spline_profile()
     let region: region2d = region_from_spline(profile)
-    let axis: vector = vector(0.0, 0.0, 1.0)
+    let axis: vector = vector(1.0, 0.0, 0.0)
     let result: solid = revolve(region, axis, 360.0)
+    emit result
+
+command sierpinski_tet(
+    width: float @ui(widget="bbox_x", label="Width") = 40.0,
+    height: float @ui(widget="bbox_y", label="Height") = 40.0,
+    depth: float @ui(widget="bbox_z", label="Depth") = 40.0,
+    iterations: int @ui(widget="stepper", label="Iterations", min=1, max=4) = 3
+) -> solid:
+    let result: solid = sierpinski_tetrahedron(width, height, depth, iterations)
+    emit result
+
+command combined() -> solid:
+    let vase: solid = lathe_solid()
+    let fractal: solid = sierpinski_tet()
+    let result: solid = union(vase, fractal)
     emit result

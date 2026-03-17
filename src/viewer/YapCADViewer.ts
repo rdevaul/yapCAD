@@ -43,6 +43,12 @@ export interface BoundingBoxInfo {
 export type MeasureUnit = 'mm' | 'in';
 export type MeasureChangeCallback = (measurements: Measurement[]) => void;
 
+export interface BboxGizmoParam {
+  name: string;
+  widget: 'bbox_x' | 'bbox_y' | 'bbox_z';
+  value: number;
+}
+
 export class YapCADViewer {
   private scene: THREE.Scene;
   private camera: THREE.Camera;
@@ -62,6 +68,23 @@ export class YapCADViewer {
   private resizeObserver: ResizeObserver | null = null;
   private scaleGroup: THREE.Group = new THREE.Group();
   private showGrid: boolean = true;
+
+  // --- Bbox gizmo state ---
+  private gizmoGroup: THREE.Group = new THREE.Group();
+  private gizmoHandles: THREE.Mesh[] = [];
+  private onBboxDrag: ((name: string, value: number) => void) | null = null;
+  private onBboxDragEnd: ((name: string, value: number) => void) | null = null;
+  private gizmoDrag: {
+    param: BboxGizmoParam;
+    axisDir: THREE.Vector3;
+    axisOrigin: THREE.Vector3;
+    handleMesh: THREE.Mesh;
+    coneMesh: THREE.Mesh;
+    lineMesh: THREE.Line;
+  } | null = null;
+  private _boundGizmoDown: ((e: MouseEvent) => void) | null = null;
+  private _boundGizmoMove: ((e: MouseEvent) => void) | null = null;
+  private _boundGizmoUp: ((e: MouseEvent) => void) | null = null;
 
   // --- Measurement state ---
   private measureMode: boolean = false;
@@ -118,6 +141,7 @@ export class YapCADViewer {
     this.createScaleGrid();
     this.scene.add(this.scaleGroup);
     this.scene.add(this.measureGroup);
+    this.scene.add(this.gizmoGroup);
   }
 
   private setupLights(): void {
@@ -1040,11 +1064,221 @@ export class YapCADViewer {
     }
   }
 
+  // ─────────────────────────────────────────────────────────────────
+  //  BBOX GIZMO API
+  // ─────────────────────────────────────────────────────────────────
+
+  /**
+   * Set interactive 3D dimension handles for bbox_ params.
+   * Renders a line + cone + sphere handle for each axis param.
+   * Dragging a handle calls onDrag live; mouseup calls onDragEnd to trigger re-eval.
+   */
+  setBboxGizmos(
+    params: BboxGizmoParam[],
+    onDrag: (name: string, value: number) => void,
+    onDragEnd: (name: string, value: number) => void,
+  ): void {
+    this.clearBboxGizmos();
+    if (params.length === 0) return;
+    if (this.boundingBox.isEmpty()) return;
+
+    this.onBboxDrag = onDrag;
+    this.onBboxDragEnd = onDragEnd;
+
+    const box = this.boundingBox;
+    const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3());
+    const handleRadius = Math.max(size.length() * 0.02, 1.5);
+
+    const axisConfigs: Record<BboxGizmoParam['widget'], { dir: THREE.Vector3; axisIdx: number; color: number }> = {
+      bbox_x: { dir: new THREE.Vector3(1, 0, 0), axisIdx: 0, color: 0xff4444 },
+      bbox_y: { dir: new THREE.Vector3(0, 1, 0), axisIdx: 1, color: 0x44ff44 },
+      bbox_z: { dir: new THREE.Vector3(0, 0, 1), axisIdx: 2, color: 0x4488ff },
+    };
+
+    for (const param of params) {
+      const config = axisConfigs[param.widget];
+      if (!config) continue;
+
+      // Axis origin at bbox.min along this axis, center on other two
+      const axisOrigin = center.clone();
+      axisOrigin.setComponent(config.axisIdx, box.min.getComponent(config.axisIdx));
+
+      // Handle position at bbox.max along this axis
+      const handlePos = center.clone();
+      handlePos.setComponent(config.axisIdx, box.max.getComponent(config.axisIdx));
+
+      // Line from axis origin to handle
+      const lineGeo = new THREE.BufferGeometry().setFromPoints([axisOrigin, handlePos]);
+      const lineMat = new THREE.LineBasicMaterial({ color: config.color, depthTest: false, linewidth: 2 });
+      const line = new THREE.Line(lineGeo, lineMat);
+      line.renderOrder = 990;
+      this.gizmoGroup.add(line);
+
+      // Cone arrowhead at handle position, pointing along positive axis
+      const coneLen = handleRadius * 4;
+      const coneGeo = new THREE.ConeGeometry(handleRadius, coneLen, 8);
+      const coneMat = new THREE.MeshBasicMaterial({ color: config.color, depthTest: false });
+      const cone = new THREE.Mesh(coneGeo, coneMat);
+      cone.position.copy(handlePos);
+      // Rotate so cone points along the axis (default cone points +Y)
+      if (param.widget === 'bbox_x') cone.rotation.z = -Math.PI / 2;
+      else if (param.widget === 'bbox_z') cone.rotation.x = Math.PI / 2;
+      // bbox_y: default orientation is correct
+      cone.renderOrder = 990;
+      this.gizmoGroup.add(cone);
+
+      // Sphere drag handle
+      const sphereGeo = new THREE.SphereGeometry(handleRadius * 1.8, 10, 7);
+      const sphereMat = new THREE.MeshBasicMaterial({ color: config.color, depthTest: false });
+      const sphere = new THREE.Mesh(sphereGeo, sphereMat);
+      sphere.position.copy(handlePos);
+      sphere.renderOrder = 991;
+      sphere.userData = {
+        gizmoParam: { ...param },
+        axisDir: config.dir.clone(),
+        axisOrigin: axisOrigin.clone(),
+        lineMesh: line,
+        coneMesh: cone,
+      };
+      this.gizmoGroup.add(sphere);
+      this.gizmoHandles.push(sphere);
+    }
+
+    // Register mouse handlers
+    this._boundGizmoDown = (e: MouseEvent) => this._onGizmoMouseDown(e);
+    this._boundGizmoMove = (e: MouseEvent) => this._onGizmoMouseMove(e);
+    this._boundGizmoUp = (e: MouseEvent) => this._onGizmoMouseUp(e);
+    this.renderer.domElement.addEventListener('mousedown', this._boundGizmoDown);
+    window.addEventListener('mousemove', this._boundGizmoMove);
+    window.addEventListener('mouseup', this._boundGizmoUp);
+  }
+
+  /** Remove all bbox gizmos and event listeners. */
+  clearBboxGizmos(): void {
+    if (this._boundGizmoDown) {
+      this.renderer.domElement.removeEventListener('mousedown', this._boundGizmoDown);
+      this._boundGizmoDown = null;
+    }
+    if (this._boundGizmoMove) {
+      window.removeEventListener('mousemove', this._boundGizmoMove);
+      this._boundGizmoMove = null;
+    }
+    if (this._boundGizmoUp) {
+      window.removeEventListener('mouseup', this._boundGizmoUp);
+      this._boundGizmoUp = null;
+    }
+
+    for (const child of [...this.gizmoGroup.children]) {
+      this.gizmoGroup.remove(child);
+      if ((child as THREE.Mesh).geometry) (child as THREE.Mesh).geometry.dispose();
+      const mat = (child as THREE.Mesh | THREE.Line).material;
+      if (mat) {
+        if (Array.isArray(mat)) mat.forEach(m => m.dispose());
+        else (mat as THREE.Material).dispose();
+      }
+    }
+    this.gizmoHandles = [];
+    this.gizmoDrag = null;
+    this.onBboxDrag = null;
+    this.onBboxDragEnd = null;
+  }
+
+  private _getMouseNDC(e: MouseEvent): THREE.Vector2 {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    return new THREE.Vector2(
+      ((e.clientX - rect.left) / rect.width) * 2 - 1,
+      -((e.clientY - rect.top) / rect.height) * 2 + 1,
+    );
+  }
+
+  /** Project mouse onto a camera-facing plane through axisOrigin, then onto the axis. */
+  private _computeAxisValue(ndc: THREE.Vector2, axisOrigin: THREE.Vector3, axisDir: THREE.Vector3): number {
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(ndc, this.camera);
+
+    // Plane faces the camera, contains axisOrigin
+    const camDir = new THREE.Vector3();
+    this.camera.getWorldDirection(camDir);
+    const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(camDir, axisOrigin);
+
+    const intersection = new THREE.Vector3();
+    if (!raycaster.ray.intersectPlane(plane, intersection)) return 0;
+
+    // Project onto axis
+    return intersection.clone().sub(axisOrigin).dot(axisDir);
+  }
+
+  private _onGizmoMouseDown(e: MouseEvent): void {
+    if (this.measureMode || this.gizmoHandles.length === 0) return;
+    const ndc = this._getMouseNDC(e);
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(ndc, this.camera);
+
+    const hits = raycaster.intersectObjects(this.gizmoHandles, false);
+    if (hits.length === 0) return;
+
+    e.stopPropagation();
+    const handle = hits[0].object as THREE.Mesh;
+    const ud = handle.userData;
+
+    this.controls.enabled = false;
+    this.options.container.style.cursor = 'crosshair';
+
+    this.gizmoDrag = {
+      param: ud.gizmoParam as BboxGizmoParam,
+      axisDir: ud.axisDir as THREE.Vector3,
+      axisOrigin: ud.axisOrigin as THREE.Vector3,
+      handleMesh: handle,
+      coneMesh: ud.coneMesh as THREE.Mesh,
+      lineMesh: ud.lineMesh as THREE.Line,
+    };
+  }
+
+  private _onGizmoMouseMove(e: MouseEvent): void {
+    if (!this.gizmoDrag) return;
+    const { axisDir, axisOrigin, handleMesh, coneMesh, lineMesh, param } = this.gizmoDrag;
+
+    const ndc = this._getMouseNDC(e);
+    const newValue = Math.max(1, this._computeAxisValue(ndc, axisOrigin, axisDir));
+
+    // Update handle + cone position
+    const newPos = axisOrigin.clone().addScaledVector(axisDir, newValue);
+    handleMesh.position.copy(newPos);
+    coneMesh.position.copy(newPos);
+
+    // Update line endpoint
+    const positions = (lineMesh.geometry as THREE.BufferGeometry).getAttribute('position') as THREE.BufferAttribute;
+    positions.setXYZ(1, newPos.x, newPos.y, newPos.z);
+    positions.needsUpdate = true;
+    lineMesh.geometry.computeBoundingSphere();
+
+    this.onBboxDrag?.(param.name, newValue);
+  }
+
+  private _onGizmoMouseUp(e: MouseEvent): void {
+    if (!this.gizmoDrag) return;
+    const { axisDir, axisOrigin, param } = this.gizmoDrag;
+
+    const ndc = this._getMouseNDC(e);
+    const finalValue = Math.max(1, this._computeAxisValue(ndc, axisOrigin, axisDir));
+
+    this.controls.enabled = true;
+    this.options.container.style.cursor = '';
+    this.gizmoDrag = null;
+
+    this.onBboxDragEnd?.(param.name, finalValue);
+  }
+
   /**
    * Dispose of all resources.
    */
   dispose(): void {
     this.stop();
+
+    // Clean up gizmos
+    this.clearBboxGizmos();
+    this.scene.remove(this.gizmoGroup);
 
     // Clean up measurements
     if (this.measureMode) this.setMeasureMode(false);

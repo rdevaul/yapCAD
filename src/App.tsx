@@ -20,7 +20,7 @@ import { SketchViewer, type SketchEntity } from './components/SketchViewer';
 import { useTabState } from './hooks/useTabState';
 import { useWsEval, type EvalResult } from './hooks/useWsEval';
 import { ResizableSplit } from './components/ResizableSplit';
-import { YapCADViewer, type GeometryEntity, type Measurement, type BoundingBoxInfo, type MeasureUnit } from './viewer';
+import { YapCADViewer, type GeometryEntity, type Measurement, type BoundingBoxInfo, type MeasureUnit, type BboxGizmoParam } from './viewer';
 import { loadYapCADGeometry, type LoadedSketch } from './yapcad-loader';
 import type { PackageEntry } from './types/package';
 
@@ -291,6 +291,10 @@ export function App() {
   
   const viewerContainerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<YapCADViewer | null>(null);
+  // Ref that always points to the latest activeTab — used in bbox gizmo drag callbacks
+  // to avoid stale closures from useCallback.
+  const activeTabRef = useRef(activeTab);
+  useEffect(() => { activeTabRef.current = activeTab; }, [activeTab]);
   // Persists last-loaded geometry across view mode switches (single ↔ 4-up).
   // Viewer disposal wipes the Three.js scene; this ref lets us restore it.
   const lastEntitiesRef = useRef<GeometryEntity[] | null>(null);
@@ -431,6 +435,40 @@ export function App() {
 
       applyToActiveViewers(entities);
 
+      // ── Bbox gizmos: set up after geometry is loaded so bounding box is available ──
+      if (viewerRef.current && entities.length > 0) {
+        const tab = activeTabRef.current;
+        const cmdDef = tab?.commands.find(c => c.name === command);
+        const bboxParams: BboxGizmoParam[] = cmdDef
+          ? cmdDef.params
+              .filter(p => ['bbox_x', 'bbox_y', 'bbox_z'].includes((p.ui_hint as Record<string, unknown>)?.widget as string ?? ''))
+              .map(p => ({
+                name: p.name,
+                widget: (p.ui_hint as Record<string, unknown>).widget as BboxGizmoParam['widget'],
+                value: (tab?.paramValues[command]?.[p.name] as number) ?? (p.default as number) ?? 40,
+              }))
+          : [];
+
+        if (bboxParams.length > 0) {
+          viewerRef.current.setBboxGizmos(
+            bboxParams,
+            (name, value) => {
+              const t = activeTabRef.current;
+              if (t) updateParam(t.id, command, name, value);
+            },
+            (name, value) => {
+              const t = activeTabRef.current;
+              if (!t) return;
+              updateParam(t.id, command, name, value);
+              const mergedParams = { ...(t.paramValues[command] ?? {}), [name]: value };
+              handleCommandEvaluateRef.current(command, mergedParams);
+            },
+          );
+        } else {
+          viewerRef.current.clearBboxGizmos();
+        }
+      }
+
       // Collect sketch entities for the 2D viewer
       const newSketches: SketchEntity[] = result.sketches.map((s: LoadedSketch) => ({
         id: s.id,
@@ -466,6 +504,10 @@ export function App() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [backendUrl, dslSource, applyToActiveViewers, wsEval]);
+
+  // Ref that always points to the latest handleCommandEvaluate — used by bbox gizmo drag callbacks.
+  const handleCommandEvaluateRef = useRef(handleCommandEvaluate);
+  useEffect(() => { handleCommandEvaluateRef.current = handleCommandEvaluate; }, [handleCommandEvaluate]);
 
   // ── Tab source change → re-parse commands ──────────────────────────────────
   const handleTabSourceChange = useCallback((source: string) => {
