@@ -554,3 +554,134 @@ class TestPoly:
     #       .format(isInsideConvexPolyXY(t,tri1)))
     
     # print("done!")
+
+
+class TestArcMetadata:
+    """Tests for optional metadata on arc/circle primitives."""
+
+    def test_create_arc_no_meta(self):
+        """Existing 2-element arc still works."""
+        a = arc(point(0, 0), 5.0, 0, 90)
+        assert isarc(a)
+        assert len(a) == 2
+        assert arc_meta(a) is None
+        assert arc_normal(a) is None
+
+    def test_create_circle_no_meta(self):
+        a = arc(point(0, 0), 5.0)
+        assert isarc(a)
+        assert iscircle(a)
+        assert len(a) == 2
+        assert arc_meta(a) is None
+
+    def test_create_arc_with_meta_no_normal(self):
+        """3-element arc with dict (no normal)."""
+        a = arc(point(1, 2), 3.0, 0, 90, meta={"param": "radius_x"})
+        assert isarc(a)
+        assert len(a) == 3
+        assert isinstance(a[2], dict)
+        assert arc_meta(a) == {"param": "radius_x"}
+        assert arc_normal(a) is None
+
+    def test_create_circle_with_meta_no_normal(self):
+        a = arc(point(0, 0), 7.0, meta={"param": "plate_r", "label": "Plate"})
+        assert isarc(a)
+        assert iscircle(a)
+        assert len(a) == 3
+        assert arc_meta(a)["param"] == "plate_r"
+        assert arc_normal(a) is None
+
+    def test_create_arc_with_normal_only(self):
+        """Existing 3-element arc with normal still works."""
+        n = point(0, 0, 1)
+        a = arc(point(0, 0), 5.0, 0, 90, n=n)
+        assert isarc(a)
+        assert len(a) == 3
+        assert ispoint(a[2])
+        assert arc_normal(a) is not None
+        assert arc_meta(a) is None
+
+    def test_create_arc_with_normal_and_meta(self):
+        """4-element arc: normal + metadata."""
+        n = point(0, 0, 1)
+        a = arc(point(0, 0), 5.0, 0, 90, n=n, meta={"param": "r"})
+        assert isarc(a)
+        assert len(a) == 4
+        assert arc_normal(a) is not None
+        assert arc_meta(a) == {"param": "r"}
+
+    def test_deepcopy_preserves_meta(self):
+        """arc() copy constructor deepcopies metadata."""
+        a1 = arc(point(0, 0), 5.0, meta={"param": "test"})
+        a2 = arc(a1)  # copy
+        assert arc_meta(a2) == {"param": "test"}
+        # Mutating copy doesn't affect original
+        arc_meta(a2)["param"] = "changed"
+        assert arc_meta(a1)["param"] == "test"
+
+    def test_isarc_rejects_bad_meta(self):
+        """isarc rejects arc with non-dict at [2] that isn't a valid normal."""
+        bad = [point(0, 0), vect(5, 0, 360, -1), "not_a_dict_or_point"]
+        assert not isarc(bad)
+
+    def test_isarc_rejects_4el_without_normal(self):
+        """4-element arc requires a[2] to be a valid normal."""
+        # a[2] is a dict -> only valid as 3-element (meta-only); can't have a[3] too
+        bad = [point(0, 0), vect(5, 0, 360, -1), {"param": "x"}, {"extra": "y"}]
+        assert not isarc(bad)
+
+    def test_samplearc_with_meta_no_normal(self):
+        """samplearc works correctly on 3-element arc with dict meta."""
+        import math
+        a = arc(point(0, 0), 1.0, 0, 90, meta={"param": "r"})
+        p = samplearc(a, 0.0)
+        assert vclose(p, point(1, 0))
+        p = samplearc(a, 1.0)
+        assert vclose(p, point(0, 1))
+
+    def test_samplearc_with_normal_and_meta(self):
+        """samplearc works on 4-element arc."""
+        n = point(0, 0, 1)
+        a = arc(point(0, 0), 1.0, 0, 90, n=n, meta={"param": "r"})
+        p = samplearc(a, 0.0)
+        assert vclose(p, point(1, 0))
+
+    def test_geomlist_with_tagged_circles(self):
+        """A geomlist of tagged circles passes isgeomlist."""
+        from yapcad.geom import isgeomlist, isgeomlistXYPlanar
+        circles = [
+            arc(point(0, 0), 175.0, meta={"param": "plate_r"}),
+            arc(point(0, 130), 1.65, meta={"param": "tap_r"}),
+            arc(point(0, 0), 6.75, meta={"param": "center_r"}),
+        ]
+        assert isgeomlist(circles)
+        assert isgeomlistXYPlanar(circles)
+
+    def test_isgeomlistXYPlanar_tagged_nonplanar_arc(self):
+        """Tagged arc with non-XY normal correctly fails XYPlanar test."""
+        from yapcad.geom import isgeomlistXYPlanar, mag
+        import math
+        # Arc in XZ plane: normal = [0,1,0]
+        n = point(0, 1, 0)
+        a = arc(point(0, 0), 5.0, 0, 90, n=n, meta={"param": "r"})
+        gl = [a]
+        assert not isgeomlistXYPlanar(gl)
+
+    def test_arcbbox_with_meta(self):
+        """arcbbox/bbox works on tagged circles."""
+        from yapcad.geom import bbox
+        a = arc(point(5, 5), 3.0, meta={"param": "r"})
+        b = bbox(a)
+        assert b is not False
+        # Circle of radius 3 centered at (5,5): bbox should span [2,8] x [2,8]
+        assert close(b[0][0], 2.0)
+        assert close(b[1][0], 8.0)
+
+    def test_circle_circle_intersect_with_meta(self):
+        """arcArcIntersectXY works on tagged circles (inside=False treats them as full circles)."""
+        from yapcad.geom import arcArcIntersectXY
+        c1 = arc(point(0, 0), 5.0, meta={"param": "c1"})
+        c2 = arc(point(6, 0), 5.0, meta={"param": "c2"})
+        pts = arcArcIntersectXY(c1, c2, inside=False)
+        assert pts is not False
+        assert len(pts) == 2

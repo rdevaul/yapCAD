@@ -10,6 +10,8 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple, Sequence
 
 from yapcad.geom import (
     arc,
+    arc_meta,
+    arc_normal,
     catmullrom,
     ellipse,
     isnurbs,
@@ -233,9 +235,34 @@ def _sample_geometry_element(element: list, min_segments: int = 8) -> List[List[
     return points
 
 
+def _is_region_with_holes(geomlist: list) -> bool:
+    """Check if geomlist is a [outer_boundary, hole, ...] structure from difference2d."""
+    if not isinstance(geomlist, list) or len(geomlist) < 1:
+        return False
+    first = geomlist[0]
+    if not isinstance(first, list) or len(first) == 0:
+        return False
+    first_elem = first[0]
+    return isinstance(first_elem, list) and len(first_elem) >= 2 and isinstance(first_elem[0], list)
+
+
+def _flatten_region_with_holes(geomlist: list) -> list:
+    """Flatten [outer, hole1, hole2, ...] into a single geomlist of primitives."""
+    flat = []
+    for sublist in geomlist:
+        if isinstance(sublist, list):
+            flat.extend(sublist)
+    return flat
+
+
 def _serialize_sketch(geomlist: list, metadata_override: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     poly_vectors: List[List[List[float]]] = []
     primitives: List[Dict[str, Any]] = []
+
+    # Unwrap "region with holes" structure: [outer_boundary, hole1, hole2, ...]
+    # produced by difference2d/difference2d_all when holes are fully inside the outer.
+    if _is_region_with_holes(geomlist):
+        geomlist = _flatten_region_with_holes(geomlist)
 
     for element in geomlist:
         if isline(element):
@@ -258,8 +285,12 @@ def _serialize_sketch(geomlist: list, metadata_override: Optional[Dict[str, Any]
                 "radius": radius,
                 "orientation": int(element[1][3]),
             }
-            if len(element) >= 3:
-                primitive["normal"] = _point_components(element[2])
+            norm = arc_normal(element)
+            if norm is not None:
+                primitive["normal"] = _point_components(norm)
+            meta = arc_meta(element)
+            if meta:
+                primitive["meta"] = meta
             primitives.append(primitive)
             poly_vectors.append(_sample_geometry_element(element))
         elif isarc(element):
@@ -275,8 +306,12 @@ def _serialize_sketch(geomlist: list, metadata_override: Optional[Dict[str, Any]
                 "end": end_angle,
                 "orientation": int(element[1][3]),
             }
-            if len(element) >= 3:
-                primitive["normal"] = _point_components(element[2])
+            norm = arc_normal(element)
+            if norm is not None:
+                primitive["normal"] = _point_components(norm)
+            meta = arc_meta(element)
+            if meta:
+                primitive["meta"] = meta
             primitives.append(primitive)
             poly_vectors.append(_sample_geometry_element(element))
         elif isellipse(element):

@@ -84,3 +84,53 @@ def test_sketch_primitives_roundtrip():
     assert any(isarc(entity) and not iscircle(entity) for entity in returned_geom)
     assert any(iscatmullrom(entity) for entity in returned_geom)
     assert any(isnurbs(entity) for entity in returned_geom)
+
+
+# --- Arc/circle metadata serialization tests ---
+
+def test_circle_with_normal_serializes():
+    """3-element circle (with normal) correctly serializes normal field."""
+    from yapcad.geom import arc_normal, point
+    n = point(0, 0, 1)
+    c = arc(point(3, 4), 2.5, 0, 360, n=n)
+    assert arc_normal(c) is not None
+    doc = geometry_to_json([[c]])
+    sketch = next(e for e in doc['entities'] if e['type'] == 'sketch')
+    prim = next(p for p in sketch['primitives'] if p['kind'] == 'circle')
+    assert 'normal' in prim
+    assert prim['radius'] == 2.5
+
+
+def test_circle_with_meta_serializes():
+    """3-element circle (with metadata dict) serializes meta field."""
+    c = arc(point(0, 0), 5.0, meta={"param": "plate_r", "label": "Plate"})
+    doc = geometry_to_json([[c]])
+    sketch = next(e for e in doc['entities'] if e['type'] == 'sketch')
+    prim = next(p for p in sketch['primitives'] if p['kind'] == 'circle')
+    assert 'meta' in prim
+    assert prim['meta']['param'] == 'plate_r'
+    assert 'normal' not in prim  # no normal on this arc
+
+
+def test_circle_with_normal_and_meta_serializes():
+    """4-element circle serializes both normal and meta."""
+    n = point(0, 0, 1)
+    c4 = arc(point(0, 0), 3.0, 0, 360, n=n, meta={"param": "r4"})
+    doc = geometry_to_json([[c4]])
+    sketch = next(e for e in doc['entities'] if e['type'] == 'sketch')
+    prim = next(p for p in sketch['primitives'] if p['kind'] == 'circle')
+    assert 'normal' in prim
+    assert 'meta' in prim
+    assert prim['meta']['param'] == 'r4'
+
+
+def test_arc_with_meta_serializes():
+    """Arc (not full circle) with metadata serializes correctly."""
+    a = arc(point(0, 0), 5.0, 0, 90, meta={"param": "arc_r"})
+    doc = geometry_to_json([[a]])
+    sketch = next(e for e in doc['entities'] if e['type'] == 'sketch')
+    prim = next(p for p in sketch['primitives'] if p['kind'] == 'arc')
+    assert prim['radius'] == 5.0
+    assert prim['start'] == 0.0
+    assert prim['end'] == 90.0
+    assert prim['meta']['param'] == 'arc_r'

@@ -43,15 +43,35 @@ def _scalar_type_name(value: Any) -> str:
     return "unknown"
 
 
+def _is_curve_value(geom: Any) -> bool:
+    """Check if value is a yapCAD curve structure (catmullrom, bezier, nurbs, etc.)"""
+    return (
+        isinstance(geom, list)
+        and len(geom) >= 2
+        and isinstance(geom[0], str)
+        and geom[0] in ("catmullrom", "bezier", "nurbs", "line_segment", "arc",
+                        "circle", "ellipse", "parabola", "hyperbola", "path2d",
+                        "path3d", "profile2d", "region2d", "loop3d")
+    )
+
+
 def _normalize_geometry(geom: Any):
     if geom is None:
         return []
-    if issolid(geom) or issurface(geom) or isgeomlist(geom):
+    if issolid(geom) or issurface(geom):
+        return [geom]
+    # Curve/spline — wrap in a geomlist so _serialize_sketch sees the full curve structure
+    if _is_curve_value(geom):
+        return [[geom]]  # [[curve]] = geomlist containing the curve
+    if isgeomlist(geom):
         return [geom]
     if isinstance(geom, list) and geom and all(
-        (issolid(g) or issurface(g) or isgeomlist(g)) for g in geom
+        (issolid(g) or issurface(g) or isgeomlist(g) or _is_curve_value(g)) for g in geom
     ):
-        return geom
+        result = []
+        for g in geom:
+            result.extend(_normalize_geometry(g))
+        return result
     raise ValueError(f"Unsupported geometry type: {type(geom).__name__}")
 
 
@@ -70,7 +90,7 @@ async def ws_dsl_eval(ws: WebSocket):
             if msg_type == "eval":
                 request_id = msg.get("request_id", "")
                 command = msg.get("command", "")
-                params = msg.get("params", {})
+                params = msg.get("parameters", msg.get("params", {}))
                 source = msg.get("source", "")
 
                 # Cancel any existing task with same request_id

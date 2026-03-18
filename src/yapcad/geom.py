@@ -2286,10 +2286,22 @@ def linePointXYDist(l,p,inside=True):
 
 ## make an arc, copying points, value-safe
 ## NOTE: if start and end are not specified, a full circle is created
-def arc(c,rp=False,sn=False,e=False,n=False,samplereverse=False):
+def arc(c,rp=False,sn=False,e=False,n=False,samplereverse=False,meta=None):
     """
     Construct an arc by copying an eisting arc or specifying a center ``c`` and various optional parameters.
 
+    An optional ``meta`` keyword argument (a dict) may be supplied to attach
+    arbitrary metadata to the arc primitive.  When present, the arc takes
+    one of the following forms depending on whether a plane normal is also
+    given:
+
+    * ``[center, psu]``               – no normal, no meta  (2-element)
+    * ``[center, psu, normal]``       – normal only          (3-element)
+    * ``[center, psu, meta]``         – meta only            (3-element, dict at [2])
+    * ``[center, psu, normal, meta]`` – normal + meta        (4-element)
+
+    The discriminator between a normal and a metadata dict is
+    ``isinstance(a[2], dict)``; dicts are never valid unit vectors.
     """
     if isarc(c):
         return deepcopy(c)
@@ -2305,10 +2317,14 @@ def arc(c,rp=False,sn=False,e=False,n=False,samplereverse=False):
                 raise ValueError('negative radius not allowed for arc')
             psu[3]=w
             if not sn:
+                if meta and isinstance(meta, dict):
+                    return [ cen, psu, meta ]
                 return [ cen, psu ]
             else:
                 if not ispoint(sn) or abs(mag(sn)-1.0) > epsilon:
                     raise ValueError('bad (non-unitary) plane vector for arc')
+                if meta and isinstance(meta, dict):
+                    return [ cen, psu, point(sn), meta ]
                 return [ cen, psu, point(sn) ]
         elif isgoodnum(rp):
             r = rp
@@ -2321,10 +2337,14 @@ def arc(c,rp=False,sn=False,e=False,n=False,samplereverse=False):
                 end = e
             psu = vect(r,start,end,w)
             if not n:
+                if meta and isinstance(meta, dict):
+                    return [ cen, psu, meta ]
                 return [ cen, psu ]
             else:
                 if not ispoint(n) or abs(mag(n)-1.0) > epsilon:
                     raise ValueError('bad (non-unitary) plane vector for arc')
+                if meta and isinstance(meta, dict):
+                    return [ cen, psu, point(n), meta ]
                 return [ cen, psu, point(n) ]
 
     raise ValueError('bad arguments passed to arc()')
@@ -2337,7 +2357,7 @@ def isarc(a):
     if not isinstance(a,list):
         return False
     n = len(a)
-    if n < 2 or n > 3:
+    if n < 2 or n > 4:
         return False
     if not (ispoint(a[0]) and isvect(a[1])):
         return False
@@ -2347,12 +2367,52 @@ def isarc(a):
     if r < 0:
         # is radius less than zero? if so, not a valid arc
         return False
-    if n == 3 and ( not ispoint(a[2]) or abs(mag(a[2])-1.0) > epsilon):
-        # if plane-definition vector is included but is non-unitary,
-        # it's not a valid arc
-        return False
-    
+    # a[2] is either a normal (ispoint, unit length) or a metadata dict
+    if n >= 3:
+        if isinstance(a[2], dict):
+            pass  # metadata dict — valid; implies no normal
+        elif ispoint(a[2]) and abs(mag(a[2])-1.0) <= epsilon:
+            pass  # valid unit-length normal vector
+        else:
+            return False
+    # a[3], if present, must be a metadata dict; a[2] must then be a valid normal
+    if n == 4:
+        if not isinstance(a[3], dict):
+            return False
+        # in the 4-element case a[2] must be a valid normal (not a dict)
+        if not (ispoint(a[2]) and abs(mag(a[2])-1.0) <= epsilon):
+            return False
     return True
+
+def arc_meta(a):
+    """Return metadata dict from arc, or None if not present.
+
+    Valid arc forms with metadata:
+    * ``[center, psu, meta_dict]``         – 3-element, no normal
+    * ``[center, psu, normal, meta_dict]`` – 4-element, normal + meta
+    """
+    if not isarc(a):
+        return None
+    n = len(a)
+    if n == 3 and isinstance(a[2], dict):
+        return a[2]
+    if n == 4 and isinstance(a[3], dict):
+        return a[3]
+    return None
+
+def arc_normal(a):
+    """Return plane normal from arc, or None if not specified.
+
+    Valid arc forms with a normal:
+    * ``[center, psu, normal]``            – 3-element, normal only
+    * ``[center, psu, normal, meta_dict]`` – 4-element, normal + meta
+    """
+    if not isarc(a):
+        return None
+    n = len(a)
+    if n >= 3 and ispoint(a[2]):
+        return a[2]
+    return None
 
 ## test to see if an arc is a circle.  NOTE that due to modulus
 ## arithmetic, it's not possible to specify an arc with a full 360
@@ -2418,8 +2478,8 @@ def samplearc(c,u,polar=False):
         end = end % 360.0
         if end < start:
             end += 360.0
-    if len(c) == 3:
-        norm = c[2]
+    norm = arc_normal(c)
+    if norm is not None:
         if dist(norm,vect(0,0,1)) > epsilon:
             raise NotImplementedError('non x-y plane arc sampling not yet supported')
     angle = ((end-start)*u+start)%360.0
@@ -2472,8 +2532,8 @@ def unsamplearc(c,p):
     if close(start,end):
         # degenerate, zero-length arc
         return False
-    if len(c) == 3:
-        norm = c[2]
+    norm = arc_normal(c)
+    if norm is not None:
         if dist(norm,vect(0,0,1)) > epsilon:
             raise NotImplementedError('non x-y plane arc unsampling not yet supported')
     if abs(mag(x)-r) > epsilon:
@@ -2712,8 +2772,8 @@ def arcArcIntersectXY(c1,c2,inside=True,params=False):
     """
     
     for c in [c1,c2]:
-        if len(c) == 3:
-            norm = c[2]
+        norm = arc_normal(c)
+        if norm is not None:
             if dist(norm,vect(0,0,1)) > epsilon:
                 raise ValueError('arc passed to lineArcIntersectXY does not lie in x-y plane')
     if not isXYPlanar([c1[0],c2[0]]):
@@ -2840,8 +2900,8 @@ def lineArcIntersectXY(l,c,inside=True,params=False):
 
     """
     
-    if len(c) == 3:
-        norm = c[2]
+    norm = arc_normal(c)
+    if norm is not None:
         if dist(norm,vect(0,0,1)) > epsilon:
             raise ValueError('arc passed to lineArcIntersectXY does not lie in x-y plane')
     points = l + [ c[0] ]
@@ -3639,7 +3699,8 @@ def isgeomlistXYPlanar(gl):
             pp = pp + g
         elif isarc(g):
             pp.append(g[0])
-            if len(g) > 2 and not vclose(g[2],point(0,0,1)):
+            norm = arc_normal(g)
+            if norm is not None and not vclose(norm,point(0,0,1)):
                 return False
         elif isgeomlist(g):
             if not isgeomlistXYPlanar(g):

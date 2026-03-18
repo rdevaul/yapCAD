@@ -71,13 +71,9 @@ def _normalize_emitted_geometry(geom: Any):
     if issolid(geom) or issurface(geom):
         return [geom]
 
-    # Curve/spline value — treat as a geomlist of control points for serialization
-    # The control points are in geom[1]
+    # Curve/spline — wrap in a geomlist so _serialize_sketch sees the full curve structure
     if _is_curve_value(geom):
-        pts = geom[1]
-        if isgeomlist(pts):
-            return [pts]
-        return []
+        return [[geom]]  # [[curve]] = geomlist containing the curve
 
     # geomlist (list of points/vectors/segments)
     if isgeomlist(geom):

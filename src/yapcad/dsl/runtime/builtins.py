@@ -580,11 +580,21 @@ class BuiltinRegistry:
                 ARC
             )
 
-        def _circle(center: Value, radius: Value) -> Value:
-            """Create a circle."""
+        def _circle(center: Value, radius: Value, *args: Value) -> Value:
+            """Create a circle, optionally tagged with metadata.
+
+            Args:
+                center: Center point
+                radius: Radius
+                param_name: (optional) string — stored as {"param": param_name}
+                            in arc metadata
+            """
             from yapcad.geom import arc
+            meta = None
+            if args:
+                meta = {"param": str(args[0].data)}
             # Full circle is an arc from 0 to 360
-            return wrap_value(arc(center.data, radius.data, 0, 360), CIRCLE)
+            return wrap_value(arc(center.data, radius.data, 0, 360, meta=meta), CIRCLE)
 
         # Curve constructors
         self.register(BuiltinFunction(
@@ -599,7 +609,7 @@ class BuiltinRegistry:
         ))
         self.register(BuiltinFunction(
             "circle",
-            _make_sig("circle", [POINT, FLOAT], CIRCLE),
+            _make_sig("circle", [POINT, FLOAT], CIRCLE, is_variadic=True),
             _circle,
         ))
 

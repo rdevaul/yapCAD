@@ -1597,3 +1597,24 @@ class TestFunctionalCombinators:
         holes_vol = 6 * math.pi * 25.0 * 10.0
         expected = plate_vol - holes_vol
         assert abs(volumeof(exec_result.geometry) - expected) < expected * 0.05
+
+
+# --- DSL circle builtin with metadata ---
+
+def test_circle_builtin_with_param_name():
+    """circle(center, r, 'my_param') stores param name in metadata."""
+    from yapcad.geom import iscircle, arc_meta
+    source = '''
+module test
+command mk_circle() -> circle:
+    let c: circle = circle(point(0.0, 0.0, 0.0), 5.0, "plate_r")
+    emit c
+'''
+    from yapcad.dsl.runtime.interpreter import compile_and_run
+    result = compile_and_run(source=source, command_name="mk_circle", parameters={})
+    assert result.success, f"DSL error: {result.error_message}"
+    raw = result.geometry
+    assert iscircle(raw)
+    meta = arc_meta(raw)
+    assert meta is not None
+    assert meta["param"] == "plate_r"
