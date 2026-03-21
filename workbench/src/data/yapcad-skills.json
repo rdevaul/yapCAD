@@ -1,0 +1,103 @@
+[
+  {
+    "name": "tank-dome",
+    "description": "Generate a WAAM propellant tank dome profile",
+    "category": "Rocket",
+    "promptTemplate": "Generate a WAAM propellant tank dome using the tank_dome profile command. Parameters:\n- neck_radius: {{neck_radius}} mm (port opening)\n- tank_radius: {{tank_radius}} mm (main body)\n- total_height: {{total_height}} mm (dome height)\n- tension: {{tension}} (0-1, Bézier curve tension)\n- lead_in_length: {{lead_in_length}} mm\n- lead_out_length: {{lead_out_length}} mm\n\nUse compaction.mode: safeguard. Ensure the dome is watertight and overhang angle stays under 45°.",
+    "params": [
+      { "name": "neck_radius", "default": "31.75", "unit": "mm" },
+      { "name": "tank_radius", "default": "177.8", "unit": "mm" },
+      { "name": "total_height", "default": "150", "unit": "mm" },
+      { "name": "tension", "default": "0.5", "unit": "" },
+      { "name": "lead_in_length", "default": "20", "unit": "mm" },
+      { "name": "lead_out_length", "default": "10", "unit": "mm" }
+    ]
+  },
+  {
+    "name": "cylinder",
+    "description": "Create a cylinder primitive",
+    "category": "Primitives",
+    "promptTemplate": "Create a cylinder with radius {{radius}} mm and height {{height}} mm. Center it at the origin.",
+    "params": [
+      { "name": "radius", "default": "50", "unit": "mm" },
+      { "name": "height", "default": "100", "unit": "mm" }
+    ]
+  },
+  {
+    "name": "boolean-subtract",
+    "description": "Subtract one solid from another",
+    "category": "Boolean",
+    "promptTemplate": "Perform a boolean subtraction: {{target}} minus {{tool}}. Use the OCC boolean engine. Verify the result is manifold (watertight) and report any errors.",
+    "params": [
+      { "name": "target", "default": "outer_shell", "unit": "" },
+      { "name": "tool", "default": "inner_cavity", "unit": "" }
+    ]
+  },
+  {
+    "name": "revolve",
+    "description": "Revolve a 2D profile into a solid of revolution",
+    "category": "Operations",
+    "promptTemplate": "Revolve the profile around the Z axis to create a watertight solid. Profile points: {{profile_points}}. Use lathe() with {{steps}} steps. Verify manifold geometry after creation.",
+    "params": [
+      { "name": "profile_points", "default": "[(0,0),(50,0),(50,100),(0,100)]", "unit": "" },
+      { "name": "steps", "default": "64", "unit": "" }
+    ]
+  },
+  {
+    "name": "fillet",
+    "description": "Fillet/round an edge",
+    "category": "Operations",
+    "promptTemplate": "Apply a fillet with radius {{radius}} mm to the specified edge(s) of {{solid_name}}. Use the OCC fillet operation and verify the result is still manifold.",
+    "params": [
+      { "name": "solid_name", "default": "my_solid", "unit": "" },
+      { "name": "radius", "default": "5", "unit": "mm" }
+    ]
+  },
+  {
+    "name": "shell",
+    "description": "Hollow out a solid to create a thin shell",
+    "category": "Operations",
+    "promptTemplate": "Create a hollow shell from {{solid_name}} with wall thickness {{thickness}} mm. Remove the {{face}} face to create an opening. Use OCC shell operation.",
+    "params": [
+      { "name": "solid_name", "default": "my_solid", "unit": "" },
+      { "name": "thickness", "default": "5", "unit": "mm" },
+      { "name": "face", "default": "bottom", "unit": "" }
+    ]
+  },
+  {
+    "name": "tank-assembly",
+    "description": "Generate a full propellant tank assembly (body + dome + skirts)",
+    "category": "Rocket",
+    "promptTemplate": "Generate a complete WAAM propellant tank assembly with:\n- Cylindrical body: diameter {{diameter}} mm, length {{body_length}} mm\n- Dome profile: neck_radius {{neck_radius}} mm, tension {{tension}}\n- Skirts: top and bottom, {{skirt_length}} mm long\n- Wall thickness: {{wall_thickness}} mm\n\nExport as a single manifold solid. Target volume: {{volume}} liters.",
+    "params": [
+      { "name": "diameter", "default": "355.6", "unit": "mm" },
+      { "name": "body_length", "default": "400", "unit": "mm" },
+      { "name": "neck_radius", "default": "31.75", "unit": "mm" },
+      { "name": "tension", "default": "0.5", "unit": "" },
+      { "name": "skirt_length", "default": "50", "unit": "mm" },
+      { "name": "wall_thickness", "default": "5.7", "unit": "mm" },
+      { "name": "volume", "default": "4.0", "unit": "liters" }
+    ]
+  },
+  {
+    "name": "debug-boolean",
+    "description": "Debug a boolean operation failure",
+    "category": "Debug",
+    "promptTemplate": "I'm getting a boolean operation error. Please diagnose: {{error_message}}\n\nContext:\n- Operation: {{operation}} (union/difference/intersection)\n- Solid A: {{solid_a}}\n- Solid B: {{solid_b}}\n\nCheck for: non-manifold inputs, coincident faces, degenerate edges, self-intersections. Suggest fixes.",
+    "params": [
+      { "name": "error_message", "default": "BRep_API: command not done", "unit": "" },
+      { "name": "operation", "default": "difference", "unit": "" },
+      { "name": "solid_a", "default": "outer", "unit": "" },
+      { "name": "solid_b", "default": "inner", "unit": "" }
+    ]
+  },
+  {
+    "name": "check-manifold",
+    "description": "Verify geometry is watertight/manifold",
+    "category": "Debug",
+    "promptTemplate": "Check if the geometry {{solid_name}} is manifold (watertight). Run trimesh.is_watertight and report:\n- Is it watertight?\n- Number of open edges (should be 0)\n- Number of faces, vertices\n- Any self-intersections?\n\nIf not manifold, suggest the most likely cause and fix.",
+    "params": [
+      { "name": "solid_name", "default": "my_solid", "unit": "" }
+    ]
+  }
+]

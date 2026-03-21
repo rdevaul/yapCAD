@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>yapCAD Web Viewer</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { 
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a2e; 
+      color: #eee;
+      overflow: hidden;
+    }
+    #container { width: 100vw; height: 100vh; }
+    #info {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      padding: 12px 16px;
+      background: rgba(0,0,0,0.8);
+      border-radius: 8px;
+      font-size: 14px;
+      max-width: 320px;
+    }
+    #info h1 { font-size: 16px; margin-bottom: 8px; color: #99d4ff; }
+    #info p { margin: 4px 0; opacity: 0.8; }
+    #package-select {
+      margin: 8px 0;
+      padding: 6px 10px;
+      border-radius: 4px;
+      border: 1px solid #555;
+      background: #333;
+      color: #fff;
+      font-size: 13px;
+      width: 100%;
+    }
+    #stats {
+      position: absolute;
+      bottom: 10px;
+      left: 10px;
+      padding: 8px 12px;
+      background: rgba(0,0,0,0.8);
+      border-radius: 6px;
+      font-size: 12px;
+      font-family: monospace;
+    }
+    .loading { color: #ffcc00; }
+    .error { color: #ff6666; }
+    .success { color: #66ff66; }
+  </style>
+</head>
+<body>
+  <div id="container"></div>
+  <div id="info">
+    <h1>🎂 yapCAD Web Viewer</h1>
+    <p>Drag to rotate • Scroll to zoom</p>
+    <select id="package-select">
+      <option value="">Loading packages...</option>
+    </select>
+    <p id="status" class="loading">Connecting to server...</p>
+  </div>
+  <div id="stats"></div>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    // API base URL (same origin)
+    const API_BASE = '/api';
+
+    // ========================================================================
+    // Inline geometry loader
+    // ========================================================================
+    
+    function loadYapCADGeometry(json) {
+      const doc = typeof json === 'string' ? JSON.parse(json) : json;
+      
+      const surfaceMap = new Map();
+      const solidEntities = [];
+      const standaloneSurfaces = [];
+      const surfacesInSolids = new Set();
+      
+      for (const entity of doc.entities) {
+        if (entity.type === 'surface') {
+          surfaceMap.set(entity.id, entity);
+        } else if (entity.type === 'solid') {
+          solidEntities.push(entity);
+          for (const surfId of entity.shell || []) {
+            surfacesInSolids.add(surfId);
+          }
+        }
+      }
+      
+      for (const entity of doc.entities) {
+        if (entity.type === 'surface' && !surfacesInSolids.has(entity.id)) {
+          standaloneSurfaces.push(entity);
+        }
+      }
+      
+      const loadedSolids = [];
+      const layers = new Set();
+      const overallBox = new THREE.Box3();
+      
+      for (const solidEntity of solidEntities) {
+        const solidLayer = solidEntity.metadata?.layer || 'default';
+        layers.add(solidLayer);
+        
+        const loadedSurfaces = [];
+        
+        for (const surfId of solidEntity.shell || []) {
+          const surfEntity = surfaceMap.get(surfId);
+          if (!surfEntity) continue;
+          
+          const geometry = createBufferGeometry(surfEntity);
+          if (geometry) {
+            geometry.computeBoundingBox();
+            if (geometry.boundingBox) {
+              overallBox.union(geometry.boundingBox);
+            }
+            
+            loadedSurfaces.push({
+              id: surfId,
+              geometry,
+              layer: surfEntity.metadata?.layer || solidLayer,
+            });
+          }
+        }
+        
+        loadedSolids.push({
+          id: solidEntity.id,
+          surfaces: loadedSurfaces,
+          layer: solidLayer,
+        });
+      }
+      
+      const loadedStandaloneSurfaces = [];
+      for (const surfEntity of standaloneSurfaces) {
+        const geometry = createBufferGeometry(surfEntity);
+        if (geometry) {
+          geometry.computeBoundingBox();
+          if (geometry.boundingBox) {
+            overallBox.union(geometry.boundingBox);
+          }
+          loadedStandaloneSurfaces.push({
+            id: surfEntity.id,
+            geometry,
+            layer: surfEntity.metadata?.layer || 'default',
+          });
+        }
+      }
+      
+      return {
+        document: doc,
+        solids: loadedSolids,
+        surfaces: loadedStandaloneSurfaces,
+        boundingBox: overallBox,
+        layers,
+      };
+    }
+
+    function createBufferGeometry(entity) {
+      if (!entity.vertices || !entity.faces) return null;
+      
+      const vertices = entity.vertices;
+      const normals = entity.normals || [];
+      const faces = entity.faces;
+      
+      const positionArray = [];
+      const normalArray = [];
+      const indexArray = [];
+      
+      for (let i = 0; i < vertices.length; i++) {
+        const v = vertices[i];
+        positionArray.push(v[0], v[1], v[2]);
+        
+        if (i < normals.length) {
+          const n = normals[i];
+          normalArray.push(n[0], n[1], n[2]);
+        } else {
+          normalArray.push(0, 0, 1);
+        }
+      }
+      
+      for (const face of faces) {
+        if (face.length === 3) {
+          indexArray.push(face[0], face[1], face[2]);
+        }
+      }
+      
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(positionArray, 3));
+      geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normalArray, 3));
+      geometry.setIndex(indexArray);
+      geometry.userData = { entityId: entity.id };
+      
+      return geometry;
+    }
+
+    // ========================================================================
+    // Scene setup
+    // ========================================================================
+
+    const container = document.getElementById('container');
+    const statusEl = document.getElementById('status');
+    const statsEl = document.getElementById('stats');
+    const packageSelect = document.getElementById('package-select');
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x1a1a2e);
+
+    const camera = new THREE.PerspectiveCamera(
+      50,
+      window.innerWidth / window.innerHeight,
+      0.1,
+      10000
+    );
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    container.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
+
+    // Lighting
+    scene.add(new THREE.AmbientLight(0x404040, 0.5));
+    
+    const light1 = new THREE.DirectionalLight(0xffffff, 1);
+    light1.position.set(10, 20, 20);
+    scene.add(light1);
+    
+    const light2 = new THREE.DirectionalLight(0x8888ff, 0.5);
+    light2.position.set(-10, -20, 20);
+    scene.add(light2);
+
+    // Grid
+    const grid = new THREE.GridHelper(100, 20, 0x444466, 0x333344);
+    grid.rotation.x = Math.PI / 2;
+    scene.add(grid);
+
+    // Track loaded meshes for cleanup
+    let loadedMeshes = [];
+
+    // ========================================================================
+    // API functions
+    // ========================================================================
+
+    async function fetchPackages() {
+      const response = await fetch(`${API_BASE}/packages`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.json();
+    }
+
+    async function fetchPackageDetails(packageId) {
+      const response = await fetch(`${API_BASE}/packages/${packageId}`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.json();
+    }
+
+    async function fetchGeometry(url) {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.json();
+    }
+
+    // ========================================================================
+    // Load and display geometry
+    // ========================================================================
+
+    function clearScene() {
+      for (const mesh of loadedMeshes) {
+        scene.remove(mesh);
+        if (mesh.geometry) mesh.geometry.dispose();
+        if (mesh.material) mesh.material.dispose();
+      }
+      loadedMeshes = [];
+    }
+
+    async function loadPackage(packageId) {
+      clearScene();
+      statusEl.className = 'loading';
+      statusEl.textContent = `Loading ${packageId}...`;
+
+      try {
+        // Get package details
+        const details = await fetchPackageDetails(packageId);
+        
+        // Load all geometry files
+        const colors = [
+          [0.6, 0.85, 1.0],   // blue
+          [1.0, 0.6, 0.4],    // orange
+          [0.5, 0.9, 0.5],    // green
+          [0.9, 0.5, 0.9],    // purple
+        ];
+        
+        let totalTriangles = 0;
+        let totalSolids = 0;
+        const allLayers = new Set();
+        const overallBox = new THREE.Box3();
+
+        for (const geoFile of details.geometry_files) {
+          const json = await fetchGeometry(geoFile.url);
+          const result = loadYapCADGeometry(json);
+          
+          // Add solids to scene
+          let solidIndex = 0;
+          for (const solid of result.solids) {
+            const color = colors[(totalSolids + solidIndex) % colors.length];
+            const material = new THREE.MeshStandardMaterial({
+              color: new THREE.Color(color[0], color[1], color[2]),
+              metalness: 0.1,
+              roughness: 0.6,
+              side: THREE.DoubleSide,
+            });
+            
+            const group = new THREE.Group();
+            group.name = `solid-${solid.id}`;
+            
+            for (const surface of solid.surfaces) {
+              const mesh = new THREE.Mesh(surface.geometry, material);
+              group.add(mesh);
+              
+              const index = surface.geometry.getIndex();
+              if (index) totalTriangles += index.count / 3;
+            }
+            
+            scene.add(group);
+            loadedMeshes.push(group);
+            solidIndex++;
+          }
+          
+          totalSolids += result.solids.length;
+          result.layers.forEach(l => allLayers.add(l));
+          
+          if (!result.boundingBox.isEmpty()) {
+            overallBox.union(result.boundingBox);
+          }
+        }
+
+        // Position camera to fit all geometry
+        if (!overallBox.isEmpty()) {
+          const center = new THREE.Vector3();
+          const size = new THREE.Vector3();
+          overallBox.getCenter(center);
+          overallBox.getSize(size);
+          
+          const maxDim = Math.max(size.x, size.y, size.z);
+          const distance = maxDim * 2;
+          
+          camera.position.set(
+            center.x + distance * 0.7,
+            center.y + distance * 0.5,
+            center.z + distance * 0.7
+          );
+          controls.target.copy(center);
+          controls.update();
+        }
+
+        // Update UI
+        statusEl.className = 'success';
+        statusEl.innerHTML = `<strong>${totalSolids}</strong> solid(s) • <strong>${totalTriangles.toLocaleString()}</strong> triangles`;
+        
+        statsEl.innerHTML = `
+          Package: ${details.manifest.name} v${details.manifest.version}<br>
+          Layers: ${[...allLayers].join(', ') || 'default'}
+        `;
+
+      } catch (err) {
+        console.error('Failed to load package:', err);
+        statusEl.className = 'error';
+        statusEl.textContent = 'Error: ' + err.message;
+      }
+    }
+
+    // ========================================================================
+    // Initialize
+    // ========================================================================
+
+    async function init() {
+      try {
+        // Fetch package list
+        const data = await fetchPackages();
+        
+        // Populate dropdown
+        packageSelect.innerHTML = data.packages.length
+          ? data.packages.map(p => 
+              `<option value="${p.id}">${p.name} (${p.geometry_count} files)</option>`
+            ).join('')
+          : '<option value="">No packages found</option>';
+        
+        // Load first package
+        if (data.packages.length > 0) {
+          await loadPackage(data.packages[0].id);
+        } else {
+          statusEl.className = '';
+          statusEl.textContent = 'No packages available';
+        }
+        
+        // Handle package selection
+        packageSelect.addEventListener('change', (e) => {
+          if (e.target.value) {
+            loadPackage(e.target.value);
+          }
+        });
+
+      } catch (err) {
+        console.error('Failed to initialize:', err);
+        statusEl.className = 'error';
+        statusEl.textContent = 'Failed to connect to server';
+        packageSelect.innerHTML = '<option value="">Server unavailable</option>';
+      }
+    }
+
+    init();
+
+    // ========================================================================
+    // Animation loop
+    // ========================================================================
+
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    // Handle resize
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  </script>
+</body>
+</html>

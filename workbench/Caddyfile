@@ -1,0 +1,18 @@
+{
+	auto_https off
+}
+
+# yapCAD Workbench frontend — port 5174 → Vite on 5173
+:5174 {
+	reverse_proxy localhost:5173 {
+		header_up Host {host}
+	}
+}
+
+# yapCAD Service API + WebSocket — port 8001 → FastAPI on 8000
+:8001 {
+	reverse_proxy localhost:8000 {
+		header_up Host {host}
+		header_up X-Real-IP {remote_host}
+	}
+}
