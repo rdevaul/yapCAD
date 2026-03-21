@@ -84,3 +84,13 @@ examples/output/*
 
 # ignore generated PDF files in docs
 docs/*.pdf
+
+# workbench frontend — ignore build artifacts and dependencies
+workbench/node_modules/
+workbench/dist/
+workbench/packages/
+
+# workbench frontend — ignore build artifacts and dependencies
+workbench/node_modules/
+workbench/dist/
+workbench/packages/
