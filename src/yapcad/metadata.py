@@ -9,7 +9,7 @@ from yapcad.geom3d import issolid, issurface
 
 _SURFACE_META_INDEX = 6
 _SOLID_META_INDEX = 4
-_DEFAULT_SCHEMA = "metadata-namespace-v0.1"
+_DEFAULT_SCHEMA = "metadata-namespace-v1.1"
 
 _ROOT_FIELDS = ("schema", "entityId", "timestamp", "tags", "layer")
 _SECTION_KEYS = {
@@ -18,7 +18,33 @@ _SECTION_KEYS = {
     "designHistory",
     "constraints",
     "analysis",
+    "assembly",
+    "operation",
 }
+
+# v1.1 enum vocabularies (RFC § 7-8)
+_JOINT_KINDS = {"axial", "radial", "mixed", "none"}
+_BOLT_RINGS = {"axial", "radial"}
+_DATUM_KINDS = {"bolt_circle", "axis", "plane", "point", "edge"}
+_SURFACE_KINDS = {"mating", "bearing", "sealing", "datum", "wear"}
+_KEEPOUT_KINDS = {"volume", "axis", "ring"}
+_OPERATION_KINDS = {"subtract", "intersect", "union"}
+_OPERATION_POLICIES = {"strict", "warn", "ignore"}
+_FEATURE_KINDS = {
+    "access_panel", "vent", "parachute_door", "fastener_through",
+    "wire_pass", "channel", "pocket", "other",
+}
+_FASTENER_THREADS = {"tap", "clearance", "heat-set", "through"}
+_FASTENER_HEADS = {"SHCS", "FHCS", "BHCS", "hex", "stud", "none"}
+
+
+def _validate_enum(value: Any, allowed: set, *, field: str) -> None:
+    if value is None:
+        return
+    if value not in allowed:
+        raise ValueError(
+            f"invalid {field}={value!r}; expected one of {sorted(allowed)}"
+        )
 
 
 def _initial_root(entity_id: Optional[str] = None) -> Dict[str, Any]:
@@ -33,7 +59,10 @@ def _initial_root(entity_id: Optional[str] = None) -> Dict[str, Any]:
 
 
 def _ensure_root(meta: Dict[str, Any], entity_id: Optional[str] = None) -> Dict[str, Any]:
-    if not meta:
+    # NOTE: when meta is an empty dict, populate it in place rather than
+    # returning a detached fresh dict; otherwise downstream namespace
+    # writes vanish on garbage-collection.
+    if meta is None:
         return _initial_root(entity_id)
     if "schema" not in meta:
         meta["schema"] = _DEFAULT_SCHEMA
@@ -313,7 +342,216 @@ def add_analysis_record(meta: Dict[str, Any], record: Dict[str, Any]) -> Dict[st
     return root
 
 
+# ---------------------------------------------------------------------------
+# Assembly namespace (RFC § 7) — v1.1
+
+def get_assembly_metadata(meta: Dict[str, Any], create: bool = False) -> Dict[str, Any]:
+    """Return the ``assembly`` namespace dict, creating it when ``create`` is True.
+
+    Returns an empty dict (not attached) if the namespace is absent and
+    ``create`` is False, mirroring ``get_*_metadata`` semantics for surfaces
+    and solids.
+    """
+    if not isinstance(meta, dict):
+        return {}
+    if "assembly" in meta and isinstance(meta["assembly"], dict):
+        return meta["assembly"]
+    if not create:
+        return {}
+    root = _ensure_root(meta)
+    return _ensure_namespace(root, "assembly")
+
+
+def set_assembly(meta: Dict[str, Any], *,
+                 joint_kind: Optional[str] = None,
+                 no_cut: Optional[bool] = None) -> Dict[str, Any]:
+    """Set scalar fields on the ``assembly`` namespace. Returns the namespace dict."""
+    _validate_enum(joint_kind, _JOINT_KINDS, field="assembly.joint_kind")
+    root = _ensure_root(meta)
+    section = _ensure_namespace(root, "assembly")
+    if joint_kind is not None:
+        section["joint_kind"] = joint_kind
+    if no_cut is not None:
+        section["no_cut"] = bool(no_cut)
+    return section
+
+
+def _build_fastener(spec: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if spec is None:
+        return None
+    if not isinstance(spec, dict):
+        raise ValueError("fastener spec must be a dict")
+    out: Dict[str, Any] = {}
+    if "designation" in spec and spec["designation"] is not None:
+        out["designation"] = str(spec["designation"])
+    thread = spec.get("thread")
+    _validate_enum(thread, _FASTENER_THREADS, field="fastener.thread")
+    if thread is not None:
+        out["thread"] = thread
+    head = spec.get("head")
+    _validate_enum(head, _FASTENER_HEADS, field="fastener.head")
+    if head is not None:
+        out["head"] = head
+    return out
+
+
+def add_bolt_pattern(meta: Dict[str, Any], *,
+                     id: str,
+                     ring: str,
+                     R_mm: float,
+                     z_mm: float,
+                     count: int,
+                     theta0_deg: Optional[float] = None,
+                     fastener: Optional[Dict[str, Any]] = None,
+                     tolerance_mm: Optional[float] = None) -> Dict[str, Any]:
+    """Append a bolt pattern entry to ``assembly.bolt_patterns``. Returns the entry."""
+    if not id:
+        raise ValueError("bolt_pattern.id is required")
+    _validate_enum(ring, _BOLT_RINGS, field="bolt_pattern.ring")
+    section = get_assembly_metadata(meta, create=True)
+    entry: Dict[str, Any] = {
+        "id": str(id),
+        "ring": ring,
+        "R_mm": float(R_mm),
+        "z_mm": float(z_mm),
+        "count": int(count),
+    }
+    if theta0_deg is not None:
+        entry["theta0_deg"] = float(theta0_deg)
+    fast = _build_fastener(fastener)
+    if fast is not None:
+        entry["fastener"] = fast
+    if tolerance_mm is not None:
+        entry["tolerance_mm"] = float(tolerance_mm)
+    section.setdefault("bolt_patterns", []).append(entry)
+    return entry
+
+
+def add_datum(meta: Dict[str, Any], *,
+              id: str,
+              kind: str,
+              ring: Optional[str] = None,
+              R_mm: Optional[float] = None,
+              z_mm: Optional[float] = None,
+              direction: Optional[Iterable[float]] = None) -> Dict[str, Any]:
+    """Append an explicit datum entry to ``assembly.datums``. Returns the entry."""
+    if not id:
+        raise ValueError("datum.id is required")
+    _validate_enum(kind, _DATUM_KINDS, field="datum.kind")
+    if ring is not None:
+        _validate_enum(ring, _BOLT_RINGS, field="datum.ring")
+    section = get_assembly_metadata(meta, create=True)
+    entry: Dict[str, Any] = {"id": str(id), "kind": kind}
+    if ring is not None:
+        entry["ring"] = ring
+    if R_mm is not None:
+        entry["R_mm"] = float(R_mm)
+    if z_mm is not None:
+        entry["z_mm"] = float(z_mm)
+    if direction is not None:
+        vec = list(direction)
+        if len(vec) != 3:
+            raise ValueError("datum.direction must have length 3")
+        entry["direction"] = [float(c) for c in vec]
+    section.setdefault("datums", []).append(entry)
+    return entry
+
+
+def add_surface(meta: Dict[str, Any], *,
+                id: str,
+                kind: str,
+                mate_to: Optional[str] = None,
+                finish: Optional[str] = None,
+                tolerance_mm: Optional[float] = None) -> Dict[str, Any]:
+    """Append a mating/bearing/sealing/datum/wear surface to ``assembly.surfaces``."""
+    if not id:
+        raise ValueError("surface.id is required")
+    _validate_enum(kind, _SURFACE_KINDS, field="surface.kind")
+    section = get_assembly_metadata(meta, create=True)
+    entry: Dict[str, Any] = {"id": str(id), "kind": kind}
+    if mate_to is not None:
+        entry["mate_to"] = str(mate_to)
+    if finish is not None:
+        entry["finish"] = str(finish)
+    if tolerance_mm is not None:
+        entry["tolerance_mm"] = float(tolerance_mm)
+    section.setdefault("surfaces", []).append(entry)
+    return entry
+
+
+def add_keepout(meta: Dict[str, Any], *,
+                id: str,
+                kind: str,
+                shape: Optional[Dict[str, Any]] = None,
+                reason: Optional[str] = None) -> Dict[str, Any]:
+    """Append a keep-out volume/axis/ring to ``assembly.keepouts``."""
+    if not id:
+        raise ValueError("keepout.id is required")
+    _validate_enum(kind, _KEEPOUT_KINDS, field="keepout.kind")
+    section = get_assembly_metadata(meta, create=True)
+    entry: Dict[str, Any] = {"id": str(id), "kind": kind}
+    if shape is not None:
+        if not isinstance(shape, dict):
+            raise ValueError("keepout.shape must be a dict")
+        entry["shape"] = dict(shape)
+    if reason is not None:
+        entry["reason"] = str(reason)
+    section.setdefault("keepouts", []).append(entry)
+    return entry
+
+
+# ---------------------------------------------------------------------------
+# Operation namespace (RFC § 8) — v1.1
+
+def get_operation_metadata(meta: Dict[str, Any], create: bool = False) -> Dict[str, Any]:
+    """Return the ``operation`` namespace dict, creating it when ``create`` is True."""
+    if not isinstance(meta, dict):
+        return {}
+    if "operation" in meta and isinstance(meta["operation"], dict):
+        return meta["operation"]
+    if not create:
+        return {}
+    root = _ensure_root(meta)
+    return _ensure_namespace(root, "operation")
+
+
+def set_operation(meta: Dict[str, Any], *,
+                  kind: str,
+                  target_filter: Optional[Iterable[str]] = None,
+                  priority: Optional[float] = None,
+                  through: Optional[bool] = None,
+                  consume: Optional[bool] = None,
+                  policy: Optional[str] = None,
+                  feature_id: Optional[str] = None,
+                  feature_kind: Optional[str] = None,
+                  stage: Optional[str] = None) -> Dict[str, Any]:
+    """Mark the part as an operation (cutter/intersector/unioner). Returns the namespace."""
+    _validate_enum(kind, _OPERATION_KINDS, field="operation.kind")
+    _validate_enum(policy, _OPERATION_POLICIES, field="operation.policy")
+    _validate_enum(feature_kind, _FEATURE_KINDS, field="operation.feature_kind")
+    section = get_operation_metadata(meta, create=True)
+    section["kind"] = kind
+    if target_filter is not None:
+        section["target_filter"] = [str(t) for t in target_filter]
+    if priority is not None:
+        section["priority"] = float(priority)
+    if through is not None:
+        section["through"] = bool(through)
+    if consume is not None:
+        section["consume"] = bool(consume)
+    if policy is not None:
+        section["policy"] = policy
+    if feature_id is not None:
+        section["feature_id"] = str(feature_id)
+    if feature_kind is not None:
+        section["feature_kind"] = feature_kind
+    if stage is not None:
+        section["stage"] = str(stage)
+    return section
+
+
 __all__ = [
+    # entity-level helpers
     'get_surface_metadata',
     'set_surface_metadata',
     'ensure_surface_id',
@@ -323,6 +561,8 @@ __all__ = [
     'set_solid_metadata',
     'ensure_solid_id',
     'set_solid_context',
+    'set_layer',
+    # v1.0 namespace helpers
     'add_tags',
     'set_material',
     'set_manufacturing',
@@ -331,18 +571,14 @@ __all__ = [
     'set_envelope_constraint',
     'add_compliance',
     'add_analysis_record',
-    'set_layer',
-]
-
-
-__all__ = [
-    'get_surface_metadata',
-    'set_surface_metadata',
-    'ensure_surface_id',
-    'set_surface_units',
-    'set_surface_origin',
-    'get_solid_metadata',
-    'set_solid_metadata',
-    'ensure_solid_id',
-    'set_solid_context',
+    # v1.1 assembly namespace
+    'get_assembly_metadata',
+    'set_assembly',
+    'add_bolt_pattern',
+    'add_datum',
+    'add_surface',
+    'add_keepout',
+    # v1.1 operation namespace
+    'get_operation_metadata',
+    'set_operation',
 ]

@@ -59,7 +59,7 @@ def test_geometry_json_roundtrip():
     surfaces = roundtripped[1]
     assert surfaces and len(surfaces[0][1]) > 0
     surf_meta = get_surface_metadata(surfaces[0], create=False)
-    assert surf_meta['schema'] == 'metadata-namespace-v0.1'
+    assert surf_meta['schema'] == 'metadata-namespace-v1.1'
     assert surf_meta['layer'] == 'structure'
 
 

@@ -444,7 +444,7 @@ _SOLID_META_INDEX = 4
 
 ```python
 {
-    "schema": "metadata-namespace-v0.1",
+    "schema": "metadata-namespace-v1.1",
     "entityId": "uuid-string",
     "tags": ["tag1", "tag2"],
     "layer": "default",
