@@ -682,3 +682,161 @@ command FOO(x: float @foo(label="X") = 1.0) -> solid:
 """
         with pytest.raises(Exception):  # ParserError
             parse_source(src)
+
+
+class TestCommandMetaHint:
+    """Tests for @meta(...) command-level decorator parsing."""
+
+    def test_meta_single_dotted(self):
+        """Single @meta with dotted namespaced keys."""
+        src = """
+module test
+@meta(assembly.joint_kind="revolute", assembly.surface="flange_face")
+command MAKE_HINGE(radius: float = 10.0) -> solid:
+    emit box(1.0, 1.0, 1.0)
+"""
+        ast = parse_source(src)
+        fn = ast.functions[0]
+        assert fn.meta_hint == {
+            "assembly.joint_kind": "revolute",
+            "assembly.surface": "flange_face",
+        }
+
+    def test_meta_stacked_decorators_merge(self):
+        """Multiple @meta decorators are merged into one dict."""
+        src = """
+module test
+@meta(assembly.joint_kind="revolute")
+@meta(operation.kind="cut", operation.feature_kind="pocket")
+command MAKE_POCKET(depth: float = 5.0) -> solid:
+    emit box(1.0, 1.0, 1.0)
+"""
+        ast = parse_source(src)
+        fn = ast.functions[0]
+        assert fn.meta_hint == {
+            "assembly.joint_kind": "revolute",
+            "operation.kind": "cut",
+            "operation.feature_kind": "pocket",
+        }
+
+    def test_meta_flat_keys(self):
+        """@meta with plain (non-dotted) keys."""
+        src = """
+module test
+@meta(label="My Part", version=2)
+command MAKE_PART(w: float = 1.0) -> solid:
+    emit box(1.0, 1.0, 1.0)
+"""
+        ast = parse_source(src)
+        fn = ast.functions[0]
+        assert fn.meta_hint == {"label": "My Part", "version": 2}
+
+    def test_meta_mixed_flat_and_dotted(self):
+        """Mix of flat and dotted keys in the same @meta."""
+        src = """
+module test
+@meta(assembly.joint_kind="prismatic", label="Slider")
+command MAKE_SLIDER(length: float = 50.0) -> solid:
+    emit box(1.0, 1.0, 1.0)
+"""
+        ast = parse_source(src)
+        fn = ast.functions[0]
+        assert fn.meta_hint["assembly.joint_kind"] == "prismatic"
+        assert fn.meta_hint["label"] == "Slider"
+
+    def test_meta_later_decorator_wins_on_collision(self):
+        """Later @meta decorator overwrites earlier one on key collision."""
+        src = """
+module test
+@meta(assembly.joint_kind="revolute")
+@meta(assembly.joint_kind="prismatic")
+command MAKE_PART(x: float = 1.0) -> solid:
+    emit box(1.0, 1.0, 1.0)
+"""
+        ast = parse_source(src)
+        fn = ast.functions[0]
+        assert fn.meta_hint["assembly.joint_kind"] == "prismatic"
+
+    def test_meta_numeric_and_bool_values(self):
+        """@meta accepts numeric and boolean literal values."""
+        src = """
+module test
+@meta(version=3, is_structural=true, safety_factor=2.5)
+command MAKE_PART(x: float = 1.0) -> solid:
+    emit box(1.0, 1.0, 1.0)
+"""
+        ast = parse_source(src)
+        fn = ast.functions[0]
+        assert fn.meta_hint["version"] == 3
+        assert fn.meta_hint["is_structural"] is True
+        assert fn.meta_hint["safety_factor"] == 2.5
+
+    def test_meta_negative_numeric(self):
+        """@meta handles negative numeric literals."""
+        src = """
+module test
+@meta(z_offset=-15.5)
+command MAKE_PART(x: float = 1.0) -> solid:
+    emit box(1.0, 1.0, 1.0)
+"""
+        ast = parse_source(src)
+        fn = ast.functions[0]
+        assert fn.meta_hint["z_offset"] == -15.5
+
+    def test_meta_type_keyword_in_key(self):
+        """Type keywords (surface, solid, float) are valid key segments."""
+        src = """
+module test
+@meta(assembly.surface="top_face", operation.solid="body")
+command MAKE_PART(x: float = 1.0) -> solid:
+    emit box(1.0, 1.0, 1.0)
+"""
+        ast = parse_source(src)
+        fn = ast.functions[0]
+        assert fn.meta_hint["assembly.surface"] == "top_face"
+        assert fn.meta_hint["operation.solid"] == "body"
+
+    def test_no_meta_gives_none(self):
+        """Command without @meta has meta_hint=None."""
+        src = """
+module test
+command PLAIN(x: float = 1.0) -> solid:
+    emit box(1.0, 1.0, 1.0)
+"""
+        ast = parse_source(src)
+        assert ast.functions[0].meta_hint is None
+
+    def test_meta_combined_with_ui_on_params(self):
+        """@meta on command and @ui on params coexist correctly."""
+        src = """
+module test
+@meta(assembly.joint_kind="prismatic", label="Slider")
+@meta(operation.kind="extrude")
+command MAKE_SLIDER(
+    length: float @ui(widget="slider", min=10.0, max=200.0) = 50.0,
+    width: float = 10.0
+) -> solid:
+    emit box(1.0, 1.0, 1.0)
+"""
+        ast = parse_source(src)
+        fn = ast.functions[0]
+        assert fn.meta_hint["assembly.joint_kind"] == "prismatic"
+        assert fn.meta_hint["operation.kind"] == "extrude"
+        assert fn.parameters[0].ui_hint["widget"] == "slider"
+        assert fn.parameters[1].ui_hint is None
+
+    def test_meta_multiple_commands_independent(self):
+        """@meta on one command does not bleed into the next."""
+        src = """
+module test
+
+@meta(assembly.joint_kind="revolute")
+command CMD_A(x: float = 1.0) -> solid:
+    emit box(1.0, 1.0, 1.0)
+
+command CMD_B(x: float = 1.0) -> solid:
+    emit box(1.0, 1.0, 1.0)
+"""
+        ast = parse_source(src)
+        assert ast.functions[0].meta_hint == {"assembly.joint_kind": "revolute"}
+        assert ast.functions[1].meta_hint is None

@@ -77,6 +77,74 @@ provides viewer and widget hints to the yapCAD workbench.  The decorator is
 **purely informational** — the evaluator ignores it completely, so it has no
 effect on geometry output or type-checking.
 
+### `@meta(...)` — Command Output Metadata
+
+Placed on a `command` (or `def`) definition, before the parameter list.  Multiple
+`@meta` decorators on the same command are **merged** — later decorators win on
+key collision.
+
+```python
+@meta(assembly.joint_kind="revolute", assembly.surface="flange_face")
+@meta(operation.kind="cut", operation.feature_kind="pocket")
+command MAKE_POCKET(
+    depth: float @ui(widget="slider", min=1.0, max=50.0) = 10.0
+) -> solid:
+    ...
+```
+
+#### Key syntax
+
+Keys may be **plain identifiers** or **dotted namespace paths**:
+
+| Form | Example | Meaning |
+|------|---------|--------|
+| Plain | `label="Hinge bracket"` | Unnamespaced, free-form |
+| Dotted | `assembly.joint_kind="revolute"` | Namespaced to the v1.1 `assembly` namespace |
+| Dotted | `operation.kind="cut"` | Namespaced to the v1.1 `operation` namespace |
+
+Type-keyword words (`surface`, `solid`, `float`, …) are valid key segments even
+though the lexer classifies them as type tokens (e.g. `assembly.surface`).
+
+#### Values
+
+Same literal rules as `@ui`: strings, integers, floats, booleans, unary-minus
+numerics, and lists of the above.  Non-literals are stringified.
+
+#### Namespace conventions (v1.1)
+
+| Prefix | Namespace | v1.1 helpers |
+|--------|-----------|-------------|
+| `assembly.*` | Assembly metadata | `get_assembly_metadata()`, `set_assembly()` |
+| `operation.*` | Operation/machining | `get_operation_metadata()`, `set_operation()` |
+| *(none)* | Free-form | Stored as-is |
+
+#### Surfaced through the service API
+
+The `/dsl/commands` endpoint includes `meta_hint` in each command object when
+one or more `@meta` decorators are present:
+
+```json
+{
+  "name": "MAKE_POCKET",
+  "params": [...],
+  "meta_hint": {
+    "assembly.joint_kind": "revolute",
+    "assembly.surface": "flange_face",
+    "operation.kind": "cut",
+    "operation.feature_kind": "pocket"
+  }
+}
+```
+
+#### Evaluator behaviour
+
+`@meta` is **evaluator-transparent** — it has no effect on geometry evaluation,
+type-checking, or the emitted value.  Downstream consumers (workbench, mechatron
+graph, assembly dashboard) read `meta_hint` from the command descriptor and apply
+the v1.1 namespace helpers to annotate the resulting solid.
+
+---
+
 ### `@ui(...)` — Workbench Widget Hints
 
 Syntax: placed after the type annotation and before the default value.
@@ -1089,7 +1157,7 @@ to execute without manual review, unlike arbitrary Python code.
 For complex operations that cannot be expressed in pure DSL, two escape hatches exist.
 These **bypass static verifiability** and require manual review:
 
-**@ui decorator** (on parameters) — see [Parameter Decorators](#parameter-decorators) above.
+**@meta decorator** (on commands) and **@ui decorator** (on parameters) — see [Parameter Decorators](#parameter-decorators) above.
 
 **@native decorator** - Embed Python functions:
 ```python

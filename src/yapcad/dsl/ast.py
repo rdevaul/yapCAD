@@ -475,6 +475,7 @@ class FunctionDef(AstNode):
     return_type: Optional[TypeNode]  # Optional for type inference
     body: Block
     decorators: List[Decorator] = field(default_factory=list)
+    meta_hint: Optional[dict] = None  # merged dict from all @meta(...) decorators; evaluator-transparent
 
 
 # Keep Command as alias for backward compatibility

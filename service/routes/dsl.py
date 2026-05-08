@@ -103,7 +103,11 @@ def dsl_commands(req: DslParseRequest):
             if ui_hint:
                 param_info["ui_hint"] = ui_hint
             params.append(param_info)
-        commands.append({"name": fn["name"], "params": params})
+        cmd_info: Dict[str, Any] = {"name": fn["name"], "params": params}
+        meta_hint = fn.get("meta_hint")
+        if meta_hint:
+            cmd_info["meta_hint"] = meta_hint
+        commands.append(cmd_info)
     return {"commands": commands}
 
 
