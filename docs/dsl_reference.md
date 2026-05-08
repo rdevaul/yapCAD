@@ -118,6 +118,15 @@ numerics, and lists of the above.  Non-literals are stringified.
 | `operation.*` | Operation/machining | `get_operation_metadata()`, `set_operation()` |
 | *(none)* | Free-form | Stored as-is |
 
+**v1.1 enum vocabularies** (values outside these sets raise `ValueError` at apply time):
+
+| Key | Valid values |
+|-----|--------------|
+| `assembly.joint_kind` | `axial`, `radial`, `mixed`, `none` |
+| `operation.kind` | `subtract`, `intersect`, `union` |
+| `operation.policy` | `strict`, `warn`, `ignore` |
+| `operation.feature_kind` | `access_panel`, `vent`, `parachute_door`, `fastener_through`, `wire_pass`, `channel`, `pocket`, `other` |
+
 #### Surfaced through the service API
 
 The `/dsl/commands` endpoint includes `meta_hint` in each command object when
