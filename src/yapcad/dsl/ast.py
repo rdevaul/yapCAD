@@ -457,6 +457,7 @@ class Parameter(AstNode):
     name: str
     type_annotation: Optional[TypeNode] = None  # Optional for type inference
     default_value: Optional[Expression] = None
+    ui_hint: Optional[dict] = None  # @ui(...) decorator — viewer/widget metadata, ignored by evaluator
 
 
 @dataclass

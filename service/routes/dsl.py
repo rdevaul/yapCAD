@@ -14,6 +14,8 @@ from ..models.schemas import (
     DslEvalResponse,
     DslParseRequest,
     DslParseResponse,
+    DslUiEvalRequest,
+    DslUiEvalResponse,
 )
 
 router = APIRouter(prefix="/dsl", tags=["dsl"])
@@ -96,9 +98,47 @@ def dsl_commands(req: DslParseRequest):
             ptype = ta.get("name", "any") if isinstance(ta, dict) else "any"
             dv = p.get("default_value")
             default = dv.get("value") if isinstance(dv, dict) and "value" in dv else None
-            params.append({"name": p["name"], "type": ptype, "default": default})
+            param_info: Dict[str, Any] = {"name": p["name"], "type": ptype, "default": default}
+            ui_hint = p.get("ui_hint")
+            if ui_hint:
+                param_info["ui_hint"] = ui_hint
+            params.append(param_info)
         commands.append({"name": fn["name"], "params": params})
     return {"commands": commands}
+
+
+@router.post("/ui_eval", response_model=DslUiEvalResponse)
+async def dsl_ui_eval(req: DslUiEvalRequest) -> DslUiEvalResponse:
+    """Evaluate a DSL command and return its scalar/list result.
+
+    Intended for ``@ui``-driven commands that compute derived values (e.g. a
+    command that returns a float from widget state).  Unlike ``/eval``, this
+    endpoint does not attempt geometry serialisation — it expects the command
+    to ``emit`` a scalar or list of scalars.
+    """
+    try:
+        result = await eval_dsl(
+            source=req.source,
+            command=req.command,
+            parameters=req.parameters,
+            timeout_s=10.0,
+        )
+    except DslTimeoutError as exc:
+        raise HTTPException(status_code=408, detail=str(exc)) from exc
+    except Exception as exc:
+        return DslUiEvalResponse(success=False, error_message=str(exc))
+
+    if not result.success:
+        return DslUiEvalResponse(success=False, error_message=result.error_message)
+
+    raw = result.emit_result
+    if raw is None:
+        return DslUiEvalResponse(success=False, error_message="Command did not emit a value")
+
+    # Coerce to list of scalars
+    values = raw if isinstance(raw, list) else [raw]
+    type_name = type(values[0]).__name__ if values else "unknown"
+    return DslUiEvalResponse(success=True, values=values, type=type_name)
 
 
 @router.post("/parse", response_model=DslParseResponse)

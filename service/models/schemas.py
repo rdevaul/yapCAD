@@ -34,6 +34,26 @@ class DslParseResponse(BaseModel):
     ast: Dict[str, Any]
 
 
+class DslUiEvalRequest(BaseModel):
+    """Request a DSL command evaluation that returns a scalar or list of scalars.
+
+    Used by the workbench to evaluate ``@ui``-driven parameter commands —
+    e.g. a command that computes a derived value from widget state and returns
+    a float or list of floats for display.
+    """
+    source: str = Field(..., description="DSL source code")
+    command: str = Field(..., description="Command/function to run")
+    parameters: Dict[str, Any] = Field(default_factory=dict)
+
+
+class DslUiEvalResponse(BaseModel):
+    """Response from a ``/dsl/ui_eval`` request."""
+    success: bool
+    values: Optional[List[Any]] = None
+    type: Optional[str] = None  # "int", "float", "bool", "string"
+    error_message: Optional[str] = None
+
+
 class TessellateRequest(BaseModel):
     geometry: Dict[str, Any] = Field(..., description="Geometry JSON document")
 

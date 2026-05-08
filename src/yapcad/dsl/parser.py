@@ -1074,13 +1074,27 @@ class Parser:
     # =========================================================================
 
     def _parse_parameter(self) -> Parameter:
-        """Parse a function parameter."""
+        """Parse a function parameter, optionally followed by an @ui(...) decorator.
+
+        Syntax::
+
+            param_name: type @ui(key=value, ...) = default
+
+        The ``@ui`` decorator is positional: it comes after the type annotation
+        and before the default value.  It is purely a viewer/widget hint — the
+        evaluator ignores it completely.
+        """
         start = self._current()
         name = self._consume(TokenType.IDENTIFIER, "parameter name").value
 
         type_annotation = None
         if self._match(TokenType.COLON):
             type_annotation = self._parse_type()
+
+        # Parse optional @ui(...) decorator (must come after type, before default)
+        ui_hint = None
+        if self._check(TokenType.AT):
+            ui_hint = self._parse_param_ui_hint()
 
         default_value = None
         if self._match(TokenType.ASSIGN):
@@ -1090,8 +1104,64 @@ class Parser:
             span=self._span_from(start),
             name=name,
             type_annotation=type_annotation,
-            default_value=default_value
+            default_value=default_value,
+            ui_hint=ui_hint,
         )
+
+    def _parse_param_ui_hint(self) -> dict:
+        """Parse an ``@ui(...)`` decorator on a parameter.
+
+        Returns a plain dict of keyword arguments whose values are all
+        JSON-safe literals (str, int, float, bool, list thereof).  Non-literal
+        expressions are stringified as a best-effort fallback.
+
+        Examples::
+
+            @ui(widget="circle_r", label="Plate diameter", snap="mm")
+            @ui(widget="slider", min=0.0, max=100.0, step=0.5)
+            @ui(label="Teeth", group="Gear")
+        """
+        self._advance()  # consume '@'
+        name_tok = self._consume(TokenType.IDENTIFIER, "'ui' after '@'")
+        if name_tok.value != "ui":
+            self._error(
+                f"Only '@ui' is valid as a parameter decorator; got '@{name_tok.value}'"
+            )
+
+        self._consume(TokenType.LPAREN, "'(' after '@ui'")
+        hint: dict = {}
+        if not self._check(TokenType.RPAREN):
+            while True:
+                key_tok = self._consume(TokenType.IDENTIFIER, "keyword argument name in @ui")
+                self._consume(TokenType.ASSIGN, "'=' after key in @ui")
+                val_expr = self._parse_expression()
+                hint[key_tok.value] = self._ui_hint_value(val_expr)
+                if not self._match(TokenType.COMMA):
+                    break
+        self._consume(TokenType.RPAREN, "')' closing @ui")
+        return hint
+
+    def _ui_hint_value(self, expr) -> Any:
+        """Reduce a parsed expression to a JSON-safe literal for @ui storage.
+
+        Handles:
+        - Literal (int, float, bool, string)
+        - Unary minus applied to a numeric Literal
+        - ListLiteral (recursively)
+
+        Non-literal expressions are stringified; this lets callers write
+        symbolic references in @ui if needed without a hard parse error.
+        """
+        from .ast import Literal, ListLiteral, UnaryOp
+        if isinstance(expr, Literal):
+            return expr.value
+        if isinstance(expr, UnaryOp) and isinstance(expr.operand, Literal):
+            if expr.operator == TokenType.MINUS:
+                return -expr.operand.value
+        if isinstance(expr, ListLiteral):
+            return [self._ui_hint_value(e) for e in expr.elements]
+        # Fallback: stringify — avoids hard failure for forward-refs or enum names
+        return str(getattr(expr, 'name', repr(expr)))
 
     def _parse_decorator(self) -> Decorator:
         """Parse a decorator."""

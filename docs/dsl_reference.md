@@ -70,6 +70,60 @@ command MAKE_PART(param: float, param2: float = 10.0) -> solid:
 
 **Note:** Commands with UPPERCASE names are exported and visible to `dsl list`. Commands with lowercase names are helpers usable within the module but not directly callable from CLI.
 
+## Parameter Decorators
+
+Parameters in a `command` definition may carry a `@ui(...)` decorator that
+provides viewer and widget hints to the yapCAD workbench.  The decorator is
+**purely informational** — the evaluator ignores it completely, so it has no
+effect on geometry output or type-checking.
+
+### `@ui(...)` — Workbench Widget Hints
+
+Syntax: placed after the type annotation and before the default value.
+
+```python
+command MY_PART(
+    radius:    float @ui(widget="circle_r", label="Radius", snap="mm") = 50.0,
+    n_sides:   int   @ui(label="Sides", min=3, max=64)                 = 6,
+    label:     string @ui(label="Name", group="Metadata")              = "part",
+    thickness: float = 3.0   # no @ui — plain parameter, no widget hint
+) -> solid:
+    ...
+```
+
+#### Recognised keys
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `widget` | string | Widget type.  Currently defined: `"circle_r"` (drag-handle circle radius), `"slider"` (linear slider). |
+| `label` | string | Human-readable label shown in the parameter panel. |
+| `snap` | string | Value-snap preset.  Defined presets: `"mm"`, `"metric_tap"`, `"unified_clearance"`. |
+| `min` | float/int | Minimum allowed value (advisory; not enforced by evaluator). |
+| `max` | float/int | Maximum allowed value (advisory; not enforced by evaluator). |
+| `step` | float | Slider step size. |
+| `group` | string | UI group/section heading for the parameter panel. |
+
+All key values must be **literals** (strings, numbers, booleans, or lists of
+literals).  Non-literal expressions are accepted by the parser but stringified.
+
+#### Surfaced through the service API
+
+The `/dsl/commands` REST endpoint includes `ui_hint` in each parameter object
+when a `@ui` decorator is present:
+
+```json
+{
+  "name": "radius",
+  "type": "float",
+  "default": 50.0,
+  "ui_hint": { "widget": "circle_r", "label": "Radius", "snap": "mm" }
+}
+```
+
+The `/dsl/ui_eval` endpoint (POST) evaluates a command and returns its scalar
+or list-of-scalars result — useful for commands that compute a derived display
+value from current widget state rather than emitting geometry.
+
 ## Types
 
 ### Primitive Types
@@ -1034,6 +1088,8 @@ to execute without manual review, unlike arbitrary Python code.
 
 For complex operations that cannot be expressed in pure DSL, two escape hatches exist.
 These **bypass static verifiability** and require manual review:
+
+**@ui decorator** (on parameters) — see [Parameter Decorators](#parameter-decorators) above.
 
 **@native decorator** - Embed Python functions:
 ```python
