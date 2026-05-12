@@ -3589,6 +3589,7 @@ class BuiltinRegistry:
             ``add_mate(asm, kind, part_a, datum_a, part_b, datum_b)`` → asm
             ``validate_assembly(asm)``         → bool (is_valid)
             ``assembly_report(asm)``           → string
+            ``emit_assembly(asm)``             → string (Mechatron JSON)
 
         ``add_part`` reads the v1.1 ``assembly.datums`` metadata from
         the solid (set via ``@meta(assembly.datums=[...])`` or the direct
@@ -3612,6 +3613,7 @@ class BuiltinRegistry:
             get_solid_metadata,
             get_assembly_metadata,
         )
+        from yapcad.assembly.mechatron_export import to_mechatron_json
 
         # --- Helpers (closures captured by the builtin impls below) ---
 
@@ -3763,6 +3765,22 @@ class BuiltinRegistry:
             """Return a human-readable validation + structure report."""
             return string_val(asm.data.report())
 
+        def _emit_assembly(asm: Value) -> Value:
+            """Serialize the assembly as Mechatron-shaped JSON.
+
+            The output matches Mechatron's ``GraphSnapshot`` codec
+            (the ``save_json`` / ``load_json`` shape in
+            ``crates/assembly-graph/src/graph.rs``). Round-trip on the
+            consumer side: ``AssemblyGraph::load_json`` materializes
+            the same parts + interfaces. yapCAD-side motion mates
+            (REVOLUTE, PRISMATIC, SPHERICAL, RIGID) translate to
+            Mechatron ``Joint::Revolute``/``Prismatic``/``Ball``/``Fixed``;
+            other mate kinds (CONCENTRIC, COINCIDENT, FLUSH, ...) collapse
+            to ``Joint::Fixed`` with the original kind preserved on the
+            interface's ``mate_constraints``.
+            """
+            return string_val(to_mechatron_json(asm.data))
+
         # --- Registrations ---
 
         self.register(BuiltinFunction(
@@ -3793,6 +3811,11 @@ class BuiltinRegistry:
             "assembly_report",
             _make_sig("assembly_report", [ASSEMBLY], STRING),
             _assembly_report,
+        ))
+        self.register(BuiltinFunction(
+            "emit_assembly",
+            _make_sig("emit_assembly", [ASSEMBLY], STRING),
+            _emit_assembly,
         ))
 
 
