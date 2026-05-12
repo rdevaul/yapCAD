@@ -1130,15 +1130,22 @@ class Parser:
             )
 
         self._consume(TokenType.LPAREN, "'(' after '@meta'")
+        # Multi-line @meta(...) args are common when list-of-dict values are
+        # in play (e.g. assembly.bolt_patterns=[{...}, {...}]), so eagerly
+        # skip NEWLINE tokens at every separator boundary. Trailing commas
+        # before the closing ')' are tolerated.
+        self._skip_newlines()
         hint: dict = {}
-        if not self._check(TokenType.RPAREN):
-            while True:
-                key = self._parse_meta_key()
-                self._consume(TokenType.ASSIGN, f"'=' after key '{key}' in @meta")
-                val_expr = self._parse_expression()
-                hint[key] = self._ui_hint_value(val_expr)  # reuse literal extractor
-                if not self._match(TokenType.COMMA):
-                    break
+        while not self._check(TokenType.RPAREN):
+            key = self._parse_meta_key()
+            self._consume(TokenType.ASSIGN, f"'=' after key '{key}' in @meta")
+            self._skip_newlines()
+            val_expr = self._parse_expression()
+            hint[key] = self._ui_hint_value(val_expr)  # reuse literal extractor
+            self._skip_newlines()
+            if not self._match(TokenType.COMMA):
+                break
+            self._skip_newlines()
         self._consume(TokenType.RPAREN, "')' closing @meta")
         return hint
 
@@ -1207,17 +1214,21 @@ class Parser:
         return hint
 
     def _ui_hint_value(self, expr) -> Any:
-        """Reduce a parsed expression to a JSON-safe literal for @ui storage.
+        """Reduce a parsed expression to a JSON-safe literal for @ui / @meta storage.
 
         Handles:
         - Literal (int, float, bool, string)
         - Unary minus applied to a numeric Literal
         - ListLiteral (recursively)
+        - DictLiteral (recursively) — required for @meta's list-of-dict
+          metadata values like
+          ``@meta(assembly.bolt_patterns=[{id="primary", ring="upper", ...}])``
+          where the bolt-pattern entries are dict literals nested in a list.
 
         Non-literal expressions are stringified; this lets callers write
-        symbolic references in @ui if needed without a hard parse error.
+        symbolic references in @ui / @meta if needed without a hard parse error.
         """
-        from .ast import Literal, ListLiteral, UnaryOp
+        from .ast import Literal, ListLiteral, UnaryOp, DictLiteral
         if isinstance(expr, Literal):
             return expr.value
         if isinstance(expr, UnaryOp) and isinstance(expr.operand, Literal):
@@ -1225,6 +1236,8 @@ class Parser:
                 return -expr.operand.value
         if isinstance(expr, ListLiteral):
             return [self._ui_hint_value(e) for e in expr.elements]
+        if isinstance(expr, DictLiteral):
+            return {key: self._ui_hint_value(val) for key, val in expr.entries.items()}
         # Fallback: stringify — avoids hard failure for forward-refs or enum names
         return str(getattr(expr, 'name', repr(expr)))
 

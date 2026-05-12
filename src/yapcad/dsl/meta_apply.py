@@ -31,13 +31,31 @@ stored verbatim in the namespace dict rather than raising an error.  This
 keeps the DSL forward-compatible: a field defined in a future v1.2 spec won't
 break existing parsers.
 
-Limitations
------------
-The ``@meta`` decorator carries only **scalar** values (str, int, float, bool).
-Structured sub-objects like ``bolt_patterns``, ``datums``, ``surfaces``, and
-``keepouts`` require the full ``add_bolt_pattern()`` / ``add_datum()`` /
-``add_surface()`` / ``add_keepout()`` helpers and cannot be expressed as flat
-``@meta`` kwargs.  They remain available for direct Python use.
+List-of-dict assembly fields
+----------------------------
+The ``@meta`` decorator additionally accepts the four structured assembly
+list fields as lists of dict literals.  Each entry is forwarded to the
+corresponding ``yapcad.metadata`` helper, so the same validation (enum
+checks, required-key checks, vector length checks) applies whether the
+caller writes Python or DSL::
+
+    @meta(
+        assembly.datums=[
+            {id="neck_face", kind="axis", ring="upper", R_mm=151.9, z_mm=330.0},
+            {id="bore",      kind="axis", ring="upper", R_mm=151.9, z_mm=325.0},
+        ],
+        assembly.bolt_patterns=[
+            {id="primary", ring="upper", R_mm=149.4, z_mm=317.3, count=8,
+             fastener={kind="heatset", size="1/4-20"}},
+        ],
+        assembly.surfaces=[{id="mate_top", kind="mating", mate_to="nosecone.base_bore"}],
+        assembly.keepouts=[{id="clearance_zone", kind="volume", reason="approach"}],
+    )
+    command FORWARD_BULKHEAD(...) -> solid:
+        ...
+
+Known unsupported field shapes still raise ``ValueError`` with the name of
+the field so callers can fall back to the Python helpers.
 """
 
 from __future__ import annotations
@@ -51,6 +69,10 @@ from yapcad.metadata import (
     set_operation,
     get_assembly_metadata,
     get_operation_metadata,
+    add_bolt_pattern,
+    add_datum,
+    add_surface,
+    add_keepout,
 )
 
 # ---------------------------------------------------------------------------
@@ -60,8 +82,56 @@ from yapcad.metadata import (
 # Fields accepted as kwargs by set_assembly() — passed through directly.
 _ASSEMBLY_SCALAR_FIELDS = {"joint_kind", "no_cut"}
 
-# Fields that are list-of-dicts — can only be set with the dedicated helpers.
-_ASSEMBLY_LIST_FIELDS = {"bolt_patterns", "datums", "surfaces", "keepouts"}
+# List-of-dict fields with a dedicated helper. Each value in the @meta dict
+# is expected to be a list of dicts; each dict is forwarded as kwargs to the
+# corresponding helper. The helpers apply field-level validation (enum
+# checks, vector-length checks, required-key checks) so identical errors
+# surface whether the caller writes Python or DSL.
+_ASSEMBLY_LIST_HELPERS = {
+    "bolt_patterns": add_bolt_pattern,
+    "datums": add_datum,
+    "surfaces": add_surface,
+    "keepouts": add_keepout,
+}
+
+
+def _apply_assembly_list_field(
+    meta: Dict[str, Any],
+    field: str,
+    value: Any,
+) -> None:
+    """Forward each entry in ``value`` to the dedicated helper for ``field``.
+
+    Args:
+        meta:  Mutable metadata dict.
+        field: One of ``bolt_patterns``, ``datums``, ``surfaces``, ``keepouts``.
+        value: List of dicts; each dict is **kwargs for the helper.
+
+    Raises:
+        TypeError:  If ``value`` is not a list, or any entry is not a dict.
+        ValueError: Propagated from the helper for invalid field values
+                    (e.g. enum mismatch, missing required key).
+    """
+    helper = _ASSEMBLY_LIST_HELPERS[field]
+    if not isinstance(value, list):
+        raise TypeError(
+            f"assembly.{field} must be a list of entries, "
+            f"got {type(value).__name__}"
+        )
+    for idx, entry in enumerate(value):
+        if not isinstance(entry, dict):
+            raise TypeError(
+                f"assembly.{field}[{idx}] must be a dict, "
+                f"got {type(entry).__name__}"
+            )
+        try:
+            helper(meta, **entry)
+        except TypeError as exc:
+            # Surface a more helpful message than "got an unexpected keyword
+            # argument" — helps DSL authors find the typo'd key fast.
+            raise TypeError(
+                f"assembly.{field}[{idx}] rejected: {exc}"
+            ) from exc
 
 
 def _apply_assembly(meta: Dict[str, Any], field: str, value: Any) -> None:
@@ -71,11 +141,8 @@ def _apply_assembly(meta: Dict[str, Any], field: str, value: Any) -> None:
         if field == "no_cut" and isinstance(value, str):
             value = value.lower() in ("true", "1", "yes")
         set_assembly(meta, **{field: value})
-    elif field in _ASSEMBLY_LIST_FIELDS:
-        raise ValueError(
-            f"assembly.{field} requires structured data; "
-            "use add_bolt_pattern() / add_datum() / add_surface() / add_keepout() directly."
-        )
+    elif field in _ASSEMBLY_LIST_HELPERS:
+        _apply_assembly_list_field(meta, field, value)
     else:
         # Unknown field — store verbatim for forward-compatibility
         section = get_assembly_metadata(meta, create=True)

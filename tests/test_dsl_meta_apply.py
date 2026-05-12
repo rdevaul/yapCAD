@@ -64,11 +64,243 @@ class TestApplyMetaHintAssembly:
         apply_meta_hint(s, {"assembly.future_field": "some_value"})
         assert get_assembly(s)["future_field"] == "some_value"
 
-    def test_assembly_list_field_raises(self):
-        """Structured list fields (bolt_patterns etc.) raise ValueError."""
+    def test_assembly_list_field_non_list_raises(self):
+        """List-shaped assembly fields reject non-list values."""
         s = make_solid()
-        with pytest.raises(ValueError, match="bolt_patterns"):
-            apply_meta_hint(s, {"assembly.bolt_patterns": "some_value"})
+        with pytest.raises(TypeError, match="bolt_patterns"):
+            apply_meta_hint(s, {"assembly.bolt_patterns": "not a list"})
+
+    def test_assembly_list_field_non_dict_entry_raises(self):
+        """Entries inside the list must be dicts."""
+        s = make_solid()
+        with pytest.raises(TypeError, match=r"datums\[0\]"):
+            apply_meta_hint(s, {"assembly.datums": ["not a dict"]})
+
+
+class TestApplyMetaHintAssemblyListFields:
+    """Coverage for the four ``assembly.<list>`` list-of-dict fields.
+
+    These exercise the dispatch from ``@meta(assembly.<field>=[{...}, ...])``
+    through ``_apply_assembly_list_field`` to the dedicated
+    ``yapcad.metadata`` helpers (``add_bolt_pattern`` / ``add_datum`` /
+    ``add_surface`` / ``add_keepout``).
+    """
+
+    def test_bolt_patterns_minimal(self):
+        s = make_solid()
+        apply_meta_hint(
+            s,
+            {
+                "assembly.bolt_patterns": [
+                    {
+                        "id": "primary",
+                        "ring": "axial",
+                        "R_mm": 149.4,
+                        "z_mm": 317.3,
+                        "count": 8,
+                    }
+                ]
+            },
+        )
+        bolt_patterns = get_assembly(s)["bolt_patterns"]
+        assert len(bolt_patterns) == 1
+        entry = bolt_patterns[0]
+        assert entry["id"] == "primary"
+        assert entry["ring"] == "axial"
+        assert entry["R_mm"] == 149.4
+        assert entry["z_mm"] == 317.3
+        assert entry["count"] == 8
+
+    def test_bolt_patterns_with_fastener_dict(self):
+        s = make_solid()
+        apply_meta_hint(
+            s,
+            {
+                "assembly.bolt_patterns": [
+                    {
+                        "id": "primary",
+                        "ring": "axial",
+                        "R_mm": 149.4,
+                        "z_mm": 317.3,
+                        "count": 8,
+                        "theta0_deg": 22.5,
+                        "fastener": {
+                            "designation": "1/4-20 SHCS",
+                            "thread": "heat-set",
+                            "head": "SHCS",
+                        },
+                        "tolerance_mm": 0.05,
+                    }
+                ]
+            },
+        )
+        entry = get_assembly(s)["bolt_patterns"][0]
+        assert entry["theta0_deg"] == 22.5
+        assert entry["fastener"]["designation"] == "1/4-20 SHCS"
+        assert entry["fastener"]["thread"] == "heat-set"
+        assert entry["fastener"]["head"] == "SHCS"
+        assert entry["tolerance_mm"] == 0.05
+
+    def test_bolt_patterns_multiple_entries_append_in_order(self):
+        s = make_solid()
+        apply_meta_hint(
+            s,
+            {
+                "assembly.bolt_patterns": [
+                    {
+                        "id": "top_ring",
+                        "ring": "axial",
+                        "R_mm": 149.4,
+                        "z_mm": 317.3,
+                        "count": 8,
+                    },
+                    {
+                        "id": "side_ring",
+                        "ring": "radial",
+                        "R_mm": 145.0,
+                        "z_mm": 12.7,
+                        "count": 8,
+                    },
+                ]
+            },
+        )
+        patterns = get_assembly(s)["bolt_patterns"]
+        assert [p["id"] for p in patterns] == ["top_ring", "side_ring"]
+
+    def test_bolt_patterns_invalid_ring_raises(self):
+        """Enum validation from the helper surfaces correctly."""
+        s = make_solid()
+        with pytest.raises(ValueError, match="bolt_pattern.ring"):
+            apply_meta_hint(
+                s,
+                {
+                    "assembly.bolt_patterns": [
+                        {
+                            "id": "bad",
+                            "ring": "sideways",  # not in _BOLT_RINGS
+                            "R_mm": 100.0,
+                            "z_mm": 0.0,
+                            "count": 4,
+                        }
+                    ]
+                },
+            )
+
+    def test_bolt_patterns_missing_required_key_raises(self):
+        s = make_solid()
+        with pytest.raises(TypeError, match=r"bolt_patterns\[0\] rejected"):
+            apply_meta_hint(
+                s,
+                {"assembly.bolt_patterns": [{"ring": "upper"}]},  # no id, etc.
+            )
+
+    def test_datums_minimal(self):
+        s = make_solid()
+        apply_meta_hint(
+            s,
+            {
+                "assembly.datums": [
+                    {"id": "bore_axis", "kind": "axis"},
+                    {
+                        "id": "neck_bolt_circle",
+                        "kind": "bolt_circle",
+                        "ring": "axial",
+                        "R_mm": 151.9,
+                        "z_mm": 330.0,
+                        "direction": [0.0, 0.0, 1.0],
+                    },
+                ]
+            },
+        )
+        datums = get_assembly(s)["datums"]
+        assert len(datums) == 2
+        assert datums[0]["id"] == "bore_axis"
+        assert datums[1]["direction"] == [0.0, 0.0, 1.0]
+        assert datums[1]["R_mm"] == 151.9
+        assert datums[1]["kind"] == "bolt_circle"
+
+    def test_datums_invalid_direction_length_raises(self):
+        s = make_solid()
+        with pytest.raises(ValueError, match="datum.direction"):
+            apply_meta_hint(
+                s,
+                {
+                    "assembly.datums": [
+                        {"id": "bad", "kind": "axis", "direction": [0.0, 1.0]}
+                    ]
+                },
+            )
+
+    def test_surfaces_minimal(self):
+        s = make_solid()
+        apply_meta_hint(
+            s,
+            {
+                "assembly.surfaces": [
+                    {
+                        "id": "mate_top",
+                        "kind": "mating",
+                        "mate_to": "nosecone.base_bore",
+                        "tolerance_mm": 0.05,
+                    }
+                ]
+            },
+        )
+        surface = get_assembly(s)["surfaces"][0]
+        assert surface["id"] == "mate_top"
+        assert surface["kind"] == "mating"
+        assert surface["mate_to"] == "nosecone.base_bore"
+        assert surface["tolerance_mm"] == 0.05
+
+    def test_keepouts_with_shape(self):
+        s = make_solid()
+        apply_meta_hint(
+            s,
+            {
+                "assembly.keepouts": [
+                    {
+                        "id": "approach",
+                        "kind": "volume",
+                        "shape": {"type": "cylinder", "R_mm": 160.0, "h_mm": 50.0},
+                        "reason": "hand clearance during install",
+                    }
+                ]
+            },
+        )
+        keepout = get_assembly(s)["keepouts"][0]
+        assert keepout["id"] == "approach"
+        assert keepout["shape"]["type"] == "cylinder"
+        assert keepout["reason"].startswith("hand clearance")
+
+    def test_mixed_list_and_scalar_in_single_hint(self):
+        """List fields coexist with scalar fields in the same hint dict."""
+        s = make_solid()
+        apply_meta_hint(
+            s,
+            {
+                "assembly.joint_kind": "axial",
+                "assembly.datums": [{"id": "bore", "kind": "axis"}],
+                "assembly.bolt_patterns": [
+                    {
+                        "id": "primary",
+                        "ring": "axial",
+                        "R_mm": 149.4,
+                        "z_mm": 317.3,
+                        "count": 8,
+                    }
+                ],
+                "layer": "kinematics",
+            },
+        )
+        asm = get_assembly(s)
+        assert asm["joint_kind"] == "axial"
+        assert asm["datums"][0]["id"] == "bore"
+        assert asm["bolt_patterns"][0]["id"] == "primary"
+        # Root field still landed correctly
+        from yapcad.metadata import get_solid_metadata, _ensure_root
+        meta = get_solid_metadata(s)
+        root = _ensure_root(meta)
+        assert root["layer"] == "kinematics"
 
 
 class TestApplyMetaHintOperation:
@@ -268,3 +500,58 @@ command MAKE_POCKET(depth: float = 10.0) -> solid:
         assert get_operation(s)["feature_kind"] == "pocket"
         meta = get_solid_metadata(s)
         assert meta["layer"] == "kinematics"
+
+    def test_parse_and_apply_list_fields(self):
+        """DSL round-trip exercising @meta list-of-dict assembly fields.
+
+        This is the headline new capability: ``@meta(assembly.datums=[...],
+        assembly.bolt_patterns=[...])`` parses through dict literals to a
+        flat hint dict, then ``apply_meta_hint`` dispatches each entry to
+        the dedicated ``yapcad.metadata`` helper.
+        """
+        from yapcad.dsl.lexer import Lexer
+        from yapcad.dsl.parser import Parser
+
+        src = '''
+module test
+
+@meta(
+    assembly.joint_kind="axial",
+    assembly.datums=[
+        {"id": "bore_axis", "kind": "axis"},
+        {"id": "neck_circle", "kind": "bolt_circle", "R_mm": 151.9, "z_mm": 330.0},
+    ],
+    assembly.bolt_patterns=[
+        {"id": "primary", "ring": "axial", "R_mm": 149.4, "z_mm": 317.3, "count": 8},
+    ],
+    assembly.surfaces=[
+        {"id": "mate_top", "kind": "mating", "mate_to": "nosecone.base_bore"},
+    ],
+)
+command FORWARD_BULKHEAD() -> solid:
+    emit box(1.0, 1.0, 1.0)
+'''
+        ast = Parser(Lexer(src).tokenize()).parse_module()
+        fn = ast.functions[0]
+        assert fn.meta_hint is not None
+
+        s = make_solid()
+        apply_meta_hint(s, fn.meta_hint)
+
+        asm = get_assembly(s)
+        assert asm["joint_kind"] == "axial"
+
+        datums = asm["datums"]
+        assert [d["id"] for d in datums] == ["bore_axis", "neck_circle"]
+        assert datums[1]["kind"] == "bolt_circle"
+        assert datums[1]["R_mm"] == 151.9
+
+        bp = asm["bolt_patterns"][0]
+        assert bp["id"] == "primary"
+        assert bp["ring"] == "axial"
+        assert bp["count"] == 8
+
+        surface = asm["surfaces"][0]
+        assert surface["id"] == "mate_top"
+        assert surface["kind"] == "mating"
+        assert surface["mate_to"] == "nosecone.base_bore"
