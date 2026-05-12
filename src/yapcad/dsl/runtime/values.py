@@ -15,7 +15,7 @@ from ..types import (
     OptionalTypeWrapper, FunctionType,
     INT, FLOAT, BOOL, STRING,
     POINT, POINT2D, POINT3D, VECTOR, VECTOR2D, VECTOR3D, TRANSFORM,
-    SOLID, REGION2D, SURFACE, SHELL, EDGE,
+    SOLID, REGION2D, SURFACE, SHELL, EDGE, ASSEMBLY,
 )
 
 
@@ -104,6 +104,16 @@ def transform_val(matrix: Any) -> Value:
 def solid_val(solid_data: Any) -> Value:
     """Create a solid value."""
     return Value(solid_data, SOLID)
+
+
+def assembly_val(assembly_obj: Any) -> Value:
+    """Create an assembly handle value.
+
+    Wraps a ``yapcad.assembly.Assembly`` instance as an opaque DSL value.
+    Use with the assembly builtins (``assembly``, ``add_part``, ``add_mate``,
+    ``validate_assembly``, ``assembly_report``).
+    """
+    return Value(assembly_obj, ASSEMBLY)
 
 
 def region2d_val(region_data: Any) -> Value:
