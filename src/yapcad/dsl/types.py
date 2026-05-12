@@ -417,6 +417,12 @@ BUILTIN_TYPES: Dict[str, Type] = {
     # BREP types
     "edge": EDGE,
 
+    # Assembly (Phase 2 of yapcad-assembly-integration). Lets DSL
+    # authors annotate handles as ``a: assembly = assembly("...")`` and
+    # have the type-checker accept ``add_part``/``add_mate`` returning
+    # ``assembly``.
+    "assembly": ASSEMBLY,
+
     # Generic
     "dict": DICT,
 }

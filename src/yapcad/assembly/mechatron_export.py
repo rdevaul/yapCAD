@@ -209,22 +209,50 @@ def _material_to_mechatron(material: Optional[str]) -> str:
     return _MATERIAL_MAP.get(material.lower(), "PETG")
 
 
-def _joint_for_mate(mate) -> Dict[str, Any]:
+def _resolve_mate_axis(assembly, mate):
+    """Look up the parent-side datum's direction vector for a motion mate.
+
+    For ``Revolute``/``Prismatic`` joints, Mechatron's ``Joint`` variant
+    requires an explicit axis vector in the parent's local frame. yapCAD
+    stores this on the AXIS datum referenced by ``mate.datum_a`` on
+    ``mate.part_a``. Returns ``None`` if the datum or direction is
+    missing; the caller falls back to a +Z placeholder.
+    """
+    try:
+        part = assembly.parts.get(str(mate.part_a))
+        if part is None:
+            return None
+        datum = part.datums.get(str(mate.datum_a))
+        if datum is None:
+            return None
+        direction = getattr(datum, "direction", None)
+        if direction is None:
+            return None
+        # Homogeneous -> 3D vector; ignore the w-component.
+        return [float(direction[0]), float(direction[1]), float(direction[2])]
+    except Exception:
+        return None
+
+
+def _joint_for_mate(mate, assembly=None) -> Dict[str, Any]:
     """Build a Mechatron Joint tagged-enum dict from a yapcad Mate.
 
     ``Joint`` is ``#[serde(tag = "type")]`` in Mechatron, so the dict
-    always has a ``"type"`` key plus variant-specific fields. We emit
-    a minimal Joint here \u2014 axes and limits are left for the Mechatron
-    solver to resolve from the datum geometry.
+    always has a ``"type"`` key plus variant-specific fields. For
+    ``Revolute`` and ``Prismatic`` joints we resolve the rotation /
+    translation axis from the parent-side datum's direction vector
+    when the assembly is provided. If the datum lacks a direction (or
+    the assembly handle was not threaded through), we fall back to a
+    placeholder +Z axis and the Mechatron-side solver re-derives it
+    from datum geometry on ``load_json``.
     """
     mate_kind = mate.mate_type.value if hasattr(mate.mate_type, "value") else str(mate.mate_type)
     joint_variant = _MOTION_MATE_TO_JOINT.get(mate_kind.lower(), "Fixed")
     if joint_variant in ("Revolute", "Prismatic"):
-        # Mechatron requires an axis on these joints. yapCAD's mate
-        # references a datum on each part; the actual axis vector comes
-        # out of the solver after FK. We emit +Z as a placeholder; the
-        # consumer's solver overrides this once datums are resolved.
-        return {"type": joint_variant, "axis": [0.0, 0.0, 1.0]}
+        axis = _resolve_mate_axis(assembly, mate) if assembly is not None else None
+        if axis is None:
+            axis = [0.0, 0.0, 1.0]
+        return {"type": joint_variant, "axis": axis}
     return {"type": joint_variant}
 
 
@@ -259,14 +287,19 @@ def _mate_constraint_for_mate(mate) -> Optional[Dict[str, Any]]:
     return entry
 
 
-def _interface_for_mate(idx: int, mate) -> Dict[str, Any]:
-    """Convert one yapcad Mate into a Mechatron Interface dict."""
+def _interface_for_mate(idx: int, mate, assembly=None) -> Dict[str, Any]:
+    """Convert one yapcad Mate into a Mechatron Interface dict.
+
+    ``assembly`` is optional and only used to resolve motion-mate axes
+    from datum geometry. When omitted, joints fall back to +Z
+    placeholder axes (matching pre-axis-resolution behaviour).
+    """
     constraint = _mate_constraint_for_mate(mate)
     return {
         "id": f"iface_{idx}",
         "parent_part": str(mate.part_a),
         "child_part": str(mate.part_b),
-        "joint": _joint_for_mate(mate),
+        "joint": _joint_for_mate(mate, assembly=assembly),
         "mate_constraints": [constraint] if constraint is not None else [],
     }
 
@@ -310,7 +343,8 @@ def to_mechatron_snapshot(assembly) -> Dict[str, Any]:
         })
 
     interfaces: List[Dict[str, Any]] = [
-        _interface_for_mate(idx, mate) for idx, mate in enumerate(assembly.mates)
+        _interface_for_mate(idx, mate, assembly=assembly)
+        for idx, mate in enumerate(assembly.mates)
     ]
 
     return {

@@ -16,7 +16,7 @@ from .types import (
     LINE_SEGMENT, ARC, CIRCLE, ELLIPSE, PARABOLA, HYPERBOLA,
     CATMULLROM, NURBS, BEZIER,
     PATH2D, PATH3D, PROFILE2D, REGION2D, LOOP3D,
-    SURFACE, SHELL, SOLID, DICT,
+    SURFACE, SHELL, SOLID, DICT, ASSEMBLY,
     make_list_type, make_optional_type,
 )
 from .tokens import SourceSpan
@@ -733,6 +733,39 @@ class SymbolTable:
         self._register_builtin("is_empty", [("s", SOLID, None)], BOOL)
         self._register_builtin("empty_solid", [], SOLID)
         self._register_builtin("empty_region", [], REGION2D)
+
+        # ---------------------------------------------------------------
+        # Assembly builtins (Phase 2 + 3 of yapcad-assembly-integration)
+        # ---------------------------------------------------------------
+        # Mirrors the registrations in
+        # ``yapcad.dsl.runtime.builtins.BuiltinRegistry.__init__``;
+        # signatures must match or the type-checker will reject
+        # well-formed DSL programs at parse time.
+        self._register_builtin("assembly", [
+            ("name", STRING, None),
+        ], ASSEMBLY)
+        self._register_builtin("add_part", [
+            ("asm",   ASSEMBLY, None),
+            ("solid", SOLID,    None),
+            ("name",  STRING,   None),
+        ], ASSEMBLY)
+        self._register_builtin("add_mate", [
+            ("asm",     ASSEMBLY, None),
+            ("kind",    STRING,   None),
+            ("part_a",  STRING,   None),
+            ("datum_a", STRING,   None),
+            ("part_b",  STRING,   None),
+            ("datum_b", STRING,   None),
+        ], ASSEMBLY)
+        self._register_builtin("validate_assembly", [
+            ("asm", ASSEMBLY, None),
+        ], BOOL)
+        self._register_builtin("assembly_report", [
+            ("asm", ASSEMBLY, None),
+        ], STRING)
+        self._register_builtin("emit_assembly", [
+            ("asm", ASSEMBLY, None),
+        ], STRING)
 
     def _register_builtin(
         self,
