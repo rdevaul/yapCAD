@@ -231,14 +231,16 @@ class TestMateToJointMapping:
         iface = to_mechatron_snapshot(asm)["interfaces"][0]
         assert iface["joint"] == {"type": "Ball"}
 
-    def test_concentric_emits_mate_constraint(self):
+    def test_concentric_emits_axis_coincident(self):
+        # yapCAD CONCENTRIC maps to Mechatron AxisCoincident (not
+        # Concentric) so the validator's composite rule
+        # "AxisCoincident + Coincident -> axial rotation locked" can fire
+        # and Fixed mounts come out fully constrained.
         asm = self._two_part_assembly_with_mate(MateType.CONCENTRIC)
         iface = to_mechatron_snapshot(asm)["interfaces"][0]
-        # Non-motion mates collapse to Fixed at the joint level...
         assert iface["joint"] == {"type": "Fixed"}
-        # ...and emit a Mechatron MateConstraint (tagged-enum shape)
         c = iface["mate_constraints"][0]
-        assert c["type"] == "Concentric"
+        assert c["type"] == "AxisCoincident"
         assert c["parent_datum"] == "shaft"
         assert c["child_datum"] == "shaft"
 
@@ -275,12 +277,138 @@ class TestMateToJointMapping:
         assert c["parent_datum"] == "face"
         assert c["child_datum"] == "face"
 
-    def test_unmappable_mate_kind_drops_constraint(self):
-        """yapCAD's PARALLEL has no Mechatron equivalent; constraint is dropped."""
+    def test_parallel_maps_to_axis_align(self):
+        """PARALLEL is now mapped to Mechatron's AxisAlign (unilateral)."""
         asm = self._two_part_assembly_with_mate(MateType.PARALLEL)
         iface = to_mechatron_snapshot(asm)["interfaces"][0]
         assert iface["joint"] == {"type": "Fixed"}
+        c = iface["mate_constraints"][0]
+        assert c["type"] == "AxisAlign"
+        # AxisAlign has a different shape: child_datum + target_axis
+        # (no parent_datum). target_axis comes from datum_a's direction.
+        assert c["child_datum"] == "shaft"
+        assert c["target_axis"] == [0.0, 0.0, 1.0]
+        assert "parent_datum" not in c
+
+    def test_perpendicular_drops_constraint(self):
+        """PERPENDICULAR still has no Mechatron equivalent and is dropped."""
+        asm = self._two_part_assembly_with_mate(MateType.PERPENDICULAR)
+        iface = to_mechatron_snapshot(asm)["interfaces"][0]
+        assert iface["joint"] == {"type": "Fixed"}
         assert iface["mate_constraints"] == []
+
+    def test_two_mates_same_pair_collapse_to_one_interface(self):
+        """yapCAD authors typically stack Concentric+Coincident to fully
+        constrain a rigid mount. Mechatron treats them as one Interface."""
+        asm = Assembly("a")
+        for name in ("part_a", "part_b"):
+            part = _bare_part(name)
+            part.add_datum(Datum(
+                name="centerline", datum_type=DatumType.AXIS,
+                origin=[0.0, 0.0, 0.0, 1.0],
+                direction=[0.0, 0.0, 1.0, 0.0],
+            ))
+            part.add_datum(Datum(
+                name="face", datum_type=DatumType.PLANE,
+                origin=[0.0, 0.0, 0.0, 1.0],
+                normal=[0.0, 0.0, 1.0, 0.0],
+            ))
+            asm.add_part(part, name=name)
+        asm.add_mate(Mate(
+            name="m1", mate_type=MateType.CONCENTRIC,
+            part_a="part_a", datum_a="centerline",
+            part_b="part_b", datum_b="centerline",
+        ))
+        asm.add_mate(Mate(
+            name="m2", mate_type=MateType.COINCIDENT,
+            part_a="part_a", datum_a="face",
+            part_b="part_b", datum_b="face",
+        ))
+        snap = to_mechatron_snapshot(asm)
+        # Two mates -> one Interface, two constraints
+        assert len(snap["interfaces"]) == 1
+        iface = snap["interfaces"][0]
+        assert iface["joint"] == {"type": "Fixed"}
+        kinds = [c["type"] for c in iface["mate_constraints"]]
+        assert kinds == ["AxisCoincident", "Coincident"]
+
+    def test_motion_and_constraint_mates_share_one_interface(self):
+        """A Revolute joint plus a Coincident positioning constraint on the
+        same pair must produce one Interface with Joint::Revolute AND
+        the Coincident mate_constraint."""
+        asm = Assembly("a")
+        for name in ("part_a", "part_b"):
+            part = _bare_part(name)
+            part.add_datum(Datum(
+                name="shaft", datum_type=DatumType.AXIS,
+                origin=[0.0, 0.0, 0.0, 1.0],
+                direction=[1.0, 0.0, 0.0, 0.0],
+            ))
+            part.add_datum(Datum(
+                name="face", datum_type=DatumType.PLANE,
+                origin=[0.0, 0.0, 0.0, 1.0],
+                normal=[0.0, 0.0, 1.0, 0.0],
+            ))
+            asm.add_part(part, name=name)
+        asm.add_mate(Mate(
+            name="contact", mate_type=MateType.COINCIDENT,
+            part_a="part_a", datum_a="face",
+            part_b="part_b", datum_b="face",
+        ))
+        asm.add_mate(Mate(
+            name="hinge", mate_type=MateType.REVOLUTE,
+            part_a="part_a", datum_a="shaft",
+            part_b="part_b", datum_b="shaft",
+        ))
+        snap = to_mechatron_snapshot(asm)
+        assert len(snap["interfaces"]) == 1
+        iface = snap["interfaces"][0]
+        # Motion mate wins the joint slot...
+        assert iface["joint"]["type"] == "Revolute"
+        assert iface["joint"]["axis"] == [1.0, 0.0, 0.0]
+        # ...and the Coincident shows up as a mate_constraint
+        assert len(iface["mate_constraints"]) == 1
+        assert iface["mate_constraints"][0]["type"] == "Coincident"
+
+    def test_insertion_vector_from_plane_datum(self):
+        """insertion_vector should derive from the parent-side PLANE datum
+        normal, negated (= direction the child moves to seat)."""
+        asm = Assembly("a")
+        for name in ("part_a", "part_b"):
+            part = _bare_part(name)
+            part.add_datum(Datum(
+                name="face", datum_type=DatumType.PLANE,
+                origin=[0.0, 0.0, 0.0, 1.0],
+                normal=[0.0, 0.0, 1.0, 0.0],  # parent face points +Z
+            ))
+            asm.add_part(part, name=name)
+        asm.add_mate(Mate(
+            name="contact", mate_type=MateType.COINCIDENT,
+            part_a="part_a", datum_a="face",
+            part_b="part_b", datum_b="face",
+        ))
+        iface = to_mechatron_snapshot(asm)["interfaces"][0]
+        # Child seats by moving along -Z (into the parent face)
+        assert iface["insertion_vector"] == [0.0, 0.0, -1.0]
+
+    def test_no_insertion_vector_when_no_plane_or_circle(self):
+        """AXIS-only interfaces leave insertion_vector unset."""
+        asm = Assembly("a")
+        for name in ("part_a", "part_b"):
+            part = _bare_part(name)
+            part.add_datum(Datum(
+                name="shaft", datum_type=DatumType.AXIS,
+                origin=[0.0, 0.0, 0.0, 1.0],
+                direction=[0.0, 0.0, 1.0, 0.0],
+            ))
+            asm.add_part(part, name=name)
+        asm.add_mate(Mate(
+            name="c", mate_type=MateType.CONCENTRIC,
+            part_a="part_a", datum_a="shaft",
+            part_b="part_b", datum_b="shaft",
+        ))
+        iface = to_mechatron_snapshot(asm)["interfaces"][0]
+        assert "insertion_vector" not in iface
 
     def test_interface_ids_are_sequential(self):
         asm = Assembly("a")
@@ -385,7 +513,8 @@ class TestEmitAssemblyBuiltin:
         assert iface["child_part"] == "bulkhead"
         assert iface["joint"] == {"type": "Fixed"}
         c = iface["mate_constraints"][0]
-        assert c["type"] == "Concentric"
+        # CONCENTRIC -> AxisCoincident (see _MATE_TO_CONSTRAINT_VARIANT)
+        assert c["type"] == "AxisCoincident"
         assert c["parent_datum"] == "shaft"
         assert c["child_datum"] == "shaft"
 

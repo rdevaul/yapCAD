@@ -147,10 +147,23 @@ _MOTION_MATE_TO_JOINT: Dict[str, str] = {
 # Mechatron's MateConstraint variants or add a yapCAD-private
 # extension field for round-trip preservation.
 _MATE_TO_CONSTRAINT_VARIANT: Dict[str, str] = {
-    "concentric": "Concentric",
+    # yapCAD's CONCENTRIC maps to Mechatron's AxisCoincident, NOT
+    # Concentric, on purpose. Mechatron's Concentric locks 3T + 2R
+    # (5/6 DOFs); AxisCoincident locks 2T + 2R but it pairs with a
+    # Coincident face mate via the validator's composite rule
+    # ("AxisCoincident + Coincident => +1R axial rotation locked"),
+    # which gets a Fixed joint to a clean 6/6. For yapcad authors
+    # the semantics are the same: two cylinders sharing a centerline.
+    "concentric": "AxisCoincident",
     "coincident": "Coincident",
     "tangent": "Tangent",
     "angle": "Angle",
+    # PARALLEL maps to AxisAlign (a unilateral constraint that pins
+    # the child's axis to a target direction in the parent frame).
+    # AxisAlign has a different shape than the other constraints
+    # (child_datum + target_axis only); see _mate_constraint_for_mate
+    # for the special-case handling.
+    "parallel": "AxisAlign",
 }
 
 
@@ -256,25 +269,58 @@ def _joint_for_mate(mate, assembly=None) -> Dict[str, Any]:
     return {"type": joint_variant}
 
 
-def _mate_constraint_for_mate(mate) -> Optional[Dict[str, Any]]:
+def _mate_constraint_for_mate(mate, assembly=None,
+                              joint_is_motion: bool = False) -> Optional[Dict[str, Any]]:
     """Build a Mechatron ``MateConstraint`` dict from a yapcad Mate.
 
     Returns ``None`` when the mate kind is a motion mate (its semantics
     are captured by the joint already) or has no Mechatron equivalent.
 
-    Output uses Mechatron's ``#[serde(tag = "type")]`` shape:
+    Bilateral constraints (Concentric/Coincident/Tangent/Angle) use the
+    standard tagged-enum shape::
 
         {"type": "Concentric", "parent_datum": "...", "child_datum": "..."}
 
-    Note: yapCAD's mate API uses ``datum_a`` / ``datum_b``; Mechatron's
-    MateConstraint uses ``parent_datum`` / ``child_datum``. The mapping
-    is positional (datum_a -> parent_datum, datum_b -> child_datum) and
-    happens here, not in the exporter caller.
+    yapCAD's mate API uses ``datum_a`` / ``datum_b``; Mechatron uses
+    ``parent_datum`` / ``child_datum``. The mapping is positional
+    (datum_a -> parent_datum, datum_b -> child_datum).
+
+    The ``AxisAlign`` variant is special — it is unilateral on the
+    child side and pins the child's axis to a target direction in the
+    parent frame::
+
+        {"type": "AxisAlign", "child_datum": "...", "target_axis": [x,y,z]}
+
+    For AxisAlign we look up the parent-side datum's direction vector
+    on the assembly (when available) and use that as ``target_axis``.
+    Falls back to +Z if the assembly handle is missing or the parent
+    datum has no direction.
     """
     mate_kind = mate.mate_type.value if hasattr(mate.mate_type, "value") else str(mate.mate_type)
     variant = _MATE_TO_CONSTRAINT_VARIANT.get(mate_kind.lower())
     if variant is None:
         return None
+
+    # CONCENTRIC has a context-dependent mapping. On a Fixed-joint
+    # interface we map to AxisCoincident (2T + 2R) so the validator's
+    # "AxisCoincident + Coincident => axial rotation locked" composite
+    # rule fires and the Fixed mount comes out fully constrained. On a
+    # motion-joint interface (Revolute/Prismatic/Ball) we map to
+    # Concentric (3T + 2R) instead — Concentric does NOT trigger the
+    # composite +1R, leaving the joint's natural rotational DOF free.
+    if mate_kind.lower() == "concentric" and joint_is_motion:
+        variant = "Concentric"
+
+    if variant == "AxisAlign":
+        target = _resolve_mate_axis(assembly, mate) if assembly is not None else None
+        if target is None:
+            target = [0.0, 0.0, 1.0]
+        return {
+            "type": "AxisAlign",
+            "child_datum": str(mate.datum_b),
+            "target_axis": target,
+        }
+
     entry: Dict[str, Any] = {
         "type": variant,
         "parent_datum": str(mate.datum_a),
@@ -287,21 +333,134 @@ def _mate_constraint_for_mate(mate) -> Optional[Dict[str, Any]]:
     return entry
 
 
-def _interface_for_mate(idx: int, mate, assembly=None) -> Dict[str, Any]:
-    """Convert one yapcad Mate into a Mechatron Interface dict.
+def _is_motion_mate(mate) -> bool:
+    """True if this yapcad MateType maps to a Mechatron Joint variant.
 
-    ``assembly`` is optional and only used to resolve motion-mate axes
-    from datum geometry. When omitted, joints fall back to +Z
-    placeholder axes (matching pre-axis-resolution behaviour).
+    Motion mates (REVOLUTE/PRISMATIC/SPHERICAL/RIGID) define the joint
+    DOF and are NOT also emitted as MateConstraint entries. Other
+    mates (CONCENTRIC, COINCIDENT, TANGENT, ANGLE) leave the joint as
+    Fixed and contribute geometric constraints used by the solver to
+    place the parts.
     """
-    constraint = _mate_constraint_for_mate(mate)
-    return {
+    mate_kind = mate.mate_type.value if hasattr(mate.mate_type, "value") else str(mate.mate_type)
+    return mate_kind.lower() in _MOTION_MATE_TO_JOINT
+
+
+def _resolve_insertion_vector(assembly, mates):
+    """Derive a Mechatron insertion_vector from the parent-side mate datums.
+
+    Mechatron requires every interface to declare the physical direction
+    the child part is installed from, as a unit vector in the parent
+    body frame. By convention, ``[0,0,-1]`` means "inserted from above"
+    (the child slides down onto the parent).
+
+    Strategy:
+      1. Look at each non-motion mate in the group.
+      2. Find the parent-side datum (``mate.datum_a`` on
+         ``mate.part_a``) and inspect its kind.
+      3. For a PLANE datum, the plane normal points OUT of the parent
+         (away from the seated child). The insertion direction is the
+         opposite — the child moves toward the parent along
+         ``-normal``.
+      4. For a CIRCLE datum, treat the circle normal the same way.
+      5. AXIS datums and other kinds don't carry an unambiguous
+         install direction; skip them.
+
+    Returns ``None`` when no suitable datum is found; the caller emits
+    no insertion_vector field (Mechatron will warn but not error).
+    """
+    if assembly is None:
+        return None
+    for mate in mates:
+        try:
+            part = assembly.parts.get(str(mate.part_a))
+            if part is None:
+                continue
+            datum = part.datums.get(str(mate.datum_a))
+            if datum is None:
+                continue
+            kind = datum.datum_type.value if hasattr(datum.datum_type, "value") else str(datum.datum_type)
+            if kind.lower() not in ("plane", "circle"):
+                continue
+            normal = getattr(datum, "normal", None)
+            if normal is None:
+                continue
+            # insertion_vector = -normal: the child moves opposite the
+            # parent face's outward normal to seat against it. The
+            # ``+ 0.0`` collapses ``-0.0`` to ``0.0`` for cleaner JSON
+            # output (purely cosmetic — both serialize identically as
+            # numbers).
+            return [
+                -float(normal[0]) + 0.0,
+                -float(normal[1]) + 0.0,
+                -float(normal[2]) + 0.0,
+            ]
+        except Exception:
+            continue
+    return None
+
+
+def _interface_for_mate_group(idx: int, parent: str, child: str,
+                              mates: list, assembly=None) -> Dict[str, Any]:
+    """Convert a group of mates between the same (parent, child) pair
+    into a single Mechatron Interface dict.
+
+    Mechatron treats each Interface as one connection between two
+    parts. yapCAD lets authors stack multiple mates (e.g. a
+    ``concentric`` + ``coincident`` pair to fully constrain a stacked
+    cylinder, plus a ``revolute`` for the kinematic joint). All of
+    those describe the same physical relationship and belong on one
+    Interface. Stripping them down:
+
+      * Pick the first motion mate (REVOLUTE / PRISMATIC / SPHERICAL /
+        RIGID) as the Joint. If none, the joint is Fixed.
+      * All other mates become MateConstraint entries (where mappable),
+        which the Mechatron solver uses to derive origin + orientation.
+      * insertion_vector comes from a PLANE/CIRCLE parent datum
+        referenced by the constraint mates.
+
+    Args:
+        idx: Sequential interface index (used for the ``iface_N`` id).
+        parent: Parent part name.
+        child: Child part name.
+        mates: All yapcad Mates with ``mate.part_a == parent`` and
+               ``mate.part_b == child``, in their original order.
+        assembly: The owning Assembly, used to resolve datum
+                  directions for joint axes and insertion_vector.
+
+    Returns:
+        A Mechatron-shaped Interface dict.
+    """
+    motion_mate = next((m for m in mates if _is_motion_mate(m)), None)
+    if motion_mate is not None:
+        joint = _joint_for_mate(motion_mate, assembly=assembly)
+    else:
+        joint = {"type": "Fixed"}
+
+    # Every non-motion mate that maps to a MateConstraint variant.
+    # Pass the assembly through so AxisAlign can resolve its target_axis
+    # from the parent-side datum's direction vector.
+    joint_is_motion = motion_mate is not None
+    mate_constraints: List[Dict[str, Any]] = []
+    for m in mates:
+        if _is_motion_mate(m):
+            continue
+        c = _mate_constraint_for_mate(m, assembly=assembly,
+                                      joint_is_motion=joint_is_motion)
+        if c is not None:
+            mate_constraints.append(c)
+
+    iface: Dict[str, Any] = {
         "id": f"iface_{idx}",
-        "parent_part": str(mate.part_a),
-        "child_part": str(mate.part_b),
-        "joint": _joint_for_mate(mate, assembly=assembly),
-        "mate_constraints": [constraint] if constraint is not None else [],
+        "parent_part": parent,
+        "child_part": child,
+        "joint": joint,
+        "mate_constraints": mate_constraints,
     }
+    ivec = _resolve_insertion_vector(assembly, mates)
+    if ivec is not None:
+        iface["insertion_vector"] = ivec
+    return iface
 
 
 # ---------------------------------------------------------------------------
@@ -333,18 +492,44 @@ def to_mechatron_snapshot(assembly) -> Dict[str, Any]:
     parts: List[Dict[str, Any]] = []
     for part_name in _ordered_part_names(assembly):
         part_def = assembly.parts[part_name]
-        parts.append({
+        part_dict: Dict[str, Any] = {
             "id": str(part_def.name),
             "name": str(part_def.name),
             "material": _material_to_mechatron(getattr(part_def, "material", None)),
             "process": "FDM",
             "datums": [_datum_to_mechatron(d) for d in part_def.datums.values()],
             "tags": [],
-        })
+        }
+        # ``@meta(assembly.geoms=[...])`` entries are stashed on the
+        # PartDefinition as a side-channel ``geoms`` attribute by
+        # ``add_part``. Convert each entry to Mechatron's PartGeom shape
+        # (and from mm to metres) here. Missing or empty -> skip; the
+        # Mechatron validator will warn about "no visual geometry" but
+        # the kinematic chain still works.
+        raw_geoms = getattr(part_def, "geoms", None)
+        if isinstance(raw_geoms, list) and raw_geoms:
+            converted = [g for g in (_geom_to_mechatron(e) for e in raw_geoms) if g is not None]
+            if converted:
+                part_dict["geoms"] = converted
+        parts.append(part_dict)
+
+    # Group mates by (parent_part, child_part) so multiple yapcad
+    # mates describing the same physical interface collapse into one
+    # Mechatron Interface. Preserves first-occurrence order.
+    mate_groups: List[tuple] = []  # list of (parent, child, [mates])
+    group_index: Dict[tuple, int] = {}
+    for mate in assembly.mates:
+        key = (str(mate.part_a), str(mate.part_b))
+        if key in group_index:
+            mate_groups[group_index[key]][2].append(mate)
+        else:
+            group_index[key] = len(mate_groups)
+            mate_groups.append((key[0], key[1], [mate]))
 
     interfaces: List[Dict[str, Any]] = [
-        _interface_for_mate(idx, mate, assembly=assembly)
-        for idx, mate in enumerate(assembly.mates)
+        _interface_for_mate_group(idx, parent, child, group_mates,
+                                  assembly=assembly)
+        for idx, (parent, child, group_mates) in enumerate(mate_groups)
     ]
 
     return {
@@ -376,6 +561,83 @@ def _ordered_part_names(assembly) -> Iterable[str]:
     intent explicit at the call site.
     """
     return list(assembly.parts.keys())
+
+
+# ---------------------------------------------------------------------------
+# Geom (visual primitive) export
+# ---------------------------------------------------------------------------
+
+# yapcad @meta authors typically work in millimetres; Mechatron's PartGeom
+# uses metres (MuJoCo SI convention). Conversion factor.
+_MM_TO_M = 1.0 / 1000.0
+
+
+# Accepted yapCAD geom kinds (case-insensitive) -> Mechatron PartGeom variant.
+_GEOM_KIND_MAP: Dict[str, str] = {
+    "box":      "Box",
+    "cylinder": "Cylinder",
+    "sphere":   "Sphere",
+    "capsule":  "Capsule",
+    "mesh":     "Mesh",
+}
+
+
+def _geom_to_mechatron(entry: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Convert one yapcad ``assembly.geoms`` entry into a Mechatron PartGeom.
+
+    Author-facing entries use millimetre suffixes (``radius_mm``,
+    ``half_height_mm``, ``size_mm``, ``pos_mm``) for readability; this
+    helper converts them to metres for the Mechatron-side ``PartGeom``
+    enum. Optional fields (``pos_mm``, ``rgba``) are dropped from the
+    output when absent.
+
+    Returns ``None`` for entries with no recognised ``type`` so callers
+    can skip them gracefully.
+    """
+    raw_kind = str(entry.get("type", "")).lower()
+    variant = _GEOM_KIND_MAP.get(raw_kind)
+    if variant is None:
+        return None
+    result: Dict[str, Any] = {"type": variant}
+    if variant == "Box":
+        size_mm = entry.get("size_mm") or entry.get("size")
+        if size_mm is not None:
+            result["size"] = [float(s) * _MM_TO_M for s in size_mm]
+    elif variant == "Cylinder":
+        if "radius_mm" in entry:
+            result["radius"] = float(entry["radius_mm"]) * _MM_TO_M
+        elif "radius" in entry:
+            result["radius"] = float(entry["radius"])  # already in metres
+        if "half_height_mm" in entry:
+            result["half_height"] = float(entry["half_height_mm"]) * _MM_TO_M
+        elif "half_height" in entry:
+            result["half_height"] = float(entry["half_height"])
+    elif variant == "Sphere":
+        if "radius_mm" in entry:
+            result["radius"] = float(entry["radius_mm"]) * _MM_TO_M
+        elif "radius" in entry:
+            result["radius"] = float(entry["radius"])
+    elif variant == "Capsule":
+        if "radius_mm" in entry:
+            result["radius"] = float(entry["radius_mm"]) * _MM_TO_M
+        if "half_height_mm" in entry:
+            result["half_height"] = float(entry["half_height_mm"]) * _MM_TO_M
+    elif variant == "Mesh":
+        if "path" in entry:
+            result["path"] = str(entry["path"])
+        if "scale" in entry:
+            result["scale"] = float(entry["scale"])
+
+    pos_mm = entry.get("pos_mm") or entry.get("pos")
+    if pos_mm is not None:
+        if "_mm" in next(iter(k for k in entry if k.endswith("_mm")), ""):
+            result["pos"] = [float(p) * _MM_TO_M for p in pos_mm]
+        else:
+            result["pos"] = [float(p) for p in pos_mm]
+    rgba = entry.get("rgba")
+    if rgba is not None:
+        result["rgba"] = [float(c) for c in rgba]
+    return result
 
 
 __all__ = [

@@ -3700,6 +3700,16 @@ class BuiltinRegistry:
                 datum = _datum_from_metadata_entry(entry)
                 if datum is not None:
                     part_def.add_datum(datum)
+            # Stash any `@meta(assembly.geoms=[...])` entries on the
+            # PartDefinition for the Mechatron exporter to consume.
+            # yapCAD's PartDefinition has no first-class geoms field;
+            # we attach as a side-channel attribute so the rest of the
+            # assembly layer is unaffected. Entries are kept verbatim
+            # here (in DSL-author units, typically mm); unit conversion
+            # happens inside ``mechatron_export``.
+            geoms = asm_meta.get("geoms")
+            if isinstance(geoms, list) and geoms:
+                part_def.geoms = list(geoms)
             # Root-level fields (set via @meta(material="PETG") for instance)
             # are stored at the top of the meta dict alongside the namespaces.
             material = meta.get("material")
