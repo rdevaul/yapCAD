@@ -433,8 +433,22 @@ def add_datum(meta: Dict[str, Any], *,
               ring: Optional[str] = None,
               R_mm: Optional[float] = None,
               z_mm: Optional[float] = None,
+              origin_mm: Optional[Iterable[float]] = None,
               direction: Optional[Iterable[float]] = None) -> Dict[str, Any]:
-    """Append an explicit datum entry to ``assembly.datums``. Returns the entry."""
+    """Append an explicit datum entry to ``assembly.datums``. Returns the entry.
+
+    Two ways to specify the origin (mutually compatible; ``origin_mm``
+    wins when both are present):
+
+    * ``R_mm`` + ``z_mm`` — axisymmetric / cylindrical convention. Origin
+      is taken as ``(R_mm, 0, z_mm)`` in the part's local frame.
+      Sufficient for parts whose features all live on a single radial
+      plane (cylindrical bulkheads, tank domes, etc.).
+
+    * ``origin_mm: [x, y, z]`` — explicit 3D origin. Required for parts
+      whose features aren't axisymmetric (pentagonal prisms, chassis
+      with off-axis mount points, etc.).
+    """
     if not id:
         raise ValueError("datum.id is required")
     _validate_enum(kind, _DATUM_KINDS, field="datum.kind")
@@ -448,6 +462,11 @@ def add_datum(meta: Dict[str, Any], *,
         entry["R_mm"] = float(R_mm)
     if z_mm is not None:
         entry["z_mm"] = float(z_mm)
+    if origin_mm is not None:
+        vec = list(origin_mm)
+        if len(vec) != 3:
+            raise ValueError("datum.origin_mm must have length 3")
+        entry["origin_mm"] = [float(c) for c in vec]
     if direction is not None:
         vec = list(direction)
         if len(vec) != 3:

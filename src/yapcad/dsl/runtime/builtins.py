@@ -3637,9 +3637,24 @@ class BuiltinRegistry:
         def _datum_from_metadata_entry(entry: dict):
             """Convert one v1.1 assembly.datums entry into a Datum.
 
-            Returns ``None`` if the entry's kind is not representable as a
-            Datum (e.g. ``edge``) or the entry is malformed (no ``id``);
-            the caller skips it.
+            Origin can be specified two ways:
+
+            - Axisymmetric (legacy): ``R_mm`` + ``z_mm`` → origin sits
+              on the Y=0 plane at ``(R_mm, 0, z_mm)``. Sufficient for
+              cylindrical parts where every datum lives on the part's
+              centerline or its axisymmetric ring of features.
+
+            - Arbitrary 3D (new): ``origin_mm: [x, y, z]`` (millimetres,
+              3-element list/tuple) → origin sits at the given point in
+              the part's local frame. Required for parts whose features
+              don't lie on a single radial plane (pentagonal prisms,
+              chassis with off-axis mount points, etc.).
+
+            When both are present, ``origin_mm`` wins.
+
+            Returns ``None`` if the entry's kind is not representable
+            as a Datum (e.g. ``edge``) or the entry is malformed (no
+            ``id``); the caller skips it.
             """
             if "id" not in entry:
                 return None
@@ -3649,8 +3664,21 @@ class BuiltinRegistry:
                 return None
             r_mm = float(entry.get("R_mm", 0.0))
             z_mm = float(entry.get("z_mm", 0.0))
-            # yapCAD homogeneous point: [x, y, z, w=1]
-            origin = [r_mm, 0.0, z_mm, 1.0]
+            raw_origin = entry.get("origin_mm")
+            if raw_origin is not None:
+                # Full 3D origin overrides the axisymmetric (R_mm, z_mm)
+                # derivation. Allows pentagonal bodies / off-axis mount
+                # points / anything whose features aren't on the Y=0
+                # plane.
+                origin = [
+                    float(raw_origin[0]),
+                    float(raw_origin[1]),
+                    float(raw_origin[2]),
+                    1.0,
+                ]
+            else:
+                # yapCAD homogeneous point: [x, y, z, w=1]
+                origin = [r_mm, 0.0, z_mm, 1.0]
             raw_dir = entry.get("direction")
             if raw_dir is not None:
                 direction = [float(raw_dir[0]), float(raw_dir[1]),
@@ -3668,6 +3696,9 @@ class BuiltinRegistry:
             elif datum_type in (DatumType.PLANE, DatumType.CIRCLE):
                 kwargs["normal"] = direction
             if datum_type == DatumType.CIRCLE:
+                # CIRCLE's radius still comes from R_mm (cylindrical
+                # convention). For an off-axis circle, use origin_mm to
+                # place the centre and R_mm to specify the radius.
                 kwargs["radius"] = r_mm
             return Datum(**kwargs)
 

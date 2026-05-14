@@ -94,6 +94,35 @@ class TestAddPartBuiltin:
         assert datum.datum_type == DatumType.AXIS
         assert datum.direction == [0.0, 0.0, 1.0, 0.0]
 
+    def test_add_part_lifts_off_axis_datum_via_origin_mm(self):
+        """`@meta(assembly.datums=[{...origin_mm: [x,y,z]...}])` → off-axis Datum.
+
+        Verifies the origin_mm escape hatch for parts whose features are
+        not on the Y=0 plane (pentagonal bodies, chassis, etc.).
+        """
+        solid = make_solid_with_assembly_meta({
+            "assembly.datums": [
+                {
+                    "id": "face_3_mate",
+                    "kind": "plane",
+                    "origin_mm": [42.5, -30.7, 12.0],
+                    "direction": [0.5, -0.866, 0.0],
+                },
+            ],
+        })
+        asm = call_builtin("assembly", [string_val("a")])
+        call_builtin(
+            "add_part",
+            [asm, solid_val(solid), string_val("body")],
+        )
+        body = asm.data.parts["body"]
+        d = body.datums["face_3_mate"]
+        assert d.datum_type == DatumType.PLANE
+        # origin_mm wins over the default (R_mm, 0, z_mm) derivation
+        assert d.origin[:3] == [42.5, -30.7, 12.0]
+        assert d.normal[:3] == [0.5, -0.866, 0.0]
+
+
     def test_add_part_lifts_bolt_circle_datum(self):
         """``kind=bolt_circle`` lifts to a CIRCLE datum with radius+normal."""
         solid = make_solid_with_assembly_meta({
