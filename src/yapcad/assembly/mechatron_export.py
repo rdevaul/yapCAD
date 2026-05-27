@@ -19,7 +19,7 @@ The target shape is roughly::
           "id":        "<part name>",
           "name":      "<part name>",
           "material":  "PETG",                     # PascalCase Material enum
-          "process":   "FDM",                       # PascalCase ManufacturingProcess
+          "process":   "FDM",                       # PascalCase ManufacturingProcess (FDM|WAAM|CNC|Cast|...)
           "datums": [
             {
               "name":       "shaft",
@@ -53,7 +53,7 @@ What this exporter does
 -----------------------
 - Walks ``asm.parts`` and emits one ``Part`` per ``PartDefinition``. Material
   is taken from ``PartDefinition.material`` (defaults to ``PETG``) and mapped
-  to the Mechatron Material PascalCase enum. Process defaults to ``FDM``.
+  to the Mechatron Material PascalCase enum. Process is read from ``part_def.process`` if set, otherwise defaults to ``FDM``.
 - For each part, walks its datums and emits one Mechatron Datum per
   yapcad Datum. yapCAD's homogeneous coordinates (``[x, y, z, w]``) are
   dropped to ``Point3D``/``Vec3D`` shapes.
@@ -460,6 +460,15 @@ def _interface_for_mate_group(idx: int, parent: str, child: str,
     ivec = _resolve_insertion_vector(assembly, mates)
     if ivec is not None:
         iface["insertion_vector"] = ivec
+
+    # Emit bolt_pattern if the assembly has one registered for this (parent, child)
+    # pair. Added 2026-05-20 to close the v4-v7 FEA setup gap where bolt_pattern
+    # data lived only in side-channel hole-catalog JSON files.
+    if assembly is not None and getattr(assembly, "bolt_patterns", None):
+        bp = assembly.bolt_patterns.get((parent, child))
+        if bp is not None:
+            # bp is either a BoltPattern dataclass (preferred) or a plain dict.
+            iface["bolt_pattern"] = bp.to_dict() if hasattr(bp, "to_dict") else dict(bp)
     return iface
 
 
@@ -496,7 +505,7 @@ def to_mechatron_snapshot(assembly) -> Dict[str, Any]:
             "id": str(part_def.name),
             "name": str(part_def.name),
             "material": _material_to_mechatron(getattr(part_def, "material", None)),
-            "process": "FDM",
+            "process": getattr(part_def, "process", None) or "FDM",
             "datums": [_datum_to_mechatron(d) for d in part_def.datums.values()],
             "tags": [],
         }
@@ -532,7 +541,19 @@ def to_mechatron_snapshot(assembly) -> Dict[str, Any]:
         for idx, (parent, child, group_mates) in enumerate(mate_groups)
     ]
 
-    return {
+    # Emit load_cases if the assembly has any registered. Added 2026-05-20 (see
+    # assembly/load_case.py history). Mechatron's GraphSnapshot does not yet
+    # have a native LoadCase field (Phase 3.5 — needs Rust-side schema change),
+    # so this lives under a `load_cases` key that round-trips through the
+    # JSON unchanged; the assembly-graph crate ignores unknown fields per serde.
+    load_cases_list: List[Dict[str, Any]] = []
+    if getattr(assembly, "load_cases", None):
+        for lc in assembly.load_cases.values():
+            load_cases_list.append(
+                lc.to_dict() if hasattr(lc, "to_dict") else dict(lc)
+            )
+
+    snapshot: Dict[str, Any] = {
         "parts": parts,
         "interfaces": interfaces,
         "loop_closures": [],
@@ -542,6 +563,9 @@ def to_mechatron_snapshot(assembly) -> Dict[str, Any]:
         "design_constraints": [],
         "last_script": f"yapcad-dsl: {assembly.name}",
     }
+    if load_cases_list:
+        snapshot["load_cases"] = load_cases_list
+    return snapshot
 
 
 def to_mechatron_json(assembly, *, indent: int = 2) -> str:
