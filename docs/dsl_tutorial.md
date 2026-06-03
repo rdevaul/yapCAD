@@ -1,5 +1,10 @@
 # yapCAD DSL Tutorial
 
+> **New to the DSL?** Read the [DSL Language Guide](dsl_guide.md) first — it
+> covers the mental model, execution semantics, and idioms this tutorial
+> assumes. For looking up specific types or functions, see the
+> [DSL Reference](dsl_reference.md). Learning path: Guide → Tutorial → Reference.
+
 This tutorial walks through creating a parametric part using the yapCAD DSL, from design to export.
 
 ## Prerequisites
@@ -322,6 +327,21 @@ command SAFE_CYLINDER(radius: float, height: float) -> solid:
 - `UPPERCASE_NAMES`: Exported commands (visible in CLI)
 - `lowercase_names`: Helper commands (internal use)
 
+### Angle Units
+
+Geometry/transform functions (`rotate`, `rotate_2d`, `arc`, `ellipse`) take
+angles in **degrees**. The trig math functions (`sin`, `cos`, `tan`) take
+**radians**. When you compute a position with trig, wrap the angle in
+`radians(...)`:
+
+```python
+rotated: solid = rotate(part, 0.0, 0.0, 45.0)        # degrees — no conversion
+x: float = r * cos(radians(angle_deg))               # trig needs radians
+```
+
+Mixing them type-checks but produces wrong geometry. See the
+[DSL Language Guide §4](dsl_guide.md) for the full rundown.
+
 ### Boolean Operations
 
 When combining many parts, chain unions efficiently:
@@ -339,6 +359,7 @@ result = union(result, d)
 
 ## Next Steps
 
-- See `docs/dsl_reference.md` for complete function reference
+- See the [DSL Language Guide](dsl_guide.md) for the language's mental model, idioms, and gotchas
+- See the [DSL Reference](dsl_reference.md) for the complete function reference
 - See `examples/` for more example DSL files
 - See `docs/ycpkg_spec.rst` for package format details
