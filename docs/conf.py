@@ -79,14 +79,28 @@ extensions = ['sphinx.ext.autodoc', 'sphinx.ext.intersphinx', 'sphinx.ext.todo',
               'sphinx.ext.doctest', 'sphinx.ext.ifconfig', 'sphinx.ext.mathjax',
               'sphinx.ext.napoleon']
 
+# Enable MyST so the Markdown docs in the toctree (DSL Guide/Tutorial/Reference,
+# schema specs, etc.) are parsed and published. Without this they emit
+# "nonexisting document" warnings and do not render on the site.
+try:
+    import myst_parser  # noqa: F401
+    extensions.append('myst_parser')
+except ImportError:
+    # MyST not installed in this build environment; .rst docs still build.
+    pass
+
 if _has_rtd_theme:
     extensions.append('sphinx_rtd_theme')
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
 
-# The suffix of source filenames.
-source_suffix = '.rst'
+# The suffix of source filenames. Markdown is handled by myst_parser when
+# available (see extensions above).
+source_suffix = {
+    '.rst': 'restructuredtext',
+    '.md': 'markdown',
+}
 
 # The encoding of source files.
 # source_encoding = 'utf-8-sig'
