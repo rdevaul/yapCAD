@@ -1,5 +1,10 @@
 # yapCAD DSL Reference
 
+> **Looking for how to *write* DSL, not just look up a function?** Start with the
+> [DSL Language Guide](dsl_guide.md) (mental model, idioms) and the
+> [DSL Tutorial](dsl_tutorial.md) (worked example). This Reference is the
+> complete catalog — your day-to-day lookup. Learning path: Guide → Tutorial → Reference.
+
 A domain-specific language for parametric CAD design with full type safety and provenance tracking.
 
 ## Quick Start
@@ -70,6 +75,137 @@ command MAKE_PART(param: float, param2: float = 10.0) -> solid:
 
 **Note:** Commands with UPPERCASE names are exported and visible to `dsl list`. Commands with lowercase names are helpers usable within the module but not directly callable from CLI.
 
+## Parameter Decorators
+
+Parameters in a `command` definition may carry a `@ui(...)` decorator that
+provides viewer and widget hints to the yapCAD workbench.  The decorator is
+**purely informational** — the evaluator ignores it completely, so it has no
+effect on geometry output or type-checking.
+
+### `@meta(...)` — Command Output Metadata
+
+Placed on a `command` (or `def`) definition, before the parameter list.  Multiple
+`@meta` decorators on the same command are **merged** — later decorators win on
+key collision.
+
+```python
+@meta(assembly.joint_kind="revolute", assembly.surface="flange_face")
+@meta(operation.kind="cut", operation.feature_kind="pocket")
+command MAKE_POCKET(
+    depth: float @ui(widget="slider", min=1.0, max=50.0) = 10.0
+) -> solid:
+    ...
+```
+
+#### Key syntax
+
+Keys may be **plain identifiers** or **dotted namespace paths**:
+
+| Form | Example | Meaning |
+|------|---------|--------|
+| Plain | `label="Hinge bracket"` | Unnamespaced, free-form |
+| Dotted | `assembly.joint_kind="revolute"` | Namespaced to the v1.1 `assembly` namespace |
+| Dotted | `operation.kind="cut"` | Namespaced to the v1.1 `operation` namespace |
+
+Type-keyword words (`surface`, `solid`, `float`, …) are valid key segments even
+though the lexer classifies them as type tokens (e.g. `assembly.surface`).
+
+#### Values
+
+Same literal rules as `@ui`: strings, integers, floats, booleans, unary-minus
+numerics, and lists of the above.  Non-literals are stringified.
+
+#### Namespace conventions (v1.1)
+
+| Prefix | Namespace | v1.1 helpers |
+|--------|-----------|-------------|
+| `assembly.*` | Assembly metadata | `get_assembly_metadata()`, `set_assembly()` |
+| `operation.*` | Operation/machining | `get_operation_metadata()`, `set_operation()` |
+| *(none)* | Free-form | Stored as-is |
+
+**v1.1 enum vocabularies** (values outside these sets raise `ValueError` at apply time):
+
+| Key | Valid values |
+|-----|--------------|
+| `assembly.joint_kind` | `axial`, `radial`, `mixed`, `none` |
+| `operation.kind` | `subtract`, `intersect`, `union` |
+| `operation.policy` | `strict`, `warn`, `ignore` |
+| `operation.feature_kind` | `access_panel`, `vent`, `parachute_door`, `fastener_through`, `wire_pass`, `channel`, `pocket`, `other` |
+
+#### Surfaced through the service API
+
+The `/dsl/commands` endpoint includes `meta_hint` in each command object when
+one or more `@meta` decorators are present:
+
+```json
+{
+  "name": "MAKE_POCKET",
+  "params": [...],
+  "meta_hint": {
+    "assembly.joint_kind": "revolute",
+    "assembly.surface": "flange_face",
+    "operation.kind": "cut",
+    "operation.feature_kind": "pocket"
+  }
+}
+```
+
+#### Evaluator behaviour
+
+`@meta` is **evaluator-transparent** — it has no effect on geometry evaluation,
+type-checking, or the emitted value.  Downstream consumers (workbench, mechatron
+graph, assembly dashboard) read `meta_hint` from the command descriptor and apply
+the v1.1 namespace helpers to annotate the resulting solid.
+
+---
+
+### `@ui(...)` — Workbench Widget Hints
+
+Syntax: placed after the type annotation and before the default value.
+
+```python
+command MY_PART(
+    radius:    float @ui(widget="circle_r", label="Radius", snap="mm") = 50.0,
+    n_sides:   int   @ui(label="Sides", min=3, max=64)                 = 6,
+    label:     string @ui(label="Name", group="Metadata")              = "part",
+    thickness: float = 3.0   # no @ui — plain parameter, no widget hint
+) -> solid:
+    ...
+```
+
+#### Recognised keys
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `widget` | string | Widget type.  Currently defined: `"circle_r"` (drag-handle circle radius), `"slider"` (linear slider). |
+| `label` | string | Human-readable label shown in the parameter panel. |
+| `snap` | string | Value-snap preset.  Defined presets: `"mm"`, `"metric_tap"`, `"unified_clearance"`. |
+| `min` | float/int | Minimum allowed value (advisory; not enforced by evaluator). |
+| `max` | float/int | Maximum allowed value (advisory; not enforced by evaluator). |
+| `step` | float | Slider step size. |
+| `group` | string | UI group/section heading for the parameter panel. |
+
+All key values must be **literals** (strings, numbers, booleans, or lists of
+literals).  Non-literal expressions are accepted by the parser but stringified.
+
+#### Surfaced through the service API
+
+The `/dsl/commands` REST endpoint includes `ui_hint` in each parameter object
+when a `@ui` decorator is present:
+
+```json
+{
+  "name": "radius",
+  "type": "float",
+  "default": 50.0,
+  "ui_hint": { "widget": "circle_r", "label": "Radius", "snap": "mm" }
+}
+```
+
+The `/dsl/ui_eval` endpoint (POST) evaluates a command and returns its scalar
+or list-of-scalars result — useful for commands that compute a derived display
+value from current widget state rather than emitting geometry.
+
 ## Types
 
 ### Primitive Types
@@ -123,6 +259,11 @@ command MAKE_PART(param: float, param2: float = 10.0) -> solid:
 ## Built-in Functions
 
 ### Math Functions
+
+> **Trig functions use RADIANS** (`sin`, `cos`, `tan` take radians; `asin`,
+> `acos`, `atan`, `atan2` return radians). This is the opposite of the
+> geometry/transform functions (`rotate`, `arc`, `ellipse`), which use
+> **degrees**. Use `radians(deg)` / `degrees(rad)` to convert between them.
 
 ```python
 # Trigonometry (argument in radians)
@@ -411,6 +552,12 @@ intersection_all(solids: list<solid>) -> solid  # Intersect all solids in list
 ```
 
 ### Transformation Functions
+
+> **Angles are in DEGREES.** All rotation transforms (`rotate`, `rotate_2d`,
+> `rotate_xform`) and the angle arguments of `arc`/`ellipse` take **degrees**.
+> This is the opposite of the trig math functions (`sin`/`cos`/`tan`), which
+> take **radians** — convert with `radians(...)` / `degrees(...)`. Mixing the
+> two type-checks but yields wrong geometry. See the Math Functions section.
 
 ```python
 # Transform solids directly (angles in degrees)
@@ -1034,6 +1181,8 @@ to execute without manual review, unlike arbitrary Python code.
 
 For complex operations that cannot be expressed in pure DSL, two escape hatches exist.
 These **bypass static verifiability** and require manual review:
+
+**@meta decorator** (on commands) and **@ui decorator** (on parameters) — see [Parameter Decorators](#parameter-decorators) above.
 
 **@native decorator** - Embed Python functions:
 ```python

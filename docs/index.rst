@@ -84,8 +84,9 @@ Contents
    Module Reference <api/modules>
    README <README>
    Roadmap <yapCADone>
-   DSL Reference <dsl_reference>
+   DSL Language Guide <dsl_guide>
    DSL Tutorial <dsl_tutorial>
+   DSL Reference <dsl_reference>
    BREP Implementation <yapBREP>
    Project Packaging <ycpkg_spec>
    Metadata Namespace <metadata_namespace>
