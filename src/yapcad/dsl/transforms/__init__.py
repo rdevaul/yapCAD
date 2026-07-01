@@ -23,10 +23,18 @@ from .base import (
     TransformPipeline,
     IdentityTransform,
 )
+from .metadata import (
+    MetadataTransform,
+    MetaDiagnostic,
+    get_transform_diagnostics,
+)
 
 __all__ = [
     'AstTransform',
     'TreeTransform',
     'TransformPipeline',
     'IdentityTransform',
+    'MetadataTransform',
+    'MetaDiagnostic',
+    'get_transform_diagnostics',
 ]
