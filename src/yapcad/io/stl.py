@@ -6,7 +6,7 @@ import io
 import os
 import re
 import struct
-from typing import Iterable, List, Sequence, TextIO, Tuple, Union
+from typing import Iterable, List, Optional, Sequence, TextIO, Tuple, Union
 
 from yapcad.geom import point, vect
 from yapcad.geom3d import surface, solid
@@ -312,4 +312,53 @@ def import_stl(path: str, *, deduplicate: bool = True) -> list:
     return read_stl(path, deduplicate=deduplicate)
 
 
-__all__ = ['write_stl', 'read_stl', 'import_stl']
+def write_stl_with_meta(
+    obj: Sequence,
+    path: str,
+    *,
+    binary: bool = True,
+    name: str = 'yapCAD',
+    source_dsl: Optional[str] = None,
+    source_command: Optional[str] = None,
+    emit_sidecar: bool = True,
+) -> Optional[str]:
+    """Export *obj* to STL and optionally write a ``.meta.yaml`` sidecar.
+
+    Thin wrapper around :func:`write_stl` that calls
+    :func:`~yapcad.io.meta_yaml.dump_metadata_yaml` immediately after the
+    geometry is written.
+
+    Parameters
+    ----------
+    obj:
+        yapCAD solid or surface.
+    path:
+        Output STL file path.
+    binary:
+        Write binary STL (default) or ASCII.
+    name:
+        Solid name embedded in the STL header.
+    source_dsl:
+        Path to the originating DSL file.
+    source_command:
+        DSL command name that produced this part.
+    emit_sidecar:
+        When ``False``, behaves identically to :func:`write_stl`.
+
+    Returns
+    -------
+    str or None
+        Path of the written sidecar, or ``None`` when no metadata was present
+        or *emit_sidecar* is ``False``.
+    """
+    write_stl(obj, path, binary=binary, name=name)
+    if not emit_sidecar:
+        return None
+    try:
+        from yapcad.io.meta_yaml import dump_metadata_yaml
+        return dump_metadata_yaml(obj, path, source_dsl=source_dsl, source_command=source_command)
+    except Exception:
+        return None
+
+
+__all__ = ['write_stl', 'read_stl', 'import_stl', 'write_stl_with_meta']
