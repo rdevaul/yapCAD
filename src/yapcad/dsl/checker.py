@@ -40,6 +40,11 @@ from .symbols import (
     SymbolTable, Symbol, SymbolKind, FunctionSignature,
     get_method_signature,
 )
+from .meta_apply import (
+    _ASSEMBLY_SCALAR_FIELDS,
+    _ASSEMBLY_LIST_HELPERS,
+    _OPERATION_SCALAR_FIELDS,
+)
 from .errors import (
     Diagnostic, DiagnosticCollector, ErrorSeverity,
     DslError, TypeError as DslTypeError,
@@ -260,8 +265,67 @@ class TypeChecker:
         # Check body
         self._check_block(command.body)
 
+        # Validate @meta(...) hint keys (Step 3 — v1.1 checker wiring)
+        if getattr(command, "meta_hint", None):
+            self._check_meta_hint(command.meta_hint, command.span)
+
         self.symbols.pop_scope()
         self._current_command = None
+
+    def _check_meta_hint(self, meta_hint: dict, span: "SourceSpan") -> None:  # noqa: F821
+        """Validate keys in a ``@meta(...)`` decorator hint dict.
+
+        Emits a W-series warning (not an error) for unknown namespaces or
+        unrecognised fields within the ``assembly`` / ``operation`` namespaces.
+        Unknown fields are stored verbatim for forward-compatibility at runtime,
+        but a warning helps authors catch typos at check time.
+
+        Error codes:
+            W310 — unknown top-level namespace in @meta key
+            W311 — unknown field within assembly namespace
+            W312 — unknown field within operation namespace
+        """
+        _KNOWN_NAMESPACES = {"assembly", "operation"}
+        _KNOWN_ROOT_FIELDS = {"layer", "tags", "material"}
+
+        _ASSEMBLY_KNOWN = (
+            _ASSEMBLY_SCALAR_FIELDS | set(_ASSEMBLY_LIST_HELPERS.keys())
+        )
+        _OPERATION_KNOWN = _OPERATION_SCALAR_FIELDS | {"target_filter"}
+
+        for key in meta_hint:
+            if not isinstance(key, str):
+                continue
+            if "." in key:
+                namespace, _, field = key.partition(".")
+                if namespace not in _KNOWN_NAMESPACES:
+                    self._warning(
+                        f"@meta key '{key}': unknown namespace '{namespace}' "
+                        f"(known: {', '.join(sorted(_KNOWN_NAMESPACES))})",
+                        span,
+                        "W310",
+                    )
+                elif namespace == "assembly" and field not in _ASSEMBLY_KNOWN:
+                    self._warning(
+                        f"@meta key '{key}': unknown field '{field}' in assembly namespace "
+                        f"(known: {', '.join(sorted(_ASSEMBLY_KNOWN))})",
+                        span,
+                        "W311",
+                    )
+                elif namespace == "operation" and field not in _OPERATION_KNOWN:
+                    self._warning(
+                        f"@meta key '{key}': unknown field '{field}' in operation namespace "
+                        f"(known: {', '.join(sorted(_OPERATION_KNOWN))})",
+                        span,
+                        "W312",
+                    )
+            elif key not in _KNOWN_ROOT_FIELDS:
+                self._warning(
+                    f"@meta key '{key}': unknown root field "
+                    f"(known: {', '.join(sorted(_KNOWN_ROOT_FIELDS))})",
+                    span,
+                    "W310",
+                )
 
     # =========================================================================
     # Statement Checking
