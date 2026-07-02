@@ -188,6 +188,32 @@ from .face_mate import (
     create_face_mate,
     create_axis_mate,
 )
+from .load_case import (
+    LoadCase,
+    LoadAttach,
+    BoltPattern,
+    COORDINATE_FRAME_VEHICLE,
+    COORDINATE_FRAME_MESH,
+    STATUS_CONFIRMED,
+    STATUS_ESTIMATED,
+    STATUS_TRIBAL,
+    STATUS_PLACEHOLDER,
+    GROUP_INERTIAL,
+    GROUP_RECOVERY,
+    GROUP_PRESSURE,
+)
+
+from .resolver import (
+    AssemblyResolver,
+    BasicResolver,
+    StagedResolver,
+    KinematicResolver,
+    ResolvedPart,
+    ResolveResult,
+    RESOLVER_REGISTRY,
+    get_resolver,
+    resolve_assembly,
+)
 
 # Note: Additional modules will be implemented in separate tasks:
 # - solver.py: Full constraint solver
@@ -257,11 +283,34 @@ __all__ = [
     "datum_to_transform_matrix",
     "FaceToFaceMate",
     "MateValidationResult",
+    # Load case + bolt pattern system (added 2026-05-20)
+    "LoadCase",
+    "LoadAttach",
+    "BoltPattern",
+    "COORDINATE_FRAME_VEHICLE",
+    "COORDINATE_FRAME_MESH",
+    "STATUS_CONFIRMED",
+    "STATUS_ESTIMATED",
+    "STATUS_TRIBAL",
+    "STATUS_PLACEHOLDER",
+    "GROUP_INERTIAL",
+    "GROUP_RECOVERY",
+    "GROUP_PRESSURE",
     "compute_flush_transform",
     "compute_concentric_transform",
     "compute_parallel_transform",
     "create_face_mate",
     "create_axis_mate",
+    # Assembly operation resolver (Step 6 — v1.1)
+    "AssemblyResolver",
+    "BasicResolver",
+    "StagedResolver",
+    "KinematicResolver",
+    "ResolvedPart",
+    "ResolveResult",
+    "RESOLVER_REGISTRY",
+    "get_resolver",
+    "resolve_assembly",
 ]
 
 __version__ = "0.1.0"
