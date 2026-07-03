@@ -164,18 +164,43 @@ class AssemblyResolver(ABC):
         ``kind`` is one of ``"subtract"``, ``"intersect"``, ``"union"``.
         """
         # Import lazily to avoid circular deps and optional-dep failures.
+        # Strategy: try yapCAD geom3d first, fall back to direct OCC.
         try:
             from ..geom3d import boolean3d  # type: ignore[import]
-        except ImportError:
-            raise RuntimeError(
-                "geom3d.boolean3d not available — cannot apply boolean operation"
+            op_map = {"subtract": "difference", "intersect": "intersection", "union": "union"}
+            op_name = op_map.get(kind, kind)
+            kwargs: Dict[str, Any] = {}
+            if engine:
+                kwargs["engine"] = engine
+            return boolean3d(target_geom, cutter_geom, op_name, **kwargs)
+        except (ImportError, AttributeError):
+            pass
+
+        # Direct OCC fallback (yapcad-brep conda env)
+        try:
+            from OCC.Core.BRepAlgoAPI import (
+                BRepAlgoAPI_Cut, BRepAlgoAPI_Common, BRepAlgoAPI_Fuse,
             )
-        op_map = {"subtract": "difference", "intersect": "intersection", "union": "union"}
-        op_name = op_map.get(kind, kind)
-        kwargs: Dict[str, Any] = {}
-        if engine:
-            kwargs["engine"] = engine
-        return boolean3d(target_geom, cutter_geom, op_name, **kwargs)
+            _occ_ops = {
+                "subtract": BRepAlgoAPI_Cut,
+                "intersect": BRepAlgoAPI_Common,
+                "union": BRepAlgoAPI_Fuse,
+            }
+            op_cls = _occ_ops.get(kind)
+            if op_cls is None:
+                raise RuntimeError(f"Unknown boolean kind: {kind!r}")
+            algo = op_cls(target_geom, cutter_geom)
+            algo.Build()
+            if not algo.IsDone():
+                raise RuntimeError(f"OCC boolean {kind!r} failed: IsDone=False")
+            return algo.Shape()
+        except ImportError:
+            pass
+
+        raise RuntimeError(
+            "No boolean engine available: install OCC (yapcad-brep conda env) "
+            "or ensure geom3d.boolean3d is importable"
+        )
 
     @staticmethod
     def _handle_policy(

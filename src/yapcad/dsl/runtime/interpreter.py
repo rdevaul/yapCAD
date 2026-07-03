@@ -654,7 +654,7 @@ class Interpreter:
 
     def _eval_function_call(self, call: FunctionCall, ctx: ExecutionContext) -> Value:
         """Evaluate a function call."""
-        # Evaluate arguments
+        # Evaluate positional arguments
         args = [self._evaluate(arg, ctx) for arg in call.arguments]
 
         # Extract function name from callee (which is an Identifier)
@@ -671,6 +671,22 @@ class Interpreter:
         if self.current_module is not None:
             for cmd in self.current_module.commands:
                 if cmd.name == func_name:
+                    # Resolve named_arguments into positional order if present
+                    named = getattr(call, 'named_arguments', {})
+                    if named and not args:
+                        # Build positional arg list from named_arguments
+                        # matching command parameter order
+                        resolved = []
+                        for param in cmd.parameters:
+                            if param.name in named:
+                                resolved.append(self._evaluate(named[param.name], ctx))
+                            elif param.default_value is not None:
+                                resolved.append(self._evaluate(param.default_value, ctx))
+                            else:
+                                raise RuntimeError(
+                                    f"Command '{func_name}' missing required argument '{param.name}'"
+                                )
+                        args = resolved
                     return self._call_command(cmd, args, ctx)
 
         # Call the built-in function
