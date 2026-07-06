@@ -1,0 +1,127 @@
+{
+  "meta": {
+    "name": "sample-widget-assembly",
+    "description": "Synthetic assembly graph fixture for testing mechatron_fea_setup. Generic invented parts (widgets/brackets), NOT tied to any real design. Values here are chosen to exercise the code paths deterministically.",
+    "schema": "mechatron-graph/v1"
+  },
+  "parts": [
+    { "id": "base-plate" },
+    { "id": "riser-column" },
+    { "id": "top-bracket" },
+    { "id": "sensor-pod" },
+    { "id": "end-cap" }
+  ],
+  "interfaces": [
+    {
+      "id": "iface_world_base",
+      "parent_part": "world",
+      "child_part": "base-plate",
+      "joint": { "type": "Fixed" },
+      "origin": [0.0, 0.0, 0.0]
+    },
+    {
+      "id": "iface_base_riser",
+      "parent_part": "base-plate",
+      "child_part": "riser-column",
+      "joint": { "type": "Fixed" },
+      "origin": [0.0, 0.0, 100.0],
+      "bolt_pattern": {
+        "pcd_mm": 120.0,
+        "n_bolts": 12,
+        "bolt_spec": "1-4-20-x-1in-button-head-shcs",
+        "access_direction": [0.0, 0.0, 1.0],
+        "world_z_mm": 100.0
+      }
+    },
+    {
+      "id": "iface_riser_bracket",
+      "parent_part": "riser-column",
+      "child_part": "top-bracket",
+      "joint": { "type": "Fixed" },
+      "origin": [0.0, 0.0, 250.0],
+      "bolt_pattern": {
+        "pcd_mm": 90.0,
+        "n_bolts": 12,
+        "bolt_spec": "m5-x-16-shcs",
+        "access_direction": [0.0, 0.0, 1.0],
+        "world_z_mm": 250.0
+      }
+    },
+    {
+      "id": "iface_bracket_sensor",
+      "parent_part": "top-bracket",
+      "child_part": "sensor-pod",
+      "joint": { "type": "Fixed" },
+      "origin": [0.0, 0.0, 300.0],
+      "bolt_pattern": {
+        "pcd_mm": 60.0,
+        "n_bolts": 6,
+        "bolt_spec": "m6-x-20-shcs",
+        "access_direction": [0.0, 0.0, 1.0],
+        "world_z_mm": 300.0
+      }
+    },
+    {
+      "id": "iface_sensor_endcap",
+      "parent_part": "sensor-pod",
+      "child_part": "end-cap",
+      "joint": { "type": "Fixed" },
+      "origin": [0.0, 0.0, 340.0],
+      "bolt_pattern": {
+        "pcd_mm": 50.0,
+        "n_bolts": 8,
+        "bolt_spec": "1-4-20-button-head-shcs",
+        "access_direction": [0.0, 0.0, 1.0],
+        "world_z_mm": 340.0
+      }
+    },
+    {
+      "id": "iface_placeholder_joint",
+      "parent_part": "end-cap",
+      "child_part": "sensor-pod",
+      "joint": { "type": "Fixed" },
+      "origin": [0.0, 0.0, 360.0],
+      "bolt_pattern": {
+        "pcd_mm": 40.0,
+        "n_bolts": 4,
+        "bolt_spec": "PLACEHOLDER-endcap-fastener",
+        "access_direction": [0.0, 0.0, 1.0],
+        "world_z_mm": 360.0
+      }
+    }
+  ],
+  "load_cases": [
+    {
+      "id": "LC-001",
+      "name": "Side load on riser bracket (clock 90)",
+      "magnitude_n": 6000.0,
+      "coordinate_frame": "vehicle",
+      "direction": [0.0, 0.0, 1.0],
+      "attach": {
+        "part": "top-bracket",
+        "interface": "iface_riser_bracket",
+        "clock_deg": 90.0
+      }
+    },
+    {
+      "id": "LC-002",
+      "name": "Axial thrust on base",
+      "magnitude_n": 12000.0,
+      "coordinate_frame": "vehicle",
+      "direction": [1.0, 0.0, 0.0],
+      "attach": {
+        "part": "base-plate",
+        "interface": "iface_base_riser",
+        "clock_deg": 0.0
+      }
+    },
+    {
+      "id": "LC-003",
+      "name": "Whole-assembly gravity",
+      "magnitude_n": 500.0,
+      "coordinate_frame": "vehicle",
+      "direction": [-1.0, 0.0, 0.0],
+      "attach": {}
+    }
+  ]
+}

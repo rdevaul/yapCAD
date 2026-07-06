@@ -53,9 +53,9 @@ def _part_with_real_meta() -> MagicMock:
     meta = {
         "schema": "metadata-namespace-v1.1",
         "entityId": "abc-123",
-        "tags": ["agentic-1"],
+        "tags": ["demo-project"],
         "layer": "default",
-        "material": {"name": "PETG-CF", "grade": "DML-spec"},
+        "material": {"name": "PETG-CF", "grade": "demo-spec"},
         "assembly": {
             "joint_kind": "radial",
             "bolt_patterns": [
@@ -219,7 +219,7 @@ class TestDumpMetadataYaml:
         meta = {
             "schema": "metadata-namespace-v1.1",
             "entityId": "eid-bt-001",
-            "tags": ["agentic-1", "boattail"],
+            "tags": ["demo-project", "widget"],
             "layer": "default",
             "assembly": {
                 "joint_kind": "radial",
