@@ -1,6 +1,7 @@
 # Sphinx documentation requirements
 sphinx>=6
 sphinx_rtd_theme
+myst-parser  # parse the Markdown docs referenced from the toctree (DSL guide/tutorial/reference, schema specs)
 
 # Note: yapCAD package is installed via .readthedocs.yml (method: pip, path: .)
 # to enable autodoc/apidoc generation of submodule API documentation

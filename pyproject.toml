@@ -1,6 +1,14 @@
+[build-system]
+# Explicit PEP 517 build backend. Without this, pip falls back to legacy
+# behavior and executes setup.py, whose `from pkg_resources import ...`
+# fails in modern build-isolation environments (setuptools no longer
+# exposes pkg_resources there) — which broke the Read the Docs build.
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "yapCAD"
-version = "1.0.0rc1"
+version = "1.1.0"
 authors = [
   { name="Richard DeVaul", email="richard.devaul@gmail.com" },
 ]
@@ -64,5 +72,16 @@ source_dir = "docs"
 build_dir = "build/sphinx"
 
 # NOTE: pytest configuration (including the ``requires_occ`` marker) lives in
-# pytest.ini, which takes precedence over this section. Keep marker definitions
-# there.
+# pytest.ini, which takes precedence over any [tool.pytest.ini_options] here.
+# Keep marker definitions there.
+
+[tool.setuptools]
+# src/ layout package discovery (previously declared in setup.cfg, which is
+# being retired in favor of pyproject as the single source of truth).
+package-dir = {"" = "src"}
+zip-safe = false
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+exclude = ["tests*"]

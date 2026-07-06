@@ -1,5 +1,10 @@
 # yapCAD DSL Reference
 
+> **Looking for how to *write* DSL, not just look up a function?** Start with the
+> [DSL Language Guide](dsl_guide.md) (mental model, idioms) and the
+> [DSL Tutorial](dsl_tutorial.md) (worked example). This Reference is the
+> complete catalog — your day-to-day lookup. Learning path: Guide → Tutorial → Reference.
+
 A domain-specific language for parametric CAD design with full type safety and provenance tracking.
 
 ## Quick Start
@@ -254,6 +259,11 @@ value from current widget state rather than emitting geometry.
 ## Built-in Functions
 
 ### Math Functions
+
+> **Trig functions use RADIANS** (`sin`, `cos`, `tan` take radians; `asin`,
+> `acos`, `atan`, `atan2` return radians). This is the opposite of the
+> geometry/transform functions (`rotate`, `arc`, `ellipse`), which use
+> **degrees**. Use `radians(deg)` / `degrees(rad)` to convert between them.
 
 ```python
 # Trigonometry (argument in radians)
@@ -542,6 +552,12 @@ intersection_all(solids: list<solid>) -> solid  # Intersect all solids in list
 ```
 
 ### Transformation Functions
+
+> **Angles are in DEGREES.** All rotation transforms (`rotate`, `rotate_2d`,
+> `rotate_xform`) and the angle arguments of `arc`/`ellipse` take **degrees**.
+> This is the opposite of the trig math functions (`sin`/`cos`/`tan`), which
+> take **radians** — convert with `radians(...)` / `degrees(...)`. Mixing the
+> two type-checks but yields wrong geometry. See the Math Functions section.
 
 ```python
 # Transform solids directly (angles in degrees)
