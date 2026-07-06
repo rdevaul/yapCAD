@@ -16,9 +16,33 @@ description = "yet another procedural CAD and computational geometry system"
 readme = "README.rst"
 requires-python = ">=3.10"
 license = "MIT"
+keywords = [
+    "CAD",
+    "computational-geometry",
+    "procedural",
+    "parametric",
+    "geometry",
+    "DSL",
+    "BREP",
+    "3D",
+    "mesh",
+    "engineering",
+]
 classifiers = [
-    "Programming Language :: Python :: 3",
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Manufacturing",
     "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Visualization",
+    "Topic :: Multimedia :: Graphics :: 3D Modeling",
+    "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
       "ezdxf>=1.1",
@@ -65,6 +89,9 @@ full = [
 [project.urls]
 "Homepage" = "https://github.com/rdevaul/yapCAD/"
 "Documentation" = "https://yapcad.readthedocs.io/en/latest/"
+"Repository" = "https://github.com/rdevaul/yapCAD"
+"Issues" = "https://github.com/rdevaul/yapCAD/issues"
+"Changelog" = "https://github.com/rdevaul/yapCAD/blob/main/CHANGELOG.rst"
 
 
 [build_sphinx]

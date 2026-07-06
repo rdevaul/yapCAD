@@ -65,6 +65,14 @@ what's new:
     ``requires_occ`` pytest marker lets the pure-python test lane run via
     ``pytest -m "not requires_occ"``.
 
+  - **First PyPI release of the pure-Python core**: yapCAD is now published to
+    PyPI (``pip install yapcad``) as a pure-Python wheel with no compiled
+    dependencies. BREP/boolean/STEP features still require ``pythonocc-core``
+    from conda-forge. To make the limitation obvious, importing yapCAD without
+    OCC present now emits a one-time, suppressible
+    ``YapcadBrepUnavailableWarning`` describing the reduced-functionality state
+    and the conda upgrade path.
+
 Version 1.0.1 (Development)
 ============================
 

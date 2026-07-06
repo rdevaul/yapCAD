@@ -87,28 +87,50 @@ If you are using **yapCAD** in interesting ways, feel free to let us know in the
 installation
 ~~~~~~~~~~~~
 
-**yapCAD** is a pure python library, so no special steps are required
-for basic installation. You can install it a variety of ways, but the
-recommended method is to use pip to install it into your local
-``site-packages`` directory, as follows::
+yapCAD ships in **two functionality tiers**. Pick the one that matches your work:
 
-   pip install yapCAD --user
+.. important::
 
-You can also clone the github repository and install from source::
+   **Tier 1 — pip (pure-Python core):** ``pip install yapcad`` installs the
+   pure-Python core with **no compiled dependencies**. This gives you 2D
+   geometry, the DSL, metadata, and the assembly graph — but **NOT** BREP solid
+   modeling, OCC-backed boolean operations, or STEP import/export. Those require
+   OpenCASCADE via ``pythonocc-core``, which is **not** pip-installable and must
+   come from conda-forge. When yapCAD is imported without ``pythonocc-core``
+   present, it emits a one-time ``YapcadBrepUnavailableWarning`` explaining this
+   and how to upgrade. Check availability at runtime with ``yapcad.has_brep()``.
+
+   **Tier 2 — conda (full functionality):** for BREP solids, exact boolean
+   operations, and STEP I/O, use the conda environment described below so that
+   ``pythonocc-core`` is installed alongside yapCAD.
+
+**Tier 1 — pip (pure-Python core)**
+
+Use pip to install the core into your environment::
+
+   pip install yapcad
+
+Or clone the repository and install from source (PEP 517 build)::
 
    git clone https://github.com/rdevaul/yapCAD.git
    cd yapCAD
-   python setup.py install --user
+   pip install .
 
-OCC BREP Environment (Recommended)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Optional extras are declared for BREP and mesh tooling, but note that the
+``brep``/``full`` extras pull ``pythonocc-core`` from PyPI, which is
+**not reliable across platforms** — the supported channel for OCC is conda-forge
+(see Tier 2)::
+
+   pip install "yapcad[meshcheck]"   # trimesh + pymeshfix mesh repair (pip-safe)
+
+**Tier 2 — conda (full functionality, recommended for solid modeling)**
 
 .. important::
 
    For full BREP kernel support, including STEP import/export, OCC-backed
-   boolean operations, and analytic solid modeling, you need to set up the
+   boolean operations, and analytic solid modeling, set up the
    **conda-based virtual environment**. This is required because ``pythonocc-core``
-   has complex binary dependencies that are best managed through conda.
+   has complex binary dependencies that are best managed through conda-forge.
 
 To set up the OCC BREP environment::
 
@@ -143,14 +165,18 @@ Without pythonocc-core, yapCAD operates in **reduced functionality mode**:
 * DSL interpreter (2D features, tessellated 3D)
 * Package creation and validation
 
-**Not available:**
+**Not available (requires the conda / pythonocc-core install):**
 
 * STEP import/export
 * OCC-backed boolean operations
 * Adaptive sweep operations
 * Analytic solid modeling
 
-For solid modeling workflows, the OCC environment is strongly recommended
+When OCC is absent, importing yapCAD emits a one-time
+``YapcadBrepUnavailableWarning`` (a ``UserWarning`` subclass) documenting the
+limitation and the conda upgrade path. It is non-fatal and can be silenced with
+the standard ``warnings`` filters. For solid-modeling workflows, the conda /
+``pythonocc-core`` install (Tier 2 above) is strongly recommended.
 
 examples
 ~~~~~~~~
