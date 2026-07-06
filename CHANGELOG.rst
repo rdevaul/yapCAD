@@ -2,6 +2,69 @@
 Changelog
 =========
 
+Version 1.1.0 (2026-07-05)
+==========================
+
+This release introduces the **metadata v1.1** system — declarative ``@meta`` /
+``@ui`` decorators, an assembly/operation metadata namespace, and a mechatron
+assembly-integration pipeline — alongside a formalized **pure-python core /
+BREP optional-dependency** packaging split.
+
+what's new:
+-----------
+
+  - **@meta / @ui decorators**: DSL commands can now carry declarative metadata
+    via ``@meta(...)`` (design/assembly/operation namespaces) and presentation
+    hints via ``@ui(...)``. Metadata is validated at check time and normalized
+    into the emitted solid's metadata dict.
+
+  - **@meta checker warnings (W310 / W311 / W312)**: The DSL checker now emits
+    structured warnings for unknown or malformed ``@meta`` keys, so metadata
+    typos are caught before execution.
+
+  - **AST-level MetadataTransform**: ``@meta`` decorators are validated and
+    normalised at the AST/transform layer, giving consistent metadata semantics
+    across the interpreter and exporters.
+
+  - **.meta.yaml sidecar exporter**: A new ``yapcad.io.meta_yaml`` module emits a
+    ``.meta.yaml`` sidecar next to exported geometry, capturing the full
+    metadata namespace (including applied assembly operations) for downstream
+    tools. Exporter hooks write it automatically.
+
+  - **Assembly resolver registry**: New ``yapcad.assembly.resolver`` provides
+    ``BasicResolver`` and ``StagedResolver`` plus a resolver registry, which
+    apply ``operation.kind="subtract"`` (and related) cutters against target
+    parts in priority order during assembly resolution — letting a DSL declare
+    process-aware cutters that are applied at assembly load rather than baked
+    into each part.
+
+  - **Mechatron assembly integration (Phases 2-4)**: New process-aware mechatron
+    export path and assembly builtins bridge yapCAD assemblies to a mechatron
+    ``graph.json`` canonical model. This includes off-axis (non-±Z) feature
+    datums so radial joints carry correct per-hole bolt-axis orientation.
+
+  - **Assembly load cases + bolt patterns**: ``yapcad.assembly.load_case`` adds
+    ``LoadCase`` / ``LoadAttach`` / ``BoltPattern`` dataclasses, and
+    ``Assembly`` gains ``add_load_case`` / ``get_load_case`` and
+    ``add_bolt_pattern`` / ``get_bolt_pattern`` registries.
+
+  - **FEA setup bridge**: New ``yapcad.package.analysis.mechatron_fea_setup``
+    reads bolt patterns and load cases from a mechatron ``graph.json`` and
+    produces structured FEA inputs — per-bolt world coordinates, bolt-spring
+    stiffness lookup, and resolved load-attach descriptors — with a
+    per-hole-datum kinematic path plus a legacy PCD/access-direction fallback.
+
+  - **Pure-python core / BREP optional-dependency split**: yapCAD's core is now
+    formally pure Python and installs from PyPI with **no compiled
+    dependencies**. Solid-modeling (BREP) features remain optional and layer on
+    top of OpenCASCADE via ``pythonocc-core`` (distributed through conda-forge,
+    not pip). New ``[project.optional-dependencies]`` extras ``brep`` and
+    ``full`` document the OCC requirement; ``yapcad.has_brep()`` reports whether
+    OCC is available so downstream code can branch cleanly; and every
+    ``yapcad.brep`` OCC import degrades gracefully when OCC is absent. A
+    ``requires_occ`` pytest marker lets the pure-python test lane run via
+    ``pytest -m "not requires_occ"``.
+
 Version 1.0.1 (Development)
 ============================
 
