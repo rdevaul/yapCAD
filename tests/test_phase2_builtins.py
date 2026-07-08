@@ -5,12 +5,9 @@ from yapcad.dsl.runtime.builtins import get_builtin_registry, call_builtin
 from yapcad.dsl.runtime.values import Value, float_val
 from yapcad.dsl.types import FLOAT, SOLID, REGION2D
 
-try:
-    from OCP.GProp import GProp_GProps
-    from OCP.BRepGProp import BRepGProp
-    HAS_OCC = True
-except ImportError:
-    HAS_OCC = False
+from yapcad.brep import occ_available
+
+HAS_OCC = occ_available()
 
 needs_occ = pytest.mark.skipif(not HAS_OCC, reason="OCC not available")
 
@@ -42,14 +39,11 @@ class TestTube:
     @needs_occ
     def test_tube_less_volume_than_cylinder(self):
         """A tube should have less volume than a solid cylinder of same OD and length."""
+        from yapcad.geom3d import volumeof
         from yapcad.geom3d_util import tube, conic
         tube_solid = tube(20.0, 2.0, 50.0)
         cyl_solid = conic(10.0, 10.0, 50.0)
-        props_tube = GProp_GProps()
-        BRepGProp.VolumeProperties_s(tube_solid, props_tube)
-        props_cyl = GProp_GProps()
-        BRepGProp.VolumeProperties_s(cyl_solid, props_cyl)
-        assert props_tube.Mass() < props_cyl.Mass()
+        assert volumeof(tube_solid) < volumeof(cyl_solid)
 
 
 class TestConicTube:
@@ -75,14 +69,16 @@ class TestSphericalShell:
 
     @needs_occ
     def test_shell_less_volume_than_sphere(self):
+        """A spherical shell should have less volume than a solid sphere of the same OD.
+
+        Note: ``sphere()`` takes a *diameter*, so the comparison sphere must be
+        ``sphere(30.0)`` to match ``spherical_shell(30.0, ...)``.
+        """
+        from yapcad.geom3d import volumeof
         from yapcad.geom3d_util import spherical_shell, sphere
         shell = spherical_shell(30.0, 2.0)
-        solid_sphere = sphere(15.0)
-        props_shell = GProp_GProps()
-        BRepGProp.VolumeProperties_s(shell, props_shell)
-        props_sphere = GProp_GProps()
-        BRepGProp.VolumeProperties_s(solid_sphere, props_sphere)
-        assert props_shell.Mass() < props_sphere.Mass()
+        solid_sphere = sphere(30.0)
+        assert volumeof(shell) < volumeof(solid_sphere)
 
 
 class TestHelicalExtrude:
