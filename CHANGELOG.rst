@@ -79,6 +79,28 @@ Version 1.0.1 (Development)
 what's new:
 -----------
 
+  - **Assembly, Kinematics, Collision, and Viewer Packages**: Added
+    ``yapcad.assembly``, ``yapcad.kinematics``, ``yapcad.collision``, and
+    ``yapcad.viewer`` modules for datum-driven multi-body assemblies:
+
+    - Datum and mate abstractions for feature-based part placement
+    - Constraint validation and mate solving for common mechanical joints
+    - Kinematic chain support for articulated assemblies
+    - Collision checks with interface volumes for designed overlaps
+    - Optional VTK viewer and API server for assembly inspection
+
+  - **Manufacturing Post-Processing**: New ``yapcad.manufacturing`` package for
+    splitting swept structures into manufacturable segments:
+
+    - Beam segmentation at specified or computed cut points
+    - Interior connector specifications and mating relationships
+    - STEP export support for individual segments
+    - Assembly manifest generation for segmented designs
+
+  - **Watertight Revolution Solids**: ``makeRevolutionSolid()`` now adds disc caps
+    for closed profile revolutions, improving watertightness for downstream mesh
+    validation and export.
+
   - **3D Text Support**: New ``yapcad.text3d`` module provides 3D text generation for
     labeling parts and creating extruded or engraved text:
 
@@ -95,7 +117,8 @@ what's new:
     - ``chamfer_all_edges()`` - Apply beveled chamfers to all edges of a solid
     - ``fillet_edges()`` - Apply fillets to specific selected edges
     - ``chamfer_edges()`` - Apply chamfers to specific selected edges
-    - Integrates with DSL via new builtins (``fillet_all``, ``chamfer_all``)
+    - Integrates with DSL via ``fillet()``, ``chamfer()``, ``fillet_edges()``,
+      and ``chamfer_edges()`` builtins
 
   - **Edge Selection Predicates**: New ``yapcad.brep_edge_select`` module provides
     sophisticated edge selection for selective fillet/chamfer operations:
@@ -115,6 +138,8 @@ what's new:
     - ``filter_curved_edges()`` - Filter to keep only curved edges
     - Set operations: ``union_edges()``, ``intersect_edges()``, ``subtract_edges()`` for combining selections
     - ``edge_info()`` - Query detailed geometric properties of edges
+    - DSL bindings currently expose direction, length, Z-position, set-operation,
+      and selective fillet/chamfer helpers.
 
   - **Helical Extrusion**: New ``helical_extrude()`` function in ``yapcad.geom3d_util``
     creates smooth helical/twisted extrusions using high-resolution lofting. Ideal for
@@ -161,9 +186,20 @@ what's new:
     - ``sweep_along_path()`` - Extrude 2D profiles along Bezier or B-spline path curves
     - Support for organic shapes, tapered forms, and complex swept geometries
 
+  - **Expanded DSL Builtins**: Added DSL access for hollow primitives
+    (``tube()``, ``conic_tube()``, ``spherical_shell()``), ``dodecahedron()``,
+    path utilities, text placement helpers, advanced gear helpers, and pattern
+    generation.
+
   - **Documentation Improvements**: All new functions include comprehensive docstrings
     with parameter descriptions, return values, usage examples, and notes following
     Sphinx documentation standards.
+
+chore:
+------
+
+  - Removed internal project files from ``projects/`` so private robot, hanger,
+    and jig designs can live in separate internal repositories.
 
 Version 1.0.0rc1 (2025-12-30)
 =============================

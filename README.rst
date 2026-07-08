@@ -41,8 +41,8 @@ systems. Starting with the 0.5 release, the emphasis has shifted toward
 simulation, while retaining support for DXF generation and computational
 geometry experiments.
 
-software status (version 1.0.0rc1, January 2026)
-------------------------------------------------
+software status (version 1.1.0, July 2026)
+------------------------------------------------------
 
 **yapCAD** is in **active development** and already powers production design
 pipelines. Highlights from the 1.0 release cycle include:
@@ -68,15 +68,23 @@ pipelines. Highlights from the 1.0 release cycle include:
   true helical surfaces for gears, columns, and spiral features.
 * **Pattern Generation**: ``radial_pattern()`` and ``linear_pattern()`` functions for
   creating circular and linear arrays of 2D/3D geometry, solids, and surfaces.
+* **Assembly System**: Datum-driven multi-body assembly definitions with mate
+  constraints, kinematic chains, collision checks, and optional VTK visualization.
+* **Manufacturing Post-Processing**: Beam segmentation helpers for splitting
+  swept structures into printable segments with connector specifications and
+  assembly manifests.
+* **Edge Selection DSL**: ``select_*_edges()``, ``union_edges()``,
+  ``intersect_edges()``, ``subtract_edges()``, ``fillet_edges()``, and
+  ``chamfer_edges()`` builtins for selective BREP edge treatment.
 * ``.ycpkg`` project packaging with manifest, geometry JSON, exports, and metadata.
 * **Package signing** with GPG and SSH key support for cryptographic verification.
 * **Validation schemas** for test definitions and solver integration.
 * **YAML-based fastener catalogs** with ISO metric and ASME unified thread specifications.
 * **Emacs major mode** for DSL syntax highlighting (``editors/yapcad-dsl-mode.el``).
-* 612 regression tests covering geometry, DSL, import/export, packaging, and validation.
+* 600+ regression tests covering geometry, DSL, import/export, packaging, and validation.
 
-Upcoming work (tracked in ``docs/yapCADone.rst``) focuses on validation test
-definition language, solver adapter framework, and provenance/security features.
+Upcoming work (tracked in ``docs/yapCADone.rst``) focuses on solver adapter
+hardening, provenance/security extensions, and migration tooling.
 
 If you are using **yapCAD** in interesting ways, feel free to let us know in the
 `yapCAD discussions <https://github.com/rdevaul/yapCAD/discussions>`__ forum
@@ -227,7 +235,10 @@ Online **yapCAD** documentation is available at https://yapcad.readthedocs.io/en
 * ``docs/dsl_reference.md`` - DSL language reference: syntax, types, builtins, and CLI usage.
 * ``docs/dsl_spec.rst`` - DSL design specification and architecture.
 * ``docs/yapBREP.rst`` - OCC BREP implementation guide (installation, API, examples).
+* ``docs/assembly_system.rst`` - datum/mate assembly, kinematics, collision, and viewer workflow.
+* ``docs/manufacturing_postprocessing.rst`` - beam segmentation and connector post-processing framework.
 * ``docs/ycpkg_spec.rst`` - ``.ycpkg`` manifest schema, packaging workflow, CLI usage.
+* ``docs/geometry_json_schema.md`` - geometry JSON interchange format.
 * ``docs/metadata_namespace.rst`` - standard metadata blocks for materials, manufacturing, and analysis annotations.
 * Module references for ``yapcad.geom``, ``yapcad.geom3d``, ``yapcad.geom3d_util``, ``yapcad.brep``, and ``yapcad.dsl``.
 * Mesh validation workflow (``docs/mesh_validation.md``, ``tools/validate_mesh.py``).

@@ -249,6 +249,7 @@ value from current widget state rather than emitting geometry.
 | `path3d` | 3D path of segments | `make_path3d(segments)`, `path3d_line()`, `path3d_arc()` |
 | `region2d` | Closed 2D region | `rectangle()`, `regular_polygon()`, `polygon()`, `disk()` |
 | `solid` | 3D solid volume | `box()`, `cylinder()`, `sphere()`, etc. |
+| `edge` | BREP edge handle for selective finishing | `select_vertical_edges(solid, tolerance)` |
 
 ### Generic Types
 
@@ -441,12 +442,34 @@ sphere(radius: float) -> solid
 oblate_spheroid(equatorial_diameter: float, oblateness: float) -> solid
 # oblateness: 0=sphere, typical values: Earth~0.00335, Mars~0.00648
 
+# Regular dodecahedron centered at origin
+dodecahedron(diameter: float) -> solid
+
 # Cone/frustum: radius1 at bottom, radius2 at top
 # Base at Z=0, extends to Z=height (NOT centered, same as cylinder)
 cone(radius1: float, radius2: float, height: float) -> solid
 
+# Hollow primitives
+tube(outer_diameter: float, wall_thickness: float, length: float) -> solid
+conic_tube(bottom_od: float, top_od: float, wall_thickness: float, length: float) -> solid
+spherical_shell(outer_diameter: float, wall_thickness: float) -> solid
+
 # Involute spur gear (centered at origin, extends Z=0 to face_width)
 involute_gear(teeth: int, module_mm: float, pressure_angle: float, face_width: float) -> solid
+
+# Herringbone gear and sun gear helper geometry
+herringbone_gear(teeth: int, module_mm: float, face_width: float, helix_angle: float) -> solid
+sun_gear_with_hub(
+    teeth: int,
+    module_mm: float,
+    face_width: float,
+    shaft_diameter: float,
+    hub_diameter: float,
+    hub_height: float,
+    bore_diameter: float,
+    planet_count: int,
+    planet_axis_radius: float
+) -> solid
 
 # === Fasteners (catalog-based with parametric threads) ===
 
@@ -473,16 +496,18 @@ unified_hex_nut(size: string) -> solid
 |-----------|---------------|---------------|
 | `box` | Centered | Centered |
 | `sphere` | Centered | Centered |
+| `dodecahedron` | Centered | Centered |
 | `cylinder` | Centered | Base at Z=0 |
 | `cone` | Centered | Base at Z=0 |
+| `tube` | Centered | Base at Z=0 |
+| `conic_tube` | Centered | Base at Z=0 |
+| `spherical_shell` | Centered | Centered |
 | `involute_gear` | Centered | Base at Z=0 |
+| `herringbone_gear` | Centered | Base at Z=0 |
 | `metric_hex_bolt` | Centered | Head up, tip at Z=0 |
 | `metric_hex_nut` | Centered | Base at Z=0 |
 | `unified_hex_bolt` | Centered | Head up, tip at Z=0 |
 | `unified_hex_nut` | Centered | Base at Z=0 |
-
-For hollow tubes and more control over positioning, use the Python API directly
-(`yapcad.geom3d_util.tube`, `conic_tube`, etc.).
 
 ### Solid from 2D Operations
 
@@ -492,6 +517,9 @@ extrude(profile: region2d, height: float) -> solid
 
 # Revolve a 2D region around an axis
 revolve(profile: region2d, axis: vector3d, angle: float) -> solid
+
+# Helical extrusion with twist along Z
+helical_extrude(profile: region2d, height: float, twist_angle: float) -> solid
 
 # Sweep a 2D profile along a 3D path
 sweep(profile: region2d, spine: path3d) -> solid
@@ -551,6 +579,36 @@ difference_all(base: solid, tools: list<solid>) -> solid  # Subtract all tools f
 intersection_all(solids: list<solid>) -> solid  # Intersect all solids in list
 ```
 
+### Edge Finishing and Selection
+
+Edge selection functions operate on BREP/OCC solids and return edge handles that
+can be combined before applying selective fillets or chamfers.
+
+```python
+# Whole-solid finishing
+fillet(s: solid, radius: float) -> solid
+chamfer(s: solid, distance: float) -> solid
+
+# Select edges by orientation, length, and Z location
+select_vertical_edges(s: solid, tolerance: float) -> list<edge>
+select_horizontal_edges(s: solid, tolerance: float) -> list<edge>
+select_edges_by_direction(s: solid, direction: vector3d, tolerance: float) -> list<edge>
+select_edges_by_length(s: solid, min_length: float, max_length: float) -> list<edge>
+select_edges_at_z(s: solid, z: float, tolerance: float) -> list<edge>
+select_edges_in_z_range(s: solid, z_min: float, z_max: float, tolerance: float) -> list<edge>
+select_top_edges(s: solid, tolerance: float) -> list<edge>
+select_bottom_edges(s: solid, tolerance: float) -> list<edge>
+
+# Combine edge selections
+union_edges(a: list<edge>, b: list<edge>) -> list<edge>
+intersect_edges(a: list<edge>, b: list<edge>) -> list<edge>
+subtract_edges(a: list<edge>, b: list<edge>) -> list<edge>
+
+# Apply finishing to selected edges
+fillet_edges(s: solid, edges: list<edge>, radius: float) -> solid
+chamfer_edges(s: solid, edges: list<edge>, distance: float) -> solid
+```
+
 ### Transformation Functions
 
 > **Angles are in DEGREES.** All rotation transforms (`rotate`, `rotate_2d`,
@@ -581,6 +639,53 @@ apply(t: transform, shape: solid) -> solid
 apply_surface(t: transform, surf: surface) -> surface
 apply_point(t: transform, p: point) -> point
 apply_vector(t: transform, v: vector3d) -> vector3d
+```
+
+### Pattern Functions
+
+```python
+# Create repeated geometry without manually writing loops
+radial_pattern(shape, count: int, axis: vector3d, center: point) -> list
+linear_pattern(shape, count: int, spacing: vector) -> list
+```
+
+### Text Functions
+
+```python
+# Text solids and engraving helpers
+text_solid(text: string, height: float, depth: float, spacing: float) -> solid
+engrave_text(
+    target: solid,
+    text: string,
+    position: vector3d,
+    normal: vector3d,
+    height: float,
+    depth: float,
+    spacing: float
+) -> solid
+text_width(text: string, height: float, spacing: float) -> float
+text_solid_fitted(text: string, max_width: float, depth: float) -> solid
+text_on_surface(
+    text: string,
+    center: point3d,
+    normal: point3d,
+    up: point3d,
+    max_width: float,
+    depth: float,
+    margin: float,
+    font: string
+) -> solid
+```
+
+### Path and Manufacturing Utilities
+
+```python
+# Evaluate and measure 3D paths
+path3d_eval(path: path3d, t: float) -> point3d
+path3d_length(path: path3d) -> float
+
+# Split a solid by a plane; returns both resulting halves
+split_solid(s: solid, plane_point: point3d, plane_normal: vector3d) -> list<solid>
 ```
 
 ### Query Functions

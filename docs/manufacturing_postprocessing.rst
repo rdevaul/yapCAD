@@ -1,5 +1,5 @@
 Manufacturing Post-Processing Framework
-======================================
+=======================================
 
 Design Document v0.2 - January 2026
 

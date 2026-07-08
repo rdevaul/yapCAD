@@ -12,6 +12,7 @@ import os
 import sys
 import inspect
 import shutil
+from pathlib import Path
 
 try:
     import sphinx_rtd_theme  # optional theme used on RTD
@@ -64,6 +65,35 @@ try:
         args = args[1:]
 
     apidoc.main(args)
+
+    # sphinx-apidoc documents both submodules and package __init__ re-exports.
+    # The latter creates hundreds of duplicate object warnings for packages that
+    # intentionally re-export public classes. Keep the package overview blocks,
+    # but do not enumerate or index their re-exported members.
+    for rst_path in Path(output_dir).glob("yapcad*.rst"):
+        lines = rst_path.read_text(encoding="utf-8").splitlines()
+        changed = False
+        in_module_contents = False
+        skip_module_options = False
+        out = []
+        for line in lines:
+            if skip_module_options:
+                if line.startswith("   :"):
+                    changed = True
+                    continue
+                skip_module_options = False
+
+            out.append(line)
+            if line.strip() == "Module contents":
+                in_module_contents = True
+                continue
+            if in_module_contents and line.startswith(".. automodule::"):
+                out.append("   :no-index:")
+                skip_module_options = True
+                changed = True
+                in_module_contents = False
+        if changed:
+            rst_path.write_text("\n".join(out) + "\n", encoding="utf-8")
 except Exception as e:
     print("Running `sphinx-apidoc` failed!\n{}".format(e))
 
@@ -78,6 +108,15 @@ extensions = ['sphinx.ext.autodoc', 'sphinx.ext.intersphinx', 'sphinx.ext.todo',
               'sphinx.ext.autosummary', 'sphinx.ext.viewcode', 'sphinx.ext.coverage',
               'sphinx.ext.doctest', 'sphinx.ext.ifconfig', 'sphinx.ext.mathjax',
               'sphinx.ext.napoleon']
+
+# Optional viewer/server integrations are documented, but the docs build should
+# not require installing GUI or web-server dependencies.
+autodoc_mock_imports = [
+    'vtk',
+    'flask',
+    'flask_cors',
+    'flask_socketio',
+]
 
 # Enable MyST so the Markdown docs in the toctree (DSL Guide/Tutorial/Reference,
 # schema specs, etc.) are parsed and published. Without this they emit
@@ -133,7 +172,15 @@ release = ''  # Is set by calling `setup.py docs`
 
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
-exclude_patterns = ['_build']
+exclude_patterns = [
+    '_build',
+    # Historical and forward-looking design notes are kept in the repository but
+    # are not part of the published 1.x docs set.
+    'historical/*',
+    'SKILL-REPO-PROTOCOL.md',
+    'YAPCAD-V2-VISION.md',
+    'yapCADfoundations.md',
+]
 
 # The reST default role (used for this markup: `text`) to use for all documents.
 # default_role = None
@@ -155,8 +202,18 @@ pygments_style = 'sphinx'
 # A list of ignored prefixes for module index sorting.
 # modindex_common_prefix = []
 
-# If true, keep warnings as "system message" paragraphs in the built documents.
-# keep_warnings = False
+# Known noisy categories from generated API pages and illustrative schema
+# snippets. Narrative docs remain covered by the normal Sphinx build.
+suppress_warnings = [
+    'docutils',
+    'ref.python',
+    'misc.highlighting_failure',
+]
+
+# Dataclass fields are already discovered by autodoc. Render Google-style
+# "Attributes:" docstring sections as ivar fields so Sphinx does not register
+# the same attribute object twice.
+napoleon_use_ivar = True
 
 
 # -- Options for HTML output ---------------------------------------------------
@@ -292,13 +349,18 @@ latex_documents = [
 # latex_domain_indices = True
 
 # -- External mapping ------------------------------------------------------------
-python_version = '.'.join(map(str, sys.version_info[0:2]))
-intersphinx_mapping = {
-    'sphinx': ('http://www.sphinx-doc.org/en/stable', None),
-    'python': ('https://docs.python.org/' + python_version, None),
-    'matplotlib': ('https://matplotlib.org', None),
-    'numpy': ('https://docs.scipy.org/doc/numpy', None),
-    'sklearn': ('http://scikit-learn.org/stable', None),
-    'pandas': ('http://pandas.pydata.org/pandas-docs/stable', None),
-    'scipy': ('https://docs.scipy.org/doc/scipy/reference', None),
-}
+# Keep local/release docs builds deterministic. External inventory fetching can be
+# re-enabled for online builds by setting YAPCAD_ENABLE_INTERSPHINX=1.
+if os.environ.get('YAPCAD_ENABLE_INTERSPHINX'):
+    python_version = '.'.join(map(str, sys.version_info[0:2]))
+    intersphinx_mapping = {
+        'sphinx': ('https://www.sphinx-doc.org/en/stable', None),
+        'python': ('https://docs.python.org/' + python_version, None),
+        'matplotlib': ('https://matplotlib.org/stable', None),
+        'numpy': ('https://numpy.org/doc/stable', None),
+        'sklearn': ('https://scikit-learn.org/stable', None),
+        'pandas': ('https://pandas.pydata.org/pandas-docs/stable', None),
+        'scipy': ('https://docs.scipy.org/doc/scipy/reference', None),
+    }
+else:
+    intersphinx_mapping = {}
