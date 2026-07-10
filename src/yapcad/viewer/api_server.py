@@ -86,6 +86,8 @@ Requires Flask and related packages::
 """
 
 import io
+import os
+import subprocess
 import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
@@ -733,6 +735,198 @@ class ViewerAPIServer:
 
             filepath = self.viewer.screenshot(filename, directory)
             return jsonify({"filepath": filepath, "success": True})
+
+        # =====================================================================
+        # Whiteboard / DSL Save
+        # =====================================================================
+
+        # Whiteboard integration is OPT-IN and site-specific. The routes are
+        # only functional when YAPCAD_WHITEBOARD_ROOT points at a writable
+        # git working tree. When unset, the routes return 501 and never touch
+        # the filesystem — there is no default path baked into the release.
+        def _whiteboard_root():
+            env = os.environ.get("YAPCAD_WHITEBOARD_ROOT", "").strip()
+            if not env:
+                return None
+            return Path(env).expanduser()
+
+        _WHITEBOARD_DISABLED_MSG = (
+            "Whiteboard integration is disabled. Set the YAPCAD_WHITEBOARD_ROOT "
+            "environment variable to a git working tree to enable it."
+        )
+
+        @self.app.route("/api/whiteboard/save", methods=["POST"])
+        def save_to_whiteboard():
+            """
+            Save DSL content to the Whiteboard git repo and commit.
+
+            ---
+            tags:
+              - Whiteboard
+            requestBody:
+              required: true
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    required:
+                      - path
+                      - content
+                    properties:
+                      path:
+                        type: string
+                        description: |
+                          Relative path within the Whiteboard repo
+                          (e.g. "waam-test/gridfin_panel.dsl").
+                          Must not contain ".." (path traversal rejected).
+                      content:
+                        type: string
+                        description: Full DSL file content to write.
+                      message:
+                        type: string
+                        description: |
+                          Git commit message. Defaults to
+                          "Update <path> from yapCAD viewer".
+            responses:
+              200:
+                description: File saved and committed successfully.
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        success:
+                          type: boolean
+                        committed:
+                          type: boolean
+                        sha:
+                          type: string
+                          description: Git commit SHA (short).
+                        filepath:
+                          type: string
+                          description: Absolute path that was written.
+              400:
+                description: Bad request (missing fields, path traversal, etc.).
+              500:
+                description: Git operation failed.
+            """
+            WHITEBOARD_ROOT = _whiteboard_root()
+            if WHITEBOARD_ROOT is None:
+                return jsonify({"error": _WHITEBOARD_DISABLED_MSG}), 501
+
+            data = request.get_json() or {}
+            rel_path = data.get("path", "").strip()
+            content  = data.get("content")
+            message  = data.get("message", "").strip()
+
+            # ── Validate inputs ──────────────────────────────────────────────
+            if not rel_path:
+                return jsonify({"error": "'path' is required"}), 400
+            if content is None:
+                return jsonify({"error": "'content' is required"}), 400
+            if ".." in rel_path:
+                return jsonify({"error": "Path traversal ('..') not allowed"}), 400
+
+            target = WHITEBOARD_ROOT / rel_path
+            if not str(target).startswith(str(WHITEBOARD_ROOT)):
+                return jsonify({"error": "Path escapes Whiteboard root"}), 400
+
+            if not message:
+                message = f"Update {rel_path} from yapCAD viewer"
+
+            # ── Write file ───────────────────────────────────────────────────
+            try:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(content, encoding="utf-8")
+            except OSError as exc:
+                return jsonify({"error": f"File write failed: {exc}"}), 500
+
+            # ── Git add + commit ─────────────────────────────────────────────
+            try:
+                subprocess.run(
+                    ["git", "add", str(target)],
+                    cwd=str(WHITEBOARD_ROOT),
+                    check=True, capture_output=True, text=True
+                )
+                result = subprocess.run(
+                    ["git", "commit", "-m", message],
+                    cwd=str(WHITEBOARD_ROOT),
+                    capture_output=True, text=True
+                )
+                committed = result.returncode == 0
+                # Extract short SHA from output ("[main abc1234] ...") if committed
+                sha = ""
+                if committed and result.stdout:
+                    import re
+                    m = re.search(r"\[\S+ ([0-9a-f]+)\]", result.stdout)
+                    sha = m.group(1) if m else ""
+            except subprocess.CalledProcessError as exc:
+                return jsonify({
+                    "error": f"git add failed: {exc.stderr.strip()}"
+                }), 500
+            except FileNotFoundError:
+                return jsonify({"error": "git not found on PATH"}), 500
+
+            return jsonify({
+                "success": True,
+                "committed": committed,
+                "sha": sha,
+                "filepath": str(target),
+                "message": message,
+            })
+
+        @self.app.route("/api/whiteboard/read", methods=["GET"])
+        def read_from_whiteboard():
+            """
+            Read a file from the Whiteboard repo.
+
+            ---
+            tags:
+              - Whiteboard
+            parameters:
+              - name: path
+                in: query
+                required: true
+                schema:
+                  type: string
+                description: Relative path within the Whiteboard repo.
+            responses:
+              200:
+                description: File content.
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        content:
+                          type: string
+                        path:
+                          type: string
+              404:
+                description: File not found.
+              400:
+                description: Bad request.
+            """
+            WHITEBOARD_ROOT = _whiteboard_root()
+            if WHITEBOARD_ROOT is None:
+                return jsonify({"error": _WHITEBOARD_DISABLED_MSG}), 501
+
+            rel_path = request.args.get("path", "").strip()
+            if not rel_path:
+                return jsonify({"error": "'path' query param is required"}), 400
+            if ".." in rel_path:
+                return jsonify({"error": "Path traversal not allowed"}), 400
+
+            target = WHITEBOARD_ROOT / rel_path
+            if not target.exists():
+                return jsonify({"error": f"File not found: {rel_path}"}), 404
+
+            try:
+                content = target.read_text(encoding="utf-8")
+            except OSError as exc:
+                return jsonify({"error": str(exc)}), 500
+
+            return jsonify({"content": content, "path": rel_path})
 
         # =====================================================================
         # Part Movement

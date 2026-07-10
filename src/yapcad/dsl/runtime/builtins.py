@@ -30,6 +30,7 @@ from .values import (
     Value, int_val, float_val, bool_val, string_val, list_val,
     point_val, vector_val, transform_val, solid_val, region2d_val,
     surface_val, shell_val, path3d_val, edge_list_val, wrap_value, unwrap_value, unwrap_values,
+    assembly_val,
 )
 from ..types import (
     Type, ListType,
@@ -38,6 +39,7 @@ from ..types import (
     SOLID, REGION2D, SURFACE, SHELL, EDGE,
     LINE_SEGMENT, ARC, CIRCLE, ELLIPSE, BEZIER, NURBS, CATMULLROM,
     PATH2D, PATH3D, PROFILE2D,
+    ASSEMBLY,
 )
 from ..symbols import FunctionSignature
 
@@ -114,6 +116,7 @@ class BuiltinRegistry:
         self._register_phase3_text_functions()
         self._register_phase4_path_functions()
         self._register_edge_selection_functions()
+        self._register_assembly_functions()
 
     # --- Math Functions ---
 
@@ -3569,6 +3572,291 @@ class BuiltinRegistry:
             "chamfer_edges",
             _make_sig("chamfer_edges", [SOLID, ListType(EDGE), FLOAT], SOLID),
             _chamfer_edges,
+        ))
+
+    # --- Assembly Builtins (Phase 2 of yapcad-assembly-integration) ---
+
+    def _register_assembly_functions(self) -> None:
+        """Register assembly orchestration builtins.
+
+        Exposes ``yapcad.assembly.Assembly`` to the DSL as opaque
+        ``assembly`` handles. The builtins mirror the most-used Python
+        API surface so a DSL file can declare and validate an assembly
+        without dropping into Python:
+
+            ``assembly(name)``                 → new assembly handle
+            ``add_part(asm, solid, name)``     → asm (chainable)
+            ``add_mate(asm, kind, part_a, datum_a, part_b, datum_b)`` → asm
+            ``validate_assembly(asm)``         → bool (is_valid)
+            ``assembly_report(asm)``           → string
+            ``emit_assembly(asm)``             → string (Mechatron JSON)
+
+        ``add_part`` reads the v1.1 ``assembly.datums`` metadata from
+        the solid (set via ``@meta(assembly.datums=[...])`` or the direct
+        ``add_datum()`` Python helper) and lifts each entry into a
+        ``Datum`` on the resulting ``PartDefinition``. Datums in the
+        metadata layer use cylindrical coordinates (``R_mm``, ``z_mm``,
+        ``direction``); the converter maps them onto yapCAD's homogeneous
+        coordinates (origin = ``[R_mm, 0, z_mm, 1]`` on the part's local
+        frame).
+        """
+        # Imported lazily so loading the DSL runtime doesn't pull in the
+        # whole assembly stack on every interpreter startup.
+        from yapcad.assembly.assembly import Assembly
+        from yapcad.assembly.datum import (
+            Datum,
+            DatumType,
+            PartDefinition,
+        )
+        from yapcad.assembly.mate import Mate, MateType
+        from yapcad.metadata import (
+            get_solid_metadata,
+            get_assembly_metadata,
+        )
+        from yapcad.assembly.mechatron_export import to_mechatron_json
+
+        # --- Helpers (closures captured by the builtin impls below) ---
+
+        # v1.1 metadata kind → Datum.DatumType. ``edge`` has no Datum
+        # equivalent; entries with that kind are skipped with a warning.
+        _METADATA_KIND_TO_DATUM_TYPE = {
+            "point": DatumType.POINT,
+            "axis": DatumType.AXIS,
+            "plane": DatumType.PLANE,
+            "bolt_circle": DatumType.CIRCLE,
+            "frame": DatumType.FRAME,
+        }
+
+        # Default direction when a v1.1 metadata entry omits one. The
+        # part's local +Z axis matches the convention used elsewhere in
+        # yapCAD for axisymmetric features (rocket bodies, cylindrical
+        # bores, bolt circles). Datum validates that AXIS/PLANE/CIRCLE
+        # have a non-zero direction or normal, so we cannot leave it None.
+        _DEFAULT_AXIS_DIRECTION = [0.0, 0.0, 1.0, 0.0]
+
+        def _datum_from_metadata_entry(entry: dict):
+            """Convert one v1.1 assembly.datums entry into a Datum.
+
+            Origin can be specified two ways:
+
+            - Axisymmetric (legacy): ``R_mm`` + ``z_mm`` → origin sits
+              on the Y=0 plane at ``(R_mm, 0, z_mm)``. Sufficient for
+              cylindrical parts where every datum lives on the part's
+              centerline or its axisymmetric ring of features.
+
+            - Arbitrary 3D (new): ``origin_mm: [x, y, z]`` (millimetres,
+              3-element list/tuple) → origin sits at the given point in
+              the part's local frame. Required for parts whose features
+              don't lie on a single radial plane (pentagonal prisms,
+              chassis with off-axis mount points, etc.).
+
+            When both are present, ``origin_mm`` wins.
+
+            Returns ``None`` if the entry's kind is not representable
+            as a Datum (e.g. ``edge``) or the entry is malformed (no
+            ``id``); the caller skips it.
+            """
+            if "id" not in entry:
+                return None
+            kind = entry.get("kind")
+            datum_type = _METADATA_KIND_TO_DATUM_TYPE.get(kind)
+            if datum_type is None:
+                return None
+            r_mm = float(entry.get("R_mm", 0.0))
+            z_mm = float(entry.get("z_mm", 0.0))
+            raw_origin = entry.get("origin_mm")
+            if raw_origin is not None:
+                # Full 3D origin overrides the axisymmetric (R_mm, z_mm)
+                # derivation. Allows pentagonal bodies / off-axis mount
+                # points / anything whose features aren't on the Y=0
+                # plane.
+                origin = [
+                    float(raw_origin[0]),
+                    float(raw_origin[1]),
+                    float(raw_origin[2]),
+                    1.0,
+                ]
+            else:
+                # yapCAD homogeneous point: [x, y, z, w=1]
+                origin = [r_mm, 0.0, z_mm, 1.0]
+            raw_dir = entry.get("direction")
+            if raw_dir is not None:
+                direction = [float(raw_dir[0]), float(raw_dir[1]),
+                             float(raw_dir[2]), 0.0]
+            else:
+                direction = list(_DEFAULT_AXIS_DIRECTION)
+            kwargs = {
+                "name": entry["id"],
+                "datum_type": datum_type,
+                "origin": origin,
+            }
+            # AXIS uses ``direction``; PLANE and CIRCLE use ``normal``.
+            if datum_type == DatumType.AXIS:
+                kwargs["direction"] = direction
+            elif datum_type in (DatumType.PLANE, DatumType.CIRCLE):
+                kwargs["normal"] = direction
+            if datum_type == DatumType.CIRCLE:
+                # CIRCLE's radius still comes from R_mm (cylindrical
+                # convention). For an off-axis circle, use origin_mm to
+                # place the centre and R_mm to specify the radius.
+                kwargs["radius"] = r_mm
+            return Datum(**kwargs)
+
+        def _part_def_from_solid(solid_data, instance_name: str):
+            """Build a PartDefinition from a solid's v1.1 metadata.
+
+            ``instance_name`` is the name of the part instance inside
+            the assembly (used both as the part's PartDefinition.name and
+            as the lookup key for transforms). Datums declared via
+            ``@meta(assembly.datums=[...])`` are lifted onto the part def.
+
+            Returns a freshly-built PartDefinition. The Python helper
+            ``Assembly.add_part`` makes its own copy of the datums dict
+            so callers do not need to worry about aliasing.
+            """
+            part_def = PartDefinition(name=instance_name)
+            try:
+                meta = get_solid_metadata(solid_data, create=False)
+            except Exception:
+                meta = None
+            if not meta:
+                return part_def
+            try:
+                asm_meta = get_assembly_metadata(meta) or {}
+            except Exception:
+                asm_meta = {}
+            for entry in asm_meta.get("datums", []) or []:
+                if "id" not in entry:
+                    continue
+                datum = _datum_from_metadata_entry(entry)
+                if datum is not None:
+                    part_def.add_datum(datum)
+            # Stash any `@meta(assembly.geoms=[...])` entries on the
+            # PartDefinition for the Mechatron exporter to consume.
+            # yapCAD's PartDefinition has no first-class geoms field;
+            # we attach as a side-channel attribute so the rest of the
+            # assembly layer is unaffected. Entries are kept verbatim
+            # here (in DSL-author units, typically mm); unit conversion
+            # happens inside ``mechatron_export``.
+            geoms = asm_meta.get("geoms")
+            if isinstance(geoms, list) and geoms:
+                part_def.geoms = list(geoms)
+            # Root-level fields (set via @meta(material="PETG") for instance)
+            # are stored at the top of the meta dict alongside the namespaces.
+            material = meta.get("material")
+            if isinstance(material, str) and material:
+                part_def.material = material
+            return part_def
+
+        # --- Builtin impls ---
+
+        def _assembly(name: Value) -> Value:
+            """Create a new assembly handle."""
+            return assembly_val(Assembly(str(name.data)))
+
+        def _add_part(asm: Value, solid: Value, name: Value) -> Value:
+            """Add a solid as a part instance to the assembly.
+
+            Datums declared on the solid via ``@meta(assembly.datums=[...])``
+            are lifted into the resulting ``PartDefinition``.
+            """
+            assembly_obj = asm.data
+            instance_name = str(name.data)
+            part_def = _part_def_from_solid(solid.data, instance_name)
+            assembly_obj.add_part(part_def, name=instance_name)
+            return asm  # chainable
+
+        def _add_mate(asm: Value, kind: Value, part_a: Value, datum_a: Value,
+                      part_b: Value, datum_b: Value) -> Value:
+            """Add a mate constraint between two parts.
+
+            ``kind`` is a MateType enum value as a string
+            (e.g. ``"concentric"``, ``"revolute"``, ``"flush"``).
+            """
+            assembly_obj = asm.data
+            try:
+                mate_type = MateType(str(kind.data))
+            except ValueError as exc:
+                valid = sorted(m.value for m in MateType)
+                raise ValueError(
+                    f"add_mate: invalid kind {kind.data!r}; valid kinds: {valid}"
+                ) from exc
+            mate = Mate(
+                name=f"{part_a.data}.{datum_a.data} ↔ {part_b.data}.{datum_b.data}",
+                mate_type=mate_type,
+                part_a=str(part_a.data),
+                datum_a=str(datum_a.data),
+                part_b=str(part_b.data),
+                datum_b=str(datum_b.data),
+            )
+            assembly_obj.add_mate(mate)
+            return asm
+
+        def _validate_assembly(asm: Value) -> Value:
+            """Validate the assembly. Returns True iff there are no errors.
+
+            Warnings do not flip the result. Call ``assembly_report`` to
+            see the detailed violation list (errors + warnings).
+            """
+            assembly_obj = asm.data
+            result = assembly_obj.validate()
+            return bool_val(bool(result.is_valid))
+
+        def _assembly_report(asm: Value) -> Value:
+            """Return a human-readable validation + structure report."""
+            return string_val(asm.data.report())
+
+        def _emit_assembly(asm: Value) -> Value:
+            """Serialize the assembly as Mechatron-shaped JSON.
+
+            The output matches Mechatron's ``GraphSnapshot`` codec
+            (the ``save_json`` / ``load_json`` shape in
+            ``crates/assembly-graph/src/graph.rs``). Round-trip on the
+            consumer side: ``AssemblyGraph::load_json`` materializes
+            the same parts + interfaces. yapCAD-side motion mates
+            (REVOLUTE, PRISMATIC, SPHERICAL, RIGID) translate to
+            Mechatron ``Joint::Revolute``/``Prismatic``/``Ball``/``Fixed``;
+            other mate kinds (CONCENTRIC, COINCIDENT, FLUSH, ...) collapse
+            to ``Joint::Fixed`` with the original kind preserved on the
+            interface's ``mate_constraints``.
+            """
+            return string_val(to_mechatron_json(asm.data))
+
+        # --- Registrations ---
+
+        self.register(BuiltinFunction(
+            "assembly",
+            _make_sig("assembly", [STRING], ASSEMBLY),
+            _assembly,
+        ))
+        self.register(BuiltinFunction(
+            "add_part",
+            _make_sig("add_part", [ASSEMBLY, SOLID, STRING], ASSEMBLY),
+            _add_part,
+        ))
+        self.register(BuiltinFunction(
+            "add_mate",
+            _make_sig(
+                "add_mate",
+                [ASSEMBLY, STRING, STRING, STRING, STRING, STRING],
+                ASSEMBLY,
+            ),
+            _add_mate,
+        ))
+        self.register(BuiltinFunction(
+            "validate_assembly",
+            _make_sig("validate_assembly", [ASSEMBLY], BOOL),
+            _validate_assembly,
+        ))
+        self.register(BuiltinFunction(
+            "assembly_report",
+            _make_sig("assembly_report", [ASSEMBLY], STRING),
+            _assembly_report,
+        ))
+        self.register(BuiltinFunction(
+            "emit_assembly",
+            _make_sig("emit_assembly", [ASSEMBLY], STRING),
+            _emit_assembly,
         ))
 
 

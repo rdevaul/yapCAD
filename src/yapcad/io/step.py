@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, TextIO, Tuple, Union
 import os
 import tempfile
+from typing import Optional
 
 from yapcad.geometry_utils import triangles_from_mesh
 from yapcad.mesh import mesh_view
@@ -487,4 +488,50 @@ def _format_id_list(ids: Sequence[int], *, indent: str = '    ', per_line: int =
     return "\n".join(lines)
 
 
-__all__ = ['write_step', 'write_step_analytic']
+def write_step_with_meta(
+    obj: Sequence,
+    path: str,
+    *,
+    name: str = 'yapCAD',
+    source_dsl: Optional[str] = None,
+    source_command: Optional[str] = None,
+    emit_sidecar: bool = True,
+) -> Optional[str]:
+    """Export *obj* to STEP and optionally write a ``.meta.yaml`` sidecar.
+
+    Thin wrapper around :func:`write_step` that calls
+    :func:`~yapcad.io.meta_yaml.dump_metadata_yaml` immediately after the
+    geometry is written.
+
+    Parameters
+    ----------
+    obj:
+        yapCAD solid or surface.
+    path:
+        Output STEP file path.
+    name:
+        Product name embedded in the STEP header.
+    source_dsl:
+        Path to the originating DSL file (forwarded to the sidecar emitter).
+    source_command:
+        DSL command name that produced this part.
+    emit_sidecar:
+        When ``False``, behaves identically to :func:`write_step`.
+
+    Returns
+    -------
+    str or None
+        Path of the written sidecar, or ``None`` when no metadata was present
+        or *emit_sidecar* is ``False``.
+    """
+    write_step(obj, path, name=name)
+    if not emit_sidecar:
+        return None
+    try:
+        from yapcad.io.meta_yaml import dump_metadata_yaml
+        return dump_metadata_yaml(obj, path, source_dsl=source_dsl, source_command=source_command)
+    except Exception:
+        return None
+
+
+__all__ = ['write_step', 'write_step_analytic', 'write_step_with_meta']

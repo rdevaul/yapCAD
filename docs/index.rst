@@ -88,11 +88,15 @@ Contents
    DSL Tutorial <dsl_tutorial>
    DSL Reference <dsl_reference>
    BREP Implementation <yapBREP>
+   Assembly System <assembly_system>
+   Manufacturing Post-Processing <manufacturing_postprocessing>
    Project Packaging <ycpkg_spec>
+   Geometry JSON Schema <geometry_json_schema>
    Metadata Namespace <metadata_namespace>
    Validation Schema <validation_schema>
    Package Signing <signing_spec>
    Material Schema <material_schema_spec>
+   Mesh Validation <mesh_validation>
 
 
 Indices and tables

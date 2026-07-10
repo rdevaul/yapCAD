@@ -295,6 +295,14 @@ class Assembly:
         self.transforms: Dict[str, np.ndarray] = {}
         self.mates: List[Mate] = []
         self.constraints: List[Constraint] = []
+        # Load cases for structural FEA setup. Keyed by LoadCase.id.
+        # Added 2026-05-20 (see assembly/load_case.py history).
+        self.load_cases: Dict[str, Any] = {}
+        # Bolt patterns keyed by (parent_part, child_part) tuple. Mirrors the
+        # Mechatron Interface.bolt_pattern Optional<BoltPattern>. yapCAD users
+        # call add_bolt_pattern() to attach one to a mate group; the exporter
+        # emits it onto the corresponding Mechatron Interface.
+        self.bolt_patterns: Dict[tuple, Any] = {}
         self._solved = False
 
     def add_part(self, part: PartDefinition, name: str = None,
@@ -438,6 +446,70 @@ class Assembly:
             )
 
         self.constraints.append(constraint)
+
+    # ------------------------------------------------------------------
+    # Load case registry (added 2026-05-20 — see assembly/load_case.py)
+    # ------------------------------------------------------------------
+    def add_load_case(self, load_case) -> None:
+        """Register a structural LoadCase with this assembly.
+
+        Args:
+            load_case: a yapcad.assembly.load_case.LoadCase instance
+
+        Raises:
+            AssemblyError: if the LoadCase references a part not in the
+                assembly (when attach.part != "_assembly")
+        """
+        attach_part = load_case.attach.part
+        if attach_part != "_assembly" and attach_part not in self.parts:
+            raise AssemblyError(
+                f"LoadCase '{load_case.id}' attaches to part '{attach_part}' "
+                f"which is not in the assembly",
+                assembly_name=self.name,
+                part_name=attach_part,
+            )
+        if load_case.id in self.load_cases:
+            raise AssemblyError(
+                f"LoadCase id '{load_case.id}' already registered",
+                assembly_name=self.name,
+            )
+        self.load_cases[load_case.id] = load_case
+
+    def get_load_case(self, lc_id: str):
+        """Return the LoadCase with the given id, or None if missing."""
+        return self.load_cases.get(lc_id)
+
+    # ------------------------------------------------------------------
+    # Bolt pattern registry (added 2026-05-20)
+    # ------------------------------------------------------------------
+    def add_bolt_pattern(self, parent_part: str, child_part: str, bolt_pattern) -> None:
+        """Attach a BoltPattern to the interface between parent and child.
+
+        The pattern is keyed by the (parent, child) tuple, mirroring how
+        the Mechatron exporter groups mates into a single Interface. If
+        the same pair already has a bolt_pattern registered, this raises.
+        """
+        if parent_part not in self.parts:
+            raise AssemblyError(
+                f"parent part '{parent_part}' not in assembly",
+                assembly_name=self.name, part_name=parent_part,
+            )
+        if child_part not in self.parts:
+            raise AssemblyError(
+                f"child part '{child_part}' not in assembly",
+                assembly_name=self.name, part_name=child_part,
+            )
+        key = (parent_part, child_part)
+        if key in self.bolt_patterns:
+            raise AssemblyError(
+                f"BoltPattern already registered for {parent_part} -> {child_part}",
+                assembly_name=self.name,
+            )
+        self.bolt_patterns[key] = bolt_pattern
+
+    def get_bolt_pattern(self, parent_part: str, child_part: str):
+        """Return the BoltPattern for an interface, or None if not set."""
+        return self.bolt_patterns.get((parent_part, child_part))
 
     def get_transformed_datum(self, part_name: str, datum_name: str) -> Datum:
         """Get a datum feature transformed to world coordinates.

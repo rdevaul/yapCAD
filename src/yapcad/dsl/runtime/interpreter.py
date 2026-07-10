@@ -20,6 +20,7 @@ from .values import (
     int_val, float_val, bool_val, string_val, list_val, dict_val, none_val,
     wrap_value, unwrap_value, coerce_numeric,
 )
+from ..meta_apply import apply_meta_hint
 from .context import ExecutionContext, create_context
 from .builtins import call_builtin, call_method, get_builtin_registry
 from .provenance import Provenance, create_provenance
@@ -178,6 +179,14 @@ class Interpreter:
                 require_failures=ctx.require_failures,
             )
 
+        # Apply @meta(...) hint to the emitted solid (Phase 1c bridge).
+        # The parser already merges all @meta decorators into
+        # ``command.meta_hint`` (a flat dict). meta_apply.apply_meta_hint
+        # dispatches each key to the right ``yapcad.metadata`` helper,
+        # which is what downstream consumers (add_part datum lifting,
+        # mechatron_export) read.
+        self._apply_command_meta_hint(command, ctx)
+
         # Build provenance
         provenance = create_provenance(
             module_name=module.name,
@@ -248,6 +257,37 @@ class Interpreter:
             self._execute_statement(stmt, ctx)
             if ctx.should_return:
                 break
+
+    def _apply_command_meta_hint(self, command: Command, ctx: ExecutionContext) -> None:
+        """Apply a command's merged ``@meta(...)`` hint to its emitted solid.
+
+        This is the Phase 1c bridge from the AST decorator surface to the
+        v1.1 metadata namespaces. It runs after the command body executes
+        (both for top-level execution and for nested ``_call_command``)
+        so the solid returned to the caller carries any
+        ``assembly.datums=[...]`` / ``operation.kind`` / etc. entries the
+        author declared, ready for downstream consumers like the
+        assembly builtins or ``mechatron_export``.
+
+        No-op when the command has no ``meta_hint`` or did not emit a
+        solid. Non-solid emit values (e.g. a command that returns a
+        string) are left untouched.
+        """
+        meta_hint = getattr(command, "meta_hint", None)
+        if not meta_hint:
+            return
+        if ctx.emit_result is None or ctx.emit_result.value is None:
+            return
+        emitted = ctx.emit_result.value
+        # Only solids carry yapcad metadata; strings/numbers/etc. don't.
+        data = getattr(emitted, "data", None)
+        try:
+            from yapcad.geom3d import issolid
+        except Exception:
+            return
+        if not isinstance(data, list) or not issolid(data):
+            return
+        apply_meta_hint(data, meta_hint)
 
     def _execute_statement(self, stmt: Statement, ctx: ExecutionContext) -> None:
         """Execute a statement."""
@@ -614,7 +654,7 @@ class Interpreter:
 
     def _eval_function_call(self, call: FunctionCall, ctx: ExecutionContext) -> Value:
         """Evaluate a function call."""
-        # Evaluate arguments
+        # Evaluate positional arguments
         args = [self._evaluate(arg, ctx) for arg in call.arguments]
 
         # Extract function name from callee (which is an Identifier)
@@ -631,6 +671,22 @@ class Interpreter:
         if self.current_module is not None:
             for cmd in self.current_module.commands:
                 if cmd.name == func_name:
+                    # Resolve named_arguments into positional order if present
+                    named = getattr(call, 'named_arguments', {})
+                    if named and not args:
+                        # Build positional arg list from named_arguments
+                        # matching command parameter order
+                        resolved = []
+                        for param in cmd.parameters:
+                            if param.name in named:
+                                resolved.append(self._evaluate(named[param.name], ctx))
+                            elif param.default_value is not None:
+                                resolved.append(self._evaluate(param.default_value, ctx))
+                            else:
+                                raise RuntimeError(
+                                    f"Command '{func_name}' missing required argument '{param.name}'"
+                                )
+                        args = resolved
                     return self._call_command(cmd, args, ctx)
 
         # Call the built-in function
@@ -681,6 +737,11 @@ class Interpreter:
 
             # Execute the command body
             self._execute_command(command, cmd_ctx)
+
+            # Apply @meta(...) hint to the emitted solid before returning
+            # so the value seen by the caller (e.g. add_part(...)) carries
+            # the same metadata as a top-level command would.
+            self._apply_command_meta_hint(command, cmd_ctx)
 
             # Return the emitted value
             if cmd_ctx.emit_result is not None:

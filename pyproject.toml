@@ -8,7 +8,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "yapCAD"
-version = "1.0.0rc1"
+version = "1.1.0"
 authors = [
   { name="Richard DeVaul", email="richard.devaul@gmail.com" },
 ]
@@ -16,9 +16,33 @@ description = "yet another procedural CAD and computational geometry system"
 readme = "README.rst"
 requires-python = ">=3.10"
 license = "MIT"
+keywords = [
+    "CAD",
+    "computational-geometry",
+    "procedural",
+    "parametric",
+    "geometry",
+    "DSL",
+    "BREP",
+    "3D",
+    "mesh",
+    "engineering",
+]
 classifiers = [
-    "Programming Language :: Python :: 3",
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Manufacturing",
     "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Visualization",
+    "Topic :: Multimedia :: Graphics :: 3D Modeling",
+    "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
       "ezdxf>=1.1",
@@ -32,6 +56,16 @@ dependencies = [
       "pyobjc-framework-Quartz; platform_system == 'Darwin'"
       ]
 
+# NOTE ON OCC / BREP:
+#   yapCAD's core is pure Python and installs from PyPI with no compiled
+#   dependencies. The solid-modeling (BREP) features are optional and layer
+#   on top of OpenCASCADE via ``pythonocc-core``. That package is NOT reliably
+#   pip-installable across platforms; the supported distribution channel is
+#   conda-forge (``conda install -c conda-forge pythonocc-core>=7.7``). We
+#   therefore declare it as an optional extra for documentation/metadata
+#   purposes, but users are expected to obtain OCC from conda. yapcad.brep
+#   guards every OCC import and degrades gracefully when it is absent
+#   (see ``yapcad.has_brep()``).
 [project.optional-dependencies]
 tests = [
   "pytest",
@@ -41,14 +75,32 @@ meshcheck = [
   "trimesh>=4.0",
   "pymeshfix>=0.16",
 ]
+# Solid-modeling (BREP) support. pythonocc-core is normally installed from
+# conda-forge, not pip; this extra documents the requirement and version floor.
+brep = [
+  "pythonocc-core>=7.7",
+]
+# Everything: BREP + mesh repair. (Still expects OCC from conda in practice.)
+full = [
+  "pythonocc-core>=7.7",
+  "trimesh>=4.0",
+  "pymeshfix>=0.16",
+]
 [project.urls]
 "Homepage" = "https://github.com/rdevaul/yapCAD/"
 "Documentation" = "https://yapcad.readthedocs.io/en/latest/"
+"Repository" = "https://github.com/rdevaul/yapCAD"
+"Issues" = "https://github.com/rdevaul/yapCAD/issues"
+"Changelog" = "https://github.com/rdevaul/yapCAD/blob/main/CHANGELOG.rst"
 
 
 [build_sphinx]
 source_dir = "docs"
 build_dir = "build/sphinx"
+
+# NOTE: pytest configuration (including the ``requires_occ`` marker) lives in
+# pytest.ini, which takes precedence over any [tool.pytest.ini_options] here.
+# Keep marker definitions there.
 
 [tool.setuptools]
 # src/ layout package discovery (previously declared in setup.cfg, which is

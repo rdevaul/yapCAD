@@ -182,6 +182,11 @@ from .packaging import (
     PackageResult,
 )
 
+from .meta_apply import (
+    apply_meta_hint,
+    apply_meta_hint_to_raw,
+)
+
 from .introspection import (
     get_api_reference,
     get_function_info,
@@ -322,6 +327,10 @@ __all__ = [
     # Packaging
     'package_from_dsl',
     'PackageResult',
+
+    # Metadata application (@meta hint bridge)
+    'apply_meta_hint',
+    'apply_meta_hint_to_raw',
 
     # Introspection (for agentic tools)
     'get_api_reference',

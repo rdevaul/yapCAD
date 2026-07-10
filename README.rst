@@ -41,8 +41,8 @@ systems. Starting with the 0.5 release, the emphasis has shifted toward
 simulation, while retaining support for DXF generation and computational
 geometry experiments.
 
-software status (version 1.0.0rc1, January 2026)
-------------------------------------------------
+software status (version 1.1.0, July 2026)
+------------------------------------------------------
 
 **yapCAD** is in **active development** and already powers production design
 pipelines. Highlights from the 1.0 release cycle include:
@@ -68,15 +68,23 @@ pipelines. Highlights from the 1.0 release cycle include:
   true helical surfaces for gears, columns, and spiral features.
 * **Pattern Generation**: ``radial_pattern()`` and ``linear_pattern()`` functions for
   creating circular and linear arrays of 2D/3D geometry, solids, and surfaces.
+* **Assembly System**: Datum-driven multi-body assembly definitions with mate
+  constraints, kinematic chains, collision checks, and optional VTK visualization.
+* **Manufacturing Post-Processing**: Beam segmentation helpers for splitting
+  swept structures into printable segments with connector specifications and
+  assembly manifests.
+* **Edge Selection DSL**: ``select_*_edges()``, ``union_edges()``,
+  ``intersect_edges()``, ``subtract_edges()``, ``fillet_edges()``, and
+  ``chamfer_edges()`` builtins for selective BREP edge treatment.
 * ``.ycpkg`` project packaging with manifest, geometry JSON, exports, and metadata.
 * **Package signing** with GPG and SSH key support for cryptographic verification.
 * **Validation schemas** for test definitions and solver integration.
 * **YAML-based fastener catalogs** with ISO metric and ASME unified thread specifications.
 * **Emacs major mode** for DSL syntax highlighting (``editors/yapcad-dsl-mode.el``).
-* 612 regression tests covering geometry, DSL, import/export, packaging, and validation.
+* 600+ regression tests covering geometry, DSL, import/export, packaging, and validation.
 
-Upcoming work (tracked in ``docs/yapCADone.rst``) focuses on validation test
-definition language, solver adapter framework, and provenance/security features.
+Upcoming work (tracked in ``docs/yapCADone.rst``) focuses on solver adapter
+hardening, provenance/security extensions, and migration tooling.
 
 If you are using **yapCAD** in interesting ways, feel free to let us know in the
 `yapCAD discussions <https://github.com/rdevaul/yapCAD/discussions>`__ forum
@@ -87,28 +95,50 @@ If you are using **yapCAD** in interesting ways, feel free to let us know in the
 installation
 ~~~~~~~~~~~~
 
-**yapCAD** is a pure python library, so no special steps are required
-for basic installation. You can install it a variety of ways, but the
-recommended method is to use pip to install it into your local
-``site-packages`` directory, as follows::
+yapCAD ships in **two functionality tiers**. Pick the one that matches your work:
 
-   pip install yapCAD --user
+.. important::
 
-You can also clone the github repository and install from source::
+   **Tier 1 — pip (pure-Python core):** ``pip install yapcad`` installs the
+   pure-Python core with **no compiled dependencies**. This gives you 2D
+   geometry, the DSL, metadata, and the assembly graph — but **NOT** BREP solid
+   modeling, OCC-backed boolean operations, or STEP import/export. Those require
+   OpenCASCADE via ``pythonocc-core``, which is **not** pip-installable and must
+   come from conda-forge. When yapCAD is imported without ``pythonocc-core``
+   present, it emits a one-time ``YapcadBrepUnavailableWarning`` explaining this
+   and how to upgrade. Check availability at runtime with ``yapcad.has_brep()``.
+
+   **Tier 2 — conda (full functionality):** for BREP solids, exact boolean
+   operations, and STEP I/O, use the conda environment described below so that
+   ``pythonocc-core`` is installed alongside yapCAD.
+
+**Tier 1 — pip (pure-Python core)**
+
+Use pip to install the core into your environment::
+
+   pip install yapcad
+
+Or clone the repository and install from source (PEP 517 build)::
 
    git clone https://github.com/rdevaul/yapCAD.git
    cd yapCAD
-   python setup.py install --user
+   pip install .
 
-OCC BREP Environment (Recommended)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Optional extras are declared for BREP and mesh tooling, but note that the
+``brep``/``full`` extras pull ``pythonocc-core`` from PyPI, which is
+**not reliable across platforms** — the supported channel for OCC is conda-forge
+(see Tier 2)::
+
+   pip install "yapcad[meshcheck]"   # trimesh + pymeshfix mesh repair (pip-safe)
+
+**Tier 2 — conda (full functionality, recommended for solid modeling)**
 
 .. important::
 
    For full BREP kernel support, including STEP import/export, OCC-backed
-   boolean operations, and analytic solid modeling, you need to set up the
+   boolean operations, and analytic solid modeling, set up the
    **conda-based virtual environment**. This is required because ``pythonocc-core``
-   has complex binary dependencies that are best managed through conda.
+   has complex binary dependencies that are best managed through conda-forge.
 
 To set up the OCC BREP environment::
 
@@ -143,14 +173,18 @@ Without pythonocc-core, yapCAD operates in **reduced functionality mode**:
 * DSL interpreter (2D features, tessellated 3D)
 * Package creation and validation
 
-**Not available:**
+**Not available (requires the conda / pythonocc-core install):**
 
 * STEP import/export
 * OCC-backed boolean operations
 * Adaptive sweep operations
 * Analytic solid modeling
 
-For solid modeling workflows, the OCC environment is strongly recommended
+When OCC is absent, importing yapCAD emits a one-time
+``YapcadBrepUnavailableWarning`` (a ``UserWarning`` subclass) documenting the
+limitation and the conda upgrade path. It is non-fatal and can be silenced with
+the standard ``warnings`` filters. For solid-modeling workflows, the conda /
+``pythonocc-core`` install (Tier 2 above) is strongly recommended.
 
 examples
 ~~~~~~~~
@@ -201,7 +235,10 @@ Online **yapCAD** documentation is available at https://yapcad.readthedocs.io/en
 * ``docs/dsl_reference.md`` - DSL language reference: syntax, types, builtins, and CLI usage.
 * ``docs/dsl_spec.rst`` - DSL design specification and architecture.
 * ``docs/yapBREP.rst`` - OCC BREP implementation guide (installation, API, examples).
+* ``docs/assembly_system.rst`` - datum/mate assembly, kinematics, collision, and viewer workflow.
+* ``docs/manufacturing_postprocessing.rst`` - beam segmentation and connector post-processing framework.
 * ``docs/ycpkg_spec.rst`` - ``.ycpkg`` manifest schema, packaging workflow, CLI usage.
+* ``docs/geometry_json_schema.md`` - geometry JSON interchange format.
 * ``docs/metadata_namespace.rst`` - standard metadata blocks for materials, manufacturing, and analysis annotations.
 * Module references for ``yapcad.geom``, ``yapcad.geom3d``, ``yapcad.geom3d_util``, ``yapcad.brep``, and ``yapcad.dsl``.
 * Mesh validation workflow (``docs/mesh_validation.md``, ``tools/validate_mesh.py``).

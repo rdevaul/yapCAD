@@ -316,7 +316,7 @@ def _serialize_sketch(geomlist: list, metadata_override: Optional[Dict[str, Any]
     else:
         bbox = None
     metadata = {
-        "schema": "metadata-namespace-v0.1",
+        "schema": "metadata-namespace-v1.1",
         "entityId": str(uuid.uuid4()),
         "tags": [],
         "layer": "default",

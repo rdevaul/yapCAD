@@ -1074,13 +1074,27 @@ class Parser:
     # =========================================================================
 
     def _parse_parameter(self) -> Parameter:
-        """Parse a function parameter."""
+        """Parse a function parameter, optionally followed by an @ui(...) decorator.
+
+        Syntax::
+
+            param_name: type @ui(key=value, ...) = default
+
+        The ``@ui`` decorator is positional: it comes after the type annotation
+        and before the default value.  It is purely a viewer/widget hint — the
+        evaluator ignores it completely.
+        """
         start = self._current()
         name = self._consume(TokenType.IDENTIFIER, "parameter name").value
 
         type_annotation = None
         if self._match(TokenType.COLON):
             type_annotation = self._parse_type()
+
+        # Parse optional @ui(...) decorator (must come after type, before default)
+        ui_hint = None
+        if self._check(TokenType.AT):
+            ui_hint = self._parse_param_ui_hint()
 
         default_value = None
         if self._match(TokenType.ASSIGN):
@@ -1090,8 +1104,142 @@ class Parser:
             span=self._span_from(start),
             name=name,
             type_annotation=type_annotation,
-            default_value=default_value
+            default_value=default_value,
+            ui_hint=ui_hint,
         )
+
+    def _parse_meta_decorator(self) -> dict:
+        """Parse a ``@meta(...)`` command-level decorator into a flat dict.
+
+        Key syntax supports plain identifiers and dotted namespaced keys::
+
+            @meta(assembly.joint_kind="revolute", label="hinge")
+            @meta(operation.kind="cut", operation.feature_kind="pocket")
+
+        Dotted keys (``assembly.joint_kind``) are stored as flat strings with
+        the dot preserved.  Multiple ``@meta`` decorators on the same command
+        are merged by the caller; later decorators win on collision.
+
+        Returns a dict mapping key strings → JSON-safe literal values.
+        """
+        self._advance()  # consume '@'
+        name_tok = self._consume(TokenType.IDENTIFIER, "'meta' after '@'")
+        if name_tok.value != "meta":
+            self._error(
+                f"Expected '@meta' decorator on command, got '@{name_tok.value}'"
+            )
+
+        self._consume(TokenType.LPAREN, "'(' after '@meta'")
+        # Multi-line @meta(...) args are common when list-of-dict values are
+        # in play (e.g. assembly.bolt_patterns=[{...}, {...}]), so eagerly
+        # skip NEWLINE tokens at every separator boundary. Trailing commas
+        # before the closing ')' are tolerated.
+        self._skip_newlines()
+        hint: dict = {}
+        while not self._check(TokenType.RPAREN):
+            key = self._parse_meta_key()
+            self._consume(TokenType.ASSIGN, f"'=' after key '{key}' in @meta")
+            self._skip_newlines()
+            val_expr = self._parse_expression()
+            hint[key] = self._ui_hint_value(val_expr)  # reuse literal extractor
+            self._skip_newlines()
+            if not self._match(TokenType.COMMA):
+                break
+            self._skip_newlines()
+        self._consume(TokenType.RPAREN, "')' closing @meta")
+        return hint
+
+    def _parse_meta_key(self) -> str:
+        """Parse a @meta kwarg key: ``IDENTIFIER (DOT IDENTIFIER)*``.
+
+        Returns the full key as a dot-joined string, e.g. ``"assembly.joint_kind"``,
+        ``"assembly.surface"``, or plain ``"label"``.
+
+        Type-keyword tokens (``solid``, ``surface``, ``float``, etc.) are accepted
+        as key segments because they are valid English words in namespace paths
+        (e.g. ``assembly.surface``) even though the lexer classifies them as
+        type tokens rather than identifiers.
+        """
+        first = self._consume_identifier_or_type_keyword("key name in @meta")
+        parts = [first]
+        while self._check(TokenType.DOT):
+            self._advance()  # consume '.'
+            part = self._consume_identifier_or_type_keyword("key segment after '.' in @meta")
+            parts.append(part)
+        return ".".join(parts)
+
+    def _consume_identifier_or_type_keyword(self, expected: str) -> str:
+        """Consume an IDENTIFIER or any type-keyword token and return its string value.
+
+        Used by @meta key parsing where words like ``surface``, ``solid``, or
+        ``float`` appear as namespace path segments but are lexed as type tokens.
+        """
+        tok = self._current()
+        if tok.type == TokenType.IDENTIFIER or is_type_token(tok.type):
+            self._advance()
+            return tok.value
+        self._error(expected)
+
+    def _parse_param_ui_hint(self) -> dict:
+        """Parse an ``@ui(...)`` decorator on a parameter.
+
+        Returns a plain dict of keyword arguments whose values are all
+        JSON-safe literals (str, int, float, bool, list thereof).  Non-literal
+        expressions are stringified as a best-effort fallback.
+
+        Examples::
+
+            @ui(widget="circle_r", label="Plate diameter", snap="mm")
+            @ui(widget="slider", min=0.0, max=100.0, step=0.5)
+            @ui(label="Teeth", group="Gear")
+        """
+        self._advance()  # consume '@'
+        name_tok = self._consume(TokenType.IDENTIFIER, "'ui' after '@'")
+        if name_tok.value != "ui":
+            self._error(
+                f"Only '@ui' is valid as a parameter decorator; got '@{name_tok.value}'"
+            )
+
+        self._consume(TokenType.LPAREN, "'(' after '@ui'")
+        hint: dict = {}
+        if not self._check(TokenType.RPAREN):
+            while True:
+                key_tok = self._consume(TokenType.IDENTIFIER, "keyword argument name in @ui")
+                self._consume(TokenType.ASSIGN, "'=' after key in @ui")
+                val_expr = self._parse_expression()
+                hint[key_tok.value] = self._ui_hint_value(val_expr)
+                if not self._match(TokenType.COMMA):
+                    break
+        self._consume(TokenType.RPAREN, "')' closing @ui")
+        return hint
+
+    def _ui_hint_value(self, expr) -> Any:
+        """Reduce a parsed expression to a JSON-safe literal for @ui / @meta storage.
+
+        Handles:
+        - Literal (int, float, bool, string)
+        - Unary minus applied to a numeric Literal
+        - ListLiteral (recursively)
+        - DictLiteral (recursively) — required for @meta's list-of-dict
+          metadata values like
+          ``@meta(assembly.bolt_patterns=[{id="primary", ring="upper", ...}])``
+          where the bolt-pattern entries are dict literals nested in a list.
+
+        Non-literal expressions are stringified; this lets callers write
+        symbolic references in @ui / @meta if needed without a hard parse error.
+        """
+        from .ast import Literal, ListLiteral, UnaryOp, DictLiteral
+        if isinstance(expr, Literal):
+            return expr.value
+        if isinstance(expr, UnaryOp) and isinstance(expr.operand, Literal):
+            if expr.operator == TokenType.MINUS:
+                return -expr.operand.value
+        if isinstance(expr, ListLiteral):
+            return [self._ui_hint_value(e) for e in expr.elements]
+        if isinstance(expr, DictLiteral):
+            return {key: self._ui_hint_value(val) for key, val in expr.entries.items()}
+        # Fallback: stringify — avoids hard failure for forward-refs or enum names
+        return str(getattr(expr, 'name', repr(expr)))
 
     def _parse_decorator(self) -> Decorator:
         """Parse a decorator."""
@@ -1109,7 +1257,11 @@ class Parser:
         self._expect_newline_or_eof()
         return Decorator(span=self._span_from(start), name=name, arguments=arguments)
 
-    def _parse_function_def(self, decorators: List[Decorator] = None) -> FunctionDef:
+    def _parse_function_def(
+        self,
+        decorators: List[Decorator] = None,
+        meta_hint: Optional[dict] = None,
+    ) -> FunctionDef:
         """Parse a function definition (def keyword)."""
         start = self._advance()  # consume 'def'
         name = self._consume(TokenType.IDENTIFIER, "function name").value
@@ -1137,7 +1289,8 @@ class Parser:
             parameters=parameters,
             return_type=return_type,
             body=body,
-            decorators=decorators or []
+            decorators=decorators or [],
+            meta_hint=meta_hint or None,
         )
 
     def _parse_command(self) -> Command:
@@ -1170,7 +1323,8 @@ class Parser:
             parameters=parameters,
             return_type=return_type,
             body=body,
-            decorators=[]
+            decorators=[],
+            meta_hint=None,
         )
 
     def _parse_module_path_component(self) -> str:
@@ -1355,11 +1509,25 @@ class Parser:
             if self._is_at_end():
                 break
 
-            # Decorators
+            # Decorators — separate @meta (command metadata) from others (@native, etc.)
             decorators = []
+            merged_meta: dict = {}
             while self._check(TokenType.AT):
-                decorators.append(self._parse_decorator())
+                # Peek at decorator name without consuming
+                # AT is current (pos); IDENTIFIER name is at pos+1
+                peek_pos = self.pos + 1
+                if (
+                    peek_pos < len(self.tokens)
+                    and self.tokens[peek_pos].value == "meta"
+                ):
+                    # @meta decorator — parse and merge into accumulated dict
+                    partial = self._parse_meta_decorator()
+                    merged_meta.update(partial)
+                else:
+                    decorators.append(self._parse_decorator())
                 self._skip_newlines()
+
+            meta_hint = merged_meta if merged_meta else None
 
             if self._is_at_end():
                 break
@@ -1374,10 +1542,13 @@ class Parser:
                 if is_native:
                     native_functions.append(self._parse_native_function(decorators))
                 else:
-                    functions.append(self._parse_function_def(decorators))
+                    functions.append(self._parse_function_def(decorators, meta_hint=meta_hint))
             elif self._check(TokenType.COMMAND):
-                # Legacy command
-                functions.append(self._parse_command())
+                # Legacy command — pass meta_hint through
+                cmd = self._parse_command()
+                if meta_hint:
+                    cmd.meta_hint = meta_hint
+                functions.append(cmd)
             else:
                 self._error("function definition or end of file")
 

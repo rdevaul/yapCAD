@@ -261,20 +261,25 @@ def _get_unique_edges(shape) -> list:
     """
     _ensure_occ_imports()
 
-    try:
-        from OCC.Core.TopTools import TopTools_IndexedMapOfShape
-        from OCC.Core.TopExp import TopExp
+    from OCC.Core.TopTools import TopTools_IndexedMapOfShape
 
-        edge_map = TopTools_IndexedMapOfShape()
+    edge_map = TopTools_IndexedMapOfShape()
+
+    # pythonocc-core exposes OCCT static methods differently across versions:
+    #   * 7.7.x: lowercase singleton `topexp` with plain method names
+    #   * newer (7.8+/OCP-style): PascalCase class with `_s`-suffixed statics
+    # Try both so a silent fallback can't mask the dedup path (which caused
+    # duplicate edges — one per adjacent face — to leak into edge selection).
+    try:
+        from OCC.Core.TopExp import topexp  # 7.7.x style
+        topexp.MapShapes(shape, _TopAbs_EDGE, edge_map)
+    except ImportError:
+        from OCC.Core.TopExp import TopExp  # newer style
         TopExp.MapShapes_s(shape, _TopAbs_EDGE, edge_map)
 
-        edges = []
-        for i in range(1, edge_map.Extent() + 1):
-            edges.append(edge_map.FindKey(i))
-        return edges
-    except ImportError:
-        # Fall back to explorer if TopTools not available
-        return _get_all_edges(shape)
+    # Map size accessor also differs across versions (Extent vs Size).
+    count = edge_map.Extent() if hasattr(edge_map, "Extent") else edge_map.Size()
+    return [edge_map.FindKey(i) for i in range(1, count + 1)]
 
 
 def get_all_edges(brep_solid: BrepSolid) -> List[BrepEdge]:

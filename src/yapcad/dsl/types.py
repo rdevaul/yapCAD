@@ -350,6 +350,14 @@ SHELL = SurfaceType("shell")
 # Tier 5: Solids
 SOLID = SolidType("solid")
 
+# Tier 6: Assembly handles
+# An opaque handle to a yapcad.assembly.Assembly instance. The Python object
+# lives in the .data field of a Value; the DSL only knows how to pass it to
+# the assembly builtins (assembly, add_part, add_mate, validate_assembly,
+# assembly_report). Treated as a separate top-tier type so it never gets
+# confused with SOLID, SURFACE, etc.
+ASSEMBLY = GeometricPrimitiveType("assembly", dimension=None)
+
 # BREP types
 EDGE = GeometricPrimitiveType("edge", dimension=None)  # BREP edge type
 
@@ -408,6 +416,12 @@ BUILTIN_TYPES: Dict[str, Type] = {
 
     # BREP types
     "edge": EDGE,
+
+    # Assembly (Phase 2 of yapcad-assembly-integration). Lets DSL
+    # authors annotate handles as ``a: assembly = assembly("...")`` and
+    # have the type-checker accept ``add_part``/``add_mate`` returning
+    # ``assembly``.
+    "assembly": ASSEMBLY,
 
     # Generic
     "dict": DICT,

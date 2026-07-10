@@ -2,11 +2,104 @@
 Changelog
 =========
 
+Version 1.1.0 (2026-07-05)
+==========================
+
+This release introduces the **metadata v1.1** system — declarative ``@meta`` /
+``@ui`` decorators, an assembly/operation metadata namespace, and a mechatron
+assembly-integration pipeline — alongside a formalized **pure-python core /
+BREP optional-dependency** packaging split.
+
+what's new:
+-----------
+
+  - **@meta / @ui decorators**: DSL commands can now carry declarative metadata
+    via ``@meta(...)`` (design/assembly/operation namespaces) and presentation
+    hints via ``@ui(...)``. Metadata is validated at check time and normalized
+    into the emitted solid's metadata dict.
+
+  - **@meta checker warnings (W310 / W311 / W312)**: The DSL checker now emits
+    structured warnings for unknown or malformed ``@meta`` keys, so metadata
+    typos are caught before execution.
+
+  - **AST-level MetadataTransform**: ``@meta`` decorators are validated and
+    normalised at the AST/transform layer, giving consistent metadata semantics
+    across the interpreter and exporters.
+
+  - **.meta.yaml sidecar exporter**: A new ``yapcad.io.meta_yaml`` module emits a
+    ``.meta.yaml`` sidecar next to exported geometry, capturing the full
+    metadata namespace (including applied assembly operations) for downstream
+    tools. Exporter hooks write it automatically.
+
+  - **Assembly resolver registry**: New ``yapcad.assembly.resolver`` provides
+    ``BasicResolver`` and ``StagedResolver`` plus a resolver registry, which
+    apply ``operation.kind="subtract"`` (and related) cutters against target
+    parts in priority order during assembly resolution — letting a DSL declare
+    process-aware cutters that are applied at assembly load rather than baked
+    into each part.
+
+  - **Mechatron assembly integration (Phases 2-4)**: New process-aware mechatron
+    export path and assembly builtins bridge yapCAD assemblies to a mechatron
+    ``graph.json`` canonical model. This includes off-axis (non-±Z) feature
+    datums so radial joints carry correct per-hole bolt-axis orientation.
+
+  - **Assembly load cases + bolt patterns**: ``yapcad.assembly.load_case`` adds
+    ``LoadCase`` / ``LoadAttach`` / ``BoltPattern`` dataclasses, and
+    ``Assembly`` gains ``add_load_case`` / ``get_load_case`` and
+    ``add_bolt_pattern`` / ``get_bolt_pattern`` registries.
+
+  - **FEA setup bridge**: New ``yapcad.package.analysis.mechatron_fea_setup``
+    reads bolt patterns and load cases from a mechatron ``graph.json`` and
+    produces structured FEA inputs — per-bolt world coordinates, bolt-spring
+    stiffness lookup, and resolved load-attach descriptors — with a
+    per-hole-datum kinematic path plus a legacy PCD/access-direction fallback.
+
+  - **Pure-python core / BREP optional-dependency split**: yapCAD's core is now
+    formally pure Python and installs from PyPI with **no compiled
+    dependencies**. Solid-modeling (BREP) features remain optional and layer on
+    top of OpenCASCADE via ``pythonocc-core`` (distributed through conda-forge,
+    not pip). New ``[project.optional-dependencies]`` extras ``brep`` and
+    ``full`` document the OCC requirement; ``yapcad.has_brep()`` reports whether
+    OCC is available so downstream code can branch cleanly; and every
+    ``yapcad.brep`` OCC import degrades gracefully when OCC is absent. A
+    ``requires_occ`` pytest marker lets the pure-python test lane run via
+    ``pytest -m "not requires_occ"``.
+
+  - **First PyPI release of the pure-Python core**: yapCAD is now published to
+    PyPI (``pip install yapcad``) as a pure-Python wheel with no compiled
+    dependencies. BREP/boolean/STEP features still require ``pythonocc-core``
+    from conda-forge. To make the limitation obvious, importing yapCAD without
+    OCC present now emits a one-time, suppressible
+    ``YapcadBrepUnavailableWarning`` describing the reduced-functionality state
+    and the conda upgrade path.
+
 Version 1.0.1 (Development)
 ============================
 
 what's new:
 -----------
+
+  - **Assembly, Kinematics, Collision, and Viewer Packages**: Added
+    ``yapcad.assembly``, ``yapcad.kinematics``, ``yapcad.collision``, and
+    ``yapcad.viewer`` modules for datum-driven multi-body assemblies:
+
+    - Datum and mate abstractions for feature-based part placement
+    - Constraint validation and mate solving for common mechanical joints
+    - Kinematic chain support for articulated assemblies
+    - Collision checks with interface volumes for designed overlaps
+    - Optional VTK viewer and API server for assembly inspection
+
+  - **Manufacturing Post-Processing**: New ``yapcad.manufacturing`` package for
+    splitting swept structures into manufacturable segments:
+
+    - Beam segmentation at specified or computed cut points
+    - Interior connector specifications and mating relationships
+    - STEP export support for individual segments
+    - Assembly manifest generation for segmented designs
+
+  - **Watertight Revolution Solids**: ``makeRevolutionSolid()`` now adds disc caps
+    for closed profile revolutions, improving watertightness for downstream mesh
+    validation and export.
 
   - **3D Text Support**: New ``yapcad.text3d`` module provides 3D text generation for
     labeling parts and creating extruded or engraved text:
@@ -24,7 +117,8 @@ what's new:
     - ``chamfer_all_edges()`` - Apply beveled chamfers to all edges of a solid
     - ``fillet_edges()`` - Apply fillets to specific selected edges
     - ``chamfer_edges()`` - Apply chamfers to specific selected edges
-    - Integrates with DSL via new builtins (``fillet_all``, ``chamfer_all``)
+    - Integrates with DSL via ``fillet()``, ``chamfer()``, ``fillet_edges()``,
+      and ``chamfer_edges()`` builtins
 
   - **Edge Selection Predicates**: New ``yapcad.brep_edge_select`` module provides
     sophisticated edge selection for selective fillet/chamfer operations:
@@ -44,6 +138,8 @@ what's new:
     - ``filter_curved_edges()`` - Filter to keep only curved edges
     - Set operations: ``union_edges()``, ``intersect_edges()``, ``subtract_edges()`` for combining selections
     - ``edge_info()`` - Query detailed geometric properties of edges
+    - DSL bindings currently expose direction, length, Z-position, set-operation,
+      and selective fillet/chamfer helpers.
 
   - **Helical Extrusion**: New ``helical_extrude()`` function in ``yapcad.geom3d_util``
     creates smooth helical/twisted extrusions using high-resolution lofting. Ideal for
@@ -90,9 +186,20 @@ what's new:
     - ``sweep_along_path()`` - Extrude 2D profiles along Bezier or B-spline path curves
     - Support for organic shapes, tapered forms, and complex swept geometries
 
+  - **Expanded DSL Builtins**: Added DSL access for hollow primitives
+    (``tube()``, ``conic_tube()``, ``spherical_shell()``), ``dodecahedron()``,
+    path utilities, text placement helpers, advanced gear helpers, and pattern
+    generation.
+
   - **Documentation Improvements**: All new functions include comprehensive docstrings
     with parameter descriptions, return values, usage examples, and notes following
     Sphinx documentation standards.
+
+chore:
+------
+
+  - Removed internal project files from ``projects/`` so private robot, hanger,
+    and jig designs can live in separate internal repositories.
 
 Version 1.0.0rc1 (2025-12-30)
 =============================
