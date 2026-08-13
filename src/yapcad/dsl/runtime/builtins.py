@@ -3602,7 +3602,7 @@ class BuiltinRegistry:
         """
         # Imported lazily so loading the DSL runtime doesn't pull in the
         # whole assembly stack on every interpreter startup.
-        from yapcad.assembly.assembly import Assembly
+        from yapcad.assembly.assembly import Assembly, AssemblyError
         from yapcad.assembly.datum import (
             Datum,
             DatumType,
@@ -3763,7 +3763,9 @@ class BuiltinRegistry:
             assembly_obj = asm.data
             instance_name = str(name.data)
             part_def = _part_def_from_solid(solid.data, instance_name)
-            assembly_obj.add_part(part_def, name=instance_name)
+            assembly_obj.add_part(
+                part_def, name=instance_name, geometry=solid.data,
+            )
             return asm  # chainable
 
         def _add_mate(asm: Value, kind: Value, part_a: Value, datum_a: Value,
@@ -3791,6 +3793,63 @@ class BuiltinRegistry:
             )
             assembly_obj.add_mate(mate)
             return asm
+
+        def _add_named_mate(
+            asm: Value, name: Value, kind: Value, part_a: Value,
+            datum_a: Value, part_b: Value, datum_b: Value,
+        ) -> Value:
+            """Add an explicitly named mate for stable pose addressing."""
+            assembly_obj = asm.data
+            try:
+                mate_type = MateType(str(kind.data))
+            except ValueError as exc:
+                valid = sorted(m.value for m in MateType)
+                raise ValueError(
+                    f"add_named_mate: invalid kind {kind.data!r}; "
+                    f"valid kinds: {valid}"
+                ) from exc
+            assembly_obj.add_mate(Mate(
+                name=str(name.data), mate_type=mate_type,
+                part_a=str(part_a.data), datum_a=str(datum_a.data),
+                part_b=str(part_b.data), datum_b=str(datum_b.data),
+            ))
+            return asm
+
+        def _solve_assembly(asm: Value, root_part: Value) -> Value:
+            result = asm.data.solve(str(root_part.data))
+            if not result.success:
+                raise AssemblyError(
+                    "; ".join(result.errors), assembly_name=asm.data.name,
+                )
+            return asm
+
+        def _set_joint_position(
+            asm: Value, mate_name: Value, value: Value,
+        ) -> Value:
+            asm.data.set_joint_position(str(mate_name.data), float(value.data))
+            return asm
+
+        def _part_transform(asm: Value, part_name: Value) -> Value:
+            name = str(part_name.data)
+            if name not in asm.data.parts:
+                raise AssemblyError(
+                    f"Part '{name}' not found", assembly_name=asm.data.name,
+                )
+            if not asm.data._solved:
+                raise AssemblyError(
+                    "Solve the assembly before requesting part transforms",
+                    assembly_name=asm.data.name,
+                )
+            from yapcad.xform import Matrix
+            return transform_val(Matrix(asm.data.transforms[name].tolist()))
+
+        def _assembly_compound(asm: Value) -> Value:
+            if not asm.data._solved:
+                raise AssemblyError(
+                    "solve the assembly before creating assembly geometry",
+                    assembly_name=asm.data.name,
+                )
+            return solid_val(asm.data.compound_geometry())
 
         def _validate_assembly(asm: Value) -> Value:
             """Validate the assembly. Returns True iff there are no errors.
@@ -3842,6 +3901,37 @@ class BuiltinRegistry:
                 ASSEMBLY,
             ),
             _add_mate,
+        ))
+        self.register(BuiltinFunction(
+            "add_named_mate",
+            _make_sig(
+                "add_named_mate",
+                [ASSEMBLY, STRING, STRING, STRING, STRING, STRING, STRING],
+                ASSEMBLY,
+            ),
+            _add_named_mate,
+        ))
+        self.register(BuiltinFunction(
+            "solve_assembly",
+            _make_sig("solve_assembly", [ASSEMBLY, STRING], ASSEMBLY),
+            _solve_assembly,
+        ))
+        self.register(BuiltinFunction(
+            "set_joint_position",
+            _make_sig(
+                "set_joint_position", [ASSEMBLY, STRING, FLOAT], ASSEMBLY,
+            ),
+            _set_joint_position,
+        ))
+        self.register(BuiltinFunction(
+            "part_transform",
+            _make_sig("part_transform", [ASSEMBLY, STRING], TRANSFORM),
+            _part_transform,
+        ))
+        self.register(BuiltinFunction(
+            "assembly_compound",
+            _make_sig("assembly_compound", [ASSEMBLY], SOLID),
+            _assembly_compound,
         ))
         self.register(BuiltinFunction(
             "validate_assembly",

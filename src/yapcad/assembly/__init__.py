@@ -131,6 +131,7 @@ from .mate import (
 from .assembly import (
     Assembly,
     AssemblyError,
+    AssemblySolveResult,
     AssemblyValidationResult,
 )
 from .kinematic_integration import (
@@ -247,6 +248,7 @@ __all__ = [
     # Assembly system (implemented)
     "Assembly",
     "AssemblyError",
+    "AssemblySolveResult",
     "AssemblyValidationResult",
     # Kinematic chain integration
     "KinematicConstraint",

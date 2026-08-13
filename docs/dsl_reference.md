@@ -75,6 +75,7 @@ command MAKE_PART(param: float, param2: float = 10.0) -> solid:
 
 **Note:** Commands with UPPERCASE names are exported and visible to `dsl list`. Commands with lowercase names are helpers usable within the module but not directly callable from CLI.
 
+(parameter-decorators)=
 ## Parameter Decorators
 
 Parameters in a `command` definition may carry a `@ui(...)` decorator that
@@ -1224,6 +1225,43 @@ Common error codes:
 - `E201`: Type errors
 - `E301`: Undefined variables/functions
 - `E302`: Duplicate definitions
+
+## Assembly Solving and Posing
+
+The DSL can retain emitted part solids, lift their annotated datums, solve a
+rooted assembly tree, pose revolute joints, and emit positioned geometry:
+
+```python
+let mechanism: assembly = assembly("mechanism")
+add_part(mechanism, base, "base")
+add_part(mechanism, rocker, "rocker")
+add_named_mate(mechanism, "rocker_pivot", "revolute",
+               "base", "pivot", "rocker", "root_axis")
+solve_assembly(mechanism, "base")
+set_joint_position(mechanism, "rocker_pivot", 0.785398)
+emit assembly_compound(mechanism)
+```
+
+Assembly builtins:
+
+| Function | Result | Purpose |
+|---|---|---|
+| `assembly(name)` | `assembly` | Create an assembly handle |
+| `add_part(asm, solid, name)` | `assembly` | Add and retain a solid instance; lift `assembly.datums` metadata |
+| `add_mate(asm, kind, part_a, datum_a, part_b, datum_b)` | `assembly` | Add a backwards-compatible synthesized-name mate |
+| `add_named_mate(asm, name, kind, part_a, datum_a, part_b, datum_b)` | `assembly` | Add a stable, pose-addressable mate |
+| `solve_assembly(asm, root_part)` | `assembly` | Solve a rooted rigid/revolute placement tree |
+| `set_joint_position(asm, mate_name, value)` | `assembly` | Set an absolute revolute position in radians and re-solve |
+| `part_transform(asm, part_name)` | `transform` | Return a solved instance transform |
+| `assembly_compound(asm)` | `solid` | Return all retained solids in solved world positions |
+| `validate_assembly(asm)` | `bool` | Evaluate design constraints at current transforms |
+| `assembly_report(asm)` | `string` | Produce a human-readable structure/validation report |
+| `emit_assembly(asm)` | `string` | Export semantic Mechatron-shaped graph JSON |
+
+The placement graph must be connected and acyclic. Each non-root part must
+have one placement parent. Rooted solving currently supports `rigid` and
+`revolute` mates; unsupported placement kinds fail with an explicit diagnostic.
+Joint values are absolute radians, not accumulated deltas.
 
 ## Package Integration
 

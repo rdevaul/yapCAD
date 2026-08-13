@@ -414,6 +414,7 @@ class PartDefinition:
 
     # Link to geometry (STL file, DSL command, or solid)
     geometry_source: Optional[str] = None
+    geometry: Optional[Any] = None
 
     # Metadata
     is_printable: bool = True

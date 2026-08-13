@@ -79,6 +79,8 @@ from typing import Dict, List, Optional, Tuple, Any, Union
 import numpy as np
 import json
 from pathlib import Path
+from collections import defaultdict, deque
+import math
 
 
 # These will be imported from sibling modules once they exist
@@ -231,6 +233,16 @@ class AssemblyValidationResult:
         return "\n".join(lines)
 
 
+@dataclass
+class AssemblySolveResult:
+    """Transactional result of solving a rooted assembly placement graph."""
+
+    success: bool
+    transforms: Dict[str, np.ndarray] = field(default_factory=dict)
+    residuals: Dict[str, float] = field(default_factory=dict)
+    errors: List[str] = field(default_factory=list)
+
+
 class Assembly:
     """Main assembly orchestrator for the yapCAD constraint system.
 
@@ -293,6 +305,8 @@ class Assembly:
         self.name = name
         self.parts: Dict[str, PartDefinition] = {}
         self.transforms: Dict[str, np.ndarray] = {}
+        self.geometry: Dict[str, Any] = {}
+        self.geometry_diagnostics: List[str] = []
         self.mates: List[Mate] = []
         self.constraints: List[Constraint] = []
         # Load cases for structural FEA setup. Keyed by LoadCase.id.
@@ -304,9 +318,11 @@ class Assembly:
         # emits it onto the corresponding Mechatron Interface.
         self.bolt_patterns: Dict[tuple, Any] = {}
         self._solved = False
+        self._root_part: Optional[str] = None
+        self._joint_values: Dict[str, float] = {}
 
     def add_part(self, part: PartDefinition, name: str = None,
-                 transform: np.ndarray = None) -> None:
+                 transform: np.ndarray = None, geometry: Any = None) -> None:
         """Add a part to the assembly.
 
         Args:
@@ -335,6 +351,12 @@ class Assembly:
             )
 
         self.parts[part_name] = part
+        if geometry is not None:
+            # PartDefinition.geometry is a convenient compatibility bridge for
+            # callers that inspect the definition.  Instance geometry remains
+            # assembly-owned so one definition can be instantiated repeatedly.
+            self.geometry[part_name] = geometry
+            part.geometry = geometry
         self.transforms[part_name] = (
             transform.copy() if transform is not None else np.eye(4)
         )
@@ -362,6 +384,12 @@ class Assembly:
             ...     part2="motor", datum2="shaft_axis"
             ... ))
         """
+        if any(existing.name == mate.name for existing in self.mates):
+            raise AssemblyError(
+                f"Mate name '{mate.name}' already exists",
+                assembly_name=self.name,
+            )
+
         # Validate parts exist
         if mate.part1 not in self.parts:
             raise AssemblyError(
@@ -405,6 +433,285 @@ class Assembly:
 
         self.mates.append(mate)
         self._solved = False
+
+    def _solve_error(self, message: str) -> AssemblySolveResult:
+        return AssemblySolveResult(success=False, errors=[message])
+
+    @staticmethod
+    def _datum_direction(datum: Datum) -> np.ndarray:
+        if datum.direction is not None:
+            value = datum.direction
+        elif datum.normal is not None:
+            value = datum.normal
+        elif datum.x_axis is not None:
+            # Frames are fully aligned separately, but X is a deterministic
+            # fallback for APIs that only need one direction.
+            value = datum.x_axis
+        else:
+            value = [0.0, 0.0, 1.0]
+        direction = np.asarray(value[:3], dtype=float)
+        norm = np.linalg.norm(direction)
+        if norm <= 1e-12:
+            raise ValueError(f"Datum '{datum.name}' has zero direction")
+        return direction / norm
+
+    @staticmethod
+    def _rotation_between(source: np.ndarray, target: np.ndarray) -> np.ndarray:
+        source = source / np.linalg.norm(source)
+        target = target / np.linalg.norm(target)
+        cross = np.cross(source, target)
+        dot = float(np.clip(np.dot(source, target), -1.0, 1.0))
+        if np.linalg.norm(cross) <= 1e-12:
+            if dot > 0.0:
+                return np.eye(3)
+            helper = np.array([1.0, 0.0, 0.0])
+            if abs(source[0]) > 0.9:
+                helper = np.array([0.0, 1.0, 0.0])
+            axis = np.cross(source, helper)
+            axis /= np.linalg.norm(axis)
+            return 2.0 * np.outer(axis, axis) - np.eye(3)
+        skew = np.array([
+            [0.0, -cross[2], cross[1]],
+            [cross[2], 0.0, -cross[0]],
+            [-cross[1], cross[0], 0.0],
+        ])
+        return np.eye(3) + skew + skew @ skew * ((1.0 - dot) / np.dot(cross, cross))
+
+    @staticmethod
+    def _axis_rotation(axis: np.ndarray, angle: float) -> np.ndarray:
+        axis = axis / np.linalg.norm(axis)
+        x, y, z = axis
+        c, s = math.cos(angle), math.sin(angle)
+        one_c = 1.0 - c
+        return np.array([
+            [c + x*x*one_c, x*y*one_c - z*s, x*z*one_c + y*s],
+            [y*x*one_c + z*s, c + y*y*one_c, y*z*one_c - x*s],
+            [z*x*one_c - y*s, z*y*one_c + x*s, c + z*z*one_c],
+        ])
+
+    @classmethod
+    def _alignment_transform(cls, parent: Datum, child: Datum,
+                             joint_angle: float = 0.0) -> np.ndarray:
+        """Return child-local to parent-local transform for one datum pair."""
+        if parent.datum_type == DatumType.FRAME and child.datum_type == DatumType.FRAME:
+            def basis(datum):
+                x = np.asarray(datum.x_axis[:3], dtype=float)
+                y = np.asarray(datum.y_axis[:3], dtype=float)
+                x /= np.linalg.norm(x)
+                y = y - x * np.dot(x, y)
+                y /= np.linalg.norm(y)
+                z = np.cross(x, y)
+                return np.column_stack((x, y, z))
+            rotation = basis(parent) @ basis(child).T
+            axis = basis(parent)[:, 2]
+        else:
+            parent_direction = cls._datum_direction(parent)
+            child_direction = cls._datum_direction(child)
+            rotation = cls._rotation_between(child_direction, parent_direction)
+            axis = parent_direction
+        if abs(joint_angle) > 0.0:
+            rotation = cls._axis_rotation(axis, joint_angle) @ rotation
+        parent_origin = np.asarray(parent.origin[:3], dtype=float)
+        child_origin = np.asarray(child.origin[:3], dtype=float)
+        relative = np.eye(4)
+        relative[:3, :3] = rotation
+        relative[:3, 3] = parent_origin - rotation @ child_origin
+        return relative
+
+    def solve(self, root_part: str,
+              joint_values: Optional[Dict[str, float]] = None) -> AssemblySolveResult:
+        """Solve a rigid/revolute rooted tree without mutating on failure."""
+        joint_values = dict(joint_values or {})
+        if root_part not in self.parts:
+            return self._solve_error(f"root part '{root_part}' not found")
+        mate_names = {mate.name for mate in self.mates}
+        unknown_values = [name for name in joint_values if name not in mate_names]
+        if unknown_values:
+            return self._solve_error(
+                "Unknown joint value names: " + ", ".join(unknown_values)
+            )
+
+        supported = {MateType.RIGID, MateType.REVOLUTE}
+        for mate in self.mates:
+            if mate.mate_type not in supported:
+                return self._solve_error(
+                    f"Mate '{mate.name}' uses unsupported placement type "
+                    f"'{mate.mate_type.value}'"
+                )
+            value = float(joint_values.get(mate.name, 0.0))
+            if mate.mate_type != MateType.REVOLUTE and abs(value) > 0.0:
+                return self._solve_error(
+                    f"Mate '{mate.name}' is {mate.mate_type.value}, not revolute"
+                )
+            if mate.limits is not None:
+                if mate.limits.min_value is not None and value < mate.limits.min_value:
+                    return self._solve_error(f"Joint '{mate.name}' violates minimum limit")
+                if mate.limits.max_value is not None and value > mate.limits.max_value:
+                    return self._solve_error(f"Joint '{mate.name}' violates maximum limit")
+
+        adjacency = defaultdict(list)
+        for mate in self.mates:
+            adjacency[mate.part_a].append((mate.part_b, mate, False))
+            adjacency[mate.part_b].append((mate.part_a, mate, True))
+
+        parent_for: Dict[str, Tuple[str, Mate]] = {}
+        queue = deque([root_part])
+        discovered = {root_part}
+        ordered = []
+        cycle_edges = []
+        while queue:
+            parent_name = queue.popleft()
+            for child_name, mate, reverse in adjacency[parent_name]:
+                if child_name == parent_for.get(parent_name, (None, None))[0]:
+                    continue
+                if child_name in discovered:
+                    cycle_edges.append(mate.name)
+                    continue
+                discovered.add(child_name)
+                parent_for[child_name] = (parent_name, mate)
+                ordered.append((parent_name, child_name, mate, reverse))
+                queue.append(child_name)
+
+        if cycle_edges:
+            # In a placement tree, any extra edge is either a cycle or a second
+            # placement parent. Report the more actionable duplicate-parent
+            # form when a child is the directed target of multiple mates.
+            directed = defaultdict(list)
+            for mate in self.mates:
+                directed[mate.part_b].append(mate.name)
+            duplicate = next(((part, names) for part, names in directed.items()
+                              if len(names) > 1), None)
+            if duplicate:
+                part, names = duplicate
+                return self._solve_error(
+                    f"Part '{part}' has multiple placement parents via mates "
+                    f"{', '.join(names)}"
+                )
+            return self._solve_error(
+                f"Cycle detected in placement graph (mates: {', '.join(sorted(set(cycle_edges)))})"
+            )
+        missing = [name for name in self.parts if name not in discovered]
+        if missing:
+            return self._solve_error(
+                f"Disconnected or unreachable parts: {', '.join(missing)}"
+            )
+
+        root_world = np.asarray(self.transforms[root_part], dtype=float).copy()
+        candidate = {root_part: root_world}
+        residuals = {}
+        for parent_name, child_name, mate, reverse in ordered:
+            datum_a = self.parts[mate.part_a].get_datum(mate.datum_a)
+            datum_b = self.parts[mate.part_b].get_datum(mate.datum_b)
+            angle = float(joint_values.get(mate.name, 0.0))
+            forward = self._alignment_transform(datum_a, datum_b, angle)
+            relative = np.linalg.inv(forward) if reverse else forward
+            candidate[child_name] = candidate[parent_name] @ relative
+
+            world_a = datum_a.transform(candidate[mate.part_a].tolist())
+            world_b = datum_b.transform(candidate[mate.part_b].tolist())
+            position_error = float(np.linalg.norm(
+                np.asarray(world_a.origin[:3]) - np.asarray(world_b.origin[:3])
+            ))
+            direction_a = self._datum_direction(world_a)
+            direction_b = self._datum_direction(world_b)
+            direction_error = float(np.linalg.norm(
+                np.cross(direction_a, direction_b)
+            ))
+            residuals[mate.name] = max(position_error, direction_error)
+
+        # Commit only after every graph and transform operation succeeds.
+        self.transforms = {name: transform.copy() for name, transform in candidate.items()}
+        self._solved = True
+        self._root_part = root_part
+        self._joint_values = joint_values.copy()
+        return AssemblySolveResult(
+            success=True,
+            transforms={name: transform.copy() for name, transform in candidate.items()},
+            residuals=residuals,
+        )
+
+    def set_joint_position(self, mate_name: str, value: float) -> AssemblySolveResult:
+        if not self._solved or self._root_part is None:
+            raise AssemblyError("Solve the assembly before setting a joint position")
+        matches = [mate for mate in self.mates if mate.name == mate_name]
+        if not matches:
+            raise AssemblyError(f"Mate '{mate_name}' not found", assembly_name=self.name)
+        if matches[0].mate_type != MateType.REVOLUTE:
+            raise AssemblyError(
+                f"Mate '{mate_name}' is {matches[0].mate_type.value}, not revolute",
+                assembly_name=self.name,
+            )
+        values = self._joint_values.copy()
+        values[mate_name] = float(value)
+        result = self.solve(self._root_part, values)
+        if not result.success:
+            raise AssemblyError("; ".join(result.errors), assembly_name=self.name)
+        return result
+
+    def get_part_geometry(self, part_name: str, positioned: bool = True):
+        """Return an independent local or world-positioned solid instance."""
+        from copy import deepcopy
+        if part_name not in self.parts:
+            raise AssemblyError(f"Part '{part_name}' not found", assembly_name=self.name)
+        if part_name not in self.geometry:
+            raise AssemblyError(
+                f"Part '{part_name}' has no geometry", assembly_name=self.name,
+                part_name=part_name,
+            )
+        source = deepcopy(self.geometry[part_name])
+        if not positioned:
+            return source
+        from yapcad.geom3d import rotatesurface
+        from yapcad.xform import Matrix
+        matrix = Matrix(self.transforms[part_name].tolist())
+        source[1] = [rotatesurface(surface, 1.0, mat=matrix)
+                     for surface in source[1]]
+        try:
+            from yapcad.brep import apply_matrix_to_brep_solid
+            apply_matrix_to_brep_solid(source, matrix)
+        except ImportError:
+            pass
+        return source
+
+    def positioned_parts(self) -> Dict[str, Any]:
+        return {name: self.get_part_geometry(name, positioned=True)
+                for name in self.parts if name in self.geometry}
+
+    def compound_geometry(self, strict: bool = True):
+        """Return a positioned multi-body solid, preserving OCC BREP data."""
+        from yapcad.geom3d import solid
+        self.geometry_diagnostics = []
+        positioned = []
+        for name in self.parts:
+            if name not in self.geometry:
+                diagnostic = f"Part '{name}' has no geometry"
+                self.geometry_diagnostics.append(diagnostic)
+                if strict:
+                    raise AssemblyError(diagnostic, assembly_name=self.name, part_name=name)
+                continue
+            positioned.append(self.get_part_geometry(name, positioned=True))
+        if not positioned:
+            raise AssemblyError("Assembly has no geometry", assembly_name=self.name)
+        surfaces = [surface for item in positioned for surface in item[1]]
+        result = solid(surfaces, [], ['procedure', 'assembly_compound'])
+        try:
+            from yapcad.brep import (
+                occ_available, BrepSolid, attach_brep_to_solid, brep_from_solid,
+            )
+            if occ_available():
+                from OCC.Core.TopoDS import TopoDS_Compound
+                from OCC.Core.BRep import BRep_Builder
+                compound = TopoDS_Compound()
+                builder = BRep_Builder()
+                builder.MakeCompound(compound)
+                for item in positioned:
+                    brep = brep_from_solid(item)
+                    if brep is not None and brep.shape is not None:
+                        builder.Add(compound, brep.shape)
+                attach_brep_to_solid(result, BrepSolid(compound))
+        except (ImportError, RuntimeError):
+            pass
+        return result
 
     def add_constraint(self, constraint: Constraint) -> None:
         """Add a design constraint to validate assembly intent.
@@ -552,6 +859,8 @@ class Assembly:
 
         datum_local = part.get_datum(datum_name)
         transform = self.transforms[part_name]
+        if isinstance(transform, np.ndarray):
+            transform = transform.tolist()
         return datum_local.transform(transform)
 
     def validate(self) -> AssemblyValidationResult:

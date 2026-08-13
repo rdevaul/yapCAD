@@ -343,25 +343,34 @@ Assembly Solving
 
 .. code-block:: python
 
-   from yapcad.assembly.solver import solve_mate_chain
-
-   # Define mate chain (parent → child order)
-   mates = [
-       base_to_link1_mate,
-       link1_to_link2_mate,
-       link2_to_tool_mate
-   ]
-
-   # Solve sequentially
-   world_transforms = solve_mate_chain(
-       mates,
-       base_transform=np.eye(4)  # World origin
+   # Assembly.solve handles a branching tree and does not depend on mate order.
+   result = assembly.solve(
+       root_part="BASE",
+       joint_values={
+           "shoulder_pitch": 0.52,  # radians
+           "elbow_flex": 0.79,
+       },
    )
 
-   # Access computed transforms
-   link1_world_tf = world_transforms["LINK1"]
-   link2_world_tf = world_transforms["LINK2"]
-   tool_world_tf = world_transforms["TOOL"]
+   if not result.success:
+       raise RuntimeError("; ".join(result.errors))
+
+   link1_world_tf = result.transforms["LINK1"]
+   link2_world_tf = result.transforms["LINK2"]
+   tool_world_tf = result.transforms["TOOL"]
+   print(result.residuals)
+
+``Assembly.solve`` is transactional: invalid limits, missing roots,
+disconnected parts, cycles, multiple placement parents, and unsupported mate
+types return an unsuccessful result without replacing the last valid assembly
+transforms. Rigid and revolute placement mates are currently supported. Joint
+values are absolute radians and revolute limits are inclusive.
+
+Assemblies may also retain instance geometry via
+``add_part(..., geometry=solid)``. After a successful solve,
+``positioned_parts()`` returns independent world-positioned solids and
+``compound_geometry()`` creates a multi-body solid suitable for analytic STEP
+export when OCC BREP data is available.
 
 Transform Validation
 ~~~~~~~~~~~~~~~~~~~~
