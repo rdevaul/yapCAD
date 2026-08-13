@@ -128,6 +128,7 @@ from .mate import (
     evaluate_coincident,
     check_bolt_circle_alignment,
 )
+from .joint_coupling import LinearJointCoupling
 from .assembly import (
     Assembly,
     AssemblyError,
@@ -249,6 +250,7 @@ __all__ = [
     "Assembly",
     "AssemblyError",
     "AssemblySolveResult",
+    "LinearJointCoupling",
     "AssemblyValidationResult",
     # Kinematic chain integration
     "KinematicConstraint",

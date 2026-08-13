@@ -88,6 +88,7 @@ import math
 try:
     from .datum import PartDefinition, Datum, DatumType
     from .mate import Mate, MateType
+    from .joint_coupling import LinearJointCoupling
     from .constraint import Constraint, ConstraintResult, ConstraintType
 except ImportError:
     # Fallback for development - these should be defined in separate modules
@@ -96,6 +97,7 @@ except ImportError:
     DatumType = Any
     Mate = Any
     MateType = Any
+    LinearJointCoupling = Any
     Constraint = Any
     ConstraintResult = Any
     ConstraintType = Any
@@ -240,6 +242,8 @@ class AssemblySolveResult:
     success: bool
     transforms: Dict[str, np.ndarray] = field(default_factory=dict)
     residuals: Dict[str, float] = field(default_factory=dict)
+    joint_values: Dict[str, float] = field(default_factory=dict)
+    coupling_residuals: Dict[str, float] = field(default_factory=dict)
     errors: List[str] = field(default_factory=list)
 
 
@@ -308,6 +312,7 @@ class Assembly:
         self.geometry: Dict[str, Any] = {}
         self.geometry_diagnostics: List[str] = []
         self.mates: List[Mate] = []
+        self.joint_couplings: List[LinearJointCoupling] = []
         self.constraints: List[Constraint] = []
         # Load cases for structural FEA setup. Keyed by LoadCase.id.
         # Added 2026-05-20 (see assembly/load_case.py history).
@@ -320,6 +325,7 @@ class Assembly:
         self._solved = False
         self._root_part: Optional[str] = None
         self._joint_values: Dict[str, float] = {}
+        self._prescribed_joint_values: Dict[str, float] = {}
 
     def add_part(self, part: PartDefinition, name: str = None,
                  transform: np.ndarray = None, geometry: Any = None) -> None:
@@ -434,8 +440,90 @@ class Assembly:
         self.mates.append(mate)
         self._solved = False
 
+    def add_joint_coupling(self, coupling: LinearJointCoupling) -> None:
+        """Add a deterministic affine relationship between revolute joints."""
+        if any(existing.name == coupling.name for existing in self.joint_couplings):
+            raise AssemblyError(
+                f"Joint coupling name '{coupling.name}' already exists",
+                assembly_name=self.name,
+            )
+        if any(existing.dependent_joint == coupling.dependent_joint
+               for existing in self.joint_couplings):
+            raise AssemblyError(
+                f"Joint '{coupling.dependent_joint}' already has a coupling dependency",
+                assembly_name=self.name,
+            )
+        mates = {mate.name: mate for mate in self.mates}
+        referenced = [coupling.dependent_joint, *coupling.driver_coefficients]
+        for joint_name in referenced:
+            if joint_name not in mates:
+                raise AssemblyError(
+                    f"Joint coupling '{coupling.name}' references unknown joint "
+                    f"'{joint_name}'",
+                    assembly_name=self.name,
+                )
+            if mates[joint_name].mate_type != MateType.REVOLUTE:
+                raise AssemblyError(
+                    f"Joint coupling '{coupling.name}' requires revolute joint "
+                    f"'{joint_name}'",
+                    assembly_name=self.name,
+                )
+        self.joint_couplings.append(coupling)
+        self._solved = False
+
     def _solve_error(self, message: str) -> AssemblySolveResult:
         return AssemblySolveResult(success=False, errors=[message])
+
+    def _resolve_joint_couplings(
+        self, prescribed: Dict[str, float],
+    ) -> Tuple[Optional[Dict[str, float]], Optional[str]]:
+        """Resolve affine dependencies, diagnosing ambiguity and cycles."""
+        by_dependent = {
+            coupling.dependent_joint: coupling
+            for coupling in self.joint_couplings
+        }
+        prescribed_dependents = sorted(set(prescribed) & set(by_dependent))
+        if prescribed_dependents:
+            return None, (
+                "Cannot prescribe dependent joint values directly: "
+                + ", ".join(prescribed_dependents)
+            )
+
+        revolute_names = {
+            mate.name for mate in self.mates
+            if mate.mate_type == MateType.REVOLUTE
+        }
+        resolved: Dict[str, float] = {}
+        visiting: List[str] = []
+
+        def resolve(name: str) -> float:
+            if name in resolved:
+                return resolved[name]
+            if name in visiting:
+                start = visiting.index(name)
+                cycle = visiting[start:] + [name]
+                raise ValueError(
+                    "Joint coupling dependency cycle: " + " -> ".join(cycle)
+                )
+            coupling = by_dependent.get(name)
+            if coupling is None:
+                resolved[name] = float(prescribed.get(name, 0.0))
+                return resolved[name]
+            visiting.append(name)
+            drivers = {
+                driver: resolve(driver)
+                for driver in coupling.driver_coefficients
+            }
+            resolved[name] = coupling.evaluate(drivers)
+            visiting.pop()
+            return resolved[name]
+
+        try:
+            for name in sorted(revolute_names):
+                resolve(name)
+        except ValueError as exc:
+            return None, str(exc)
+        return resolved, None
 
     @staticmethod
     def _datum_direction(datum: Datum) -> np.ndarray:
@@ -538,7 +626,12 @@ class Assembly:
                     f"Mate '{mate.name}' uses unsupported placement type "
                     f"'{mate.mate_type.value}'"
                 )
-            value = float(joint_values.get(mate.name, 0.0))
+        resolved_values, coupling_error = self._resolve_joint_couplings(joint_values)
+        if coupling_error is not None:
+            return self._solve_error(coupling_error)
+
+        for mate in self.mates:
+            value = float(resolved_values.get(mate.name, joint_values.get(mate.name, 0.0)))
             if mate.mate_type != MateType.REVOLUTE and abs(value) > 0.0:
                 return self._solve_error(
                     f"Mate '{mate.name}' is {mate.mate_type.value}, not revolute"
@@ -602,7 +695,7 @@ class Assembly:
         for parent_name, child_name, mate, reverse in ordered:
             datum_a = self.parts[mate.part_a].get_datum(mate.datum_a)
             datum_b = self.parts[mate.part_b].get_datum(mate.datum_b)
-            angle = float(joint_values.get(mate.name, 0.0))
+            angle = float(resolved_values.get(mate.name, 0.0))
             forward = self._alignment_transform(datum_a, datum_b, angle)
             relative = np.linalg.inv(forward) if reverse else forward
             candidate[child_name] = candidate[parent_name] @ relative
@@ -623,11 +716,18 @@ class Assembly:
         self.transforms = {name: transform.copy() for name, transform in candidate.items()}
         self._solved = True
         self._root_part = root_part
-        self._joint_values = joint_values.copy()
+        self._joint_values = resolved_values.copy()
+        self._prescribed_joint_values = joint_values.copy()
+        coupling_residuals = {
+            coupling.name: coupling.residual(resolved_values)
+            for coupling in self.joint_couplings
+        }
         return AssemblySolveResult(
             success=True,
             transforms={name: transform.copy() for name, transform in candidate.items()},
             residuals=residuals,
+            joint_values=resolved_values.copy(),
+            coupling_residuals=coupling_residuals,
         )
 
     def set_joint_position(self, mate_name: str, value: float) -> AssemblySolveResult:
@@ -641,7 +741,15 @@ class Assembly:
                 f"Mate '{mate_name}' is {matches[0].mate_type.value}, not revolute",
                 assembly_name=self.name,
             )
-        values = self._joint_values.copy()
+        dependent_names = {
+            coupling.dependent_joint for coupling in self.joint_couplings
+        }
+        if mate_name in dependent_names:
+            raise AssemblyError(
+                f"Joint '{mate_name}' is dependent and cannot be positioned directly",
+                assembly_name=self.name,
+            )
+        values = self._prescribed_joint_values.copy()
         values[mate_name] = float(value)
         result = self.solve(self._root_part, values)
         if not result.success:

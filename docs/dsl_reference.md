@@ -1237,6 +1237,10 @@ add_part(mechanism, base, "base")
 add_part(mechanism, rocker, "rocker")
 add_named_mate(mechanism, "rocker_pivot", "revolute",
                "base", "pivot", "rocker", "root_axis")
+add_named_mate(mechanism, "right_rocker_pivot", "revolute",
+               "base", "right_pivot", "right_rocker", "root_axis")
+add_joint_coupling(mechanism, "rocker_differential",
+                   "right_rocker_pivot", ["rocker_pivot"], [-1.0], 0.0)
 solve_assembly(mechanism, "base")
 set_joint_position(mechanism, "rocker_pivot", 0.785398)
 emit assembly_compound(mechanism)
@@ -1252,6 +1256,7 @@ Assembly builtins:
 | `add_named_mate(asm, name, kind, part_a, datum_a, part_b, datum_b)` | `assembly` | Add a stable, pose-addressable mate |
 | `solve_assembly(asm, root_part)` | `assembly` | Solve a rooted rigid/revolute placement tree |
 | `set_joint_position(asm, mate_name, value)` | `assembly` | Set an absolute revolute position in radians and re-solve |
+| `add_joint_coupling(asm, name, dependent, drivers, coefficients, offset)` | `assembly` | Define `dependent = offset + sum(coefficients[i] * drivers[i])` |
 | `part_transform(asm, part_name)` | `transform` | Return a solved instance transform |
 | `assembly_compound(asm)` | `solid` | Return all retained solids in solved world positions |
 | `validate_assembly(asm)` | `bool` | Evaluate design constraints at current transforms |
@@ -1262,6 +1267,15 @@ The placement graph must be connected and acyclic. Each non-root part must
 have one placement parent. Rooted solving currently supports `rigid` and
 `revolute` mates; unsupported placement kinds fail with an explicit diagnostic.
 Joint values are absolute radians, not accumulated deltas.
+
+Joint couplings currently operate on revolute mate coordinates. Each coupling
+names its dependent joint explicitly, making chained dependencies deterministic
+and independent of declaration order. Driver and coefficient lists must have
+the same length. A dependent joint cannot be positioned directly; pose one of
+its drivers instead. Coupling cycles, duplicate dependent joints, unknown mate
+names, and derived values outside mate limits fail without changing the last
+valid pose. For the rover differential, `right = -1.0 * left` enforces
+`left + right = 0` in chassis-relative coordinates.
 
 ## Package Integration
 

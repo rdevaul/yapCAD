@@ -3603,6 +3603,7 @@ class BuiltinRegistry:
         # Imported lazily so loading the DSL runtime doesn't pull in the
         # whole assembly stack on every interpreter startup.
         from yapcad.assembly.assembly import Assembly, AssemblyError
+        from yapcad.assembly.joint_coupling import LinearJointCoupling
         from yapcad.assembly.datum import (
             Datum,
             DatumType,
@@ -3829,6 +3830,29 @@ class BuiltinRegistry:
             asm.data.set_joint_position(str(mate_name.data), float(value.data))
             return asm
 
+        def _add_joint_coupling(
+            asm: Value, name: Value, dependent_joint: Value,
+            driver_joints: Value, coefficients: Value, offset: Value,
+        ) -> Value:
+            drivers = [str(item) for item in driver_joints.data]
+            weights = [float(item) for item in coefficients.data]
+            if len(drivers) != len(weights):
+                raise ValueError(
+                    "add_joint_coupling: driver_joints and coefficients "
+                    "must have the same length"
+                )
+            if len(set(drivers)) != len(drivers):
+                raise ValueError(
+                    "add_joint_coupling: driver joint names must be unique"
+                )
+            asm.data.add_joint_coupling(LinearJointCoupling(
+                name=str(name.data),
+                dependent_joint=str(dependent_joint.data),
+                driver_coefficients=dict(zip(drivers, weights)),
+                offset=float(offset.data),
+            ))
+            return asm
+
         def _part_transform(asm: Value, part_name: Value) -> Value:
             name = str(part_name.data)
             if name not in asm.data.parts:
@@ -3922,6 +3946,18 @@ class BuiltinRegistry:
                 "set_joint_position", [ASSEMBLY, STRING, FLOAT], ASSEMBLY,
             ),
             _set_joint_position,
+        ))
+        self.register(BuiltinFunction(
+            "add_joint_coupling",
+            _make_sig(
+                "add_joint_coupling",
+                [
+                    ASSEMBLY, STRING, STRING,
+                    ListType(STRING), ListType(FLOAT), FLOAT,
+                ],
+                ASSEMBLY,
+            ),
+            _add_joint_coupling,
         ))
         self.register(BuiltinFunction(
             "part_transform",

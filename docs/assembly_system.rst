@@ -360,6 +360,31 @@ Assembly Solving
    tool_world_tf = result.transforms["TOOL"]
    print(result.residuals)
 
+Affine Joint Couplings
+~~~~~~~~~~~~~~~~~~~~~~
+
+Joint coordinates can be related with a deterministic affine dependency:
+
+.. code-block:: python
+
+   from yapcad.assembly import LinearJointCoupling
+
+   assembly.add_joint_coupling(LinearJointCoupling(
+       name="rocker_differential",
+       dependent_joint="right_rocker",
+       driver_coefficients={"left_rocker": -1.0},
+       offset=0.0,
+   ))
+   result = assembly.solve("CHASSIS", {"left_rocker": 0.20})
+   assert result.joint_values["right_rocker"] == -0.20
+   assert result.coupling_residuals["rocker_differential"] < 1e-9
+
+The equation is ``dependent = offset + sum(coefficient * driver)``. Couplings
+may have multiple drivers and may form acyclic dependency chains. The solver
+resolves them topologically, checks limits after derivation, and commits no
+transforms when coupling validation fails. Dependent coordinates are derived
+outputs and therefore cannot also be prescribed directly.
+
 ``Assembly.solve`` is transactional: invalid limits, missing roots,
 disconnected parts, cycles, multiple placement parents, and unsupported mate
 types return an unsuccessful result without replacing the last valid assembly

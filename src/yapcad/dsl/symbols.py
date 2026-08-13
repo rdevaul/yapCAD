@@ -775,6 +775,14 @@ class SymbolTable:
             ("mate_name", STRING, None),
             ("value", FLOAT, None),
         ], ASSEMBLY)
+        self._register_builtin("add_joint_coupling", [
+            ("asm", ASSEMBLY, None),
+            ("name", STRING, None),
+            ("dependent_joint", STRING, None),
+            ("driver_joints", make_list_type(STRING), None),
+            ("coefficients", make_list_type(FLOAT), None),
+            ("offset", FLOAT, None),
+        ], ASSEMBLY)
         self._register_builtin("part_transform", [
             ("asm", ASSEMBLY, None),
             ("part_name", STRING, None),
