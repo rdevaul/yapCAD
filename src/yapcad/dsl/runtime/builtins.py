@@ -41,7 +41,7 @@ from ..types import (
     PATH2D, PATH3D, PROFILE2D,
     ASSEMBLY,
 )
-from ..symbols import FunctionSignature
+from ..symbols import FunctionSignature, SymbolTable
 
 
 def _make_sig(name: str, param_types: List[Type], return_type: Type,
@@ -1869,6 +1869,84 @@ class BuiltinRegistry:
             "involute_gear",
             _make_sig("involute_gear", [INT, FLOAT, FLOAT, FLOAT], SOLID),
             _involute_gear,
+        ))
+
+        def _straight_bevel_gear(
+            teeth: Value,
+            mate_teeth: Value,
+            outer_module_mm: Value,
+            face_width_mm: Value,
+            shaft_angle_deg: Value,
+            pressure_angle_deg: Value,
+            backlash_mm: Value,
+            bore_diameter_mm: Value,
+            generation_type: Optional[Value] = None,
+        ) -> Value:
+            mode = (
+                "spherical_involute"
+                if generation_type is None
+                else str(generation_type.data)
+            )
+            if mode not in {"spherical_involute", "octoid", "gleason"}:
+                raise RuntimeError(
+                    f"unknown straight bevel gear generation type '{mode}'"
+                )
+            from yapcad.gears.bevel import (
+                StraightBevelGearSpec,
+                make_straight_bevel_gear,
+            )
+            spec = StraightBevelGearSpec(
+                teeth=int(teeth.data),
+                mate_teeth=int(mate_teeth.data),
+                outer_module_mm=float(outer_module_mm.data),
+                face_width_mm=float(face_width_mm.data),
+                shaft_angle_deg=float(shaft_angle_deg.data),
+                pressure_angle_deg=float(pressure_angle_deg.data),
+                backlash_mm=float(backlash_mm.data),
+                bore_diameter_mm=float(bore_diameter_mm.data),
+                generation_type=mode,
+            )
+            return solid_val(make_straight_bevel_gear(spec))
+
+        self.register(BuiltinFunction(
+            "straight_bevel_gear",
+            _make_sig(
+                "straight_bevel_gear",
+                [INT, INT, FLOAT, FLOAT, FLOAT, FLOAT, FLOAT, FLOAT, STRING],
+                SOLID,
+            ),
+            _straight_bevel_gear,
+        ))
+
+        def _miter_gear(
+            teeth: Value,
+            outer_module_mm: Value,
+            face_width_mm: Value,
+            pressure_angle_deg: Value = float_val(20.0),
+            backlash_mm: Value = float_val(0.0),
+            bore_diameter_mm: Value = float_val(0.0),
+            generation_type: Value = string_val("spherical_involute"),
+        ) -> Value:
+            return _straight_bevel_gear(
+                teeth,
+                teeth,
+                outer_module_mm,
+                face_width_mm,
+                float_val(90.0),
+                pressure_angle_deg,
+                backlash_mm,
+                bore_diameter_mm,
+                generation_type,
+            )
+
+        self.register(BuiltinFunction(
+            "miter_gear",
+            _make_sig(
+                "miter_gear",
+                [INT, FLOAT, FLOAT, FLOAT, FLOAT, FLOAT, STRING],
+                SOLID,
+            ),
+            _miter_gear,
         ))
 
         def _herringbone_gear(teeth: Value, module_mm: Value, face_width: Value,
@@ -3872,7 +3950,67 @@ def get_builtin_registry() -> BuiltinRegistry:
     return _registry
 
 
-def call_builtin(name: str, args: List[Value]) -> Value:
+_symbol_table: Optional[SymbolTable] = None
+
+
+def _bind_builtin_arguments(
+    name: str,
+    args: List[Value],
+    named_args: Dict[str, Value],
+) -> List[Value]:
+    """Bind mixed positional/named DSL arguments in declaration order."""
+    global _symbol_table
+    if not named_args:
+        return args
+    if _symbol_table is None:
+        _symbol_table = SymbolTable()
+    signature = _symbol_table.lookup_builtin(name)
+    if signature is None:
+        raise RuntimeError(f"Unknown built-in function: {name}")
+
+    params = signature.params
+    if len(args) > len(params) and not signature.is_variadic:
+        raise RuntimeError(
+            f"Function '{name}' accepts at most {len(params)} positional arguments"
+        )
+
+    bound: List[Optional[Value]] = [None] * len(params)
+    for index, value in enumerate(args[:len(params)]):
+        bound[index] = value
+
+    indexes = {param_name: index for index, (param_name, _, _) in enumerate(params)}
+    for param_name, value in named_args.items():
+        if param_name not in indexes:
+            raise RuntimeError(f"Unknown parameter '{param_name}' for function '{name}'")
+        index = indexes[param_name]
+        if bound[index] is not None:
+            raise RuntimeError(
+                f"Function '{name}' received multiple values for argument '{param_name}'"
+            )
+        bound[index] = value
+
+    for index, (param_name, _, default) in enumerate(params):
+        if bound[index] is None and default is None:
+            raise RuntimeError(
+                f"Function '{name}' is missing required argument '{param_name}'"
+            )
+        if bound[index] is None and default != "optional":
+            bound[index] = wrap_value(default, params[index][1])
+
+    while bound and bound[-1] is None:
+        bound.pop()
+    if any(value is None for value in bound):
+        raise RuntimeError(
+            f"Function '{name}' cannot omit an optional argument before a supplied argument"
+        )
+    return [value for value in bound if value is not None]
+
+
+def call_builtin(
+    name: str,
+    args: List[Value],
+    named_args: Optional[Dict[str, Value]] = None,
+) -> Value:
     """
     Call a built-in function by name.
 
@@ -3882,7 +4020,8 @@ def call_builtin(name: str, args: List[Value]) -> Value:
     func = registry.get_function(name)
     if func is None:
         raise RuntimeError(f"Unknown built-in function: {name}")
-    return func.implementation(*args)
+    bound_args = _bind_builtin_arguments(name, args, named_args or {})
+    return func.implementation(*bound_args)
 
 
 def call_method(type_name: str, method_name: str, receiver: Value, args: List[Value]) -> Value:

@@ -656,6 +656,10 @@ class Interpreter:
         """Evaluate a function call."""
         # Evaluate positional arguments
         args = [self._evaluate(arg, ctx) for arg in call.arguments]
+        named_args = {
+            name: self._evaluate(arg, ctx)
+            for name, arg in call.named_arguments.items()
+        }
 
         # Extract function name from callee (which is an Identifier)
         if isinstance(call.callee, Identifier):
@@ -690,7 +694,7 @@ class Interpreter:
                     return self._call_command(cmd, args, ctx)
 
         # Call the built-in function
-        return call_builtin(func_name, args)
+        return call_builtin(func_name, args, named_args)
 
     def _call_command(self, command: Command, args: List[Value], parent_ctx: ExecutionContext) -> Value:
         """Call a command as a function from within another command."""

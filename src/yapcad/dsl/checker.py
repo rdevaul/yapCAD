@@ -812,14 +812,14 @@ class TypeChecker:
 
     def _check_builtin_call(self, sig: FunctionSignature, expr: FunctionCall) -> Type:
         """Check a call to a built-in function."""
-        # Check argument count
-        required_params = [p for p in sig.params if p[2] is None]
-        if len(expr.arguments) < len(required_params):
+        assigned_params = set()
+
+        if not sig.is_variadic and len(expr.arguments) > len(sig.params):
             self._error(
-                f"Function '{sig.name}' requires at least {len(required_params)} "
+                f"Function '{sig.name}' accepts at most {len(sig.params)} "
                 f"arguments, got {len(expr.arguments)}",
                 expr.span,
-                "E271"
+                "E271",
             )
 
         # Check argument types and collect them for type inference
@@ -829,6 +829,7 @@ class TypeChecker:
             arg_types.append(arg_type)
             if i < len(sig.params):
                 param_name, param_type, _ = sig.params[i]
+                assigned_params.add(param_name)
                 if param_type != UNKNOWN and not param_type.is_assignable_from(arg_type):
                     if arg_type != ERROR:
                         self._error(
@@ -837,16 +838,66 @@ class TypeChecker:
                             arg.span,
                             "E272"
                         )
+                allowed_values = sig.literal_values.get(param_name)
+                if allowed_values is not None and isinstance(arg, Literal):
+                    if arg.value not in allowed_values:
+                        allowed = ", ".join(
+                            sorted(repr(value) for value in allowed_values)
+                        )
+                        self._error(
+                            f"Argument '{param_name}' to function '{sig.name}' has "
+                            f"unknown value {arg.value!r}; expected one of {allowed}",
+                            arg.span,
+                            "E276",
+                        )
 
         # Check named arguments
-        param_names = {p[0] for p in sig.params}
+        params_by_name = {p[0]: p for p in sig.params}
         for name, arg in expr.named_arguments.items():
             arg_type = self._check_expression(arg)
-            if name not in param_names:
+            if name not in params_by_name:
                 self._error(
                     f"Unknown parameter '{name}' for function '{sig.name}'",
                     arg.span,
                     "E273"
+                )
+                continue
+
+            if name in assigned_params:
+                self._error(
+                    f"Function '{sig.name}' received multiple values for argument '{name}'",
+                    arg.span,
+                    "E275",
+                )
+                continue
+
+            assigned_params.add(name)
+            _, param_type, _ = params_by_name[name]
+            if param_type != UNKNOWN and not param_type.is_assignable_from(arg_type):
+                if arg_type != ERROR:
+                    self._error(
+                        f"Argument '{name}' expects '{param_type}', got '{arg_type}'",
+                        arg.span,
+                        "E272",
+                    )
+
+            allowed_values = sig.literal_values.get(name)
+            if allowed_values is not None and isinstance(arg, Literal):
+                if arg.value not in allowed_values:
+                    allowed = ", ".join(sorted(repr(value) for value in allowed_values))
+                    self._error(
+                        f"Argument '{name}' to function '{sig.name}' has unknown "
+                        f"value {arg.value!r}; expected one of {allowed}",
+                        arg.span,
+                        "E276",
+                    )
+
+        for param_name, _, default in sig.params:
+            if default is None and param_name not in assigned_params:
+                self._error(
+                    f"Function '{sig.name}' is missing required argument '{param_name}'",
+                    expr.span,
+                    "E271",
                 )
 
         # Infer return type for list functions based on argument types
