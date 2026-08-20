@@ -387,6 +387,11 @@ These APIs should be usable by both CLI and programmatic automation.
 8. Future Enhancements
 ----------------------
 
+The assembly-aware product definition, mixed make/buy BOM, and future PMI
+model are specified separately in :doc:`ycpkg_product_definition`.  The v0.2
+implementation is additive: entity-only packages remain v0.1 while packages
+created from retained DSL assemblies use the component/instance contract.
+
 - Layer-aware viewer interactions (already implemented) may evolve into annotated layer libraries.
 - DSL compilation pipeline will eventually support signed modules and hashed invocation metadata per entity.
 - Canonical-entity instancing will feed BOM generation utilities.

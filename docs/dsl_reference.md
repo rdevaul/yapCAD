@@ -1329,8 +1329,15 @@ valid pose. For the rover differential, `right = -1.0 * left` enforces
 When using `--package`, the DSL automatically:
 - Creates a `.ycpkg` directory structure
 - Exports geometry to JSON format
-- Generates STEP export
 - Records provenance metadata (DSL command, parameters, version)
+
+When the emitted solid comes from `assembly_compound(asm)`, packaging retains
+the assembly as a `ycpkg-spec-v0.2` product definition. It writes canonical
+component geometry, positioned instances, the native mate/coupling graph, and a
+BOM derived from instance quantities in addition to the positioned primary
+geometry used by existing viewers. Entity-only commands continue to produce
+`ycpkg-spec-v0.1` packages. STEP files can be generated with the package export
+tool and registered under `exports`.
 
 ```bash
 # Create a package with full provenance

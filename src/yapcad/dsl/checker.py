@@ -285,7 +285,10 @@ class TypeChecker:
             W311 — unknown field within assembly namespace
             W312 — unknown field within operation namespace
         """
-        _KNOWN_NAMESPACES = {"assembly", "operation"}
+        _KNOWN_NAMESPACES = {
+            "assembly", "operation", "component", "manufacturing",
+            "procurement", "pmi",
+        }
         _KNOWN_ROOT_FIELDS = {"layer", "tags", "material"}
 
         _ASSEMBLY_KNOWN = (

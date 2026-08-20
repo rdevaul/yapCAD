@@ -72,7 +72,11 @@ def package_from_dsl(
         >>> if result.success:
         ...     print(f"Package created at {result.manifest.root}")
     """
-    from yapcad.package import create_package_from_entities, PackageManifest
+    from yapcad.package import (
+        create_package_from_assembly,
+        create_package_from_entities,
+        PackageManifest,
+    )
     from yapcad.geom3d import issolid, issurface
 
     # Step 1: Compile and execute the DSL
@@ -126,18 +130,39 @@ def package_from_dsl(
     # Step 4: Create the package
     try:
         target_path = Path(target_dir)
-        manifest = create_package_from_entities(
-            entities,
-            target_path,
-            name=name,
-            version=version,
-            description=description,
-            author=author,
-            units=units,
-            materials=materials,
-            generator=generator,
-            overwrite=overwrite,
-        )
+        emit_result = getattr(exec_result, "emit_result", None)
+        emit_value = getattr(emit_result, "value", None)
+        annotations = getattr(emit_value, "annotations", {})
+        if not isinstance(annotations, dict):
+            annotations = {}
+        retained_assembly = annotations.get("assembly")
+        if retained_assembly is not None:
+            manifest = create_package_from_assembly(
+                retained_assembly,
+                target_path,
+                name=name,
+                version=version,
+                root_part=getattr(retained_assembly, "_root_part", None),
+                description=description,
+                author=author,
+                units=units or "mm",
+                materials=materials,
+                generator=generator,
+                overwrite=overwrite,
+            )
+        else:
+            manifest = create_package_from_entities(
+                entities,
+                target_path,
+                name=name,
+                version=version,
+                description=description,
+                author=author,
+                units=units,
+                materials=materials,
+                generator=generator,
+                overwrite=overwrite,
+            )
 
         # Step 5: Add DSL source as an attachment
         _add_dsl_source_attachment(manifest, source, command_name)

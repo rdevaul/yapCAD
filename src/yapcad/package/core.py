@@ -6,6 +6,8 @@ import datetime as _dt
 import hashlib
 import shutil
 import json
+import math
+import re
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -20,6 +22,7 @@ from yapcad.metadata import (
 )
 
 PACKAGE_SCHEMA = "ycpkg-spec-v0.1"
+ASSEMBLY_PACKAGE_SCHEMA = "ycpkg-spec-v0.2"
 MANIFEST_FILENAME = "manifest.yaml"
 
 
@@ -71,7 +74,11 @@ def _collect_material_refs(entities: Iterable[list]) -> List[str]:
 
 
 def _ensure_subdirs(root: Path) -> None:
-    for sub in ("geometry", "metadata", "validation/plans", "validation/results", "exports", "attachments"):
+    subdirectories = (
+        "geometry", "geometry/entities", "instances", "metadata",
+        "validation/plans", "validation/results", "exports", "attachments",
+    )
+    for sub in subdirectories:
         (root / sub).mkdir(parents=True, exist_ok=True)
 
 
@@ -144,6 +151,19 @@ class PackageManifest:
                 if path.exists():
                     info["hash"] = _compute_hash(path, algorithm)
 
+        for component in self.data.get("components", []) or []:
+            info = component.get("geometry")
+            if info:
+                path = self.root / info["path"]
+                if path.exists():
+                    info["hash"] = _compute_hash(path, algorithm)
+        for entry_key in ("assembly", "bom"):
+            info = self.data.get(entry_key)
+            if info and info.get("path"):
+                path = self.root / info["path"]
+                if path.exists():
+                    info["hash"] = _compute_hash(path, algorithm)
+
     def geometry_primary_path(self) -> Path:
         geom = self.data.get("geometry", {}).get("primary")
         if not geom:
@@ -157,6 +177,41 @@ class PackageManifest:
     def get_material(self, material_id: str) -> Optional[Dict[str, Any]]:
         """Get a specific material definition by ID."""
         return self.data.get("materials", {}).get(material_id)
+
+    def get_component(self, component_id: str) -> Optional[Dict[str, Any]]:
+        """Return a v0.2 component definition by stable ID."""
+        return next(
+            (item for item in self.data.get("components", [])
+             if item.get("id") == component_id),
+            None,
+        )
+
+    def load_component_geometry(self, component_id: str) -> List[list]:
+        """Load canonical local geometry for a v0.2 component."""
+        component = self.get_component(component_id)
+        if component is None:
+            raise KeyError(f"component not found: {component_id}")
+        geometry = component.get("geometry")
+        if not geometry:
+            return []
+        with (self.root / geometry["path"]).open("r", encoding="utf-8") as fp:
+            return geometry_from_json(json.load(fp))
+
+    def load_assembly_record(self) -> Dict[str, Any]:
+        """Load the native v0.2 assembly graph document."""
+        entry = self.data.get("assembly") or {}
+        if not entry.get("path"):
+            raise ValueError("manifest missing assembly.path")
+        with (self.root / entry["path"]).open("r", encoding="utf-8") as fp:
+            return json.load(fp)
+
+    def load_bom(self) -> Dict[str, Any]:
+        """Load the derived v0.2 engineering BOM document."""
+        entry = self.data.get("bom") or {}
+        if not entry.get("path"):
+            raise ValueError("manifest missing bom.path")
+        with (self.root / entry["path"]).open("r", encoding="utf-8") as fp:
+            return json.load(fp)
 
 
 def create_package_from_entities(
@@ -224,6 +279,320 @@ def create_package_from_entities(
             }
             for ref in material_refs
         }
+    manifest = PackageManifest(root=root, data=manifest_data)
+    manifest.save()
+    return manifest
+
+
+_COMPONENT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+_DISPOSITIONS = {"make", "buy", "raw_stock", "consumable"}
+
+
+def _json_write(path: Path, value: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as fp:
+        json.dump(value, fp, indent=2, sort_keys=False)
+        fp.write("\n")
+
+
+def _datum_record(datum: Any) -> Dict[str, Any]:
+    kind = getattr(datum.datum_type, "value", str(datum.datum_type))
+    result: Dict[str, Any] = {
+        "id": datum.name,
+        "kind": kind,
+        "origin": [float(value) for value in datum.origin[:3]],
+    }
+    for field_name in ("direction", "normal", "x_axis", "y_axis"):
+        value = getattr(datum, field_name, None)
+        if value is not None:
+            result[field_name] = [float(item) for item in value[:3]]
+    if getattr(datum, "radius", None) is not None:
+        result["radius"] = float(datum.radius)
+    return result
+
+
+def _limits_record(limits: Any) -> Optional[Dict[str, float]]:
+    if limits is None:
+        return None
+    result = {}
+    for name in ("min_value", "max_value", "max_velocity", "max_effort"):
+        value = getattr(limits, name, None)
+        if value is not None:
+            result[name] = float(value)
+    return result or None
+
+
+def _native_assembly_record(assembly: Any, root_part: Optional[str]) -> Dict[str, Any]:
+    parts: Dict[str, Any] = {}
+    for instance_name, definition in assembly.parts.items():
+        transform = assembly.transforms.get(instance_name)
+        parts[instance_name] = {
+            "component": definition.component_id or definition.name,
+            "transform": (
+                [[float(value) for value in row] for row in transform.tolist()]
+                if transform is not None else None
+            ),
+            "datums": [_datum_record(datum) for datum in definition.datums.values()],
+        }
+    mates = []
+    for mate in assembly.mates:
+        entry = {
+            "id": mate.name,
+            "kind": mate.mate_type.value,
+            "partA": mate.part_a,
+            "datumA": mate.datum_a,
+            "partB": mate.part_b,
+            "datumB": mate.datum_b,
+            "offset": float(mate.offset),
+            "angle": float(mate.angle),
+        }
+        limits = _limits_record(mate.limits)
+        if limits:
+            entry["limits"] = limits
+        mates.append(entry)
+    return {
+        "schema": "yapcad-assembly-v0.1",
+        "name": assembly.name,
+        "rootPart": root_part,
+        "solved": bool(getattr(assembly, "_solved", False)),
+        "parts": parts,
+        "mates": mates,
+        "jointValues": {
+            name: float(value)
+            for name, value in getattr(assembly, "_joint_values", {}).items()
+        },
+        "jointCouplings": [
+            coupling.to_dict() for coupling in assembly.joint_couplings
+        ],
+    }
+
+
+def _component_record(definition: Any) -> Dict[str, Any]:
+    component_id = definition.component_id or definition.name
+    if not _COMPONENT_ID_RE.fullmatch(component_id):
+        raise ValueError(
+            f"invalid component id {component_id!r}; use letters, digits, '.', '_' or '-'"
+        )
+    disposition = getattr(definition, "disposition", "make")
+    if disposition not in _DISPOSITIONS:
+        raise ValueError(
+            f"invalid component disposition {disposition!r} for {component_id!r}"
+        )
+    quantity = float(getattr(definition, "quantity_per_instance", 1.0))
+    if not math.isfinite(quantity) or quantity <= 0:
+        raise ValueError(f"component {component_id!r} quantity must be positive")
+    record: Dict[str, Any] = {
+        "id": component_id,
+        "name": definition.component_name or definition.name,
+        "description": definition.description,
+        "disposition": disposition,
+        "quantityPerInstance": quantity,
+        "unit": getattr(definition, "unit", "each"),
+    }
+    optional = {
+        "partNumber": getattr(definition, "part_number", None),
+        "revision": getattr(definition, "revision", None),
+        "material": getattr(definition, "material", None),
+        "manufacturing": getattr(definition, "manufacturing", None),
+        "procurement": getattr(definition, "procurement", None),
+        "pmi": getattr(definition, "pmi", None),
+    }
+    record.update({key: value for key, value in optional.items() if value})
+    return record
+
+
+def _geometry_fingerprint(solid: Any) -> str:
+    """Hash tessellated local geometry while excluding volatile metadata IDs."""
+    def surface_payload(surface: Any) -> Dict[str, Any]:
+        return {
+            "vertices": surface[1],
+            "normals": surface[2],
+            "faces": surface[3],
+        }
+
+    surfaces = []
+
+    def collect(value: Any) -> None:
+        if issurface(value):
+            surfaces.append(surface_payload(value))
+        elif isinstance(value, (list, tuple)):
+            for item in value:
+                collect(item)
+
+    collect(solid[1:])
+    payload = {"surfaces": surfaces}
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _derive_bom(
+    components: List[Dict[str, Any]], instances: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    by_id = {component["id"]: component for component in components}
+    quantities = {component_id: 0.0 for component_id in by_id}
+    for instance in instances:
+        component = by_id[instance["component"]]
+        quantities[component["id"]] += float(component["quantityPerInstance"])
+    items = []
+    for item_number, component in enumerate(components, start=1):
+        quantity = quantities[component["id"]]
+        if quantity.is_integer():
+            quantity = int(quantity)
+        item = {
+            "item": item_number,
+            "component": component["id"],
+            "partNumber": component.get("partNumber"),
+            "revision": component.get("revision"),
+            "description": component["name"],
+            "disposition": component["disposition"],
+            "quantity": quantity,
+            "unit": component["unit"],
+        }
+        items.append(item)
+    return {"schema": "yapcad-bom-v0.1", "generatedFrom": "instances", "items": items}
+
+
+def create_package_from_assembly(
+    assembly: Any,
+    target_dir: Path | str,
+    *,
+    name: str,
+    version: str,
+    root_part: Optional[str] = None,
+    description: Optional[str] = None,
+    author: Optional[str] = None,
+    units: str = "mm",
+    materials: Optional[Dict[str, Dict[str, Any]]] = None,
+    generator: Optional[Dict[str, Any]] = None,
+    overwrite: bool = False,
+    hash_algorithm: str = "sha256",
+) -> PackageManifest:
+    """Create a v0.2 product-definition package from an Assembly."""
+    if not assembly.parts:
+        raise ValueError("assembly has no parts")
+    root = Path(target_dir)
+    if root.exists():
+        if not overwrite and any(root.iterdir()):
+            raise FileExistsError(f"target directory {root} already exists and is not empty")
+    else:
+        root.mkdir(parents=True)
+    _ensure_subdirs(root)
+
+    primary_path = root / "geometry" / "primary.json"
+    primary_info = _serialize_geometry(
+        [assembly.compound_geometry(strict=False)], primary_path, root
+    )
+    primary_info["hash"] = _compute_hash(primary_path, hash_algorithm)
+
+    components: List[Dict[str, Any]] = []
+    component_by_id: Dict[str, Dict[str, Any]] = {}
+    component_fingerprints: Dict[str, str] = {}
+    instances: List[Dict[str, Any]] = []
+    for instance_name, definition in assembly.parts.items():
+        record = _component_record(definition)
+        component_id = record["id"]
+        has_geometry = instance_name in assembly.geometry
+        if component_id not in component_by_id:
+            if not has_geometry and record["disposition"] == "make":
+                raise ValueError(f"component {component_id!r} has no geometry")
+            if has_geometry:
+                component_path = root / "geometry" / "entities" / f"{component_id}.json"
+                geometry_info = _serialize_geometry(
+                    [assembly.get_part_geometry(instance_name, positioned=False)],
+                    component_path, root,
+                )
+                geometry_info["hash"] = _compute_hash(component_path, hash_algorithm)
+                record["geometry"] = geometry_info
+                component_fingerprints[component_id] = _geometry_fingerprint(
+                    assembly.geometry[instance_name]
+                )
+            component_by_id[component_id] = record
+            components.append(record)
+        else:
+            existing = component_by_id[component_id]
+            for field_name in (
+                "name", "description", "disposition", "quantityPerInstance",
+                "unit", "partNumber", "revision", "material", "manufacturing",
+                "procurement", "pmi",
+            ):
+                if existing.get(field_name) != record.get(field_name):
+                    raise ValueError(
+                        f"component {component_id!r} has conflicting {field_name} metadata"
+                    )
+            existing_has_geometry = component_id in component_fingerprints
+            if has_geometry != existing_has_geometry:
+                raise ValueError(
+                    f"component {component_id!r} is used with conflicting local geometry"
+                )
+            if has_geometry:
+                fingerprint = _geometry_fingerprint(assembly.geometry[instance_name])
+                if fingerprint != component_fingerprints[component_id]:
+                    raise ValueError(
+                        f"component {component_id!r} is used with conflicting local geometry"
+                    )
+        transform = assembly.transforms[instance_name]
+        instances.append({
+            "id": instance_name,
+            "component": component_id,
+            "transform": [[float(value) for value in row] for row in transform.tolist()],
+        })
+
+    assembly_path = root / "metadata" / "assembly.json"
+    _json_write(assembly_path, _native_assembly_record(assembly, root_part))
+    bom_path = root / "metadata" / "bom.json"
+    _json_write(bom_path, _derive_bom(components, instances))
+
+    manifest_data: Dict[str, Any] = {
+        "schema": ASSEMBLY_PACKAGE_SCHEMA,
+        "id": str(uuid.uuid4()),
+        "name": name,
+        "version": version,
+        "description": description or "",
+        "created": {"timestamp": _now_iso()},
+        "generator": generator or {"tool": "yapCAD", "version": _yapcad_version},
+        "units": units,
+        "tags": [],
+        "product": {"rootAssembly": assembly.name, "lifecycle": "prototype"},
+        "geometry": {"primary": primary_info},
+        "components": components,
+        "instances": instances,
+        "assembly": {
+            "path": str(assembly_path.relative_to(root)),
+            "hash": _compute_hash(assembly_path, hash_algorithm),
+            "rootPart": root_part,
+        },
+        "bom": {
+            "path": str(bom_path.relative_to(root)),
+            "hash": _compute_hash(bom_path, hash_algorithm),
+            "generatedFrom": "instances",
+        },
+    }
+    if author:
+        manifest_data["created"]["author"] = author
+    if materials:
+        manifest_data["materials"] = materials
+    else:
+        material_refs = sorted({
+            component["material"] for component in components
+            if component.get("material")
+        })
+        if material_refs:
+            manifest_data["materials"] = {
+                material_ref: {
+                    "source": {
+                        "type": "custom",
+                        "custom": {
+                            "notes": "Placeholder - define engineering material properties"
+                        },
+                    },
+                    "visual": {
+                        "color": [0.6, 0.85, 1.0],
+                        "metallic": 0.0,
+                        "roughness": 0.5,
+                    },
+                }
+                for material_ref in material_refs
+            }
     manifest = PackageManifest(root=root, data=manifest_data)
     manifest.save()
     return manifest
@@ -323,6 +692,8 @@ __all__ = [
     "MANIFEST_FILENAME",
     "PackageManifest",
     "create_package_from_entities",
+    "create_package_from_assembly",
+    "ASSEMBLY_PACKAGE_SCHEMA",
     "load_geometry",
     "_compute_hash",
     "add_geometry_file",

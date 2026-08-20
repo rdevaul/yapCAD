@@ -91,6 +91,7 @@ Contents
    Assembly System <assembly_system>
    Manufacturing Post-Processing <manufacturing_postprocessing>
    Project Packaging <ycpkg_spec>
+   Package Product Definition Proposal <ycpkg_product_definition>
    Geometry JSON Schema <geometry_json_schema>
    Metadata Namespace <metadata_namespace>
    Validation Schema <validation_schema>

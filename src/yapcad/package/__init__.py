@@ -5,8 +5,10 @@ from __future__ import annotations
 from .core import (
     MANIFEST_FILENAME,
     PACKAGE_SCHEMA,
+    ASSEMBLY_PACKAGE_SCHEMA,
     PackageManifest,
     create_package_from_entities,
+    create_package_from_assembly,
     add_geometry_file,
     load_geometry,
 )
@@ -42,9 +44,11 @@ def view_package(package_path, *, strict: bool = False):
 
 __all__ = [
     "PACKAGE_SCHEMA",
+    "ASSEMBLY_PACKAGE_SCHEMA",
     "MANIFEST_FILENAME",
     "PackageManifest",
     "create_package_from_entities",
+    "create_package_from_assembly",
     "add_geometry_file",
     "load_geometry",
     "validate_package",

@@ -3825,6 +3825,22 @@ class BuiltinRegistry:
             material = meta.get("material")
             if isinstance(material, str) and material:
                 part_def.material = material
+            component = meta.get("component")
+            if isinstance(component, dict):
+                part_def.component_id = component.get("id") or instance_name
+                part_def.component_name = component.get("name")
+                part_def.description = component.get("description", "")
+                part_def.disposition = component.get("disposition", "make")
+                part_def.part_number = component.get("part_number")
+                part_def.revision = component.get("revision")
+                part_def.quantity_per_instance = float(component.get("quantity", 1.0))
+                part_def.unit = component.get("unit", "each")
+            else:
+                part_def.component_id = instance_name
+            for namespace in ("manufacturing", "procurement", "pmi"):
+                section = meta.get(namespace)
+                if isinstance(section, dict):
+                    setattr(part_def, namespace, dict(section))
             return part_def
 
         # --- Builtin impls ---
@@ -3951,7 +3967,10 @@ class BuiltinRegistry:
                     "solve the assembly before creating assembly geometry",
                     assembly_name=asm.data.name,
                 )
-            return solid_val(asm.data.compound_geometry())
+            return solid_val(
+                asm.data.compound_geometry(),
+                annotations={"assembly": asm.data},
+            )
 
         def _validate_assembly(asm: Value) -> Value:
             """Validate the assembly. Returns True iff there are no errors.

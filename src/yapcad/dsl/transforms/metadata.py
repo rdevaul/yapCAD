@@ -93,10 +93,13 @@ _ASSEMBLY_RING_KINDS = {"axial", "radial", "mixed", "none"}
 _BOLT_RING_KINDS = {"axial", "radial"}
 
 # Top-level (root) fields that are allowed without a namespace prefix
-_ROOT_FIELDS = {"layer", "tags"}
+_ROOT_FIELDS = {"layer", "tags", "material"}
 
 # All known namespace prefixes
-_KNOWN_NAMESPACES = {"assembly", "operation"}
+_KNOWN_NAMESPACES = {
+    "assembly", "operation", "component", "manufacturing",
+    "procurement", "pmi",
+}
 
 # Assembly scalar fields (forwarded to set_assembly)
 _ASSEMBLY_SCALARS = {"joint_kind", "no_cut"}
@@ -405,6 +408,8 @@ class MetadataTransform(AstTransform):
                         normalised[key] = _validate_operation_field(
                             hint, field, value, cmd_diags, cmd.name, cmd.span
                         )
+                    elif namespace in {"component", "manufacturing", "procurement", "pmi"}:
+                        normalised[key] = value
                     else:
                         # Unknown namespace — warn and store verbatim
                         cmd_diags.append(MetaDiagnostic(
