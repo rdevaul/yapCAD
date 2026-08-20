@@ -13,6 +13,10 @@ from .core import (
     load_geometry,
 )
 from .validator import validate_package
+from .manufacturing import (
+    SUPPORTED_COMPONENT_EXPORTS,
+    export_component_artifacts,
+)
 from .analysis import (
     AnalysisAdapter,
     AnalysisPlan,
@@ -52,6 +56,8 @@ __all__ = [
     "add_geometry_file",
     "load_geometry",
     "validate_package",
+    "SUPPORTED_COMPONENT_EXPORTS",
+    "export_component_artifacts",
     "AnalysisAdapter",
     "AnalysisPlan",
     "AnalysisResult",

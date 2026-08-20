@@ -32,6 +32,89 @@ def write_stl(obj: Sequence, path_or_file, *, binary: bool = True, name: str = '
         _write_ascii(triangles, path_or_file, name)
 
 
+def write_stl_brep(obj: Sequence,
+                   path: str,
+                   *,
+                   linear_deflection: float = 0.1,
+                   angular_deflection: float = 0.5,
+                   fallback_to_mesh: bool = True,
+                   validate_watertight: bool = False) -> bool:
+    """Export STL by tessellating the authoritative OCC BREP.
+
+    Returns ``True`` when OCC BREP tessellation was used and ``False`` when
+    the portable display-mesh writer was used as a fallback. Manufacturing
+    workflows should pass ``fallback_to_mesh=False``.
+    """
+    try:
+        from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
+        from OCC.Core.StlAPI import StlAPI_Writer
+        from yapcad.io.step import _get_occ_shape_from_obj
+    except ImportError:
+        if fallback_to_mesh:
+            write_stl(obj, path)
+            return False
+        raise RuntimeError('pythonocc-core is required for BREP STL export')
+
+    shape = _get_occ_shape_from_obj(obj)
+    if shape is None:
+        if fallback_to_mesh:
+            write_stl(obj, path)
+            return False
+        raise ValueError('Object has no native BREP data for BREP STL export')
+
+    mesher = BRepMesh_IncrementalMesh(
+        shape,
+        float(linear_deflection),
+        False,
+        float(angular_deflection),
+        True,
+    )
+    mesher.Perform()
+    if not mesher.IsDone():
+        if fallback_to_mesh:
+            write_stl(obj, path)
+            return False
+        raise RuntimeError('OCC failed to tessellate BREP for STL export')
+
+    writer = StlAPI_Writer()
+    status = writer.Write(shape, str(path))
+    if status is False:
+        if fallback_to_mesh:
+            write_stl(obj, path)
+            return False
+        raise RuntimeError('OCC failed to write STL file')
+    if validate_watertight:
+        try:
+            _clean_and_validate_stl(path)
+        except Exception:
+            if os.path.exists(path):
+                os.remove(path)
+            raise
+    return True
+
+
+def _clean_and_validate_stl(path: str) -> None:
+    """Remove OCC's zero-area facets and require a closed printable mesh."""
+    try:
+        import trimesh
+    except ImportError as exc:
+        raise RuntimeError(
+            'trimesh is required for strict STL validation; install yapCAD[meshcheck]'
+        ) from exc
+
+    mesh = trimesh.load_mesh(path, process=True)
+    if isinstance(mesh, trimesh.Scene):
+        mesh = trimesh.util.concatenate(tuple(mesh.geometry.values()))
+    mesh.update_faces(mesh.nondegenerate_faces())
+    mesh.remove_unreferenced_vertices()
+    if not mesh.is_watertight:
+        broken = len(trimesh.repair.broken_faces(mesh))
+        raise ValueError(
+            f'STL mesh is not watertight after cleanup ({broken} broken faces)'
+        )
+    mesh.export(path, file_type='stl')
+
+
 def _write_binary(triangles: Iterable[Triangle], path_or_file, name: str) -> None:
     close_when_done = False
     if hasattr(path_or_file, 'write'):
@@ -361,4 +444,7 @@ def write_stl_with_meta(
         return None
 
 
-__all__ = ['write_stl', 'read_stl', 'import_stl', 'write_stl_with_meta']
+__all__ = [
+    'write_stl', 'write_stl_brep', 'read_stl', 'import_stl',
+    'write_stl_with_meta',
+]

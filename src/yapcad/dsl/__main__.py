@@ -195,6 +195,7 @@ def cmd_run(args):
             name=args.name or args.command.lower(),
             version=args.version or "1.0.0",
             description=args.description,
+            component_exports=args.component_export,
             overwrite=args.force,
         )
 
@@ -283,9 +284,13 @@ def cmd_run(args):
 
             if suffix == '.step' or suffix == '.stp':
                 step_format = os.environ.get('YAPCAD_STEP_FORMAT', 'faceted').lower()
-                if step_format == 'analytic':
+                if step_format == 'analytic' or args.strict_step:
                     from yapcad.io.step import write_step_analytic
-                    analytic_ok = write_step_analytic(solid, str(output_path))
+                    analytic_ok = write_step_analytic(
+                        solid,
+                        str(output_path),
+                        fallback_to_faceted=not args.strict_step,
+                    )
                     if analytic_ok:
                         print(f"Exported to: {output_path} (analytic BREP)")
                     else:
@@ -295,9 +300,15 @@ def cmd_run(args):
                     write_step(solid, str(output_path))
                     print(f"Exported to: {output_path}")
             elif suffix == '.stl':
-                from yapcad.io import write_stl
-                write_stl(solid, str(output_path))
-                print(f"Exported to: {output_path}")
+                from yapcad.io import write_stl_brep
+                used_brep = write_stl_brep(
+                    solid,
+                    str(output_path),
+                    fallback_to_mesh=not args.strict_stl,
+                    validate_watertight=args.strict_stl,
+                )
+                detail = "BREP tessellation" if used_brep else "display-mesh fallback"
+                print(f"Exported to: {output_path} ({detail})")
 
         else:
             print(f"Warning: Unknown output format: {suffix}", file=sys.stderr)
@@ -334,6 +345,18 @@ def main():
     run_parser.add_argument('--name', help='Package name (for --package)')
     run_parser.add_argument('--version', default='1.0.0', help='Package version')
     run_parser.add_argument('--description', help='Package description')
+    run_parser.add_argument(
+        '--component-export', action='append', choices=('stl', 'step'),
+        help='Export each fabricated component in local coordinates; repeat for both formats',
+    )
+    run_parser.add_argument(
+        '--strict-step', action='store_true',
+        help='Require analytic BREP for STEP output; never fall back to faceted STEP',
+    )
+    run_parser.add_argument(
+        '--strict-stl', action='store_true',
+        help='Require OCC BREP tessellation for STL output; never use the display mesh',
+    )
     run_parser.add_argument('-f', '--force', action='store_true',
                           help='Overwrite existing output')
     run_parser.add_argument('--recursion-limit', type=int, metavar='N',

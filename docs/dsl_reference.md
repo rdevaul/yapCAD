@@ -1339,6 +1339,12 @@ geometry used by existing viewers. Entity-only commands continue to produce
 `ycpkg-spec-v0.1` packages. STEP files can be generated with the package export
 tool and registered under `exports`.
 
+For an assembly package, repeat `--component-export stl` and
+`--component-export step` to create one component-local manufacturing model per
+unique fabricated component. Component STEP export requires analytic BREP. For
+a direct STEP output, add `--strict-step` to reject faceted fallback explicitly;
+use `--strict-stl` to reject display-mesh STL fallback.
+
 ```bash
 # Create a package with full provenance
 python -m yapcad.dsl run design.dsl MAKE_PART --package output.ycpkg

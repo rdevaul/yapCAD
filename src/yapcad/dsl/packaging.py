@@ -7,7 +7,7 @@ the resulting geometry with full provenance tracking.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, Optional, TYPE_CHECKING
+from typing import Any, Dict, Optional, Sequence, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from yapcad.package import PackageManifest
@@ -27,6 +27,9 @@ def package_from_dsl(
     author: Optional[str] = None,
     units: Optional[str] = None,
     materials: Optional[Dict[str, Dict[str, Any]]] = None,
+    component_exports: Optional[Sequence[str]] = None,
+    strict_component_step: bool = True,
+    strict_component_stl: bool = True,
     overwrite: bool = False,
 ) -> "PackageResult":
     """Compile DSL source, execute a command, and package the result.
@@ -46,6 +49,10 @@ def package_from_dsl(
         author: Optional author name.
         units: Unit system (default "mm").
         materials: Optional materials dictionary for the package.
+        component_exports: Optional component-local formats (``stl``, ``step``)
+            generated for fabricated components in assembly-aware packages.
+        strict_component_step: Require analytic BREP for component STEP files.
+        strict_component_stl: Require OCC BREP tessellation for component STL.
         overwrite: If True, overwrite existing package directory.
 
     Returns:
@@ -75,6 +82,7 @@ def package_from_dsl(
     from yapcad.package import (
         create_package_from_assembly,
         create_package_from_entities,
+        export_component_artifacts,
         PackageManifest,
     )
     from yapcad.geom3d import issolid, issurface
@@ -150,7 +158,20 @@ def package_from_dsl(
                 generator=generator,
                 overwrite=overwrite,
             )
+            if component_exports:
+                export_component_artifacts(
+                    retained_assembly,
+                    manifest,
+                    formats=component_exports,
+                    strict_step=strict_component_step,
+                    strict_stl=strict_component_stl,
+                    overwrite=overwrite,
+                )
         else:
+            if component_exports:
+                raise ValueError(
+                    "component exports require a command that emits assembly_compound()"
+                )
             manifest = create_package_from_entities(
                 entities,
                 target_path,
