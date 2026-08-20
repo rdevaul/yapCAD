@@ -85,7 +85,7 @@ High-level structure:
       primary:
         path: geometry/primary.json
         hash: sha256:…
-        schema: yapcad-geometry-json-v0.1
+        schema: yapcad-geometry-json-v0.2
         entities: ["solid-main", "surface-top"]
         # Each entity's metadata.layer encodes the logical drawing layer (default "default").
         # Sketch entries now capture both sampled polylines and ``primitives``

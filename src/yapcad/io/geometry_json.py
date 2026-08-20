@@ -5,6 +5,10 @@ Implements the draft schema described in ``docs/geometry_json_schema.md``.
 
 from __future__ import annotations
 
+import base64
+from copy import deepcopy
+import hashlib
+import math
 import uuid
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Sequence
 
@@ -28,7 +32,7 @@ from yapcad.geom import (
     sample,
 )
 from yapcad.geom3d import issolid, issurface, solidbbox, surfacebbox
-from yapcad.brep import brep_from_solid
+from yapcad.brep import brep_from_solid, occ_available
 from yapcad.metadata import (
     get_solid_metadata,
     get_surface_metadata,
@@ -38,7 +42,94 @@ from yapcad.metadata import (
     set_surface_metadata,
     set_layer,
 )
-SCHEMA_ID = "yapcad-geometry-json-v0.1"
+LEGACY_SCHEMA_ID = "yapcad-geometry-json-v0.1"
+SCHEMA_ID = "yapcad-geometry-json-v0.2"
+SUPPORTED_SCHEMA_IDS = frozenset({LEGACY_SCHEMA_ID, SCHEMA_ID})
+
+
+def _kernel_record(legacy_brep: Dict[str, Any]) -> Dict[str, str]:
+    kernel = legacy_brep.get("kernel")
+    if isinstance(kernel, dict) and kernel.get("name"):
+        if kernel["name"] != "OpenCASCADE":
+            raise ValueError(
+                f"unsupported BREP kernel: {kernel['name']!r}"
+            )
+        return {
+            "name": "OpenCASCADE",
+            "version": str(kernel.get("version", "unknown")),
+        }
+    version = "unknown"
+    try:  # pragma: no cover - version availability varies by OCC packaging
+        import OCC
+        version = str(getattr(OCC, "VERSION", version))
+    except ImportError:
+        pass
+    return {"name": "OpenCASCADE", "version": version}
+
+
+def _explicit_brep_record(legacy_brep: Dict[str, Any]) -> Dict[str, Any]:
+    if legacy_brep.get("encoding") != "brep-ascii-base64":
+        raise ValueError(
+            f"unsupported legacy BREP encoding: {legacy_brep.get('encoding')!r}"
+        )
+    encoded = legacy_brep.get("data")
+    if not isinstance(encoded, str) or not encoded:
+        raise ValueError("BREP payload must be a non-empty base64 string")
+    try:
+        payload = base64.b64decode(encoded, validate=True)
+    except Exception as exc:
+        raise ValueError("BREP payload is not valid base64") from exc
+    record: Dict[str, Any] = {
+        "role": "authoritative",
+        "format": "opencascade-brep",
+        "encoding": "base64",
+        "payload": encoded,
+        "hash": "sha256:" + hashlib.sha256(payload).hexdigest(),
+        "kernel": _kernel_record(legacy_brep),
+    }
+    if legacy_brep.get("modelTolerance") is not None:
+        tolerance = float(legacy_brep["modelTolerance"])
+        if not math.isfinite(tolerance) or tolerance <= 0:
+            raise ValueError("BREP modelTolerance must be finite and positive")
+        record["modelTolerance"] = tolerance
+    return record
+
+
+def _legacy_brep_record(explicit: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(explicit, dict):
+        raise ValueError("BREP representation must be an object")
+    if explicit.get("format") != "opencascade-brep":
+        raise ValueError(f"unsupported BREP format: {explicit.get('format')!r}")
+    if explicit.get("encoding") != "base64":
+        raise ValueError(f"unsupported BREP encoding: {explicit.get('encoding')!r}")
+    if explicit.get("role") != "authoritative":
+        raise ValueError("BREP representation role must be 'authoritative'")
+    kernel = explicit.get("kernel")
+    if not isinstance(kernel, dict) or kernel.get("name") != "OpenCASCADE":
+        raise ValueError("BREP representation requires an OpenCASCADE kernel record")
+    encoded = explicit.get("payload")
+    if not isinstance(encoded, str) or not encoded:
+        raise ValueError("BREP payload must be a non-empty base64 string")
+    try:
+        payload = base64.b64decode(encoded, validate=True)
+    except Exception as exc:
+        raise ValueError("BREP payload is not valid base64") from exc
+    expected = explicit.get("hash")
+    actual = "sha256:" + hashlib.sha256(payload).hexdigest()
+    if expected != actual:
+        raise ValueError(f"BREP payload hash mismatch: expected {expected!r}, got {actual}")
+    legacy: Dict[str, Any] = {
+        "encoding": "brep-ascii-base64",
+        "data": encoded,
+        "hash": actual,
+        "kernel": deepcopy(kernel),
+    }
+    if explicit.get("modelTolerance") is not None:
+        tolerance = float(explicit["modelTolerance"])
+        if not math.isfinite(tolerance) or tolerance <= 0:
+            raise ValueError("BREP modelTolerance must be finite and positive")
+        legacy["modelTolerance"] = tolerance
+    return legacy
 
 
 def _float_vec(vec: Iterable[float]) -> List[float]:
@@ -186,15 +277,28 @@ def _serialize_solid(solid: list, surface_cache: Dict[str, Dict[str, Any]], meta
         else:
             metadata["layer"] = "default"
 
+    metadata_record = deepcopy(metadata)
+    legacy_brep = metadata_record.pop("brep", None)
+    representations: Dict[str, Any] = {
+        "authoritative": "brep" if legacy_brep else "mesh",
+        "mesh": {
+            "format": "indexed-triangle-set",
+            "role": "preview" if legacy_brep else "authoritative",
+        },
+    }
+    if legacy_brep:
+        representations["brep"] = _explicit_brep_record(legacy_brep)
+
     return {
         "id": metadata.get("entityId", solid_id),
         "type": "solid",
         "name": metadata.get("name"),
-        "metadata": metadata,
+        "metadata": metadata_record,
         "boundingBox": bbox,
         "properties": {},
         "shell": shell_ids,
         "voids": voids,
+        "representations": representations,
     }
 
 
@@ -409,7 +513,8 @@ def _rehydrate_surface(entry: Dict[str, Any]) -> list:
 
 def geometry_from_json(doc: Dict[str, Any]) -> List[list]:
     """Deserialize geometry JSON into yapCAD list structures."""
-    if doc.get("schema") != SCHEMA_ID:
+    schema = doc.get("schema")
+    if schema not in SUPPORTED_SCHEMA_IDS:
         raise ValueError(f"unsupported geometry schema: {doc.get('schema')}")
 
     entries_by_id: Dict[str, Dict[str, Any]] = {}
@@ -457,10 +562,43 @@ def geometry_from_json(doc: Dict[str, Any]) -> List[list]:
             voids.append(void_surfaces)
 
         solid = ['solid', shell_surfaces, voids, []]
-        metadata = entry.get("metadata")
+        metadata = deepcopy(entry.get("metadata") or {})
+        if schema == SCHEMA_ID:
+            representations = entry.get("representations")
+            if not isinstance(representations, dict):
+                raise ValueError(f"solid {entry['id']} missing representations")
+            authoritative = representations.get("authoritative")
+            if authoritative not in {"brep", "mesh"}:
+                raise ValueError(
+                    f"solid {entry['id']} has invalid authoritative representation"
+                )
+            mesh_record = representations.get("mesh")
+            if not isinstance(mesh_record, dict):
+                raise ValueError(f"solid {entry['id']} missing mesh representation")
+            if mesh_record.get("format") != "indexed-triangle-set":
+                raise ValueError(f"solid {entry['id']} has invalid mesh format")
+            expected_mesh_role = "preview" if authoritative == "brep" else "authoritative"
+            if mesh_record.get("role") != expected_mesh_role:
+                raise ValueError(
+                    f"solid {entry['id']} mesh role must be {expected_mesh_role!r}"
+                )
+            if authoritative == "brep":
+                if "brep" not in representations:
+                    raise ValueError(f"solid {entry['id']} missing BREP representation")
+                metadata["brep"] = _legacy_brep_record(representations["brep"])
+            elif "brep" in representations:
+                raise ValueError(
+                    f"solid {entry['id']} contains non-authoritative BREP representation"
+                )
         if metadata:
             set_solid_metadata(solid, metadata)
-        brep_from_solid(solid)
+        restored_brep = brep_from_solid(solid, refresh=(schema == SCHEMA_ID))
+        if schema == SCHEMA_ID and metadata.get("brep") and occ_available():
+            if restored_brep is None:
+                raise ValueError(f"solid {entry['id']} BREP payload could not be loaded")
+            from OCC.Core.BRepCheck import BRepCheck_Analyzer
+            if not BRepCheck_Analyzer(restored_brep.shape).IsValid():
+                raise ValueError(f"solid {entry['id']} BREP topology is invalid")
         solids.append(solid)
 
     if solids:
@@ -577,6 +715,8 @@ def geometry_from_json(doc: Dict[str, Any]) -> List[list]:
 
 __all__ = [
     "SCHEMA_ID",
+    "LEGACY_SCHEMA_ID",
+    "SUPPORTED_SCHEMA_IDS",
     "geometry_to_json",
     "geometry_from_json",
 ]

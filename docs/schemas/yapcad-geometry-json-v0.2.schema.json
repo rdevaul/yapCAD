@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yapcad.readthedocs.io/schemas/yapcad-geometry-json-v0.2.schema.json",
+  "title": "yapCAD Geometry JSON v0.2",
+  "type": "object",
+  "required": ["schema", "entities"],
+  "properties": {
+    "schema": {"const": "yapcad-geometry-json-v0.2"},
+    "units": {"type": "string"},
+    "generator": {"type": "object"},
+    "relationships": {"type": "array", "items": {"type": "object"}},
+    "attachments": {"type": "array", "items": {"type": "object"}},
+    "entities": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/entity"}
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "entity": {
+      "oneOf": [
+        {"$ref": "#/$defs/solid"},
+        {"$ref": "#/$defs/surface"},
+        {"$ref": "#/$defs/sketch"}
+      ]
+    },
+    "common": {
+      "type": "object",
+      "required": ["id", "type", "metadata"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "type": {"type": "string"},
+        "name": {"type": ["string", "null"]},
+        "metadata": {"type": "object"},
+        "boundingBox": {
+          "type": ["array", "null"],
+          "items": {"type": "number"},
+          "minItems": 4,
+          "maxItems": 6
+        },
+        "properties": {"type": "object"}
+      }
+    },
+    "solid": {
+      "allOf": [
+        {"$ref": "#/$defs/common"},
+        {
+          "type": "object",
+          "required": ["shell", "voids", "representations"],
+          "properties": {
+            "type": {"const": "solid"},
+            "shell": {"type": "array", "items": {"type": "string"}},
+            "voids": {
+              "type": "array",
+              "items": {"type": "array", "items": {"type": "string"}}
+            },
+            "representations": {"$ref": "#/$defs/representations"}
+          }
+        }
+      ]
+    },
+    "representations": {
+      "type": "object",
+      "required": ["authoritative", "mesh"],
+      "properties": {
+        "authoritative": {"enum": ["brep", "mesh"]},
+        "mesh": {
+          "type": "object",
+          "required": ["format", "role"],
+          "properties": {
+            "format": {"const": "indexed-triangle-set"},
+            "role": {"enum": ["authoritative", "preview"]}
+          }
+        },
+        "brep": {"$ref": "#/$defs/brep"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"authoritative": {"const": "brep"}}},
+          "then": {"required": ["brep"]},
+          "else": {"not": {"required": ["brep"]}}
+        }
+      ]
+    },
+    "brep": {
+      "type": "object",
+      "required": ["role", "format", "encoding", "payload", "hash", "kernel"],
+      "properties": {
+        "role": {"const": "authoritative"},
+        "format": {"const": "opencascade-brep"},
+        "encoding": {"const": "base64"},
+        "payload": {"type": "string", "minLength": 1},
+        "hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "kernel": {
+          "type": "object",
+          "required": ["name"],
+          "properties": {
+            "name": {"const": "OpenCASCADE"},
+            "version": {"type": "string"}
+          }
+        },
+        "modelTolerance": {"type": "number", "exclusiveMinimum": 0}
+      }
+    },
+    "surface": {
+      "allOf": [
+        {"$ref": "#/$defs/common"},
+        {
+          "type": "object",
+          "required": ["vertices", "normals", "faces"],
+          "properties": {
+            "type": {"const": "surface"},
+            "vertices": {"type": "array"},
+            "normals": {"type": "array"},
+            "faces": {"type": "array"}
+          }
+        }
+      ]
+    },
+    "sketch": {
+      "allOf": [
+        {"$ref": "#/$defs/common"},
+        {
+          "type": "object",
+          "properties": {
+            "type": {"const": "sketch"},
+            "polylines": {"type": "array"},
+            "primitives": {"type": "array"}
+          }
+        }
+      ]
+    }
+  }
+}

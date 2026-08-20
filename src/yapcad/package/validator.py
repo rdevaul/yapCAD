@@ -138,6 +138,11 @@ def validate_package(path: Path | str, *, strict: bool = False) -> Tuple[bool, L
         try:
             with primary_path.open("r", encoding="utf-8") as fp:
                 doc = json.load(fp)
+            declared_schema = data.get("geometry", {}).get("primary", {}).get("schema")
+            if declared_schema and declared_schema != doc.get("schema"):
+                raise ValueError(
+                    f"manifest declares {declared_schema!r}, document is {doc.get('schema')!r}"
+                )
             geometry_from_json(doc)
         except Exception as exc:
             messages.append(f"ERROR: invalid geometry JSON: {exc}")
@@ -222,11 +227,44 @@ def _validate_product_definition(
             ok = False
         geometry = component.get("geometry")
         if geometry:
+            component_geometry_path = manifest.root / geometry["path"]
             geometry_ok, geometry_messages = _check_file(
-                manifest.root / geometry["path"], geometry.get("hash")
+                component_geometry_path, geometry.get("hash")
             )
             messages.extend(geometry_messages)
             ok = ok and geometry_ok
+            if geometry_ok:
+                try:
+                    component_geometry = json.loads(
+                        component_geometry_path.read_text(encoding="utf-8")
+                    )
+                    declared_schema = geometry.get("schema")
+                    if (declared_schema and
+                            declared_schema != component_geometry.get("schema")):
+                        raise ValueError(
+                            f"manifest declares {declared_schema!r}, document is "
+                            f"{component_geometry.get('schema')!r}"
+                        )
+                    geometry_from_json(component_geometry)
+                    if strict and disposition == "make":
+                        solids = [
+                            entry for entry in component_geometry.get("entities", [])
+                            if entry.get("type") == "solid"
+                        ]
+                        if solids and any(
+                            (entry.get("representations") or {}).get("authoritative")
+                            != "brep"
+                            for entry in solids
+                        ):
+                            messages.append(
+                                f"WARNING: make component '{component_id}' has no "
+                                "authoritative BREP representation"
+                            )
+                except Exception as exc:
+                    messages.append(
+                        f"ERROR: component '{component_id}' has invalid geometry JSON: {exc}"
+                    )
+                    ok = False
         elif disposition == "make":
             messages.append(f"ERROR: make component '{component_id}' has no geometry")
             ok = False

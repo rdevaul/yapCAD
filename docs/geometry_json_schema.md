@@ -1,7 +1,7 @@
 # yapCAD Geometry JSON Schema
 
-**Schema ID:** `yapcad-geometry-json-v1.0`
-**Status:** Stable – yapCAD 1.0  
+**Schema ID:** `yapcad-geometry-json-v0.2`
+**Status:** Implemented draft
 **Purpose:** Serialise yapCAD solids, surfaces, assemblies, and associated metadata into a portable JSON document for storage, interchange, or inclusion in `.ycpkg` packages.
 
 ---
@@ -10,7 +10,7 @@
 
 ```json5
 {
-  "schema": "yapcad-geometry-json-v0.1",
+  "schema": "yapcad-geometry-json-v0.2",
   "generator": {
     "name": "yapCAD",
     "version": "0.6.1",
@@ -50,6 +50,7 @@ Each entity is a JSON object with the following common fields:
 | `metadata`     | object   | Metadata dictionary conforming to `metadata_namespace.rst`. |
 | `boundingBox`  | number[] | `[xmin, ymin, zmin, xmax, ymax, zmax]` in document units. |
 | `properties`   | object   | Derived properties (volume, area). |
+| `representations` | object | Solid authority and available BREP/mesh forms. |
 
 Each entity's `metadata` block MUST include the root fields from `metadata_namespace.rst`, including `layer` (defaulting to `"default"`). Serialisers SHOULD propagate layer assignments for solids down to child surfaces and sketches so that viewers can offer layer-based visibility controls.
 
@@ -72,24 +73,41 @@ Each entity's `metadata` block MUST include the root fields from `metadata_names
 }
 ```
 
-When a solid originates from an analytic OCC BREP, the serializer stores a
-base64-encoded `.brep` payload inside `metadata.brep`:
+Version 0.2 separates geometry representation from descriptive metadata. When
+a solid originates from an analytic OCC BREP, that BREP is authoritative and
+the indexed triangle shell is only a portable preview:
 
 ```json5
-"metadata": {
-  "entityId": "...",
-  "layer": "default",
+"representations": {
+  "authoritative": "brep",
+  "mesh": {
+    "format": "indexed-triangle-set",
+    "role": "preview"
+  },
   "brep": {
-    "encoding": "brep-ascii-base64",
-    "data": "R0hJTy4uLg=="
+    "role": "authoritative",
+    "format": "opencascade-brep",
+    "encoding": "base64",
+    "payload": "R0hJTy4uLg==",
+    "hash": "sha256:...",
+    "kernel": {
+      "name": "OpenCASCADE",
+      "version": "7.8.1"
+    },
+    "modelTolerance": 1e-7
   }
 }
 ```
 
-Importers should decode this blob and cache the resulting `TopoDS_Shape` so OCC
-booleans can operate without tessellation loss. Consumers that do not understand
-the `brep` block may safely ignore it—the faceted shell/void surfaces remain
-present for backwards compatibility.
+The hash covers the decoded BREP bytes. Importers MUST verify it before kernel
+loading. OCC-enabled yapCAD additionally requires successful rehydration and a
+valid topology. Consumers without OCC can still verify the payload and use the
+preview mesh. A mesh-only solid instead declares ``authoritative: "mesh"`` and
+uses ``role: "authoritative"`` on its mesh record.
+
+The BREP block is not duplicated under ``metadata``. The optional
+``modelTolerance`` is expressed in document units and, when present, must be
+finite and positive.
 
 ### 2.2 Surfaces (`type: "surface"`)
 
@@ -179,7 +197,11 @@ Attachment entries register external artefacts alongside hashes for integrity.
 2. Homogeneous coordinates still use yapCAD convention (`w=1` for points, `w=0` for vectors).
 3. Vertex indices are zero-based.
 4. The root document MAY contain multiple solids or groups; exporters should topologically sort for dependency-free reconstruction.
-5. Unknown fields MUST be preserved on round-trip (forward compatibility).
+5. Document-level migrators SHOULD preserve unknown fields for forward
+   compatibility. Geometry loaders MAY ignore fields they do not understand.
+6. BREP payload hashes MUST be checked even when OpenCASCADE is unavailable.
+7. Exporters MUST derive STEP and manufacturing STL from authoritative BREP
+   when one is present; the preview mesh is not a manufacturing source.
 
 ---
 
@@ -187,14 +209,26 @@ Attachment entries register external artefacts alongside hashes for integrity.
 
 - **Geometry export**: implement `to_geometry_json(entity)` that walks solids, surfaces, metadata and writes this schema.
 - **Import**: validate `schema` version, then rebuild yapCAD list structures; reattach metadata via helper functions.
-- **Manifest use**: `.ycpkg` manifests can reference geometry JSON by path and include matching hashes.
+- **Manifest use**: `.ycpkg` manifests reference geometry JSON by path and hash.
+  The JSON then authenticates its decoded BREP payload independently.
 - **Streaming**: allow chunked outputs by splitting `entities` across files and referencing them via `attachments` or manifest entries.
 
 ---
 
-## 7. Future Enhancements
+## 7. Compatibility
 
-- Formal JSON Schema / Pydantic definitions.
+Readers accept ``yapcad-geometry-json-v0.1`` documents. Their historical
+``metadata.brep`` payload is rehydrated when available. Writers always emit
+v0.2 and never place new BREP data in generic metadata. Older readers can use a
+derived preview/export but are not expected to understand v0.2 documents.
+
+The machine-readable schema is
+``docs/schemas/yapcad-geometry-json-v0.2.schema.json``.
+
+---
+
+## 8. Future Enhancements
+
 - Compression guidelines (e.g. `.json.zst`).
 - Support for parametric feature history (link to DSL once available).
 - Extend relationships to cover constraint solving results and tolerance stacks.

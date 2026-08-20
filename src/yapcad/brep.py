@@ -138,8 +138,13 @@ def attach_brep_to_solid(solid: list, brep: "BrepSolid") -> None:
     _BREP_SOLID_CACHE[solid_id] = brep
 
 
-def brep_from_solid(solid: list) -> Optional["BrepSolid"]:
-    """Return the cached BrepSolid for ``solid`` if metadata is present."""
+def brep_from_solid(solid: list, *, refresh: bool = False) -> Optional["BrepSolid"]:
+    """Return the BrepSolid stored in ``solid`` metadata.
+
+    Set ``refresh`` when loading an interchange document so the serialized
+    payload is decoded instead of reusing a process-local cache entry that
+    happens to share the same entity ID.
+    """
     if not occ_available():
         return None
     meta = get_solid_metadata(solid, create=False)
@@ -148,6 +153,8 @@ def brep_from_solid(solid: list) -> Optional["BrepSolid"]:
     solid_id = meta.get("entityId")
     if not solid_id:
         return None
+    if refresh:
+        _BREP_SOLID_CACHE.pop(solid_id, None)
     cached = _BREP_SOLID_CACHE.get(solid_id)
     if cached:
         return cached
