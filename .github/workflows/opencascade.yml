@@ -1,0 +1,54 @@
+name: OpenCASCADE
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: occ-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  occ:
+    name: Python 3.12 / OCC 7.7.2
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install OpenGL runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1 libglu1-mesa libxrender1
+
+      - name: Create OpenCASCADE environment
+        uses: mamba-org/setup-micromamba@v3
+        with:
+          environment-file: environment-ci-occ.yml
+          init-shell: none
+          cache-environment: true
+          cache-environment-key: occ-${{ runner.os }}-${{ hashFiles('environment-ci-occ.yml', 'pyproject.toml') }}
+          post-cleanup: all
+
+      - name: Verify OpenCASCADE
+        shell: micromamba-shell {0}
+        run: |
+          python -c "import yapcad; assert yapcad.has_brep()"
+          python -c "from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeBox; assert not BRepPrimAPI_MakeBox(1, 1, 1).Shape().IsNull()"
+
+      - name: Run OCC-enabled tests
+        shell: micromamba-shell {0}
+        env:
+          VISUALTEST: "false"
+        run: |
+          pytest tests/ -m "not visual"
+	  

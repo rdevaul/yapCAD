@@ -1,0 +1,11 @@
+name: yapcad-ci-occ
+
+channels:
+  - conda-forge
+
+dependencies:
+  - python=3.12
+  - pythonocc-core=7.7.2
+  - pip
+  - pip:
+      - -e .[tests]
