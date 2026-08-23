@@ -3687,7 +3687,7 @@ class BuiltinRegistry:
             DatumType,
             PartDefinition,
         )
-        from yapcad.assembly.mate import Mate, MateType
+        from yapcad.assembly.mate import Mate, MateLimits, MateType
         from yapcad.metadata import (
             get_solid_metadata,
             get_assembly_metadata,
@@ -3924,6 +3924,33 @@ class BuiltinRegistry:
             asm.data.set_joint_position(str(mate_name.data), float(value.data))
             return asm
 
+        def _set_mate_limits(
+            asm: Value, mate_name: Value, min_value: Value, max_value: Value,
+        ) -> Value:
+            """Set inclusive revolute position limits in radians."""
+            name = str(mate_name.data)
+            minimum = float(min_value.data)
+            maximum = float(max_value.data)
+            if not math.isfinite(minimum) or not math.isfinite(maximum):
+                raise ValueError("set_mate_limits: limits must be finite")
+            if minimum > maximum:
+                raise ValueError(
+                    "set_mate_limits: minimum must be less than or equal to maximum"
+                )
+            matches = [mate for mate in asm.data.mates if mate.name == name]
+            if not matches:
+                raise AssemblyError(
+                    f"Mate '{name}' not found", assembly_name=asm.data.name,
+                )
+            mate = matches[0]
+            if mate.mate_type != MateType.REVOLUTE:
+                raise AssemblyError(
+                    f"Mate '{name}' is {mate.mate_type.value}, not revolute",
+                    assembly_name=asm.data.name,
+                )
+            mate.limits = MateLimits(min_value=minimum, max_value=maximum)
+            return asm
+
         def _add_joint_coupling(
             asm: Value, name: Value, dependent_joint: Value,
             driver_joints: Value, coefficients: Value, offset: Value,
@@ -4043,6 +4070,13 @@ class BuiltinRegistry:
                 "set_joint_position", [ASSEMBLY, STRING, FLOAT], ASSEMBLY,
             ),
             _set_joint_position,
+        ))
+        self.register(BuiltinFunction(
+            "set_mate_limits",
+            _make_sig(
+                "set_mate_limits", [ASSEMBLY, STRING, FLOAT, FLOAT], ASSEMBLY,
+            ),
+            _set_mate_limits,
         ))
         self.register(BuiltinFunction(
             "add_joint_coupling",

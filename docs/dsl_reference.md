@@ -1284,6 +1284,7 @@ add_part(mechanism, base, "base")
 add_part(mechanism, rocker, "rocker")
 add_named_mate(mechanism, "rocker_pivot", "revolute",
                "base", "pivot", "rocker", "root_axis")
+set_mate_limits(mechanism, "rocker_pivot", -0.785398, 0.785398)
 add_named_mate(mechanism, "right_rocker_pivot", "revolute",
                "base", "right_pivot", "right_rocker", "root_axis")
 add_joint_coupling(mechanism, "rocker_differential",
@@ -1303,6 +1304,7 @@ Assembly builtins:
 | `add_named_mate(asm, name, kind, part_a, datum_a, part_b, datum_b)` | `assembly` | Add a stable, pose-addressable mate |
 | `solve_assembly(asm, root_part)` | `assembly` | Solve a rooted rigid/revolute placement tree |
 | `set_joint_position(asm, mate_name, value)` | `assembly` | Set an absolute revolute position in radians and re-solve |
+| `set_mate_limits(asm, mate_name, min_value, max_value)` | `assembly` | Set inclusive revolute position limits in radians |
 | `add_joint_coupling(asm, name, dependent, drivers, coefficients, offset)` | `assembly` | Define `dependent = offset + sum(coefficients[i] * drivers[i])` |
 | `part_transform(asm, part_name)` | `transform` | Return a solved instance transform |
 | `assembly_compound(asm)` | `solid` | Return all retained solids in solved world positions |
@@ -1314,6 +1316,8 @@ The placement graph must be connected and acyclic. Each non-root part must
 have one placement parent. Rooted solving currently supports `rigid` and
 `revolute` mates; unsupported placement kinds fail with an explicit diagnostic.
 Joint values are absolute radians, not accumulated deltas.
+Revolute limits also use radians and include both boundary values. Limits on
+dependent joints are checked after coupling expressions have been evaluated.
 
 Joint couplings currently operate on revolute mate coordinates. Each coupling
 names its dependent joint explicitly, making chained dependencies deterministic
