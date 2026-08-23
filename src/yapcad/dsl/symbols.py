@@ -808,6 +808,12 @@ class SymbolTable:
             ("mate_name", STRING, None),
             ("value", FLOAT, None),
         ], ASSEMBLY)
+        self._register_builtin("set_mate_limits", [
+            ("asm", ASSEMBLY, None),
+            ("mate_name", STRING, None),
+            ("min_value", FLOAT, None),
+            ("max_value", FLOAT, None),
+        ], ASSEMBLY)
         self._register_builtin("add_joint_coupling", [
             ("asm", ASSEMBLY, None),
             ("name", STRING, None),
