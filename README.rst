@@ -209,6 +209,12 @@ top-level ``src`` directory. Example entry points:
   screws, nuts, and washers with proper thread geometry and material properties.
 * ``examples/import_demo.py`` - STEP/STL import demo showcasing the OCC BREP integration.
 
+**External Showcase Projects**:
+
+* `YapRover <https://github.com/rdevaul/yapRover>`__ - an open, manufacturable
+  rocker-bogie rover demonstrating the DSL, annotated assembly datums, mate
+  solving, joint coupling, analytic BREP, and fabrication-oriented validation.
+
 editor support
 ~~~~~~~~~~~~~~
 
