@@ -106,7 +106,6 @@ def test_nurbs_samples_match_evaluator():
         _close(sampled[i], evaluate_nurbs(curve, u), tol=5e-4)
 
 
-@pytest.mark.slow
 def test_spline_dxf_output(tmp_path):
     cat = catmullrom([
         point(0, 0),

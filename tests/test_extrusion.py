@@ -13,7 +13,6 @@ from yapcad.io import write_stl
 from yapcad.poly import Polygon, Rect
 
 
-@pytest.mark.slow
 @pytest.mark.parametrize('corner_radius', [0.8])
 def test_extrude_pentagon_plate(tmp_path, corner_radius):
     outer_radius = 12.0

@@ -1,5 +1,5 @@
-# This workflow will install Python dependencies, run tests and lint with a variety of Python versions
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-python
+# Exercise the pure-Python package at the supported-version endpoints. BREP
+# coverage lives in opencascade.yml so that compiled dependencies stay isolated.
 
 name: Python package
 
@@ -8,35 +8,94 @@ on:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+  schedule:
+    - cron: "17 9 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: python-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build:
+  lint:
+    name: Lint / Python 3.14
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v6
+    - name: Set up Python 3.14
+      uses: actions/setup-python@v6
+      with:
+        python-version: "3.14"
+        cache: pip
+        cache-dependency-path: pyproject.toml
+    - name: Install lint dependencies
+      run: python -m pip install flake8
+    - name: Lint with flake8
+      run: |
+        # Stop the build on syntax errors or undefined names.
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        # Report broader style findings without failing legacy code.
+        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+  test:
+    name: Pure Python ${{ matrix.python-version }} / ${{ matrix.suite }}
 
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
+        include:
+          - python-version: "3.11"
+            suite: compatibility
+            pytest-marker: not visual and not expensive_geometry and not requires_occ
+          - python-version: "3.14"
+            suite: full
+            pytest-marker: not visual and not expensive_geometry and not requires_occ
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v3
+      uses: actions/setup-python@v6
       with:
         python-version: ${{ matrix.python-version }}
+        cache: pip
+        cache-dependency-path: pyproject.toml
     - name: Install OpenGL (GLU)
       run: sudo apt-get update && sudo apt-get install -y libglu1-mesa libglu1-mesa-dev
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        python -m pip install flake8 pytest pytest-cov
-        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-    - name: Lint with flake8
-      run: |
-        # stop the build if there are Python syntax errors or undefined names
-        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-        # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
-        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+        python -m pip install -e ".[tests]"
     - name: Test with pytest
+      env:
+        VISUALTEST: "false"
+      run: pytest tests/ -m "${{ matrix.pytest-marker }}"
+
+  expensive-geometry:
+    name: Expensive geometry / Python 3.14
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+    - uses: actions/checkout@v6
+    - name: Set up Python 3.14
+      uses: actions/setup-python@v6
+      with:
+        python-version: "3.14"
+        cache: pip
+        cache-dependency-path: pyproject.toml
+    - name: Install OpenGL (GLU)
+      run: sudo apt-get update && sudo apt-get install -y libglu1-mesa libglu1-mesa-dev
+    - name: Install dependencies
       run: |
-        VISUALTEST=false PYTHONPATH=${PWD}/src:$PYTHONPATH pytest tests/ -m "not visual"
+        python -m pip install --upgrade pip
+        python -m pip install -e ".[tests]"
+    - name: Run production-resolution geometry tests
+      env:
+        VISUALTEST: "false"
+      run: pytest tests/ -m "expensive_geometry and not visual and not requires_occ"

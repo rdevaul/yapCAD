@@ -9,7 +9,7 @@ This tutorial walks through creating a parametric part using the yapCAD DSL, fro
 
 ## Prerequisites
 
-- Python 3.10+ with yapCAD installed
+- Python 3.11+ with yapCAD installed
 - For STEP export: pythonocc-core (via conda)
 
 ```bash
