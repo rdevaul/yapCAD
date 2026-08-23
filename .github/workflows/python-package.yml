@@ -20,6 +20,40 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  wheel:
+    name: Wheel contents / Python 3.14
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v6
+    - name: Set up Python 3.14
+      uses: actions/setup-python@v6
+      with:
+        python-version: "3.14"
+        cache: pip
+        cache-dependency-path: pyproject.toml
+    - name: Build wheel
+      run: |
+        python -m pip install build
+        python -m build --wheel
+    - name: Verify bundled fastener catalogs
+      run: |
+        python - <<'PY'
+        from pathlib import Path
+        from zipfile import ZipFile
+
+        wheel = next(Path("dist").glob("*.whl"))
+        with ZipFile(wheel) as archive:
+            names = set(archive.namelist())
+        expected = {
+            "yapcad/fasteners/data/metric_coarse.yaml",
+            "yapcad/fasteners/data/unified_coarse.yaml",
+        }
+        missing = expected - names
+        if missing:
+            raise SystemExit(f"Wheel is missing package data: {sorted(missing)}")
+        PY
+
   lint:
     name: Lint / Python 3.14
     runs-on: ubuntu-latest

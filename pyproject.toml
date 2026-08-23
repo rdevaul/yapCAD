@@ -113,3 +113,6 @@ include-package-data = true
 [tool.setuptools.packages.find]
 where = ["src"]
 exclude = ["tests*"]
+
+[tool.setuptools.package-data]
+"yapcad.fasteners" = ["data/*.yaml"]
