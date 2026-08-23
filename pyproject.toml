@@ -46,7 +46,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-      "ezdxf>=1.1",
+      "ezdxf>=1.4.4",
       "pyglet>=1.5,<2",
       "mpmath>=1.2",
       "numpy>=1.22",
