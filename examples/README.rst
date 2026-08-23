@@ -6,6 +6,11 @@ A collection of example designs for `yapCAD <../README.rst>`__
 Example List
 ------------
 
+-  `yaprover_suspension.dsl <./yaprover_suspension.dsl>`__ — annotated,
+   eleven-body rocker-bogie suspension proof using rooted mate solving,
+   revolute limits, an affine differential coupling, positioned BREP geometry,
+   and strict analytic STEP-compatible proxy solids.
+
 -  `boxcut <./boxcut>`__ — parametric design system for creating
    squeeze-fit rectangular boxes from laser-cut acrylic or similar flat
    sheet material. Specify desired length, width, and height on the

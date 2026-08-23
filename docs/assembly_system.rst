@@ -397,6 +397,32 @@ Assemblies may also retain instance geometry via
 ``compound_geometry()`` creates a multi-body solid suitable for analytic STEP
 export when OCC BREP data is available.
 
+Rocker-Bogie Terrain Oracle
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``yapcad.kinematics.rocker_bogie`` provides an independent numerical oracle
+for the YapRover suspension example. It solves six wheel-contact equations
+directly from the approved link dimensions and the differential closure; it
+does not reuse ``Assembly.solve`` placement calculations.
+
+.. code-block:: python
+
+   from yapcad.kinematics import apply_terrain_pose, solve_terrain_pose
+
+   pose = solve_terrain_pose({"lf": 80.0})
+   assert pose.success
+   assert pose.max_contact_residual <= 0.10
+
+   pose, assembly_result = apply_terrain_pose(rover, {"lf": 80.0})
+   assert assembly_result.success
+
+Terrain keys are ``lf``, ``lm``, ``lr``, ``rf``, ``rm``, and ``rr``; heights
+are millimetres. Returned angles are radians and use nose-up-positive vehicle
+coordinates. ``apply_terrain_pose`` handles the right-hand-rule conversion for
+the suspension's +Y mate axes. Infeasible terrain, including the baseline
+100 mm middle-wheel obstacle, reports the required out-of-limit travel without
+replacing the assembly's last valid pose.
+
 Transform Validation
 ~~~~~~~~~~~~~~~~~~~~
 

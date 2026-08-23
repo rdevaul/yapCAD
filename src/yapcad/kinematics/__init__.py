@@ -62,6 +62,14 @@ from .joint import Joint, JointType
 from .frame import CoordinateFrame
 from .part import KinematicPart
 from .chain import KinematicChain
+from .rocker_bogie import (
+    apply_terrain_pose,
+    RockerBogieGeometry,
+    RockerBogiePose,
+    WHEEL_NAMES,
+    solve_terrain_pose,
+    wheel_centers,
+)
 
 __all__ = [
     # Core transform
@@ -74,6 +82,13 @@ __all__ = [
     # Part and chain
     "KinematicPart",
     "KinematicChain",
+    # Independent rocker-bogie terrain/contact oracle
+    "RockerBogieGeometry",
+    "RockerBogiePose",
+    "WHEEL_NAMES",
+    "apply_terrain_pose",
+    "solve_terrain_pose",
+    "wheel_centers",
 ]
 
 __version__ = "0.1.0"
