@@ -75,6 +75,7 @@ command MAKE_PART(param: float, param2: float = 10.0) -> solid:
 
 **Note:** Commands with UPPERCASE names are exported and visible to `dsl list`. Commands with lowercase names are helpers usable within the module but not directly callable from CLI.
 
+(parameter-decorators)=
 ## Parameter Decorators
 
 Parameters in a `command` definition may carry a `@ui(...)` decorator that
@@ -456,6 +457,34 @@ spherical_shell(outer_diameter: float, wall_thickness: float) -> solid
 
 # Involute spur gear (centered at origin, extends Z=0 to face_width)
 involute_gear(teeth: int, module_mm: float, pressure_angle: float, face_width: float) -> solid
+
+# Spherical-involute straight bevel gear. Axis is +Z; pitch apex is the
+# origin; the large end is away from the apex. Requires pythonocc-core.
+straight_bevel_gear(
+    teeth: int,
+    mate_teeth: int,
+    outer_module_mm: float,
+    face_width_mm: float,
+    shaft_angle_deg: float,
+    pressure_angle_deg: float,
+    backlash_mm: float,
+    bore_diameter_mm: float,
+    generation_type: string = "spherical_involute"
+) -> solid
+
+# Equal-tooth, 90-degree convenience form.
+miter_gear(
+    teeth: int,
+    outer_module_mm: float,
+    face_width_mm: float,
+    pressure_angle_deg: float = 20.0,
+    backlash_mm: float = 0.0,
+    bore_diameter_mm: float = 0.0,
+    generation_type: string = "spherical_involute"
+) -> solid
+
+# generation_type also recognizes "octoid" and "gleason" as reserved
+# values. They currently produce an explicit not-implemented runtime error.
 
 # Herringbone gear and sun gear helper geometry
 herringbone_gear(teeth: int, module_mm: float, face_width: float, helix_angle: float) -> solid
@@ -1095,6 +1124,25 @@ command MAKE_SPUR_GEAR(
     # Standard 20-degree pressure angle
     gear: solid = involute_gear(teeth, module_mm, 20.0, face_width)
     emit gear
+```
+
+For a 1:1 right-angle pair, place both gears at the same pitch apex. Keep the
+first axis on `+Z`, rotate the mate axis 90 degrees about `+Y`, and phase the
+mate by half a tooth pitch (`180 / teeth` degrees). During motion, an external
+miter pair follows `mate_angle = phase - driver_angle`. The core
+`make_straight_bevel_pair()` helper applies this placement and phase convention
+for validation or Python-based assembly construction.
+
+```python
+command MAKE_PRINTABLE_MITER() -> solid:
+    emit miter_gear(
+        teeth=24,
+        outer_module_mm=1.5,
+        face_width_mm=8.0,
+        backlash_mm=0.25,
+        bore_diameter_mm=8.3,
+        generation_type="spherical_involute",
+    )
 ```
 
 ### Pattern with For Loop

@@ -6,7 +6,7 @@ function signatures, and type information during type checking.
 """
 
 from dataclasses import dataclass, field
-from typing import Optional, Dict, List, Callable, Any, Tuple
+from typing import Optional, Dict, List, Callable, Any, Tuple, FrozenSet
 from enum import Enum, auto
 
 from .types import (
@@ -50,6 +50,7 @@ class FunctionSignature:
     return_type: Type
     is_method: bool = False  # True for methods like curve.at()
     is_variadic: bool = False  # True for functions that accept list<T> as well
+    literal_values: Dict[str, FrozenSet[Any]] = field(default_factory=dict)
 
 
 @dataclass
@@ -435,6 +436,38 @@ class SymbolTable:
             ("face_width", FLOAT, None),
         ], SOLID)
 
+        # Straight bevel gear.  Spherical involute is the first supported
+        # generator; octoid and Gleason are reserved public API values.
+        self._register_builtin("straight_bevel_gear", [
+            ("teeth", INT, None),
+            ("mate_teeth", INT, None),
+            ("outer_module_mm", FLOAT, None),
+            ("face_width_mm", FLOAT, None),
+            ("shaft_angle_deg", FLOAT, None),
+            ("pressure_angle_deg", FLOAT, None),
+            ("backlash_mm", FLOAT, None),
+            ("bore_diameter_mm", FLOAT, None),
+            ("generation_type", STRING, "optional"),
+        ], SOLID, literal_values={
+            "generation_type": frozenset({
+                "spherical_involute", "octoid", "gleason",
+            }),
+        })
+
+        self._register_builtin("miter_gear", [
+            ("teeth", INT, None),
+            ("outer_module_mm", FLOAT, None),
+            ("face_width_mm", FLOAT, None),
+            ("pressure_angle_deg", FLOAT, 20.0),
+            ("backlash_mm", FLOAT, 0.0),
+            ("bore_diameter_mm", FLOAT, 0.0),
+            ("generation_type", STRING, "spherical_involute"),
+        ], SOLID, literal_values={
+            "generation_type": frozenset({
+                "spherical_involute", "octoid", "gleason",
+            }),
+        })
+
         # Herringbone gear - double-helix gear with smooth tooth surfaces
         self._register_builtin("herringbone_gear", [
             ("teeth", INT, None),
@@ -772,14 +805,16 @@ class SymbolTable:
         name: str,
         params: List[Tuple[str, Type, Optional[Any]]],
         return_type: Type,
-        is_variadic: bool = False
+        is_variadic: bool = False,
+        literal_values: Optional[Dict[str, FrozenSet[Any]]] = None,
     ) -> None:
         """Register a built-in function signature."""
         self._builtins[name] = FunctionSignature(
             name=name,
             params=params,
             return_type=return_type,
-            is_variadic=is_variadic
+            is_variadic=is_variadic,
+            literal_values=literal_values or {},
         )
 
     def push_scope(self, name: str = "") -> None:
