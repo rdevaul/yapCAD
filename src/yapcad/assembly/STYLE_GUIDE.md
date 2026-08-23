@@ -277,7 +277,7 @@ yapCAD has **mixed type hint usage:**
   def get_surface_metadata(surface: list, create: bool = False) -> Dict:
   ```
 
-- **`geom.py`, `geom3d.py`:** No type hints (pure Python 3.10 without annotations)
+- **`geom.py`, `geom3d.py`:** No type hints (legacy geometry style)
 
 - **`brep.py`:** Type hints for external-facing APIs and class methods
 

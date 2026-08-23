@@ -2,6 +2,13 @@
 Changelog
 =========
 
+Unreleased
+==========
+
+- Test the pure-Python package on Python 3.11 and 3.14, the supported-version
+  endpoints, and require Python 3.11 or newer. Python 3.10 support is retired
+  ahead of its October 2026 end-of-life.
+
 Version 1.1.0 (2026-07-05)
 ==========================
 

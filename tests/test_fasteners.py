@@ -39,6 +39,7 @@ from yapcad.metadata import get_solid_metadata
 from yapcad.threadgen import metric_profile
 
 
+@pytest.mark.slow
 def test_build_hex_cap_screw_basic():
     profile = metric_profile(6.0, 1.0)
     spec = HexCapScrewSpec(
@@ -58,6 +59,7 @@ def test_build_hex_cap_screw_basic():
     assert "fastener" in meta.get("tags", [])
 
 
+@pytest.mark.slow
 def test_metric_helper_defaults_thread_length():
     screw = metric_hex_cap_screw("M8", length=30.0)
     box = solidbbox(screw)
@@ -73,6 +75,7 @@ def test_metric_helper_defaults_thread_length():
     )
 
 
+@pytest.mark.slow
 def test_unified_helper_accepts_inches():
     screw = unified_hex_cap_screw("1/4-20", length_in=1.0)
     box = solidbbox(screw)
@@ -91,6 +94,7 @@ def test_tables_expose_washer_dimensions():
     assert unified_table["1/4-20"]["washer_thickness"] > 0
 
 
+@pytest.mark.slow
 def test_build_hex_nut_basic():
     profile = metric_profile(8.0, 1.25, internal=True)
     spec = HexNutSpec(
@@ -108,6 +112,7 @@ def test_build_hex_nut_basic():
     assert "hex_nut" in meta
 
 
+@pytest.mark.slow
 def test_metric_hex_nut_helper():
     nut = metric_hex_nut("M8")
     bbox = solidbbox(nut)
@@ -118,6 +123,7 @@ def test_metric_hex_nut_helper():
     assert math.isclose(meta["hex_nut"]["width_flat"], table["M8"]["width_flat"], rel_tol=0.0, abs_tol=1e-6)
 
 
+@pytest.mark.slow
 def test_unified_hex_nut_helper():
     nut = unified_hex_nut("1/4-20")
     table = unified_hex_nut_catalog()
@@ -273,6 +279,7 @@ class TestCatalogBoltNutData:
         assert "thickness" in data["body"]
 
 
+@pytest.mark.slow
 class TestCatalogBasedFastenerGeneration:
     """Test catalog-based fastener solid generation."""
 
@@ -293,6 +300,7 @@ class TestCatalogBasedFastenerGeneration:
             assert issolid(bolt)
 
 
+@pytest.mark.slow
 class TestDSLFastenerBuiltins:
     """Test DSL integration for fastener builtins."""
 
