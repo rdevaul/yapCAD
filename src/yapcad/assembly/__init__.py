@@ -52,29 +52,23 @@ Quick Start:
     ...     description="Mounting surface"
     ... ))
 
-    >>> # Define assembly with mates
+    >>> bracket = PartDefinition("bracket")
+    >>> bracket.add_datum(Datum(
+    ...     "hole_axis", DatumType.AXIS,
+    ...     origin=(0, 0, 0), direction=(0, 1, 0),
+    ... ))
+    >>> # Define assembly with a rooted placement mate
     >>> assembly = Assembly("wheel_assembly")
-    >>> assembly.add_part(motor)
+    >>> assembly.add_part(motor, name="motor")
+    >>> assembly.add_part(bracket, name="bracket")
     >>> assembly.add_mate(Mate(
-    ...     MateType.CONCENTRIC,
-    ...     "motor", "axis",
-    ...     "bracket", "hole_axis"
+    ...     name="motor_axis", mate_type=MateType.REVOLUTE,
+    ...     part_a="bracket", datum_a="hole_axis",
+    ...     part_b="motor", datum_b="axis",
     ... ))
-
-    >>> # Add design constraints
-    >>> assembly.add_constraint(Constraint(
-    ...     ConstraintType.TANGENT_TO_CIRCLE,
-    ...     "motor", "axis",
-    ...     "chassis", "wheel_orbit",
-    ...     description="Motor axis tangent for proper wheel rolling"
-    ... ))
-
-    >>> # Solve and validate
-    >>> result = assembly.solve()
-    >>> if result.is_valid:
-    ...     transforms = result.transforms
-    >>> else:
-    ...     print(result.errors)
+    >>> result = assembly.solve("bracket")
+    >>> assert result.success
+    >>> transforms = result.transforms
 
 Available Classes:
     Datum Types:
@@ -84,8 +78,7 @@ Available Classes:
 
     Mate System:
         Mate - Relationship between two datum features
-        MateType - Enum: COINCIDENT, CONCENTRIC, PARALLEL, PERPENDICULAR,
-                  TANGENT, ANGLE, ALIGNED, OPPOSED
+        MateType - Geometric constraints and rigid/revolute joint types
 
     Constraint System:
         Constraint - Design rule that validates assembly intent
@@ -128,9 +121,11 @@ from .mate import (
     evaluate_coincident,
     check_bolt_circle_alignment,
 )
+from .joint_coupling import LinearJointCoupling
 from .assembly import (
     Assembly,
     AssemblyError,
+    AssemblySolveResult,
     AssemblyValidationResult,
 )
 from .kinematic_integration import (
@@ -247,6 +242,8 @@ __all__ = [
     # Assembly system (implemented)
     "Assembly",
     "AssemblyError",
+    "AssemblySolveResult",
+    "LinearJointCoupling",
     "AssemblyValidationResult",
     # Kinematic chain integration
     "KinematicConstraint",

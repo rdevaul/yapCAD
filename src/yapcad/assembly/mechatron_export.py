@@ -557,7 +557,13 @@ def to_mechatron_snapshot(assembly) -> Dict[str, Any]:
         "parts": parts,
         "interfaces": interfaces,
         "loop_closures": [],
-        "joint_couplings": [],
+        # Affine coupling is a yapCAD graph extension. Consumers that do not
+        # yet implement it may ignore this field; the complete semantic
+        # relation remains available for round-trip and future Mechatron use.
+        "joint_couplings": [
+            coupling.to_dict() for coupling in
+            getattr(assembly, "joint_couplings", [])
+        ],
         "keyframes": [],
         "generators": [],
         "design_constraints": [],

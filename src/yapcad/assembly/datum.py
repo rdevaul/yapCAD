@@ -84,7 +84,7 @@ Example usage::
 
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Optional, List, Dict, Union
+from typing import Any, Optional, List, Dict, Union
 from enum import Enum
 
 import yapcad.geom as geom
@@ -414,6 +414,7 @@ class PartDefinition:
 
     # Link to geometry (STL file, DSL command, or solid)
     geometry_source: Optional[str] = None
+    geometry: Optional[Any] = None
 
     # Metadata
     is_printable: bool = True

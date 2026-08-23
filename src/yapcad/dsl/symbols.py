@@ -790,6 +790,39 @@ class SymbolTable:
             ("part_b",  STRING,   None),
             ("datum_b", STRING,   None),
         ], ASSEMBLY)
+        self._register_builtin("add_named_mate", [
+            ("asm",       ASSEMBLY, None),
+            ("name",      STRING,   None),
+            ("kind",      STRING,   None),
+            ("part_a",    STRING,   None),
+            ("datum_a",   STRING,   None),
+            ("part_b",    STRING,   None),
+            ("datum_b",   STRING,   None),
+        ], ASSEMBLY)
+        self._register_builtin("solve_assembly", [
+            ("asm", ASSEMBLY, None),
+            ("root_part", STRING, None),
+        ], ASSEMBLY)
+        self._register_builtin("set_joint_position", [
+            ("asm", ASSEMBLY, None),
+            ("mate_name", STRING, None),
+            ("value", FLOAT, None),
+        ], ASSEMBLY)
+        self._register_builtin("add_joint_coupling", [
+            ("asm", ASSEMBLY, None),
+            ("name", STRING, None),
+            ("dependent_joint", STRING, None),
+            ("driver_joints", make_list_type(STRING), None),
+            ("coefficients", make_list_type(FLOAT), None),
+            ("offset", FLOAT, None),
+        ], ASSEMBLY)
+        self._register_builtin("part_transform", [
+            ("asm", ASSEMBLY, None),
+            ("part_name", STRING, None),
+        ], TRANSFORM)
+        self._register_builtin("assembly_compound", [
+            ("asm", ASSEMBLY, None),
+        ], SOLID)
         self._register_builtin("validate_assembly", [
             ("asm", ASSEMBLY, None),
         ], BOOL)

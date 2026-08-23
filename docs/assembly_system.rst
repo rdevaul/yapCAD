@@ -14,7 +14,7 @@ Overview
 The assembly system addresses the core challenges of procedural CAD:
 
 * **Datum-driven positioning**: Parts reference named geometric features (points, axes, planes) rather than hardcoded transforms
-* **Constraint solving**: Mate constraints (FLUSH, CONCENTRIC, REVOLUTE) compute 6DOF transforms automatically
+* **Constraint solving**: Rooted rigid and revolute mates compute 6DOF transforms automatically
 * **Kinematic modeling**: Tree-structured assemblies with joints for articulation and motion planning
 * **Collision detection**: Multi-method validation (BREP, mesh, AABB) with interface volume support for allowed overlaps
 * **Interactive visualization**: Multi-viewport VTK viewer with REST API and WebSocket control
@@ -343,25 +343,59 @@ Assembly Solving
 
 .. code-block:: python
 
-   from yapcad.assembly.solver import solve_mate_chain
-
-   # Define mate chain (parent → child order)
-   mates = [
-       base_to_link1_mate,
-       link1_to_link2_mate,
-       link2_to_tool_mate
-   ]
-
-   # Solve sequentially
-   world_transforms = solve_mate_chain(
-       mates,
-       base_transform=np.eye(4)  # World origin
+   # Assembly.solve handles a branching tree and does not depend on mate order.
+   result = assembly.solve(
+       root_part="BASE",
+       joint_values={
+           "shoulder_pitch": 0.52,  # radians
+           "elbow_flex": 0.79,
+       },
    )
 
-   # Access computed transforms
-   link1_world_tf = world_transforms["LINK1"]
-   link2_world_tf = world_transforms["LINK2"]
-   tool_world_tf = world_transforms["TOOL"]
+   if not result.success:
+       raise RuntimeError("; ".join(result.errors))
+
+   link1_world_tf = result.transforms["LINK1"]
+   link2_world_tf = result.transforms["LINK2"]
+   tool_world_tf = result.transforms["TOOL"]
+   print(result.residuals)
+
+Affine Joint Couplings
+~~~~~~~~~~~~~~~~~~~~~~
+
+Joint coordinates can be related with a deterministic affine dependency:
+
+.. code-block:: python
+
+   from yapcad.assembly import LinearJointCoupling
+
+   assembly.add_joint_coupling(LinearJointCoupling(
+       name="rocker_differential",
+       dependent_joint="right_rocker",
+       driver_coefficients={"left_rocker": -1.0},
+       offset=0.0,
+   ))
+   result = assembly.solve("CHASSIS", {"left_rocker": 0.20})
+   assert result.joint_values["right_rocker"] == -0.20
+   assert result.coupling_residuals["rocker_differential"] < 1e-9
+
+The equation is ``dependent = offset + sum(coefficient * driver)``. Couplings
+may have multiple drivers and may form acyclic dependency chains. The solver
+resolves them topologically, checks limits after derivation, and commits no
+transforms when coupling validation fails. Dependent coordinates are derived
+outputs and therefore cannot also be prescribed directly.
+
+``Assembly.solve`` is transactional: invalid limits, missing roots,
+disconnected parts, cycles, multiple placement parents, and unsupported mate
+types return an unsuccessful result without replacing the last valid assembly
+transforms. Rigid and revolute placement mates are currently supported. Joint
+values are absolute radians and revolute limits are inclusive.
+
+Assemblies may also retain instance geometry via
+``add_part(..., geometry=solid)``. After a successful solve,
+``positioned_parts()`` returns independent world-positioned solids and
+``compound_geometry()`` creates a multi-body solid suitable for analytic STEP
+export when OCC BREP data is available.
 
 Transform Validation
 ~~~~~~~~~~~~~~~~~~~~
