@@ -82,4 +82,3 @@ command BUILD_DIFFERENTIAL(angle: float) -> solid:
     )
     assert result.success, result.error_message
     assert issolid(result.geometry)
-

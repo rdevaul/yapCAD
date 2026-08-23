@@ -39,13 +39,14 @@ Example:
     >>> assembly.add_part(motor, name="motor_1")
     >>> assembly.add_part(bracket, name="bracket_1")
     >>>
-    >>> # Add mates to position parts
-    >>> assembly.add_mate(Mate("mount_mate", MateType.FLUSH,
-    ...                        part1="bracket_1", datum1="motor_interface",
-    ...                        part2="motor_1", datum2="stator_face"))
-    >>> assembly.add_mate(Mate("axis_mate", MateType.CONCENTRIC,
-    ...                        part1="bracket_1", datum1="bore_axis",
-    ...                        part2="motor_1", datum2="motor_axis"))
+    >>> # Add a placement mate and solve from a named root
+    >>> assembly.add_mate(Mate(
+    ...     name="axis_mate", mate_type=MateType.REVOLUTE,
+    ...     part_a="bracket_1", datum_a="bore_axis",
+    ...     part_b="motor_1", datum_b="motor_axis",
+    ... ))
+    >>> solve_result = assembly.solve("bracket_1")
+    >>> assert solve_result.success
     >>>
     >>> # Add design constraints
     >>> assembly.add_constraint(Constraint(
@@ -1071,25 +1072,29 @@ class Assembly:
         # Each part starts with 6 DOF (3 translation, 3 rotation)
         dof = {name: 6 for name in self.parts}
 
-        # This is a simplified approximation
-        # A full implementation would build the constraint Jacobian
+        # This is a simplified approximation. A full implementation would
+        # build the constraint Jacobian and account for redundant mates.
+        removed_by_type = {
+            MateType.COINCIDENT: 3,
+            MateType.CONCENTRIC: 4,
+            MateType.PARALLEL: 2,
+            MateType.PERPENDICULAR: 1,
+            MateType.TANGENT: 1,
+            MateType.DISTANCE: 1,
+            MateType.ANGLE: 1,
+            MateType.RIGID: 6,
+            MateType.REVOLUTE: 5,
+            MateType.PRISMATIC: 5,
+            MateType.CYLINDRICAL: 4,
+            MateType.SPHERICAL: 3,
+            MateType.PLANAR: 3,
+            MateType.PIN_SLOT: 4,
+            MateType.UNIVERSAL: 4,
+            MateType.SCREW: 5,
+        }
         for mate in self.mates:
-            # Estimate DOF removed by each mate type
-            if mate.mate_type == MateType.COINCIDENT:
-                # Removes 3 DOF (position locked)
-                dof[mate.part2] = max(0, dof[mate.part2] - 3)
-            elif mate.mate_type == MateType.CONCENTRIC:
-                # Removes 2 DOF (can slide and rotate along axis)
-                dof[mate.part2] = max(0, dof[mate.part2] - 2)
-            elif mate.mate_type == MateType.FLUSH:
-                # Removes 3 DOF (orientation locked, can slide in plane)
-                dof[mate.part2] = max(0, dof[mate.part2] - 3)
-            elif mate.mate_type == MateType.PARALLEL:
-                # Removes 2 DOF (2 rotation axes locked)
-                dof[mate.part2] = max(0, dof[mate.part2] - 2)
-            elif mate.mate_type == MateType.PERPENDICULAR:
-                # Removes 1 DOF (1 rotation axis locked)
-                dof[mate.part2] = max(0, dof[mate.part2] - 1)
+            removed = removed_by_type.get(mate.mate_type, 0)
+            dof[mate.part_b] = max(0, dof[mate.part_b] - removed)
 
         return dof
 
@@ -1248,7 +1253,7 @@ class Assembly:
 
             Mates: 2
               - shaft_alignment (CONCENTRIC)
-              - mount_surface (FLUSH)
+              - mount_surface (rigid)
 
             Constraints: 1
               - motor_tangent (TANGENT_TO_CIRCLE)

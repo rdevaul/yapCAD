@@ -361,3 +361,21 @@ def test_unknown_joint_value_name_is_rejected_as_likely_typo():
     diagnostic = _errors(result)
     assert "left_jiont" in diagnostic
     assert "unknown" in diagnostic or "not found" in diagnostic
+
+
+def test_degrees_of_freedom_handles_current_joint_types():
+    assembly = _branching_assembly()
+    assembly.add_part(_part("fixed", _frame("mount")))
+    assembly.add_mate(
+        _mate(
+            "fixed_mount", MateType.RIGID,
+            "left_link", "pivot", "fixed", "mount",
+        )
+    )
+
+    dof = assembly.get_degrees_of_freedom()
+
+    assert dof["base"] == 6
+    assert dof["left_link"] == 1
+    assert dof["right_link"] == 1
+    assert dof["fixed"] == 0

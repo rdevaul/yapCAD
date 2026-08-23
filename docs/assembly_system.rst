@@ -14,7 +14,7 @@ Overview
 The assembly system addresses the core challenges of procedural CAD:
 
 * **Datum-driven positioning**: Parts reference named geometric features (points, axes, planes) rather than hardcoded transforms
-* **Constraint solving**: Mate constraints (FLUSH, CONCENTRIC, REVOLUTE) compute 6DOF transforms automatically
+* **Constraint solving**: Rooted rigid and revolute mates compute 6DOF transforms automatically
 * **Kinematic modeling**: Tree-structured assemblies with joints for articulation and motion planning
 * **Collision detection**: Multi-method validation (BREP, mesh, AABB) with interface volume support for allowed overlaps
 * **Interactive visualization**: Multi-viewport VTK viewer with REST API and WebSocket control
