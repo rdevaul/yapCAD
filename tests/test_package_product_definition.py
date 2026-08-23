@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import base64
 from pathlib import Path
 
 import numpy as np
@@ -153,6 +154,49 @@ def test_validation_rejects_dangling_root_part(tmp_path: Path):
     ok, messages = validate_package(manifest.root)
     assert not ok
     assert any("rootPart 'missing'" in message for message in messages)
+
+
+def test_validation_rejects_tampered_inner_component_brep(tmp_path: Path):
+    assembly = _mixed_assembly()
+    get_solid_metadata(
+        assembly.geometry["left_wheel"], create=True
+    )["brep"] = {
+        "encoding": "brep-ascii-base64",
+        "data": base64.b64encode(b"original-brep-payload").decode("ascii"),
+    }
+    manifest = create_package_from_assembly(
+        assembly, tmp_path / "rover.ycpkg",
+        name="Test rover", version="0.1.0",
+    )
+    component = manifest.get_component("wheel-hub")
+    component_path = manifest.root / component["geometry"]["path"]
+    document = json.loads(component_path.read_text())
+    solid = next(entry for entry in document["entities"] if entry["type"] == "solid")
+    solid["representations"]["brep"]["payload"] = base64.b64encode(
+        b"tampered-brep-payload"
+    ).decode("ascii")
+    component_path.write_text(json.dumps(document), encoding="utf-8")
+    manifest.recompute_hashes()
+    manifest.save()
+
+    ok, messages = validate_package(manifest.root, strict=True)
+    assert not ok
+    assert any("BREP payload hash mismatch" in message for message in messages)
+
+
+def test_validation_rejects_manifest_geometry_schema_mismatch(tmp_path: Path):
+    manifest = create_package_from_assembly(
+        _mixed_assembly(), tmp_path / "rover.ycpkg",
+        name="Test rover", version="0.1.0",
+    )
+    manifest.get_component("wheel-hub")["geometry"]["schema"] = (
+        "yapcad-geometry-json-v0.1"
+    )
+    manifest.save()
+
+    ok, messages = validate_package(manifest.root, strict=True)
+    assert not ok
+    assert any("manifest declares" in message for message in messages)
 
 
 def test_repeated_component_id_rejects_conflicting_local_geometry(tmp_path: Path):

@@ -1,4 +1,9 @@
 import json
+import base64
+import hashlib
+from pathlib import Path
+
+import pytest
 
 from yapcad.geom import point, line, arc, iscircle, isarc, catmullrom, iscatmullrom, nurbs, isnurbs
 from yapcad.geom3d import poly2surfaceXY, solid
@@ -40,6 +45,11 @@ def test_geometry_json_roundtrip():
     assert len(doc['entities']) >= 2  # solid + surfaces
 
     solid_entry = next(e for e in doc['entities'] if e['type'] == 'solid')
+    assert doc['schema'] == 'yapcad-geometry-json-v0.2'
+    assert solid_entry['representations'] == {
+        'authoritative': 'mesh',
+        'mesh': {'format': 'indexed-triangle-set', 'role': 'authoritative'},
+    }
     assert solid_entry['metadata']['layer'] == 'structure'
     surface_entries = [e for e in doc['entities'] if e['type'] == 'surface']
     assert surface_entries
@@ -61,6 +71,86 @@ def test_geometry_json_roundtrip():
     surf_meta = get_surface_metadata(surfaces[0], create=False)
     assert surf_meta['schema'] == 'metadata-namespace-v1.1'
     assert surf_meta['layer'] == 'structure'
+
+
+def test_v02_promotes_legacy_brep_metadata_to_explicit_representation():
+    sld = _make_prism_solid()
+    payload = b'DBRep_DrawableShape\nCASCADE Topology V3\n'
+    encoded = base64.b64encode(payload).decode('ascii')
+    meta = get_solid_metadata(sld, create=True)
+    meta['brep'] = {'encoding': 'brep-ascii-base64', 'data': encoded}
+
+    doc = geometry_to_json([sld])
+    entry = next(item for item in doc['entities'] if item['type'] == 'solid')
+    brep = entry['representations']['brep']
+
+    assert entry['representations']['authoritative'] == 'brep'
+    assert entry['representations']['mesh']['role'] == 'preview'
+    assert brep['format'] == 'opencascade-brep'
+    assert brep['encoding'] == 'base64'
+    assert brep['payload'] == encoded
+    assert brep['hash'] == 'sha256:' + hashlib.sha256(payload).hexdigest()
+    assert brep['kernel']['name'] == 'OpenCASCADE'
+    assert 'brep' not in entry['metadata']
+    assert meta['brep']['data'] == encoded  # serialization does not mutate source
+
+
+def test_v02_rejects_corrupted_brep_payload_before_kernel_loading():
+    sld = _make_prism_solid()
+    payload = base64.b64encode(b'not-a-real-brep').decode('ascii')
+    get_solid_metadata(sld, create=True)['brep'] = {
+        'encoding': 'brep-ascii-base64', 'data': payload,
+    }
+    doc = geometry_to_json([sld])
+    entry = next(item for item in doc['entities'] if item['type'] == 'solid')
+    entry['representations']['brep']['payload'] = base64.b64encode(
+        b'tampered'
+    ).decode('ascii')
+
+    with pytest.raises(ValueError, match='BREP payload hash mismatch'):
+        geometry_from_json(doc)
+
+
+def test_v02_rejects_non_opencascade_brep_kernel():
+    sld = _make_prism_solid()
+    payload = base64.b64encode(b'kernel-specific-payload').decode('ascii')
+    get_solid_metadata(sld, create=True)['brep'] = {
+        'encoding': 'brep-ascii-base64',
+        'data': payload,
+        'kernel': {'name': 'another-kernel', 'version': '1.0'},
+    }
+
+    with pytest.raises(ValueError, match='unsupported BREP kernel'):
+        geometry_to_json([sld])
+
+
+def test_v01_mesh_documents_remain_loadable():
+    doc = geometry_to_json([_make_prism_solid()])
+    doc['schema'] = 'yapcad-geometry-json-v0.1'
+    for entry in doc['entities']:
+        entry.pop('representations', None)
+
+    restored = geometry_from_json(doc)
+    assert len(restored) == 1
+
+
+def test_v02_solid_requires_representation_contract():
+    doc = geometry_to_json([_make_prism_solid()])
+    entry = next(item for item in doc['entities'] if item['type'] == 'solid')
+    del entry['representations']
+    with pytest.raises(ValueError, match='missing representations'):
+        geometry_from_json(doc)
+
+
+def test_v02_document_matches_published_machine_readable_schema():
+    jsonschema = pytest.importorskip('jsonschema')
+    schema_path = (
+        Path(__file__).resolve().parents[1]
+        / 'docs' / 'schemas' / 'yapcad-geometry-json-v0.2.schema.json'
+    )
+    schema = json.loads(schema_path.read_text(encoding='utf-8'))
+    document = geometry_to_json([_make_prism_solid()], units='mm')
+    jsonschema.Draft202012Validator(schema).validate(document)
 
 
 def test_sketch_primitives_roundtrip():
