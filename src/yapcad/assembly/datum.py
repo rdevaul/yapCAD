@@ -420,6 +420,16 @@ class PartDefinition:
     is_printable: bool = True
     material: str = "PETG"
     description: str = ""
+    component_id: Optional[str] = None
+    component_name: Optional[str] = None
+    disposition: str = "make"
+    part_number: Optional[str] = None
+    revision: Optional[str] = None
+    quantity_per_instance: float = 1.0
+    unit: str = "each"
+    manufacturing: Dict[str, Any] = field(default_factory=dict)
+    procurement: Dict[str, Any] = field(default_factory=dict)
+    pmi: Dict[str, Any] = field(default_factory=dict)
 
     def add_datum(self, datum: Datum) -> 'PartDefinition':
         """Add a datum feature to this part.

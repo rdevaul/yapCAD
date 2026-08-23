@@ -29,6 +29,7 @@ class Value:
     """
     data: Any
     type: Type
+    annotations: Dict[str, Any] = field(default_factory=dict)
 
     def __repr__(self) -> str:
         return f"Value({self.data!r}, {self.type})"
@@ -101,9 +102,9 @@ def transform_val(matrix: Any) -> Value:
     return Value(matrix, TRANSFORM)
 
 
-def solid_val(solid_data: Any) -> Value:
+def solid_val(solid_data: Any, annotations: Optional[Dict[str, Any]] = None) -> Value:
     """Create a solid value."""
-    return Value(solid_data, SOLID)
+    return Value(solid_data, SOLID, dict(annotations or {}))
 
 
 def assembly_val(assembly_obj: Any) -> Value:

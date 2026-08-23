@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 from yapcad.io.geometry_json import geometry_from_json
-from .core import PackageManifest, _compute_hash
+from .core import (
+    ASSEMBLY_PACKAGE_SCHEMA,
+    PACKAGE_SCHEMA,
+    PackageManifest,
+    _compute_hash,
+)
 
 # Valid source types per material schema spec
 VALID_SOURCE_TYPES = {"standard", "vendor", "custom", "tested"}
@@ -115,7 +121,8 @@ def validate_package(path: Path | str, *, strict: bool = False) -> Tuple[bool, L
         return False, [f"ERROR: failed to load manifest: {exc}"]
 
     data = manifest.data
-    if data.get("schema") != "ycpkg-spec-v0.1":
+    schema = data.get("schema")
+    if schema not in {PACKAGE_SCHEMA, ASSEMBLY_PACKAGE_SCHEMA}:
         messages.append(f"ERROR: unsupported package schema {data.get('schema')}")
 
     # Geometry primary
@@ -163,11 +170,151 @@ def validate_package(path: Path | str, *, strict: bool = False) -> Tuple[bool, L
         messages.extend(mat_msgs)
         overall_ok = overall_ok and mat_ok
 
+    if schema == ASSEMBLY_PACKAGE_SCHEMA:
+        product_ok, product_messages = _validate_product_definition(manifest, strict)
+        messages.extend(product_messages)
+        overall_ok = overall_ok and product_ok
+
     if overall_ok:
         messages.insert(0, f"OK: {pkg_path} passed validation")
     else:
         messages.insert(0, f"FAILED: {pkg_path} has validation errors")
     return overall_ok, messages
+
+
+def _validate_product_definition(
+    manifest: PackageManifest, strict: bool,
+) -> Tuple[bool, List[str]]:
+    data = manifest.data
+    messages: List[str] = []
+    ok = True
+    components = data.get("components")
+    instances = data.get("instances")
+    if not isinstance(components, list) or not components:
+        return False, ["ERROR: v0.2 package requires non-empty components"]
+    if not isinstance(instances, list) or not instances:
+        return False, ["ERROR: v0.2 package requires non-empty instances"]
+
+    component_by_id: Dict[str, Dict[str, Any]] = {}
+    dispositions = {"make", "buy", "raw_stock", "consumable"}
+    for component in components:
+        component_id = component.get("id")
+        if not component_id:
+            messages.append("ERROR: component missing id")
+            ok = False
+            continue
+        if component_id in component_by_id:
+            messages.append(f"ERROR: duplicate component id '{component_id}'")
+            ok = False
+            continue
+        component_by_id[component_id] = component
+        disposition = component.get("disposition")
+        if disposition not in dispositions:
+            messages.append(
+                f"ERROR: component '{component_id}' has invalid disposition {disposition!r}"
+            )
+            ok = False
+        quantity = component.get("quantityPerInstance", 1)
+        if not isinstance(quantity, (int, float)) or not math.isfinite(quantity) or quantity <= 0:
+            messages.append(
+                f"ERROR: component '{component_id}' quantityPerInstance must be positive"
+            )
+            ok = False
+        geometry = component.get("geometry")
+        if geometry:
+            geometry_ok, geometry_messages = _check_file(
+                manifest.root / geometry["path"], geometry.get("hash")
+            )
+            messages.extend(geometry_messages)
+            ok = ok and geometry_ok
+        elif disposition == "make":
+            messages.append(f"ERROR: make component '{component_id}' has no geometry")
+            ok = False
+        if strict and disposition == "make":
+            if not component.get("manufacturing"):
+                messages.append(
+                    f"WARNING: make component '{component_id}' has no manufacturing metadata"
+                )
+            if not component.get("revision"):
+                messages.append(f"WARNING: make component '{component_id}' has no revision")
+        if strict and disposition == "buy" and not component.get("procurement"):
+            messages.append(f"WARNING: buy component '{component_id}' has no procurement metadata")
+
+    instance_ids = set()
+    expected_quantities = {component_id: 0.0 for component_id in component_by_id}
+    for instance in instances:
+        instance_id = instance.get("id")
+        if not instance_id:
+            messages.append("ERROR: instance missing id")
+            ok = False
+        elif instance_id in instance_ids:
+            messages.append(f"ERROR: duplicate instance id '{instance_id}'")
+            ok = False
+        else:
+            instance_ids.add(instance_id)
+        component_id = instance.get("component")
+        component = component_by_id.get(component_id)
+        if component is None:
+            messages.append(
+                f"ERROR: instance '{instance_id}' references missing component '{component_id}'"
+            )
+            ok = False
+        else:
+            expected_quantities[component_id] += float(component.get("quantityPerInstance", 1))
+        transform = instance.get("transform")
+        if (
+            not isinstance(transform, list) or len(transform) != 4
+            or any(not isinstance(row, list) or len(row) != 4 for row in transform)
+            or any(
+                not isinstance(value, (int, float)) or not math.isfinite(value)
+                for row in transform if isinstance(row, list) for value in row
+            )
+        ):
+            messages.append(f"ERROR: instance '{instance_id}' has invalid 4x4 transform")
+            ok = False
+
+    assembly_entry = data.get("assembly")
+    if isinstance(assembly_entry, dict):
+        root_part = assembly_entry.get("rootPart")
+        if root_part is not None and root_part not in instance_ids:
+            messages.append(
+                f"ERROR: assembly rootPart '{root_part}' does not reference an instance"
+            )
+            ok = False
+
+    for section_name in ("assembly", "bom"):
+        entry = data.get(section_name)
+        if not isinstance(entry, dict) or not entry.get("path"):
+            messages.append(f"ERROR: v0.2 package missing {section_name}.path")
+            ok = False
+            continue
+        section_ok, section_messages = _check_file(
+            manifest.root / entry["path"], entry.get("hash")
+        )
+        messages.extend(section_messages)
+        ok = ok and section_ok
+
+    bom_entry = data.get("bom") or {}
+    bom_path = manifest.root / bom_entry.get("path", "")
+    if bom_path.is_file():
+        try:
+            bom = json.loads(bom_path.read_text(encoding="utf-8"))
+            actual = {item["component"]: float(item["quantity"]) for item in bom["items"]}
+            for component_id, expected in expected_quantities.items():
+                if actual.get(component_id) != expected:
+                    messages.append(
+                        f"ERROR: BOM quantity for '{component_id}' is "
+                        f"{actual.get(component_id)!r}, expected {expected:g} from instances"
+                    )
+                    ok = False
+            extras = sorted(set(actual) - set(component_by_id))
+            if extras:
+                messages.append(f"ERROR: BOM references unknown components: {', '.join(extras)}")
+                ok = False
+        except Exception as exc:
+            messages.append(f"ERROR: invalid BOM document: {exc}")
+            ok = False
+    return ok, messages
 
 
 __all__ = ["validate_package"]

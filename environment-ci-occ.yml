@@ -8,4 +8,4 @@ dependencies:
   - pythonocc-core=7.7.2
   - pip
   - pip:
-      - -e .[tests]
+      - -e .[tests,meshcheck]

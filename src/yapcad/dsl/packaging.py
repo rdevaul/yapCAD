@@ -7,7 +7,7 @@ the resulting geometry with full provenance tracking.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, Optional, TYPE_CHECKING
+from typing import Any, Dict, Optional, Sequence, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from yapcad.package import PackageManifest
@@ -27,6 +27,9 @@ def package_from_dsl(
     author: Optional[str] = None,
     units: Optional[str] = None,
     materials: Optional[Dict[str, Dict[str, Any]]] = None,
+    component_exports: Optional[Sequence[str]] = None,
+    strict_component_step: bool = True,
+    strict_component_stl: bool = True,
     overwrite: bool = False,
 ) -> "PackageResult":
     """Compile DSL source, execute a command, and package the result.
@@ -46,6 +49,10 @@ def package_from_dsl(
         author: Optional author name.
         units: Unit system (default "mm").
         materials: Optional materials dictionary for the package.
+        component_exports: Optional component-local formats (``stl``, ``step``)
+            generated for fabricated components in assembly-aware packages.
+        strict_component_step: Require analytic BREP for component STEP files.
+        strict_component_stl: Require OCC BREP tessellation for component STL.
         overwrite: If True, overwrite existing package directory.
 
     Returns:
@@ -72,7 +79,12 @@ def package_from_dsl(
         >>> if result.success:
         ...     print(f"Package created at {result.manifest.root}")
     """
-    from yapcad.package import create_package_from_entities, PackageManifest
+    from yapcad.package import (
+        create_package_from_assembly,
+        create_package_from_entities,
+        export_component_artifacts,
+        PackageManifest,
+    )
     from yapcad.geom3d import issolid, issurface
 
     # Step 1: Compile and execute the DSL
@@ -126,18 +138,52 @@ def package_from_dsl(
     # Step 4: Create the package
     try:
         target_path = Path(target_dir)
-        manifest = create_package_from_entities(
-            entities,
-            target_path,
-            name=name,
-            version=version,
-            description=description,
-            author=author,
-            units=units,
-            materials=materials,
-            generator=generator,
-            overwrite=overwrite,
-        )
+        emit_result = getattr(exec_result, "emit_result", None)
+        emit_value = getattr(emit_result, "value", None)
+        annotations = getattr(emit_value, "annotations", {})
+        if not isinstance(annotations, dict):
+            annotations = {}
+        retained_assembly = annotations.get("assembly")
+        if retained_assembly is not None:
+            manifest = create_package_from_assembly(
+                retained_assembly,
+                target_path,
+                name=name,
+                version=version,
+                root_part=getattr(retained_assembly, "_root_part", None),
+                description=description,
+                author=author,
+                units=units or "mm",
+                materials=materials,
+                generator=generator,
+                overwrite=overwrite,
+            )
+            if component_exports:
+                export_component_artifacts(
+                    retained_assembly,
+                    manifest,
+                    formats=component_exports,
+                    strict_step=strict_component_step,
+                    strict_stl=strict_component_stl,
+                    overwrite=overwrite,
+                )
+        else:
+            if component_exports:
+                raise ValueError(
+                    "component exports require a command that emits assembly_compound()"
+                )
+            manifest = create_package_from_entities(
+                entities,
+                target_path,
+                name=name,
+                version=version,
+                description=description,
+                author=author,
+                units=units,
+                materials=materials,
+                generator=generator,
+                overwrite=overwrite,
+            )
 
         # Step 5: Add DSL source as an attachment
         _add_dsl_source_attachment(manifest, source, command_name)
