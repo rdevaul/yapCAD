@@ -3,7 +3,7 @@ yapCAD Package Product-Definition Extension
 
 **Proposal:** ``ycpkg-spec-v0.2``
 
-**Status:** Draft for implementation and rover validation
+**Status:** Implemented; rover validation pending
 
 **Extends:** ``ycpkg-spec-v0.1`` and ``metadata-namespace-v1.1``
 

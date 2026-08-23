@@ -470,6 +470,8 @@ def create_package_from_assembly(
     """Create a v0.2 product-definition package from an Assembly."""
     if not assembly.parts:
         raise ValueError("assembly has no parts")
+    if root_part is not None and root_part not in assembly.parts:
+        raise ValueError(f"root part {root_part!r} is not present in the assembly")
     root = Path(target_dir)
     if root.exists():
         if not overwrite and any(root.iterdir()):

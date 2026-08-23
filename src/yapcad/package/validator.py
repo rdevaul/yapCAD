@@ -273,6 +273,15 @@ def _validate_product_definition(
             messages.append(f"ERROR: instance '{instance_id}' has invalid 4x4 transform")
             ok = False
 
+    assembly_entry = data.get("assembly")
+    if isinstance(assembly_entry, dict):
+        root_part = assembly_entry.get("rootPart")
+        if root_part is not None and root_part not in instance_ids:
+            messages.append(
+                f"ERROR: assembly rootPart '{root_part}' does not reference an instance"
+            )
+            ok = False
+
     for section_name in ("assembly", "bom"):
         entry = data.get(section_name)
         if not isinstance(entry, dict) or not entry.get("path"):

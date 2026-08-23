@@ -134,6 +134,27 @@ def test_validation_rejects_edited_bom_quantity(tmp_path: Path):
     assert any("BOM quantity" in message for message in messages)
 
 
+def test_package_creation_rejects_missing_root_part(tmp_path: Path):
+    with pytest.raises(ValueError, match="root part 'missing'"):
+        create_package_from_assembly(
+            _mixed_assembly(), tmp_path / "bad-root.ycpkg",
+            name="Test rover", version="0.1.0", root_part="missing",
+        )
+
+
+def test_validation_rejects_dangling_root_part(tmp_path: Path):
+    manifest = create_package_from_assembly(
+        _mixed_assembly(), tmp_path / "rover.ycpkg",
+        name="Test rover", version="0.1.0", root_part="left_wheel",
+    )
+    manifest.data["assembly"]["rootPart"] = "missing"
+    manifest.save()
+
+    ok, messages = validate_package(manifest.root)
+    assert not ok
+    assert any("rootPart 'missing'" in message for message in messages)
+
+
 def test_repeated_component_id_rejects_conflicting_local_geometry(tmp_path: Path):
     assembly = Assembly("bad_reuse")
     definition = _definition("same-component", disposition="make")
