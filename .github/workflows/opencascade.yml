@@ -51,4 +51,3 @@ jobs:
           VISUALTEST: "false"
         run: |
           pytest tests/ -m "not visual"
-	  
