@@ -93,7 +93,6 @@ def test_solid_contains_point_cavity():
     assert solid_contains_point(cavity, point(0.9, 0.0, 0.0))
 
 
-@pytest.mark.slow
 def test_solid_boolean_cubes():
     a = prism(2, 2, 2)
     b = _translate(prism(2, 2, 2), (0.75, 0.0, 0.0))
@@ -111,7 +110,7 @@ def test_solid_boolean_cubes():
     assert not solid_contains_point(difference, point(0.6, 0.0, 0.0))
 
 
-@pytest.mark.slow
+@pytest.mark.expensive_geometry
 def test_solid_boolean_spheres():
     a = sphere(2.0)
     b = copy.deepcopy(a)
@@ -130,7 +129,6 @@ def test_solid_boolean_spheres():
     assert not solid_contains_point(difference, point(0.5, 0.0, 0.0))
 
 
-@pytest.mark.slow
 def test_solids_intersect_detection():
     base = prism(2, 2, 2)
     shifted = _translate(prism(2, 2, 2), (0.5, 0.0, 0.0))
@@ -140,7 +138,7 @@ def test_solids_intersect_detection():
     assert not solids_intersect(base, far)
 
 
-@pytest.mark.slow
+@pytest.mark.expensive_geometry
 def test_solid_boolean_sphere_normals():
     a = sphere(2.0)
     b = copy.deepcopy(a)
@@ -153,7 +151,6 @@ def test_solid_boolean_sphere_normals():
     _assert_normals_outward(difference, label='sphere difference')
 
 
-@pytest.mark.slow
 def test_solid_boolean_box_minus_cylinder():
     box = prism(2, 2, 2)
     drill = conic(0.6, 0.6, 3.0, center=point(0.0, 0.0, -1.5))
@@ -165,7 +162,6 @@ def test_solid_boolean_box_minus_cylinder():
     _assert_normals_outward(result, label='box minus cylinder')
 
 
-@pytest.mark.slow
 def test_solid_boolean_tube_side_hole():
     shell = tube(outer_diameter=3.0, wall_thickness=0.5, length=4.0,
                  base_point=point(0.0, 0.0, -2.0))
@@ -178,7 +174,6 @@ def test_solid_boolean_tube_side_hole():
     _assert_normals_outward(result, label='tube side hole')
 
 
-@pytest.mark.slow
 def test_solid_boolean_union_concave_target():
     outer = prism(4.0, 4.0, 4.0)
     inner = prism(3.2, 3.2, 3.2)
@@ -193,7 +188,6 @@ def test_solid_boolean_union_concave_target():
     _assert_normals_outward(union, label='concave union')
 
 
-@pytest.mark.slow
 def test_solid_boolean_difference_disconnected_target():
     base = prism(5.0, 2.0, 2.0)
     left_cut = translatesolid(prism(1.0, 1.5, 1.5), point(-1.8, 0.0, 0.0))

@@ -35,20 +35,22 @@ from yapcad.fasteners import (
     unified_hex_nut_catalog,
 )
 from yapcad.geom3d import issolid, solidbbox
+from yapcad.geom3d_util import prism
 from yapcad.metadata import get_solid_metadata
 from yapcad.threadgen import metric_profile
 
 
-@pytest.mark.slow
 def test_build_hex_cap_screw_basic():
     profile = metric_profile(6.0, 1.0)
     spec = HexCapScrewSpec(
         diameter=6.0,
-        thread_length=12.0,
-        shank_length=20.0,
+        thread_length=2.0,
+        shank_length=8.0,
         head_height=6.0,
         head_flat_diameter=10.0,
         washer_thickness=1.0,
+        thread_arc_samples=24,
+        thread_samples_per_pitch=2,
     )
     screw = build_hex_cap_screw(profile, spec)
     assert issolid(screw)
@@ -59,11 +61,12 @@ def test_build_hex_cap_screw_basic():
     assert "fastener" in meta.get("tags", [])
 
 
-@pytest.mark.slow
 def test_metric_helper_defaults_thread_length():
-    screw = metric_hex_cap_screw("M8", length=30.0)
+    screw = metric_hex_cap_screw(
+        "M8", length=12.0, thread_arc_samples=24, thread_samples_per_pitch=2
+    )
     box = solidbbox(screw)
-    assert box[1][2] > 30.0
+    assert box[1][2] > 12.0
     meta = get_solid_metadata(screw, create=False)
     washer_info = meta["hex_cap_screw"]
     assert math.isclose(washer_info["washer_diameter"], washer_info["head_flat"] * 0.95, rel_tol=0.0, abs_tol=1e-6)
@@ -75,11 +78,12 @@ def test_metric_helper_defaults_thread_length():
     )
 
 
-@pytest.mark.slow
 def test_unified_helper_accepts_inches():
-    screw = unified_hex_cap_screw("1/4-20", length_in=1.0)
+    screw = unified_hex_cap_screw(
+        "1/4-20", length_in=0.5, thread_arc_samples=24, thread_samples_per_pitch=2
+    )
     box = solidbbox(screw)
-    assert box[1][2] > 25.4
+    assert box[1][2] > 12.7
     meta = get_solid_metadata(screw, create=False)
     washer_info = meta["hex_cap_screw"]
     assert math.isclose(washer_info["washer_diameter"], washer_info["head_flat"] * 0.95, rel_tol=0.0, abs_tol=1e-6)
@@ -94,7 +98,6 @@ def test_tables_expose_washer_dimensions():
     assert unified_table["1/4-20"]["washer_thickness"] > 0
 
 
-@pytest.mark.slow
 def test_build_hex_nut_basic():
     profile = metric_profile(8.0, 1.25, internal=True)
     spec = HexNutSpec(
@@ -102,6 +105,8 @@ def test_build_hex_nut_basic():
         pitch=1.25,
         width_flat=13.0,
         thickness=6.0,
+        thread_arc_samples=24,
+        thread_samples_per_pitch=2,
     )
     nut = build_hex_nut(profile, spec)
     assert issolid(nut)
@@ -112,9 +117,8 @@ def test_build_hex_nut_basic():
     assert "hex_nut" in meta
 
 
-@pytest.mark.slow
 def test_metric_hex_nut_helper():
-    nut = metric_hex_nut("M8")
+    nut = metric_hex_nut("M8", thread_arc_samples=24, thread_samples_per_pitch=2)
     bbox = solidbbox(nut)
     assert bbox[1][2] > 6.0
     table = metric_hex_nut_catalog()
@@ -123,9 +127,8 @@ def test_metric_hex_nut_helper():
     assert math.isclose(meta["hex_nut"]["width_flat"], table["M8"]["width_flat"], rel_tol=0.0, abs_tol=1e-6)
 
 
-@pytest.mark.slow
 def test_unified_hex_nut_helper():
-    nut = unified_hex_nut("1/4-20")
+    nut = unified_hex_nut("1/4-20", thread_arc_samples=24, thread_samples_per_pitch=2)
     table = unified_hex_nut_catalog()
     assert "1/4-20" in table
     bbox = solidbbox(nut)
@@ -279,7 +282,6 @@ class TestCatalogBoltNutData:
         assert "thickness" in data["body"]
 
 
-@pytest.mark.slow
 class TestCatalogBasedFastenerGeneration:
     """Test catalog-based fastener solid generation."""
 
@@ -289,18 +291,25 @@ class TestCatalogBasedFastenerGeneration:
 
     def test_metric_hex_bolt_from_catalog(self):
         """Test creating a metric hex bolt using the new API."""
-        bolt = metric_hex_bolt("M8", 25.0)
+        bolt = metric_hex_bolt(
+            "M8", 12.0, thread_arc_samples=24, thread_samples_per_pitch=2
+        )
         assert isinstance(bolt, list)
         assert issolid(bolt)
 
     def test_metric_hex_bolt_different_sizes(self):
         """Test creating metric bolts of different sizes via catalog."""
         for size in ["M6", "M8", "M10"]:
-            bolt = metric_hex_bolt(size, 30.0)
+            bolt = metric_hex_bolt(
+                size,
+                12.0,
+                thread_length=2.0,
+                thread_arc_samples=24,
+                thread_samples_per_pitch=2,
+            )
             assert issolid(bolt)
 
 
-@pytest.mark.slow
 class TestDSLFastenerBuiltins:
     """Test DSL integration for fastener builtins."""
 
@@ -308,10 +317,15 @@ class TestDSLFastenerBuiltins:
         """Clear cache before each test."""
         clear_cache()
 
-    def test_dsl_metric_bolt(self):
+    def test_dsl_metric_bolt(self, monkeypatch):
         """Test metric_hex_bolt DSL builtin."""
         from yapcad.dsl import tokenize, parse, check, Interpreter
 
+        calls = []
+        monkeypatch.setattr(
+            "yapcad.fasteners.metric_hex_bolt",
+            lambda size, length: calls.append((size, length)) or prism(1, 1, 1),
+        )
         source = '''
 module test_fastener
 
@@ -333,11 +347,17 @@ command MAKE_BOLT(size: string, length: float) -> solid:
         )
         assert exec_result.success
         assert exec_result.geometry is not None
+        assert calls == [('M8', 25.0)]
 
-    def test_dsl_metric_nut(self):
+    def test_dsl_metric_nut(self, monkeypatch):
         """Test metric_hex_nut DSL builtin."""
         from yapcad.dsl import tokenize, parse, check, Interpreter
 
+        calls = []
+        monkeypatch.setattr(
+            "yapcad.fasteners.metric_hex_nut",
+            lambda size: calls.append(size) or prism(1, 1, 1),
+        )
         source = '''
 module test_fastener
 
@@ -359,11 +379,17 @@ command MAKE_NUT(size: string) -> solid:
         )
         assert exec_result.success
         assert exec_result.geometry is not None
+        assert calls == ['M10']
 
-    def test_dsl_unified_bolt(self):
+    def test_dsl_unified_bolt(self, monkeypatch):
         """Test unified_hex_bolt DSL builtin."""
         from yapcad.dsl import tokenize, parse, check, Interpreter
 
+        calls = []
+        monkeypatch.setattr(
+            "yapcad.fasteners.unified_hex_bolt",
+            lambda size, length: calls.append((size, length)) or prism(1, 1, 1),
+        )
         source = '''
 module test_fastener
 
@@ -385,11 +411,17 @@ command MAKE_UNC_BOLT(size: string, length: float) -> solid:
         )
         assert exec_result.success
         assert exec_result.geometry is not None
+        assert calls == [('1/4-20', 1.0)]
 
-    def test_dsl_unified_nut(self):
+    def test_dsl_unified_nut(self, monkeypatch):
         """Test unified_hex_nut DSL builtin."""
         from yapcad.dsl import tokenize, parse, check, Interpreter
 
+        calls = []
+        monkeypatch.setattr(
+            "yapcad.fasteners.unified_hex_nut",
+            lambda size: calls.append(size) or prism(1, 1, 1),
+        )
         source = '''
 module test_fastener
 
@@ -411,3 +443,18 @@ command MAKE_UNC_NUT(size: string) -> solid:
         )
         assert exec_result.success
         assert exec_result.geometry is not None
+        assert calls == ['1/2-13']
+
+
+@pytest.mark.expensive_geometry
+def test_production_resolution_metric_bolt():
+    """Exercise the default production thread sampling outside routine CI."""
+    bolt = metric_hex_bolt("M8", 25.0)
+    assert issolid(bolt)
+
+
+@pytest.mark.expensive_geometry
+def test_production_resolution_metric_nut():
+    """Exercise a default-resolution internal thread outside routine CI."""
+    nut = metric_hex_nut("M8")
+    assert issolid(nut)

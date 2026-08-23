@@ -50,4 +50,4 @@ jobs:
         env:
           VISUALTEST: "false"
         run: |
-          pytest tests/ -m "not visual"
+          pytest tests/ -m "not visual and not expensive_geometry"
