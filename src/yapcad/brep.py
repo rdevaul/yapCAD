@@ -398,7 +398,15 @@ class BrepSolid:
     def shape(self):
         return self._shape
 
-    def tessellate(self, deflection=0.5, _debug=False):
+    def tessellate(
+        self,
+        deflection=0.5,
+        _debug=False,
+        *,
+        angular_deflection=0.5,
+        relative=False,
+        parallel=True,
+    ):
         """
         Generate a faceted representation of the BREP model.
 
@@ -406,10 +414,28 @@ class BrepSolid:
         generate a triangular mesh of the BREP model. The resulting
         faceted representation will be returned in the same format as
         `yapcad.geom3d.poly2surface`.
+
+        ``deflection`` is the linear chordal tolerance in model units and
+        ``angular_deflection`` is the angular tolerance in radians. The
+        keyword-only ``relative`` and ``parallel`` options map directly to
+        OpenCASCADE's incremental mesher. The positional ``_debug`` argument
+        is retained for compatibility with earlier yapCAD releases.
         """
 
         require_occ()
-        mesh = BRepMesh_IncrementalMesh(self._shape, deflection)
+        for name, value in (
+            ("deflection", deflection),
+            ("angular_deflection", angular_deflection),
+        ):
+            if not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
+                raise ValueError(f"{name} must be a positive finite value")
+        mesh = BRepMesh_IncrementalMesh(
+            self._shape,
+            float(deflection),
+            bool(relative),
+            float(angular_deflection),
+            bool(parallel),
+        )
 
         all_vertices = []
         all_triangles = []
