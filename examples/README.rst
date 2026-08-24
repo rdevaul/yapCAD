@@ -3,6 +3,14 @@ yapCAD Examples
 
 A collection of example designs for `yapCAD <../README.rst>`__
 
+External Showcase Projects
+--------------------------
+
+-  `YapRover <https://github.com/rdevaul/yapRover>`__ — an open,
+   manufacturable rocker-bogie rover demonstrating the DSL, annotated assembly
+   datums, mate solving, joint coupling, analytic BREP, and
+   fabrication-oriented validation.
+
 Example List
 ------------
 
