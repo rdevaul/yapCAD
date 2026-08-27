@@ -1,9 +1,9 @@
 **yapCAD**
 ==========
 
-yet another procedural CAD and computational geometry system written in
-python 3, featuring a parametric DSL, BREP modeling via OpenCascade,
-and comprehensive STL/STEP/DXF export
+advanced procedural CAD and computational geometry for humans and agents written
+in python 3, featuring mates, assemblies, and linkages, a parametric DSL, BREP
+modeling via OpenCascade, and comprehensive STL/STEP/DXF export
 
 .. figure:: https://raw.githubusercontent.com/rdevaul/yapCAD/main/images/yapCadM10pair2.png
    :alt: **yapCAD** M10 fastener pair with material properties
@@ -14,12 +14,13 @@ and comprehensive STL/STEP/DXF export
 
 .. note::
 
-   Many examples were authored with LLM assistance to illustrate
-   automation-friendly workflows. The code lives in the repository and can
-   be customized directly or via the included DSL (Domain Specific Language).
+   Many examples were agentically authored to illustrate automation-friendly
+   workflows. The `yapRover <https://github.com/rdevaul/yapRover>`__ rocker-bogie
+   suspension demo was developed agentically and combines FDM-printed and COTS
+   parts:
 
-.. figure:: https://raw.githubusercontent.com/rdevaul/yapCAD/main/images/RocketCutawaySTEP.png
-   :alt: **yapCAD** rocket cutaway STEP export
+.. figure:: https://raw.githubusercontent.com/rdevaul/yapCAD/main/images/yapRoverOverview.png
+   :alt: **yapCAD** articulated, mate-solved rocker-bogie suspension system
 
    Internal layout generated with ``examples/rocket_cutaway_internal.py`` and
    rendered from the exported STEP file in FreeCAD.
