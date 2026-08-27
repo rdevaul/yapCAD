@@ -15,7 +15,7 @@ modeling via OpenCascade, and comprehensive STL/STEP/DXF export
 .. note::
 
    Many examples were agentically authored to illustrate automation-friendly
-   workflows. The `yapRover <https://github.com/rdevaul/yapRover>` rocker-bogie
+   workflows. The `yapRover <https://github.com/rdevaul/yapRover>`___ rocker-bogie
    suspension demo was developed agentically and combines FDM-printed and COTS
    parts:
 
