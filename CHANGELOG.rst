@@ -5,6 +5,27 @@ Changelog
 Unreleased
 ==========
 
+- **Construction provenance survives serialisation.** New ``yapcad.construction``
+  module defines the record format for the solid ``construction`` slot
+  (``['procedure', call]``, ``['boolean', operation]``, with ``sdf`` reserved)
+  and provides accessors, normalisation, and a JSON round-trip. Geometry JSON
+  gains an optional, additive ``construction`` field on solids; the schema ID
+  stays at ``yapcad-geometry-json-v0.2`` because the field is omitted entirely
+  when a solid records no provenance.
+
+- **Fix: ``solid()`` misfiled construction records under material.** The
+  constructor used an emptiness test rather than positional counting to assign
+  its list arguments, so the near-universal ``solid(surfaces, [], construction)``
+  idiom stored the construction record in the material slot and left
+  construction empty. Every ``geom3d_util`` procedure record and every boolean
+  engine record was affected, and ``geometry_to_json`` compounded it by reading
+  that slot as voids and emitting a spurious ``"voids": [[], []]``. List
+  arguments are now assigned positionally.
+
+- Add ``docs/SDF-DESIGN.md``, planning native signed-distance-function support:
+  node-DAG representation, Lipschitz-bound tracking, dual-contouring meshing,
+  CSG-tree replay into OCC for exact BREP, and mixed-authority booleans.
+
 - Test the pure-Python package on Python 3.11 and 3.14, the supported-version
   endpoints, and require Python 3.11 or newer. Python 3.10 support is retired
   ahead of its October 2026 end-of-life.

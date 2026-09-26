@@ -109,6 +109,31 @@ The BREP block is not duplicated under ``metadata``. The optional
 ``modelTolerance`` is expressed in document units and, when present, must be
 finite and positive.
 
+#### 2.1.1 Construction provenance (optional)
+
+A solid MAY carry a `construction` record describing how it was produced. It
+mirrors the `construction` slot of the in-memory solid
+(`['solid', surfaces, material, construction]`) and is a list whose first
+element is a non-empty string *kind* tag, followed by kind-specific payload:
+
+```json5
+"construction": ["procedure", "yapcad.geom3d_util.sphere(4.0,center=[0,0,0,1],depth=2)"]
+"construction": ["boolean", "union"]
+"construction": ["boolean", "trimesh:difference"]
+```
+
+Kind tags currently emitted are `procedure` (a generating call) and `boolean`
+(a CSG operation, optionally prefixed with the engine name). `sdf` is reserved
+for the signed-distance-function tree described in `SDF-DESIGN.md`.
+
+The field is **optional and additive**, and is omitted entirely for solids
+that record no provenance — so the schema ID does not bump. Producers MUST
+emit only JSON-representable payloads; `yapcad.construction` coerces tuples to
+lists and falls back to `repr()` for anything else, so serialisation never
+fails on provenance alone. Consumers that encounter a present-but-malformed
+record (one that is not a list, or whose first element is not a non-empty
+string) MUST reject the document rather than silently discard the record.
+
 ### 2.2 Surfaces (`type: "surface"`)
 
 ```json5

@@ -275,14 +275,33 @@ extending the `authoritative` enum is a breaking change for strict readers.
 Meshing parameters are recorded so that the preview is *reproducible*, which
 matters for package signing.
 
-### 8.3 Known defect to address separately
+### 8.3 Slot-semantics defects
 
-`geometry_from_json` builds `['solid', shell_surfaces, voids, []]`, placing
-voids in slot 2 — which `solid()` and the `geom3d` module docstring both
-document as the **material** slot. In practice both are almost always empty,
-so nothing observably breaks today, but the two halves of the codebase
-disagree about what slot 2 means. This should be reconciled before slot 3
-acquires load-bearing SDF content. Tracked separately from this plan.
+Two distinct problems were found in the `construction` slot while implementing
+Phase 0.
+
+**Fixed in Phase 0.** `solid()` used `if material == []` as its
+"argument not yet supplied" sentinel when assigning positional list
+arguments. Because an explicitly empty material list does not change that
+test, the near-universal producer idiom
+`solid(surfaces, [], construction)` assigned the construction record to the
+**material** slot and left construction empty. Every `['procedure', ...]`
+record written by `geom3d_util`, and every `['boolean', ...]` record written
+by the boolean engines, was misfiled this way. `_serialize_solid` then read
+slot 2 as voids and iterated the record's strings character by character,
+emitting a spurious `"voids": [[], []]` into the document. `solid()` now
+counts positional slots instead, which both routes the record to slot 3 and
+removes the junk voids.
+
+**Still open.** `geometry_from_json` builds
+`['solid', shell_surfaces, voids, construction]`, placing voids in slot 2 —
+which `solid()` and the `geom3d` module docstring both document as the
+**material** slot. The in-memory solid structure has no voids slot at all, so
+this is a genuine disagreement about what slot 2 means rather than a simple
+bug: reconciling it means deciding whether solids acquire a real voids slot.
+Both fields are almost always empty in practice, so nothing observably breaks
+today, but this should be resolved before slot 3 acquires load-bearing SDF
+content. Tracked separately from this plan.
 
 ## 9. DSL surface
 
@@ -302,7 +321,7 @@ lines and should not absorb them.
 
 | Phase | Work | Unlocks |
 |---|---|---|
-| **0** | Serialise and restore the `construction` slot | Provenance survives packaging; prerequisite for all of the below |
+| **0** ✅ | Serialise and restore the `construction` slot; fix `solid()` slot assignment | Provenance survives packaging; prerequisite for all of the below |
 | **1** | `yapcad/sdf/`: node DAG, numpy evaluator, Lipschitz tracking, primitives, hard CSG | Validate against `geom3d.signedFaceDistance` (`geom3d.py:254`) and analytic distances |
 | **2** | Dual contouring → ordinary yapCAD solids with `authoritative: "sdf"` | The entire existing downstream works on SDF parts |
 | **3** | CSG-exactness classifier + OCC tree replay | STEP export for the common case |

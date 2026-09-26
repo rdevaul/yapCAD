@@ -33,6 +33,7 @@ from yapcad.geom import (
 )
 from yapcad.geom3d import issolid, issurface, solidbbox, surfacebbox
 from yapcad.brep import brep_from_solid, occ_available
+from yapcad.construction import construction_from_json, construction_to_json
 from yapcad.metadata import (
     get_solid_metadata,
     get_surface_metadata,
@@ -289,7 +290,7 @@ def _serialize_solid(solid: list, surface_cache: Dict[str, Dict[str, Any]], meta
     if legacy_brep:
         representations["brep"] = _explicit_brep_record(legacy_brep)
 
-    return {
+    entry = {
         "id": metadata.get("entityId", solid_id),
         "type": "solid",
         "name": metadata.get("name"),
@@ -300,6 +301,14 @@ def _serialize_solid(solid: list, surface_cache: Dict[str, Dict[str, Any]], meta
         "voids": voids,
         "representations": representations,
     }
+
+    # Provenance from the solid's construction slot. Omitted entirely when the
+    # solid records none, so documents for such solids are unchanged.
+    construction = construction_to_json(solid)
+    if construction:
+        entry["construction"] = construction
+
+    return entry
 
 
 def _polyline_points(sequence: List[float]) -> List[float]:
@@ -561,7 +570,14 @@ def geometry_from_json(doc: Dict[str, Any]) -> List[list]:
                 void_surfaces.append(surface)
             voids.append(void_surfaces)
 
-        solid = ['solid', shell_surfaces, voids, []]
+        try:
+            construction = construction_from_json(entry.get("construction"))
+        except ValueError as exc:
+            raise ValueError(
+                f"solid {entry['id']} has a malformed construction record: {exc}"
+            ) from exc
+
+        solid = ['solid', shell_surfaces, voids, construction]
         metadata = deepcopy(entry.get("metadata") or {})
         if schema == SCHEMA_ID:
             representations = entry.get("representations")

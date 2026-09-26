@@ -755,6 +755,7 @@ def solid(*args):
         material = []
         construction = []
         metadata = None
+        listargs = 0
 
         for item in args[1:]:
             if isinstance(item, dict):
@@ -762,12 +763,19 @@ def solid(*args):
                     raise ValueError('multiple metadata dictionaries passed to solid')
                 metadata = item
             elif isinstance(item, list):
-                if material == []:
+                # List arguments are positional: the first is material, the
+                # second is construction.  Count the slots rather than testing
+                # them for emptiness -- an explicitly empty material list must
+                # still consume its slot, or the near-universal
+                # ``solid(surfaces, [], construction)`` idiom files the
+                # construction record under material.
+                if listargs == 0:
                     material = item
-                elif construction == []:
+                elif listargs == 1:
                     construction = item
                 else:
                     raise ValueError('too many list arguments passed to solid')
+                listargs += 1
             else:
                 raise ValueError('bad arguments to solid')
 
