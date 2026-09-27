@@ -73,6 +73,16 @@ Each entity's `metadata` block MUST include the root fields from `metadata_names
 }
 ```
 
+`voids` lists interior cavity shells, one array of surface ids per cavity. It
+is a **derived, interchange-level** field: an in-memory yapCAD mesh solid has
+no voids slot, because a cavity is simply a shell whose faces wind inward, and
+`volumeof` already subtracts it correctly. Serialisers compute the split with
+`yapcad.geom3d.solid_shells`, which groups surfaces into connected shells by
+shared edges and classifies each by the sign of its volume; the field is `[]`
+when no cavity is found. Importers that build a mesh solid MUST merge void
+surfaces back into the shell surface list rather than into a separate slot, and
+may recover the split on demand with the same function.
+
 Version 0.2 separates geometry representation from descriptive metadata. When
 a solid originates from an analytic OCC BREP, that BREP is authoritative and
 the indexed triangle shell is only a portable preview:

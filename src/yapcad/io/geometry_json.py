@@ -31,7 +31,7 @@ from yapcad.geom import (
     line,
     sample,
 )
-from yapcad.geom3d import issolid, issurface, solidbbox, surfacebbox
+from yapcad.geom3d import issolid, issurface, solid_shells, solidbbox, surfacebbox
 from yapcad.brep import brep_from_solid, occ_available
 from yapcad.construction import construction_from_json, construction_to_json
 from yapcad.metadata import (
@@ -211,12 +211,11 @@ def _serialize_solid(solid: list, surface_cache: Dict[str, Dict[str, Any]], meta
     except Exception:
         bbox = None
 
-    shell_ids: List[str] = []
     layers_seen = []
     parent_layer = metadata.get("layer")
-    for surf in solid[1]:
-        if not issurface(surf):
-            continue
+
+    def _emit_surface(surf) -> Optional[str]:
+        """Serialize one surface into the cache and return its id."""
         surface_meta = get_surface_metadata(surf, create=True)
         surface_override = None
         if metadata_override:
@@ -235,37 +234,34 @@ def _serialize_solid(solid: list, surface_cache: Dict[str, Dict[str, Any]], meta
             set_surface_metadata(surf, meta)
             surface_id = new_id
         surface_cache[surface_id] = serialized
-        shell_ids.append(surface_id)
         layers_seen.append(serialized["metadata"].get("layer", "default"))
+        return surface_id
+
+    # yapCAD mesh solids carry cavities as inward-wound shells inside the
+    # surface list rather than in a separate slot, so the outer/void split is
+    # derived here (see geom3d.solid_shells).  The partition is only emitted
+    # when it is unambiguous -- a cavity was actually found -- so documents
+    # for ordinary solids are unchanged.
+    outer_surfaces = list(solid[1])
+    void_groups: List[List[list]] = []
+    try:
+        derived_outer, derived_voids = solid_shells(solid)
+    except Exception:
+        derived_outer, derived_voids = None, None
+    if derived_voids:
+        outer_surfaces = [surf for shell in derived_outer for surf in shell]
+        void_groups = derived_voids
+
+    shell_ids: List[str] = []
+    for surf in outer_surfaces:
+        if not issurface(surf):
+            continue
+        shell_ids.append(_emit_surface(surf))
 
     voids: List[List[str]] = []
-    if len(solid) > 2:
-        for void in solid[2] or []:
-            void_ids: List[str] = []
-            for surf in void:
-                if not issurface(surf):
-                    continue
-                surface_meta = get_surface_metadata(surf, create=True)
-                surface_override = None
-                if metadata_override:
-                    surface_override = dict(metadata_override)
-                if parent_layer and (not surface_meta.get("layer") or surface_meta.get("layer") == "default"):
-                    surface_override = dict(surface_override or {})
-                    surface_override["layer"] = parent_layer
-                serialized = _serialize_surface(surf, surface_override)
-                surface_id = serialized["id"]
-                while surface_id in surface_cache:
-                    new_id = uuid.uuid4().hex
-                    meta = serialized["metadata"]
-                    meta["entityId"] = new_id
-                    meta["id"] = new_id
-                    serialized["id"] = new_id
-                    set_surface_metadata(surf, meta)
-                    surface_id = new_id
-                surface_cache[surface_id] = serialized
-                void_ids.append(surface_id)
-                layers_seen.append(serialized["metadata"].get("layer", "default"))
-            voids.append(void_ids)
+    for group in void_groups:
+        void_ids = [_emit_surface(surf) for surf in group if issurface(surf)]
+        voids.append(void_ids)
 
     if "layer" not in metadata or not metadata.get("layer"):
         unique_layers = [layer for layer in layers_seen if layer]
@@ -556,9 +552,11 @@ def geometry_from_json(doc: Dict[str, Any]) -> List[list]:
                 surfaces[sid] = surface
             shell_surfaces.append(surface)
 
-        voids: List[List[list]] = []
+        # A yapCAD mesh solid keeps cavities in its surface list as inward-wound
+        # shells; it has no voids slot, and slot 2 is material.  Void surfaces
+        # from the document therefore join the shell surfaces, and the split is
+        # recovered on demand via geom3d.solid_shells.
         for void_ids in entry.get("voids", []):
-            void_surfaces: List[list] = []
             for sid in void_ids:
                 surface = surfaces.get(sid)
                 if surface is None:
@@ -567,8 +565,7 @@ def geometry_from_json(doc: Dict[str, Any]) -> List[list]:
                         raise ValueError(f"void surface {sid} missing")
                     surface = _rehydrate_surface(surf_entry)
                     surfaces[sid] = surface
-                void_surfaces.append(surface)
-            voids.append(void_surfaces)
+                shell_surfaces.append(surface)
 
         try:
             construction = construction_from_json(entry.get("construction"))
@@ -577,7 +574,7 @@ def geometry_from_json(doc: Dict[str, Any]) -> List[list]:
                 f"solid {entry['id']} has a malformed construction record: {exc}"
             ) from exc
 
-        solid = ['solid', shell_surfaces, voids, construction]
+        solid = ['solid', shell_surfaces, [], construction]
         metadata = deepcopy(entry.get("metadata") or {})
         if schema == SCHEMA_ID:
             representations = entry.get("representations")

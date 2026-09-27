@@ -275,7 +275,7 @@ extending the `authoritative` enum is a breaking change for strict readers.
 Meshing parameters are recorded so that the preview is *reproducible*, which
 matters for package signing.
 
-### 8.3 Slot-semantics defects
+### 8.3 Slot-semantics defects (resolved)
 
 Two distinct problems were found in the `construction` slot while implementing
 Phase 0.
@@ -293,15 +293,40 @@ emitting a spurious `"voids": [[], []]` into the document. `solid()` now
 counts positional slots instead, which both routes the record to slot 3 and
 removes the junk voids.
 
-**Still open.** `geometry_from_json` builds
+**Also fixed.** `geometry_from_json` built
 `['solid', shell_surfaces, voids, construction]`, placing voids in slot 2 —
 which `solid()` and the `geom3d` module docstring both document as the
-**material** slot. The in-memory solid structure has no voids slot at all, so
-this is a genuine disagreement about what slot 2 means rather than a simple
-bug: reconciling it means deciding whether solids acquire a real voids slot.
-Both fields are almost always empty in practice, so nothing observably breaks
-today, but this should be resolved before slot 3 acquires load-bearing SDF
-content. Tracked separately from this plan.
+**material** slot. `yapcad.geometry._retessellate_brep_solid` and
+`service/core/tessellator` shared the same misreading.
+
+The resolution was **not** to add a voids slot, because a yapCAD mesh solid
+does not need one: a cavity is a shell whose faces wind inward, and the
+existing math already handles it. A 4×4×4 cube with a 2×2×2 cavity reports
+`issolidclosed() == True` and `volumeof() == 56.0`, because `volumeof`
+accumulates *signed* tetrahedron contributions and takes the absolute value
+only at the end. A voids slot would be a second encoding of a fact the
+surfaces already carry, and two encodings that can disagree are exactly the
+failure mode that produced this defect in the first place.
+
+Instead the partition is **derived**: `geom3d.solid_shells(sld)` groups
+surfaces into connected shells by shared edges and classifies each by the sign
+of its volume, returning `(outer_shells, void_shells)`. Reads merge document
+void surfaces into the shell list, where mesh solids keep cavities, and leave
+slot 2 as material. Writes emit the derived partition, so `voids` remains
+meaningful at the interchange layer for consumers that care (STEP, FEA)
+without existing as state that can drift.
+
+Two limits, both documented in the function: classification is meaningful only
+for a closed shell, so an open group is always reported as outer; and
+granularity is the surface, not the triangle, so a boundary that arrived as a
+single surface — the usual shape of an OCC tessellation — yields one outer
+shell even when it has cavities. Callers needing triangle-level partitioning
+must do their own connectivity analysis.
+
+**Open, minor.** `_retessellate_brep_solid` drops the metadata dict at slot 4,
+so a retessellated solid receives a fresh entity id and loses its tags and
+layer. Unrelated to slot semantics; left alone here because the OCC lane could
+not be exercised locally.
 
 ## 9. DSL surface
 

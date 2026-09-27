@@ -22,6 +22,22 @@ Unreleased
   that slot as voids and emitting a spurious ``"voids": [[], []]``. List
   arguments are now assigned positionally.
 
+- **Derived outer/void shell partitioning.** New ``yapcad.geom3d.solid_shells``
+  groups a solid's surfaces into connected shells by shared edges and
+  classifies each as outer or void by the sign of its volume. yapCAD mesh
+  solids carry cavities as inward-wound shells in the surface list -- a hollow
+  cube already reports the correct ``volumeof`` -- so the partition is derived
+  on demand rather than stored in a slot that could drift out of sync with the
+  geometry.
+
+- **Fix: geometry JSON disagreed with ``geom3d`` about solid slot 2.**
+  ``geometry_from_json`` wrote a document's void surfaces into slot 2, which
+  ``solid()`` and the ``geom3d`` module docstring both document as *material*;
+  ``yapcad.geometry._retessellate_brep_solid`` and ``service/core/tessellator``
+  shared the misreading. Void surfaces now rejoin the shell surface list where
+  mesh solids actually keep cavities, slot 2 stays material, and the
+  interchange-level ``voids`` field is computed from ``solid_shells`` on write.
+
 - Add ``docs/SDF-DESIGN.md``, planning native signed-distance-function support:
   node-DAG representation, Lipschitz-bound tracking, dual-contouring meshing,
   CSG-tree replay into OCC for exact BREP, and mixed-authority booleans.

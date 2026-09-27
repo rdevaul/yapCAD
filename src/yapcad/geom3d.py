@@ -1144,6 +1144,138 @@ def volumeof(x):
     # Return absolute value (orientation might cause negative result)
     return abs(total_volume)
 
+def _surface_signed_volume(surf):
+    """Signed volume contributed by a surface, via the divergence theorem.
+
+    Positive when the surface's faces wind outward (a bounding shell),
+    negative when they wind inward (a cavity).
+    """
+    vertices = surf[1]
+    total = 0.0
+    for face in surf[3]:
+        if len(face) != 3:
+            raise ValueError('non-triangular face encountered')
+        p0 = point(vertices[face[0]])
+        p1 = point(vertices[face[1]])
+        p2 = point(vertices[face[2]])
+        total += dot(p0, cross(sub(p1, p0), sub(p2, p0))) / 6.0
+    return total
+
+
+def solid_shells(x):
+    """Partition a solid's surfaces into connected shells, outer and void.
+
+    yapCAD mesh solids do not store voids separately: a cavity is simply a
+    shell whose faces wind inward, which is why ``volumeof`` already returns
+    the correct answer for a hollow solid.  This function recovers that
+    structure on demand, so consumers that genuinely need the outer/inner
+    partition (STEP export, FEA meshing, SDF meshing) can derive it from the
+    single source of truth rather than from a slot that can drift out of sync
+    with the geometry.
+
+    Surfaces are grouped into shells by shared edges, using the same
+    position-based edge keys as ``issolidclosed``.  Each group's orientation
+    is then read from its signed volume.
+
+    Args:
+        x: A solid data structure.
+
+    Returns:
+        ``(outer_shells, void_shells)``, where each is a list of shells and
+        each shell is a list of surfaces.  Shells appear in the order their
+        first surface appears in the solid, making the result deterministic.
+
+    Raises:
+        ValueError: if ``x`` is not a valid solid.
+
+    Notes:
+        Classification is only meaningful for a closed shell, so an open
+        group is always reported as outer -- an open surface cannot bound a
+        cavity.  Granularity is the surface, not the triangle: a solid whose
+        entire boundary arrived as one surface (the usual shape of an OCC
+        tessellation) yields a single outer shell even when it has cavities.
+        Callers that need triangle-level partitioning must do their own
+        connectivity analysis.
+
+    Example:
+        >>> from yapcad.geom3d_util import prism
+        >>> outer = prism(4, 4, 4)[1]
+        >>> inner = [reversesurface(s) for s in prism(2, 2, 2)[1]]
+        >>> shells, voids = solid_shells(solid(outer + inner))
+        >>> len(shells), len(voids)
+        (1, 1)
+    """
+    if not issolid(x, fast=False):
+        raise ValueError('invalid solid passed to solid_shells')
+
+    surfaces = x[1]
+    if not surfaces:
+        return [], []
+
+    # Map each edge to the surfaces that touch it, and count face uses so we
+    # can tell whether a completed group is closed.
+    edge_surfaces = {}
+    edge_uses = {}
+    for idx, surf in enumerate(surfaces):
+        vertices = surf[1]
+        for face in surf[3]:
+            if len(face) != 3:
+                raise ValueError(f'non-triangular face in surface {idx}')
+            p0 = vertices[face[0]]
+            p1 = vertices[face[1]]
+            p2 = vertices[face[2]]
+            for edge in (_canonical_edge_key(p0, p1),
+                         _canonical_edge_key(p1, p2),
+                         _canonical_edge_key(p2, p0)):
+                edge_surfaces.setdefault(edge, set()).add(idx)
+                edge_uses[edge] = edge_uses.get(edge, 0) + 1
+
+    # Union-find over surfaces joined by a shared edge.
+    parent = list(range(len(surfaces)))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    def union(i, j):
+        ri, rj = find(i), find(j)
+        if ri != rj:
+            parent[max(ri, rj)] = min(ri, rj)
+
+    for touching in edge_surfaces.values():
+        members = sorted(touching)
+        for other in members[1:]:
+            union(members[0], other)
+
+    # Group surface indices by root, ordered by first appearance.
+    groups = {}
+    for idx in range(len(surfaces)):
+        groups.setdefault(find(idx), []).append(idx)
+
+    outer_shells = []
+    void_shells = []
+    for root in sorted(groups):
+        member_indices = groups[root]
+        member_set = set(member_indices)
+        shell = [surfaces[i] for i in member_indices]
+
+        closed = all(
+            count == 2
+            for edge, count in edge_uses.items()
+            if edge_surfaces[edge] & member_set
+        )
+        signed = sum(_surface_signed_volume(surf) for surf in shell)
+
+        if closed and signed < 0.0:
+            void_shells.append(shell)
+        else:
+            outer_shells.append(shell)
+
+    return outer_shells, void_shells
+
+
 def normfunc(tri):
     """
     utility funtion to compute normals for a flat facet triangle

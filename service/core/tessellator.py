@@ -9,7 +9,7 @@ def _collect_surfaces(entity: Any) -> List[list]:
     if issurface(entity):
         return [entity]
     if issolid(entity):
-        # solid structure: ['solid', [surfaces], voids, ...]
+        # solid structure: ['solid', [surfaces], material, construction, metadata?]
         return [s for s in (entity[1] or []) if issurface(s)]
     return []
 

@@ -753,9 +753,12 @@ def _retessellate_brep_solid(sld: list):
     if brep is None:
         return None
     surf = brep.tessellate()
-    voids = sld[2] if len(sld) > 2 else []
-    meta = sld[3] if len(sld) > 3 else []
-    new_solid = ['solid', [surf], voids, meta]
+    # Slots 2 and 3 are material and construction (see geom3d.solid); this
+    # copies them positionally.  NOTE: the metadata dict at slot 4 is not
+    # carried over, so the retessellated solid gets a fresh entity id.
+    material = sld[2] if len(sld) > 2 else []
+    construction = sld[3] if len(sld) > 3 else []
+    new_solid = ['solid', [surf], material, construction]
     attach_brep_to_solid(new_solid, brep)
     return new_solid
 
