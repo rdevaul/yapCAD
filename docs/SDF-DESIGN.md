@@ -348,7 +348,7 @@ lines and should not absorb them.
 |---|---|---|
 | **0** ✅ | Serialise and restore the `construction` slot; fix `solid()` slot assignment | Provenance survives packaging; prerequisite for all of the below |
 | **1** ✅ | `yapcad/sdf/`: node DAG, numpy evaluator, Lipschitz tracking, primitives, hard CSG | Validated against `geom3d.signedFaceDistance` (`geom3d.py:254`) and analytic distances |
-| **2** | Dual contouring → ordinary yapCAD solids with `authoritative: "sdf"` | The entire existing downstream works on SDF parts |
+| **2** ✅ | Dual contouring → ordinary yapCAD solids with `authoritative: "sdf"` | The entire existing downstream works on SDF parts |
 | **3** | CSG-exactness classifier + OCC tree replay | STEP export for the common case |
 | **4** | BREP/mesh → SDF promotion via OCC distance queries + cached grid | Mixed-authority booleans |
 | **5** | GLSL/WGSL emitter + browser sphere tracing | Real-time preview |
@@ -419,6 +419,80 @@ implementation overestimates distance whenever the nearest instance lies in a
 neighbouring cell, which breaks the marching guarantee that the rest of the
 subsystem maintains, so it wants the multi-cell candidate form rather than
 the naive one.
+
+### 10.2 Phase 2 as built
+
+`yapcad/sdf/contour.py` implements dual contouring and `convert.py` wraps the
+result as an ordinary `['solid', [surface], material, construction]`, so
+drawables, exporters, the collision system and the package writer need no
+knowledge of fields at all. The schema moves to
+`yapcad-geometry-json-v0.3`, with `docs/schemas/yapcad-geometry-json-v0.3.schema.json`
+published alongside the v0.2 file; v0.1 and v0.2 documents still read.
+
+**The sharp-feature claim is measured, not asserted.** A lattice-aligned box
+meshes to a volume of 512.0 against an exact 512.0, to about 1e-8 relative —
+and the residual is the finite-difference gradient feeding the QEF, not the
+reconstruction. Marching cubes would chamfer every edge and corner and lose
+volume at the percent level. Topology is checked the same way: a torus comes
+out with Euler characteristic 0, and a box minus a sphere large enough to
+breach all six faces comes out at -8, the genus-5 cube frame it should be.
+
+**Adaptivity is in the work, not yet in the output.** The octree of §5.1 is
+present as Lipschitz-pruned chunked sampling: a chunk whose centre satisfies
+`|f| > L * (circumradius + margin)` provably has no surface within `margin`,
+so with `margin` at least one cell diagonal no edge touching that chunk can
+cross, and the chunk can be filled with its centre value instead of sampled.
+Empty space therefore costs almost nothing, and peak memory is bounded by the
+chunk rather than the lattice. Every emitted cell is still the same size,
+though. Genuinely adaptive *output* — variable leaf depth with QEF-error
+collapse — needs the crack-patching cell/face/edge traversal of Ju et al. and
+is deferred. The tests assert that pruned and unpruned meshing agree
+bit-for-bit, which is what makes the optimisation safe to trust.
+
+**One vertex per cell is a real limit, and it is now detected.** Dual
+contouring cannot represent two surface sheets passing through one cell, so
+a wall or a gap thinner than a cell yields non-manifold edges: a gyroid with
+a 0.37-unit wall meshed at a 0.63-unit cell produces 42 of them. Manifold
+Dual Contouring (Schaefer and Ju) fixes this by splitting such a cell into
+one vertex per surface component; it is not implemented. Following §5.3's
+own argument that a tool which states its limits beats one that degrades
+silently, `to_solid` checks edge multiplicity by default and refuses with a
+message naming the cause and the cure, with `check=False` to override.
+Handing a silently non-manifold solid to `volumeof` or to STEP export would
+be the worse failure.
+
+**Determinism is treated as a requirement, not a hope.** Vertex order is the
+C-order of the active-cell mask and triangle order follows the edge axes in
+turn; nothing iterates a dict or a set. Tests assert that repeated runs,
+separate processes, every chunk size and both pruning settings produce
+byte-identical arrays, and that the recorded meshing parameters regenerate
+the same mesh.
+
+**The tree lives in exactly one place in a document.** An SDF-authoritative
+solid puts its tree in `representations.sdf.tree` and omits the top-level
+`construction` field; a document carrying both is rejected. This is §8.3's
+lesson from the voids defect applied before the fact rather than after: two
+encodings of one fact will eventually disagree. The analysis fields
+alongside the tree — `lipschitz`, `lipschitzConstant`, `csgExact` — are a
+cache of what the tree already determines, so they are recomputed and
+verified on read rather than believed, the same posture as the BREP payload
+hash check. A document claiming `csgExact` for a gyroid is rejected.
+
+**Authority is enforced as single-valued.** `prism()` attaches an analytic
+BREP, so a prism is BREP-authoritative; attaching an SDF record to one is a
+contradiction and is refused at serialisation. The consequence worth
+flagging: an SDF solid that later acquires a cached BREP — from an OCC
+boolean, say — will fail to serialise, because the v0.3 representations
+block still admits a BREP only when it is authoritative. A *derived* BREP
+role is what Phase 3 and Phase 4 need, and is the natural place to resolve
+this.
+
+**Not implemented in this phase.** Node-provenance tagging (§2.1) is not
+threaded through the mesher. The mesher's structure does not preclude it —
+the QEF already accumulates per-cell contributions from identifiable edges —
+but the §11 question about what a node label means at a smooth-blend
+boundary has to be answered first, and answering it with a blend-weight
+vector changes the surface-group data model rather than just the mesher.
 
 ## 11. Open questions
 

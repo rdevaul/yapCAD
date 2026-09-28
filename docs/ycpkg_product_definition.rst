@@ -229,8 +229,9 @@ requires persistent feature naming and is not implied by v0.2.
 * Entity-only package creation continues to emit v0.1.
 * Assembly-aware creation emits v0.2 and also writes a positioned
   ``geometry/primary.json`` for existing viewers.
-* Geometry documents use ``yapcad-geometry-json-v0.2``: analytic BREP is the
-  explicit authoritative representation and tessellation is a preview.
+* Geometry documents use ``yapcad-geometry-json-v0.3``: analytic BREP or an
+  SDF tree is the explicit authoritative representation and tessellation is a
+  preview.
 * Unknown v0.2 fields remain forward-compatible, but required references and
   BOM invariants are validated.
 * Zipped-package support, semantic STEP PMI, manufacturing BOMs, and automated

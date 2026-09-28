@@ -1,6 +1,6 @@
 # yapCAD Geometry JSON Schema
 
-**Schema ID:** `yapcad-geometry-json-v0.2`
+**Schema ID:** `yapcad-geometry-json-v0.3`
 **Status:** Implemented draft
 **Purpose:** Serialise yapCAD solids, surfaces, assemblies, and associated metadata into a portable JSON document for storage, interchange, or inclusion in `.ycpkg` packages.
 
@@ -10,7 +10,7 @@
 
 ```json5
 {
-  "schema": "yapcad-geometry-json-v0.2",
+  "schema": "yapcad-geometry-json-v0.3",
   "generator": {
     "name": "yapCAD",
     "version": "0.6.1",
@@ -119,7 +119,68 @@ The BREP block is not duplicated under ``metadata``. The optional
 ``modelTolerance`` is expressed in document units and, when present, must be
 finite and positive.
 
-#### 2.1.1 Construction provenance (optional)
+#### 2.1.1 SDF representation (v0.3)
+
+Version 0.3 adds ``sdf`` to the ``authoritative`` enum. Extending that enum
+is a breaking change for a strict reader, which is why the schema ID moved.
+Authority remains a single per-solid property: a solid authored as a field
+is SDF-authoritative and its mesh is a regenerated preview, while a solid
+imported from STEP stays BREP-authoritative. A document declaring both is
+rejected.
+
+```json5
+"representations": {
+  "authoritative": "sdf",
+  "sdf": {
+    "role": "authoritative",
+    "format": "yapcad-sdf-tree-v1",
+    "lipschitz": "bound",
+    "lipschitzConstant": 1.0,
+    "csgExact": true,
+    "bounds": [-10.0, -10.0, -4.0, 10.0, 10.0, 4.0],
+    "tree": {
+      "format": "yapcad-sdf-tree-v1",
+      "root": "n5bb0477e7c48f027",
+      "nodes": { "n…": { "kind": "sphere", "params": {"radius": 5.0},
+                         "children": [] } }
+    }
+  },
+  "mesh": {
+    "format": "indexed-triangle-set",
+    "role": "preview",
+    "generatedFrom": "sdf",
+    "method": "dual-contouring",
+    "resolution": 64
+  }
+}
+```
+
+The node table is flat and keyed by content digest rather than nested, so a
+shared subtree is stored once and the DAG structure survives the round trip.
+Digests are truncated SHA-256 taken over each node's kind, parameters and
+its children's digests, and are stable across processes so that a stored
+tree does not churn package hashes.
+
+``lipschitz`` distinguishes a field that *is* the signed distance
+(``"exact"``) from one that only bounds it (``"bound"`` — hard CSG and
+smooth blends). ``lipschitzConstant`` is the ``L`` for which
+``|f(p)| <= L * d(p)``, so a ray marcher may safely step ``|f| / L``.
+``csgExact`` reports whether the tree holds only analytic primitives, hard
+booleans and similarity transforms and can therefore be replayed through
+OCC for an exact BREP; ``false`` means the part will not round-trip to STEP
+as analytic geometry. ``bounds`` is omitted for an unbounded field.
+
+These three fields are a cache of what the tree already determines.
+Importers MUST recompute and verify them rather than trust them, in the same
+way the BREP payload hash is verified before kernel loading.
+
+An SDF-authoritative solid MUST NOT also carry a top-level ``construction``
+field: the tree is already in ``representations.sdf.tree``, and a second
+copy is a second encoding of one fact that can drift. The mesh record's
+meshing parameters are recorded so that the preview is exactly reproducible,
+which matters because yapCAD signs packages.
+
+#### 2.1.2 Construction provenance (optional)
 
 A solid MAY carry a `construction` record describing how it was produced. It
 mirrors the `construction` slot of the in-memory solid
@@ -252,13 +313,19 @@ Attachment entries register external artefacts alongside hashes for integrity.
 
 ## 7. Compatibility
 
-Readers accept ``yapcad-geometry-json-v0.1`` documents. Their historical
-``metadata.brep`` payload is rehydrated when available. Writers always emit
-v0.2 and never place new BREP data in generic metadata. Older readers can use a
-derived preview/export but are not expected to understand v0.2 documents.
+Readers accept ``yapcad-geometry-json-v0.1`` and ``v0.2`` documents. The v0.1
+historical ``metadata.brep`` payload is rehydrated when available. Writers
+always emit v0.3 and never place new BREP data in generic metadata.
 
-The machine-readable schema is
-``docs/schemas/yapcad-geometry-json-v0.2.schema.json``.
+v0.3 differs from v0.2 only by admitting ``"sdf"`` as an ``authoritative``
+value, with the accompanying ``sdf`` representation record and the optional
+meshing parameters on ``mesh``. A v0.2 document therefore reads unchanged,
+and a v0.2 document claiming ``authoritative: "sdf"`` is rejected — which is
+the whole reason the ID had to move rather than the enum quietly widening.
+
+The machine-readable schemas are
+``docs/schemas/yapcad-geometry-json-v0.3.schema.json`` and, for the previous
+revision, ``docs/schemas/yapcad-geometry-json-v0.2.schema.json``.
 
 ---
 

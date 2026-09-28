@@ -45,7 +45,7 @@ def test_geometry_json_roundtrip():
     assert len(doc['entities']) >= 2  # solid + surfaces
 
     solid_entry = next(e for e in doc['entities'] if e['type'] == 'solid')
-    assert doc['schema'] == 'yapcad-geometry-json-v0.2'
+    assert doc['schema'] == 'yapcad-geometry-json-v0.3'
     assert solid_entry['representations'] == {
         'authoritative': 'mesh',
         'mesh': {'format': 'indexed-triangle-set', 'role': 'authoritative'},
@@ -142,15 +142,37 @@ def test_v02_solid_requires_representation_contract():
         geometry_from_json(doc)
 
 
-def test_v02_document_matches_published_machine_readable_schema():
-    jsonschema = pytest.importorskip('jsonschema')
-    schema_path = (
+def _published_schema(version):
+    path = (
         Path(__file__).resolve().parents[1]
-        / 'docs' / 'schemas' / 'yapcad-geometry-json-v0.2.schema.json'
+        / 'docs' / 'schemas' / f'yapcad-geometry-json-{version}.schema.json'
     )
-    schema = json.loads(schema_path.read_text(encoding='utf-8'))
+    return json.loads(path.read_text(encoding='utf-8'))
+
+
+def test_document_matches_published_machine_readable_schema():
+    jsonschema = pytest.importorskip('jsonschema')
     document = geometry_to_json([_make_prism_solid()], units='mm')
-    jsonschema.Draft202012Validator(schema).validate(document)
+    jsonschema.Draft202012Validator(_published_schema('v0.3')).validate(document)
+
+
+def test_v02_documents_remain_loadable():
+    """v0.3 only extended the authoritative enum, so a mesh-authoritative
+    v0.2 document is still valid input."""
+    document = geometry_to_json([_make_prism_solid()], units='mm')
+    document['schema'] = 'yapcad-geometry-json-v0.2'
+    restored = geometry_from_json(document)
+    assert len(restored) == 1
+
+
+def test_v02_documents_may_not_claim_sdf_authority():
+    """The reason the schema id had to move: 'sdf' is not in v0.2's enum."""
+    document = geometry_to_json([_make_prism_solid()], units='mm')
+    document['schema'] = 'yapcad-geometry-json-v0.2'
+    entry = next(e for e in document['entities'] if e['type'] == 'solid')
+    entry['representations']['authoritative'] = 'sdf'
+    with pytest.raises(ValueError, match='invalid authoritative'):
+        geometry_from_json(document)
 
 
 def test_sketch_primitives_roundtrip():
