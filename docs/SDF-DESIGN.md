@@ -347,7 +347,7 @@ lines and should not absorb them.
 | Phase | Work | Unlocks |
 |---|---|---|
 | **0** ✅ | Serialise and restore the `construction` slot; fix `solid()` slot assignment | Provenance survives packaging; prerequisite for all of the below |
-| **1** | `yapcad/sdf/`: node DAG, numpy evaluator, Lipschitz tracking, primitives, hard CSG | Validate against `geom3d.signedFaceDistance` (`geom3d.py:254`) and analytic distances |
+| **1** ✅ | `yapcad/sdf/`: node DAG, numpy evaluator, Lipschitz tracking, primitives, hard CSG | Validated against `geom3d.signedFaceDistance` (`geom3d.py:254`) and analytic distances |
 | **2** | Dual contouring → ordinary yapCAD solids with `authoritative: "sdf"` | The entire existing downstream works on SDF parts |
 | **3** | CSG-exactness classifier + OCC tree replay | STEP export for the common case |
 | **4** | BREP/mesh → SDF promotion via OCC distance queries + cached grid | Mixed-authority booleans |
@@ -355,6 +355,70 @@ lines and should not absorb them.
 | **6** | Lattices, variable-thickness shells, distance-field fillets, topology-optimisation import | The features that justify the effort |
 
 Phases 0–2 require nothing beyond numpy, which is already a hard dependency.
+
+### 10.1 Phase 1 as built
+
+`yapcad/sdf/` ships as four modules: `node.py` (the DAG, its analysis and its
+serialisation), `primitives.py`, `ops.py` and `evaluate.py` (the numpy
+backend).  Four decisions are worth recording because later phases depend on
+them.
+
+**The backend seam is real, not notional.** §6 warns that a shader emitter
+bolted on afterwards will diverge from the numpy evaluator. A node kind
+therefore carries no evaluation code of its own: it registers a `NodeSpec`
+whose `backends` mapping holds one callable per backend name, and
+`evaluate.py` dispatches through that mapping. Phase 5 adds a `"glsl"` key to
+the existing specs rather than a parallel module. The evaluator signature is
+`(params, points, children, ev)` — the `ev` callback, rather than
+pre-evaluated child values, is what lets a domain operator such as
+`transform` resample its child instead of merely combining results.
+
+**`exact` and `csg_exact` are separate flags, and both are needed.** A hard
+boolean of two spheres is `csg_exact` (§5.2 will replay it through OCC for an
+exact BREP) but not `exact` (`min(a, b)` is not the true distance inside the
+union). Conflating them would either forbid STEP export for ordinary CSG or
+claim distance fidelity the field does not have.
+
+**The Lipschitz bookkeeping turned out tighter than expected.** `L` is
+defined operationally: `|f(p)| <= L * d(p)`, so `|f| / L` is always a safe
+ray-marching step. Two results fell out of deriving it properly:
+
+- Hard CSG keeps `L = 1`. `min`/`max` of 1-Lipschitz functions is
+  1-Lipschitz, and the zero set of `min(a, b)` *is* the union boundary, so
+  the bound holds inside the solid as well as outside — the field is
+  inexact there but never unsafe.
+- The polynomial smooth minimum also keeps `L = max(La, Lb)`. Its partials
+  work out to exactly `h` and `1 - h`, making the gradient a convex
+  combination of the operands'. So a fillet destroys exactness without
+  loosening the step bound, which is a better outcome than §4.3 anticipated.
+
+A non-uniform `transform` is handled by scaling the child's field by the
+matrix's *smallest* singular value. That underestimates distance by up to
+`s_max / s_min` but leaves `L` unchanged, so a stretched primitive stays safe
+to march; it is marked `exact = False` accordingly.
+
+`gyroid` and `schwarz_p` are in Phase 1 on purpose despite belonging to the
+Phase 6 feature set. They are the only nodes with `L > 1`, and without them
+the Lipschitz machinery would be propagating `1.0` everywhere and no test
+could tell correct bookkeeping from vacuous bookkeeping. Their `thickness` is
+in field units, not millimetres, and this is documented at the constructor.
+
+**Digests are content hashes, not object identities.** Each node's
+identifier is a truncated sha256 over its kind, parameters and its children's
+digests. That gives DAG deduplication on serialisation for free, and — the
+reason for sha256 over Python's `hash` — it is stable across processes, so an
+SDF tree stored in a package does not churn the package hash from run to run.
+The serialised form is a flat node table plus a root reference rather than a
+nested object, because a nested encoding silently expands a DAG back into a
+tree.
+
+**Deferred, and not yet started.** The `twist`, `bend` and `repeat` domain
+operators and the `sampled(grid_ref)` escape hatch of §4.2 are not
+implemented. `repeat` in particular needs care: the usual `mod`-based
+implementation overestimates distance whenever the nearest instance lies in a
+neighbouring cell, which breaks the marching guarantee that the rest of the
+subsystem maintains, so it wants the multi-cell candidate form rather than
+the naive one.
 
 ## 11. Open questions
 
