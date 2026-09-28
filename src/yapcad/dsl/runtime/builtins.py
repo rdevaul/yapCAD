@@ -2374,7 +2374,7 @@ class BuiltinRegistry:
             return float_val(path_length(path.data))
 
         def _split_solid(s: Value, plane_point: Value, plane_normal: Value) -> Value:
-            """Split a solid at a plane. Returns the negative-side half.
+            """Split a solid at a plane, returning both halves as a list.
 
             Requires OCC (pythonocc-core) at runtime.
             """
@@ -2387,7 +2387,7 @@ class BuiltinRegistry:
                 [pn[0], pn[1], pn[2]]
             )
             # Return both halves as a list
-            return list_val([solid_val(solid_a), solid_val(solid_b)])
+            return list_val([solid_val(solid_a), solid_val(solid_b)], SOLID)
 
         self.register(BuiltinFunction(
             "path3d_eval",
@@ -2401,7 +2401,8 @@ class BuiltinRegistry:
         ))
         self.register(BuiltinFunction(
             "split_solid",
-            _make_sig("split_solid", [SOLID, POINT3D, VECTOR3D], SOLID),
+            _make_sig("split_solid", [SOLID, POINT3D, VECTOR3D],
+                      ListType(SOLID)),
             _split_solid,
         ))
         # --- Text Solid Functions (from assembly branch) ---
