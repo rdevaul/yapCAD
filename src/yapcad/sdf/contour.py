@@ -39,6 +39,7 @@ from collections import namedtuple
 
 import numpy as np
 
+from yapcad.geom import epsilon
 from yapcad.sdf.evaluate import DEFAULT_BACKEND, evaluate, gradient
 from yapcad.sdf.node import INF, SdfError, bounds_is_empty
 
@@ -47,6 +48,10 @@ from yapcad.sdf.node import INF, SdfError, bounds_is_empty
 #: ``vertices`` and ``normals`` are ``(V, 3)``; ``triangles`` is ``(T, 3)``
 #: of vertex indices, wound counter-clockwise seen from outside the solid.
 Mesh = namedtuple("Mesh", ("vertices", "normals", "triangles"))
+
+#: Eigenvalues below this fraction of a cell's largest are treated as
+#: unconstrained directions in the QEF solve (Ju et al.'s truncation).
+QEF_TRUNCATION = 1e-2
 
 
 # For an edge along axis ``a``, the four cells sharing it, in counter-
@@ -322,25 +327,78 @@ def dual_contour(node, resolution=64, bounds=None, padding=None,
                 )
             tally += np.bincount(cells, minlength=n_active)
 
-    # Solve each cell's quadratic error function about its mass point.  The
-    # regularisation term is what makes a flat or under-determined cell fall
-    # back gracefully to the mass point instead of producing a wild vertex.
+    # Solve each cell's quadratic error function about its mass point, using
+    # a pseudo-inverse with singular-value truncation rather than uniform
+    # damping.  ATA is symmetric positive semi-definite, and its rank is the
+    # number of directions the surface actually constrains: one inside a
+    # flat cell, two along an edge, three at a corner.  Keeping only the
+    # well-conditioned directions solves exactly for those and leaves the
+    # vertex at the mass point along the rest.  Uniform Tikhonov damping
+    # instead lets an ill-conditioned flat cell slide its vertex far along
+    # the surface, which is what drives vertices out of their cells and
+    # produces coincident points where two neighbours both clamp to the
+    # corner they share.
     matrices = ata.reshape(n_active, 3, 3)
     centre = mass / tally[:, None]
     residual = atb - np.einsum("nij,nj->ni", matrices, centre)
-    trace = matrices[:, 0, 0] + matrices[:, 1, 1] + matrices[:, 2, 2]
-    damping = 1e-6 * np.maximum(trace, 1e-12)
-    regularised = matrices + damping[:, None, None] * np.eye(3)
-    vertices = centre + np.linalg.solve(regularised, residual)
+
+    evals, evecs = np.linalg.eigh(matrices)
+    largest = evals[:, 2:3]
+    keep = evals > QEF_TRUNCATION * largest
+    usable = keep & (evals > 0.0)
+    inverted = np.where(
+        usable, 1.0 / np.where(evals > 0.0, evals, 1.0), 0.0
+    )
+    projected = np.einsum("nik,ni->nk", evecs, residual) * inverted
+    vertices = centre + np.einsum("nik,nk->ni", evecs, projected)
+    # A cell with no usable direction keeps its mass point.
+    vertices = np.where(largest > 0.0, vertices, centre)
 
     # Keep each vertex in its own cell; an unclamped QEF can place a vertex
     # far outside on a nearly-degenerate configuration and tangle the mesh.
     cell_lo = origin + np.stack(active_idx, axis=1).astype(float) * spacing
     vertices = np.clip(vertices, cell_lo, cell_lo + spacing)
+    vertices = _separate_coincident(vertices, cell_lo, spacing)
 
     normals = _vertex_normals(node, vertices, normal_sum, eps, backend)
     triangles = _emit_triangles(values, edge_idx, cell_index, counts)
     return Mesh(vertices, normals, triangles)
+
+
+def _separate_coincident(vertices, cell_lo, spacing):
+    """Pull any vertices sharing a position strictly inside their own cells.
+
+    Clamping to the closed cell lets two neighbours land on the face they
+    share.  That matters more than it looks: yapCAD's
+    :func:`yapcad.geom3d.issolidclosed` keys edges by vertex *position*
+    rather than index, so a coincident pair merges two distinct edges, the
+    solid reads as open, and ``volumeof`` refuses it — even though the index
+    topology is perfectly sound.
+
+    Only the colliding vertices are moved, and only as far as one position
+    quantum needs.  Everything else keeps the position the QEF chose, so a
+    box whose faces land exactly on lattice planes still meshes to its exact
+    volume.  After the move each colliding vertex sits at least ``inset``
+    inside its own cell, so it is at least ``inset`` from anything in a
+    neighbouring cell and at least ``2 * inset`` from another moved vertex —
+    both comfortably more than the quantum.
+    """
+    keys = np.round(np.asarray(vertices) / epsilon).astype(np.int64)
+    _, inverse, counts = np.unique(
+        keys, axis=0, return_inverse=True, return_counts=True
+    )
+    colliding = counts[inverse.ravel()] > 1
+    if not np.any(colliding):
+        return vertices
+
+    inset = min(4.0 * epsilon, 0.25 * spacing)
+    moved = vertices.copy()
+    moved[colliding] = np.clip(
+        vertices[colliding],
+        cell_lo[colliding] + inset,
+        cell_lo[colliding] + spacing - inset,
+    )
+    return moved
 
 
 def _vertex_normals(node, vertices, normal_sum, eps, backend):
@@ -406,8 +464,9 @@ def _emit_triangles(values, edge_idx, cell_index, counts):
 def manifold_defects(mesh):
     """Count the ways ``mesh`` fails to be a closed manifold.
 
-    :returns: ``{"boundary": n, "nonmanifold": n}`` — edges used by exactly
-        one triangle, and edges used by three or more.
+    :returns: ``{"boundary": n, "nonmanifold": n, "coincident": n}`` — edges
+        used by exactly one triangle, edges used by three or more, and
+        vertices sharing a position with another vertex.
 
     Dual contouring places **one** vertex per cell, so a cell that the
     surface passes through twice cannot represent both sheets and the result
@@ -417,24 +476,36 @@ def manifold_defects(mesh):
     Ju), which splits such a cell into one vertex per surface component and
     is not implemented here.
 
+    Coincident vertices are counted separately because yapCAD's own
+    :func:`yapcad.geom3d.issolidclosed` keys edges by vertex *position*
+    rather than index, so two vertices at the same point merge two distinct
+    edges and the solid reads as open even when the index topology is sound.
+    ``volumeof`` then refuses it. Index manifoldness alone is therefore not
+    enough to promise the downstream a usable solid.
+
     Checking is cheap next to meshing, and design document §5.3 argues that
     a tool which states its limits beats one that degrades silently — so
     :func:`~yapcad.sdf.convert.to_solid` runs this by default.
     """
     triangles = np.asarray(mesh.triangles)
     if triangles.size == 0:
-        return {"boundary": 0, "nonmanifold": 0}
+        return {"boundary": 0, "nonmanifold": 0, "coincident": 0}
     edges = np.concatenate([
         triangles[:, [0, 1]], triangles[:, [1, 2]], triangles[:, [2, 0]]
     ])
     _, counts = np.unique(np.sort(edges, axis=1), axis=0, return_counts=True)
+
+    # Quantised the same way geom3d._point_to_key quantises, so this agrees
+    # with what issolidclosed will conclude.
+    keys = np.round(np.asarray(mesh.vertices) / epsilon).astype(np.int64)
+    distinct = len(np.unique(keys, axis=0))
     return {
         "boundary": int(np.sum(counts == 1)),
         "nonmanifold": int(np.sum(counts > 2)),
+        "coincident": int(len(mesh.vertices) - distinct),
     }
 
 
 def is_manifold(mesh):
-    """True when every edge of ``mesh`` is shared by exactly two triangles."""
-    defects = manifold_defects(mesh)
-    return defects["boundary"] == 0 and defects["nonmanifold"] == 0
+    """True when ``mesh`` is a closed manifold with no coincident vertices."""
+    return not any(manifold_defects(mesh).values())

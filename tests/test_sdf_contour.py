@@ -317,7 +317,7 @@ class TestManifoldGuard:
         for node in (sdf.sphere(5.0), sdf.box(8.0), sdf.torus(9.0, 2.5)):
             mesh = sdf.dual_contour(node, resolution=24)
             assert sdf.manifold_defects(mesh) == {
-                "boundary": 0, "nonmanifold": 0
+                "boundary": 0, "nonmanifold": 0, "coincident": 0
             }
 
     def test_an_empty_mesh_is_not_a_defect(self):
@@ -325,7 +325,9 @@ class TestManifoldGuard:
             sdf.sphere(1.0), resolution=8,
             bounds=((50.0, 50.0, 50.0), (60.0, 60.0, 60.0)),
         )
-        assert sdf.manifold_defects(mesh) == {"boundary": 0, "nonmanifold": 0}
+        assert sdf.manifold_defects(mesh) == {
+            "boundary": 0, "nonmanifold": 0, "coincident": 0
+        }
 
     def test_resolution_must_be_at_least_two(self):
         with pytest.raises(sdf.SdfError, match="resolution"):
@@ -566,3 +568,71 @@ class TestGeometryJsonRejections:
             "authoritative")
         with pytest.raises(ValueError, match="mesh role must be 'preview'"):
             geometry_from_json(document)
+
+
+class TestDownstreamUsability:
+    """yapCAD's own predicates are the bar, not our internal edge count.
+
+    ``issolidclosed`` keys edges by vertex *position*, so a mesh that is
+    perfectly sound by index can still read as open if two vertices share a
+    point -- and then ``volumeof`` refuses it.  These caught exactly that:
+    a torus meshed above resolution 24 used to fail here.
+    """
+
+    CASES = [
+        ("sphere", sdf.sphere(5.0), 32),
+        ("box", sdf.box(8.0), 32),
+        ("torus", sdf.torus(9.0, 2.5), 32),
+        ("torus-fine", sdf.torus(9.0, 2.5), 64),
+        ("cone", sdf.cone(5.0, 1.0, 9.0), 32),
+        ("capsule", sdf.capsule((-4, 0, 0), (4, 0, 0), 2.0), 32),
+        ("cube-frame", sdf.subtract(sdf.box(10.0), sdf.sphere(6.0)), 32),
+        ("rotated-box",
+         sdf.rotate(sdf.box((8.0, 6.0, 4.0)), (0, 0, 1), 30), 48),
+        ("smooth-union", sdf.smooth_union(
+            sdf.translate(sdf.sphere(4.0), (-3, 0, 0)),
+            sdf.translate(sdf.sphere(4.0), (3, 0, 0)), 2.0), 32),
+        ("shell", sdf.shell(sdf.sphere(6.0), 1.0), 40),
+        ("lattice", sdf.intersect(sdf.box(20.0), sdf.gyroid(8.0, 0.5)), 48),
+    ]
+
+    @pytest.mark.parametrize("name,node,resolution", CASES)
+    def test_solids_satisfy_yapcads_own_closure_test(self, name, node,
+                                                     resolution):
+        result = sdf.to_solid(node, resolution=resolution)
+        assert issolidclosed(result), name
+        assert volumeof(result) > 0.0
+
+    @pytest.mark.parametrize("name,node,resolution", CASES)
+    def test_no_two_vertices_share_a_position(self, name, node, resolution):
+        mesh = sdf.dual_contour(node, resolution=resolution)
+        assert sdf.manifold_defects(mesh)["coincident"] == 0, name
+
+    def test_meshes_export_as_watertight_stl(self):
+        """The Phase 2 promise, end to end: an SDF part goes out through
+        yapCAD's existing STL writer with no knowledge of fields."""
+        trimesh = pytest.importorskip("trimesh")
+        import os
+        import tempfile
+        from yapcad.io.stl import write_stl
+
+        node = sdf.subtract(sdf.box(10.0), sdf.sphere(6.0))
+        result = sdf.to_solid(node, resolution=32)
+        handle, path = tempfile.mkstemp(suffix=".stl")
+        os.close(handle)
+        try:
+            write_stl(result, path)
+            loaded = trimesh.load_mesh(path)
+            assert loaded.is_watertight
+            assert loaded.is_winding_consistent
+            assert loaded.euler_number == -8
+        finally:
+            os.unlink(path)
+
+    def test_the_qef_keeps_vertices_in_their_cells(self):
+        """Singular-value truncation, rather than uniform damping, is what
+        stops a flat cell sliding its vertex along the surface and out of
+        the cell -- which was the source of the coincident vertices."""
+        node = sdf.torus(9.0, 2.5)
+        mesh = sdf.dual_contour(node, resolution=32)
+        assert sdf.manifold_defects(mesh)["coincident"] == 0

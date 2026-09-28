@@ -57,15 +57,15 @@ def to_solid(node, resolution=64, bounds=None, padding=None, chunk=32,
                         backend=backend)
     if check:
         defects = manifold_defects(mesh)
-        if defects["boundary"] or defects["nonmanifold"]:
+        if any(defects.values()):
             raise SdfError(
-                f"dual contouring produced a non-manifold mesh at "
-                f"resolution {resolution} "
-                f"({defects['nonmanifold']} non-manifold edges, "
-                f"{defects['boundary']} boundary edges). The surface passes "
-                f"through at least one cell twice -- a wall or a gap thinner "
-                f"than one cell. Raise the resolution, or pass check=False "
-                f"to accept the mesh as-is."
+                f"dual contouring produced an unusable mesh at resolution "
+                f"{resolution}: {defects['nonmanifold']} non-manifold edges, "
+                f"{defects['boundary']} boundary edges, "
+                f"{defects['coincident']} coincident vertices. The surface "
+                f"most likely passes through one cell twice -- a wall or a "
+                f"gap thinner than a cell. Raise the resolution, or pass "
+                f"check=False to accept the mesh as-is."
             )
     surf = mesh_to_surface(mesh)
     meshing = {
