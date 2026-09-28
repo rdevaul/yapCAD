@@ -70,7 +70,9 @@ dependencies = [
 [project.optional-dependencies]
 tests = [
   "pytest",
-  "pytest-cov"
+  "pytest-cov",
+  # Validates emitted documents against docs/schemas/*.schema.json
+  "jsonschema",
 ]
 meshcheck = [
   "trimesh>=4.0",
