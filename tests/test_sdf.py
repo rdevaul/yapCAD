@@ -660,15 +660,14 @@ class TestConstructionBridge:
 
     def test_sdf_tree_survives_the_geometry_json_boundary(self):
         """Phase 0 made the slot round-trip; this is the payload it was for."""
-        from yapcad.construction import get_construction, set_construction
+        from yapcad.construction import get_construction
         from yapcad.io.geometry_json import (
             geometry_from_json,
             geometry_to_json,
         )
 
         node = sdf.subtract(sdf.box(10.0), sdf.sphere(4.0))
-        solid = prism(10.0, 10.0, 10.0)
-        set_construction(solid, sdf.to_construction(node))
+        solid = sdf.to_solid(node, resolution=12)
 
         document = json.loads(
             json.dumps(geometry_to_json([solid], units="mm"))
@@ -678,6 +677,22 @@ class TestConstructionBridge:
         recovered = sdf.from_construction(get_construction(restored[0]))
         assert recovered == node
         assert recovered.digest == node.digest
+
+    def test_a_solid_cannot_claim_both_sdf_and_brep_authority(self):
+        """prism() attaches an analytic BREP, so a prism is BREP-
+        authoritative; pinning an SDF record to one is a contradiction, and
+        §2 makes authority a single per-solid property."""
+        from yapcad.brep import occ_available
+        from yapcad.construction import set_construction
+        from yapcad.io.geometry_json import geometry_to_json
+
+        if not occ_available():
+            pytest.skip("pythonocc-core is not available")
+
+        solid = prism(10.0, 10.0, 10.0)
+        set_construction(solid, sdf.to_construction(sdf.box(10.0)))
+        with pytest.raises(ValueError, match="both SDF and BREP authority"):
+            geometry_to_json([solid], units="mm")
 
 
 # ---------------------------------------------------------------------------

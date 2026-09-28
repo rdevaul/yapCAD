@@ -52,7 +52,9 @@ from yapcad.sdf.node import (
     bounds_union,
     digest,
     from_construction,
+    is_sdf_construction,
     make_node,
+    meshing_from_construction,
     register,
     registered_kinds,
     to_construction,
@@ -86,6 +88,13 @@ from yapcad.sdf.ops import (
     translate,
     union,
 )
+from yapcad.sdf.contour import (
+    Mesh,
+    dual_contour,
+    is_manifold,
+    manifold_defects,
+)
+from yapcad.sdf.convert import mesh_to_surface, to_solid
 from yapcad.sdf.evaluate import (
     evaluate,
     gradient,
@@ -119,6 +128,8 @@ __all__ = [
     "tree_from_json",
     "to_construction",
     "from_construction",
+    "is_sdf_construction",
+    "meshing_from_construction",
     # primitives
     "sphere",
     "box",
@@ -149,4 +160,11 @@ __all__ = [
     "normal",
     "safe_step",
     "sample_grid",
+    # meshing
+    "Mesh",
+    "dual_contour",
+    "is_manifold",
+    "manifold_defects",
+    "mesh_to_surface",
+    "to_solid",
 ]

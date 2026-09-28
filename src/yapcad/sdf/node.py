@@ -483,14 +483,22 @@ def tree_from_json(doc):
     return build(root)
 
 
-def to_construction(node):
+def to_construction(node, meshing=None):
     """Return an ``['sdf', tree]`` record for a solid's construction slot.
 
     :mod:`yapcad.construction` reserved the ``sdf`` kind tag in Phase 0; this
     is the function that fills it, so a solid meshed from a field carries the
     field that generated it through the package boundary.
+
+    :param meshing: optional dictionary of the parameters used to generate
+        the solid's mesh preview, appended as a third element.  Recording
+        them is what makes the preview reproducible, which package signing
+        depends on.
     """
-    return ["sdf", tree_to_json(node)]
+    record = ["sdf", tree_to_json(node)]
+    if meshing is not None:
+        record.append(dict(meshing))
+    return record
 
 
 def from_construction(record):
@@ -499,8 +507,25 @@ def from_construction(record):
     Returns ``None`` for a record of any other kind, so callers can probe a
     solid's provenance without first checking the tag.
     """
-    if not isinstance(record, (list, tuple)) or len(record) < 2:
-        return None
-    if record[0] != "sdf":
+    if not is_sdf_construction(record):
         return None
     return tree_from_json(record[1])
+
+
+def is_sdf_construction(record):
+    """True if ``record`` is an SDF construction record."""
+    if not isinstance(record, (list, tuple)) or len(record) < 2:
+        return False
+    return record[0] == "sdf"
+
+
+def meshing_from_construction(record):
+    """Return the meshing parameters of an SDF record, or ``None``.
+
+    A record written before meshing parameters were carried, or one for a
+    field that has not been meshed, simply has no third element.
+    """
+    if not is_sdf_construction(record) or len(record) < 3:
+        return None
+    params = record[2]
+    return dict(params) if isinstance(params, dict) else None
