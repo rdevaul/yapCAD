@@ -81,3 +81,14 @@ Example List
    Polygon() instances to create combined shapes. Optionally render
    interactively with pyglet OpenGL or DXF by way of command-line
    arguments. Run ``python3 example12.py help`` to see options.
+
+-  `sdf_demo.py <./sdf_demo.py>`__ — gallery of signed-distance-function
+   models, each defined purely as a field and dual-contoured into an
+   ordinary yapCAD solid. Writes STL meshes and rendered PNG previews to
+   ``build/sdf-demo``, together with a manifest recording each model's
+   volume, Lipschitz constant, manifoldness and CSG-exactness. Doubles as a
+   visual regression check on the SDF mesher. Run
+   ``python3 examples/sdf_demo.py --list`` to see the models, ``--help`` for
+   options. Rendering is handled by `sdf_preview.py <./sdf_preview.py>`__, a
+   dependency-free software rasterizer. See
+   `docs/SDF-DESIGN.md <../docs/SDF-DESIGN.md>`__.
