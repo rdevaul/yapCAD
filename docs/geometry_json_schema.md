@@ -174,6 +174,29 @@ These three fields are a cache of what the tree already determines.
 Importers MUST recompute and verify them rather than trust them, in the same
 way the BREP payload hash is verified before kernel loading.
 
+An SDF-authoritative solid MAY also carry a ``brep`` record, but only as a
+*derived* representation replayed from its tree:
+
+```json5
+"brep": {
+  "role": "derived",
+  "derivedFrom": "sdf",
+  "treeDigest": "n5bb0477e7c48f027",
+  "format": "opencascade-brep",
+  "encoding": "base64",
+  "payload": "…",
+  "hash": "sha256:…",
+  "kernel": { "name": "OpenCASCADE", "version": "7.7.2" }
+}
+```
+
+``treeDigest`` names the tree the BREP was replayed from. Importers MUST
+compare it with the digest of the tree as they rebuild it -- not with the
+document's own root label -- and reject a mismatch. A derived BREP carries
+nothing the tree does not, so a reader MAY discard it. A BREP with
+``role: "authoritative"`` beside an SDF tree, or a derived BREP on a solid
+that is not SDF-authoritative, is rejected: authority is single-valued.
+
 An SDF-authoritative solid MUST NOT also carry a top-level ``construction``
 field: the tree is already in ``representations.sdf.tree``, and a second
 copy is a second encoding of one fact that can drift. The mesh record's

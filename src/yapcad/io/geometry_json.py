@@ -181,7 +181,8 @@ def _kernel_record(legacy_brep: Dict[str, Any]) -> Dict[str, str]:
     return {"name": "OpenCASCADE", "version": version}
 
 
-def _explicit_brep_record(legacy_brep: Dict[str, Any]) -> Dict[str, Any]:
+def _explicit_brep_record(legacy_brep: Dict[str, Any],
+                          role: str = "authoritative") -> Dict[str, Any]:
     if legacy_brep.get("encoding") != "brep-ascii-base64":
         raise ValueError(
             f"unsupported legacy BREP encoding: {legacy_brep.get('encoding')!r}"
@@ -194,7 +195,7 @@ def _explicit_brep_record(legacy_brep: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as exc:
         raise ValueError("BREP payload is not valid base64") from exc
     record: Dict[str, Any] = {
-        "role": "authoritative",
+        "role": role,
         "format": "opencascade-brep",
         "encoding": "base64",
         "payload": encoded,
@@ -206,18 +207,24 @@ def _explicit_brep_record(legacy_brep: Dict[str, Any]) -> Dict[str, Any]:
         if not math.isfinite(tolerance) or tolerance <= 0:
             raise ValueError("BREP modelTolerance must be finite and positive")
         record["modelTolerance"] = tolerance
+    if role == "derived":
+        # Which tree this was replayed from, so a reader can tell a derived
+        # BREP from a stale or unrelated one without replaying it.
+        record["derivedFrom"] = "sdf"
+        record["treeDigest"] = legacy_brep["derivedFrom"]["sdf"]
     return record
 
 
-def _legacy_brep_record(explicit: Dict[str, Any]) -> Dict[str, Any]:
+def _legacy_brep_record(explicit: Dict[str, Any],
+                        role: str = "authoritative") -> Dict[str, Any]:
     if not isinstance(explicit, dict):
         raise ValueError("BREP representation must be an object")
     if explicit.get("format") != "opencascade-brep":
         raise ValueError(f"unsupported BREP format: {explicit.get('format')!r}")
     if explicit.get("encoding") != "base64":
         raise ValueError(f"unsupported BREP encoding: {explicit.get('encoding')!r}")
-    if explicit.get("role") != "authoritative":
-        raise ValueError("BREP representation role must be 'authoritative'")
+    if explicit.get("role") != role:
+        raise ValueError(f"BREP representation role must be {role!r}")
     kernel = explicit.get("kernel")
     if not isinstance(kernel, dict) or kernel.get("name") != "OpenCASCADE":
         raise ValueError("BREP representation requires an OpenCASCADE kernel record")
@@ -243,6 +250,14 @@ def _legacy_brep_record(explicit: Dict[str, Any]) -> Dict[str, Any]:
         if not math.isfinite(tolerance) or tolerance <= 0:
             raise ValueError("BREP modelTolerance must be finite and positive")
         legacy["modelTolerance"] = tolerance
+    if role == "derived":
+        if explicit.get("derivedFrom") != "sdf":
+            raise ValueError("a derived BREP must declare derivedFrom 'sdf'")
+        tree_digest = explicit.get("treeDigest")
+        if not isinstance(tree_digest, str) or not tree_digest:
+            raise ValueError("a derived BREP must name the treeDigest it was "
+                             "replayed from")
+        legacy["derivedFrom"] = {"sdf": tree_digest}
     return legacy
 
 
@@ -396,11 +411,21 @@ def _serialize_solid(solid: list, surface_cache: Dict[str, Dict[str, Any]], meta
     construction = construction_to_json(solid)
     sdf_record = _sdf_representation(construction)
 
+    brep_role = "authoritative"
     if sdf_record is not None and legacy_brep:
-        raise ValueError(
-            f"solid {solid_id} claims both SDF and BREP authority; "
-            "authority is a single per-solid property"
-        )
+        # An SDF solid may carry a BREP only as a *derived* representation:
+        # one replayed from this very tree.  Anything else -- an analytic
+        # BREP from prism(), or one replayed from an earlier version of the
+        # tree -- would be a second, disagreeing definition of the solid.
+        marker = (legacy_brep.get("derivedFrom") or {}).get("sdf")
+        if marker != sdf_record["tree"]["root"]:
+            raise ValueError(
+                f"solid {solid_id} claims both SDF and BREP authority; "
+                "authority is a single per-solid property. Its BREP was not "
+                "replayed from its SDF tree -- regenerate it with "
+                "yapcad.sdf.to_solid(..., brep=True), or drop one of the two."
+            )
+        brep_role = "derived"
 
     if sdf_record is not None:
         authoritative = "sdf"
@@ -421,7 +446,8 @@ def _serialize_solid(solid: list, surface_cache: Dict[str, Dict[str, Any]], meta
         "mesh": mesh_record,
     }
     if legacy_brep:
-        representations["brep"] = _explicit_brep_record(legacy_brep)
+        representations["brep"] = _explicit_brep_record(legacy_brep,
+                                                        role=brep_role)
     if sdf_record is not None:
         representations["sdf"] = sdf_record
 
@@ -746,7 +772,7 @@ def geometry_from_json(doc: Dict[str, Any]) -> List[list]:
                 if "brep" not in representations:
                     raise ValueError(f"solid {entry['id']} missing BREP representation")
                 metadata["brep"] = _legacy_brep_record(representations["brep"])
-            elif "brep" in representations:
+            elif "brep" in representations and authoritative != "sdf":
                 raise ValueError(
                     f"solid {entry['id']} contains non-authoritative BREP representation"
                 )
@@ -763,6 +789,19 @@ def geometry_from_json(doc: Dict[str, Any]) -> List[list]:
                 solid[3] = _construction_from_sdf(
                     representations["sdf"], mesh_record, entry["id"]
                 )
+                if "brep" in representations:
+                    derived = _legacy_brep_record(representations["brep"],
+                                                  role="derived")
+                    # Compare against the digest of the tree as rebuilt, not
+                    # the id the document gives it: a table key is only a
+                    # label, and the check is meant to catch drift.
+                    rebuilt = _sdf_node_from_tree(solid[3][1]).digest
+                    if derived["derivedFrom"]["sdf"] != rebuilt:
+                        raise ValueError(
+                            f"solid {entry['id']} carries a derived BREP that "
+                            "was replayed from a different SDF tree"
+                        )
+                    metadata["brep"] = derived
             elif "sdf" in representations:
                 raise ValueError(
                     f"solid {entry['id']} contains a non-authoritative "

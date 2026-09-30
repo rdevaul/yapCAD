@@ -95,6 +95,11 @@ from yapcad.sdf.contour import (
     manifold_defects,
 )
 from yapcad.sdf.convert import mesh_to_surface, to_solid
+from yapcad.sdf.occ import (
+    csg_blockers,
+    describe_blockers,
+    to_brep,
+)
 from yapcad.sdf.evaluate import (
     evaluate,
     gradient,
@@ -167,4 +172,8 @@ __all__ = [
     "manifold_defects",
     "mesh_to_surface",
     "to_solid",
+    # exact CSG replay
+    "csg_blockers",
+    "describe_blockers",
+    "to_brep",
 ]

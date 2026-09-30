@@ -224,13 +224,45 @@
           "then": {
             "required": [
               "brep"
-            ]
+            ],
+            "properties": {
+              "brep": {
+                "properties": {
+                  "role": {
+                    "const": "authoritative"
+                  }
+                }
+              }
+            }
           },
           "else": {
-            "not": {
+            "if": {
+              "properties": {
+                "authoritative": {
+                  "const": "sdf"
+                }
+              },
               "required": [
-                "brep"
+                "authoritative"
               ]
+            },
+            "then": {
+              "properties": {
+                "brep": {
+                  "properties": {
+                    "role": {
+                      "const": "derived"
+                    }
+                  }
+                }
+              }
+            },
+            "else": {
+              "not": {
+                "required": [
+                  "brep"
+                ]
+              }
             }
           }
         },
@@ -272,7 +304,11 @@
       ],
       "properties": {
         "role": {
-          "const": "authoritative"
+          "enum": [
+            "authoritative",
+            "derived"
+          ],
+          "description": "'authoritative' when this BREP defines the solid. 'derived' when the solid is SDF-authoritative and this BREP was replayed from its tree (design document \u00a75.2); a derived BREP carries nothing the tree does not, and a reader may discard it."
         },
         "format": {
           "const": "opencascade-brep"
@@ -305,8 +341,38 @@
         "modelTolerance": {
           "type": "number",
           "exclusiveMinimum": 0
+        },
+        "derivedFrom": {
+          "enum": [
+            "sdf"
+          ]
+        },
+        "treeDigest": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Digest of the SDF tree this BREP was replayed from. Readers compare it with the digest of the tree as rebuilt, not with the document's own root label."
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "role": {
+                "const": "derived"
+              }
+            },
+            "required": [
+              "role"
+            ]
+          },
+          "then": {
+            "required": [
+              "derivedFrom",
+              "treeDigest"
+            ]
+          }
+        }
+      ]
     },
     "surface": {
       "allOf": [

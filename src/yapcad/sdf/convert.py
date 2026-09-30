@@ -33,7 +33,8 @@ def mesh_to_surface(mesh):
 
 
 def to_solid(node, resolution=64, bounds=None, padding=None, chunk=32,
-             prune=True, backend=DEFAULT_BACKEND, metadata=None, check=True):
+             prune=True, backend=DEFAULT_BACKEND, metadata=None, check=True,
+             brep=False):
     """Mesh ``node`` and return it as a yapCAD solid.
 
     :param resolution: cells across the longest axis; the dominant quality
@@ -46,12 +47,23 @@ def to_solid(node, resolution=64, bounds=None, padding=None, chunk=32,
         a solid.  Leave it on: the downstream — ``volumeof``, the exporters,
         the collision system — assumes closed geometry, and a silently
         broken solid is worse than a refusal.
+    :param brep: also replay the tree through OCC and attach the exact BREP
+        as a *derived* representation, so that
+        :func:`yapcad.io.step.write_step_analytic` exports analytic surfaces
+        instead of facets.  ``True`` requires a ``csg_exact`` tree and
+        pythonocc-core, and raises otherwise; ``"auto"`` attaches one when
+        both hold and quietly skips it when not.  Off by default, because a
+        BREP payload is megabytes where the tree is kilobytes.
     :returns: a solid whose construction slot holds the generating field.
 
     The meshing parameters are recorded in the construction record so the
     preview can be regenerated bit-for-bit; see
     :func:`yapcad.sdf.node.to_construction`.
     """
+    if brep not in (False, True, "auto"):
+        raise SdfError(f"brep must be True, False or 'auto', got {brep!r}")
+    replayed = _replay(node, brep)
+
     mesh = dual_contour(node, resolution=resolution, bounds=bounds,
                         padding=padding, chunk=chunk, prune=prune,
                         backend=backend)
@@ -84,7 +96,35 @@ def to_solid(node, resolution=64, bounds=None, padding=None, chunk=32,
     if metadata:
         from yapcad.metadata import set_solid_metadata
         set_solid_metadata(result, dict(metadata))
+    if replayed is not None:
+        _attach_derived_brep(result, replayed, node)
     return result
+
+
+def _replay(node, mode):
+    """Replay ``node`` through OCC per the ``brep`` argument, or ``None``."""
+    if mode is False:
+        return None
+    from yapcad.sdf import occ
+    if mode == "auto" and not (occ.occ_available() and node.csg_exact):
+        return None
+    # Fail before meshing, which is the expensive part.
+    return occ.to_brep(node)
+
+
+def _attach_derived_brep(result, replayed, node):
+    """Attach ``replayed`` and tag it with the tree it came from.
+
+    The tag is what lets the serialiser tell a BREP derived from this field
+    from a contradictory one.  Anything that later re-attaches a BREP --
+    an OCC boolean, a transform -- writes a fresh record without it, and the
+    solid then correctly refuses to serialise as SDF-authoritative: the
+    BREP no longer derives from the tree.
+    """
+    from yapcad.brep import attach_brep_to_solid
+    from yapcad.metadata import get_solid_metadata
+    attach_brep_to_solid(result, replayed)
+    get_solid_metadata(result)["brep"]["derivedFrom"] = {"sdf": node.digest}
 
 
 __all__ = ["mesh_to_surface", "to_solid"]

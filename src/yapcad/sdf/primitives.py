@@ -164,7 +164,15 @@ def box(size):
 
 def _analyze_rounded_box(params, _children):
     hx, hy, hz = (v * 0.5 for v in params["size"])
-    return _exact(((-hx, -hy, -hz), (hx, hy, hz)))
+    props = _exact(((-hx, -hy, -hz), (hx, hy, hz)))
+    # Replayed as a box with every edge filleted, which is exact -- except
+    # when the radius consumes the whole of the smallest edge and the
+    # fillet has no face left to run along.  OCC refuses that, so the
+    # classifier must not promise it.
+    if params["radius"] >= 0.5 * min(params["size"]):
+        props = FieldProps(exact=props.exact, lipschitz=props.lipschitz,
+                           bounds=props.bounds, csg_exact=False)
+    return props
 
 
 def _eval_rounded_box(params, p, _children, _ev):
@@ -291,7 +299,15 @@ def capsule(start, end, radius):
 def _analyze_torus(params, _children):
     outer = params["major_radius"] + params["minor_radius"]
     r = params["minor_radius"]
-    return _exact(((-outer, -outer, -r), (outer, outer, r)))
+    props = _exact(((-outer, -outer, -r), (outer, outer, r)))
+    # A spindle or horn torus (minor >= major) is a fine field -- the union
+    # of the swept tube -- but its BREP surface self-intersects: OCC builds
+    # it, reports it valid, and counts the overlap twice in the volume.  So
+    # it is not replayable, whatever the field says.
+    if params["minor_radius"] >= params["major_radius"]:
+        props = FieldProps(exact=props.exact, lipschitz=props.lipschitz,
+                           bounds=props.bounds, csg_exact=False)
+    return props
 
 
 def _eval_torus(params, p, _children, _ev):

@@ -220,6 +220,18 @@ def register(spec):
     return spec
 
 
+def register_backend(kind, name, fn):
+    """Attach backend ``name`` to the already-registered ``kind``.
+
+    This is how an optional backend joins the existing specs rather than
+    growing a parallel registry: the OCC replay in :mod:`yapcad.sdf.occ`
+    registers itself this way, so that importing :mod:`yapcad.sdf` never
+    requires pythonocc-core.
+    """
+    get_spec(kind).backends[name] = fn
+    return fn
+
+
 def get_spec(kind):
     """Return the :class:`NodeSpec` for ``kind``."""
     try:
