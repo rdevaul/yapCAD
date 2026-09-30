@@ -29,11 +29,14 @@ The tree, not any sampled form, is the source of truth.  It serialises to a
 compact node table with :func:`tree_to_json` and can ride in a solid's
 ``construction`` slot via :func:`to_construction`.
 
+Booleans between two SDF-authored solids -- through
+:func:`yapcad.geom3d.solid_boolean`, and so through the DSL -- combine their
+fields and stay SDF-authoritative (:mod:`yapcad.sdf.booleans`).
+
 Not yet implemented, and tracked to later phases of the design document:
 ``sampled`` grid nodes and the ``twist``/``bend``/``repeat`` domain
-operators, dual contouring to a yapCAD solid (Phase 2), OCC replay of
-``csg_exact`` trees (Phase 3), promotion of BREP to SDF (Phase 4), and the
-shader backend (Phase 5).
+operators, promotion of BREP and mesh solids to fields for mixed-authority
+booleans (the rest of Phase 4), and the shader backend (Phase 5).
 """
 
 from yapcad.sdf.node import (
@@ -94,7 +97,8 @@ from yapcad.sdf.contour import (
     is_manifold,
     manifold_defects,
 )
-from yapcad.sdf.convert import mesh_to_surface, to_solid
+from yapcad.sdf.convert import NonManifoldMeshError, mesh_to_surface, to_solid
+from yapcad.sdf.booleans import combine_all, is_sdf_solid
 from yapcad.sdf.occ import (
     csg_blockers,
     describe_blockers,
@@ -172,6 +176,10 @@ __all__ = [
     "manifold_defects",
     "mesh_to_surface",
     "to_solid",
+    "NonManifoldMeshError",
+    # booleans between SDF solids
+    "combine_all",
+    "is_sdf_solid",
     # exact CSG replay
     "csg_blockers",
     "describe_blockers",

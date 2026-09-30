@@ -349,7 +349,7 @@ lines and should not absorb them.
 | **1** ✅ | `yapcad/sdf/`: node DAG, numpy evaluator, Lipschitz tracking, primitives, hard CSG | Validated against `geom3d.signedFaceDistance` (`geom3d.py:254`) and analytic distances |
 | **2** ✅ | Dual contouring → ordinary yapCAD solids with `authoritative: "sdf"` | The entire existing downstream works on SDF parts |
 | **3** ✅ | CSG-exactness classifier + OCC tree replay | STEP export for the common case |
-| **4** | BREP/mesh → SDF promotion via OCC distance queries + cached grid | Mixed-authority booleans |
+| **4** (in progress: §10.4) | BREP/mesh → SDF promotion via OCC distance queries + cached grid | Mixed-authority booleans |
 | **5** | GLSL/WGSL emitter + browser sphere tracing | Real-time preview |
 | **6** | Lattices, variable-thickness shells, distance-field fillets, topology-optimisation import | The features that justify the effort |
 
@@ -582,6 +582,62 @@ into this branch afterwards.
 **Not implemented.** Mixed-authority booleans remain Phase 4: `solid_boolean`
 on two `brep=True` SDF solids takes the existing OCC path and yields a
 BREP-authoritative result, which is coherent but discards the tree.
+
+### 10.4 Phase 4, first slice: booleans between SDF solids
+
+§9 asks for booleans to be polymorphic, with both-SDF operands staying in
+SDF. That is now what `geom3d.solid_boolean` does: when both operands carry
+an SDF tree, `yapcad/sdf/booleans.py` combines the trees and meshes the
+result, which stays SDF-authoritative and can be combined, replayed or
+re-meshed again. Every yapCAD boolean goes through `solid_boolean`, so the
+DSL's `union`/`difference`/`intersection`, the manufacturing helpers and
+`text3d` all get it. An explicit `engine=` or `YAPCAD_BOOLEAN_ENGINE` still
+wins, and `engine='sdf'` names the field path directly. Mixed operands --
+one field, one BREP or mesh -- still go to the existing engines; promoting
+them to fields is the rest of this phase.
+
+**This fixed booleans on SDF parts, which were effectively broken.** Handed
+two dual-contoured meshes, the native mesh engine returned an open mesh in
+every case measured: two boxes sharing a face, a coplanar cut, a
+sphere-box intersection. It took 7-40 s at resolution 12, timed out at 90 s
+or raised on a degenerate face at resolution 20, and stalled for over ten
+minutes at 32. The field path returns closed solids with the right volume
+in well under a second: 1999.995 for the face-sharing union against 2000,
+840.000 for the coplanar cut exactly.
+
+**The one real decision is the resolution the result is meshed at, and the
+rule is: never coarser than either operand.** Each operand's cell size is
+recovered from its recorded meshing parameters -- dual contouring's spacing
+is the region's longest extent over the resolution -- or, for a transformed
+solid that has dropped them, estimated as its median mesh edge, which for a
+dual-contoured mesh is about one cell. The smaller cell is carried over the
+result's extent, so two boxes side by side mesh at twice the resolution
+rather than at half the detail. `MAX_RESOLUTION` caps it at 256, since the
+corner lattice is `(n+1)^3` doubles and a tiny detailed part unioned with a
+large one would otherwise ask for gigabytes.
+
+**A combination can be thinner than its operands**, when it brings two
+surfaces nearly together, and then trips the one-vertex-per-cell limit.
+`to_solid` now raises a dedicated `NonManifoldMeshError` (still an
+`SdfError`), so the boolean path can catch exactly that, retry once at
+double resolution, and otherwise let the refusal stand rather than return a
+broken solid.
+
+**Exact stays exact.** If every operand carries a BREP derived from its own
+tree, the result is replayed too whenever the combined tree is still
+CSG-exact, so an intersection of two `brep=True` parts exports analytic
+STEP. One inexact operand, or a non-replayable result, means no BREP -- the
+tag rules of §10.3 are never bent to keep one.
+
+**The DSL meshes once.** Its booleans are variadic but folded pairwise,
+which for fields would mesh and discard every intermediate result. When all
+operands are SDF-authored they are combined n-ary with `combine_all` and
+meshed once; a five-part `union` is a single `union` node with five
+children. Mixed operands keep the pairwise path unchanged.
+
+**An empty result is an empty solid that keeps its tree.** A disjoint
+intersection returns `['solid', [], [], ['sdf', tree]]`, which yapCAD
+already allows for empty CSG results and which serialises and reads back.
 
 ## 11. Open questions
 

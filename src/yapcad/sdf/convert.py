@@ -17,6 +17,15 @@ from yapcad.sdf.evaluate import DEFAULT_BACKEND
 from yapcad.sdf.node import SdfError, to_construction
 
 
+class NonManifoldMeshError(SdfError):
+    """Raised by :func:`to_solid` when the mesh fails its manifold check.
+
+    A subclass of :class:`~yapcad.sdf.node.SdfError`, so existing handlers
+    still catch it; separate so that a caller able to respond -- by meshing
+    again at a higher resolution -- can catch exactly this and nothing else.
+    """
+
+
 def mesh_to_surface(mesh):
     """Build a yapCAD surface from a :class:`~yapcad.sdf.contour.Mesh`.
 
@@ -70,7 +79,7 @@ def to_solid(node, resolution=64, bounds=None, padding=None, chunk=32,
     if check:
         defects = manifold_defects(mesh)
         if any(defects.values()):
-            raise SdfError(
+            raise NonManifoldMeshError(
                 f"dual contouring produced an unusable mesh at resolution "
                 f"{resolution}: {defects['nonmanifold']} non-manifold edges, "
                 f"{defects['boundary']} boundary edges, "
@@ -127,4 +136,4 @@ def _attach_derived_brep(result, replayed, node):
     get_solid_metadata(result)["brep"]["derivedFrom"] = {"sdf": node.digest}
 
 
-__all__ = ["mesh_to_surface", "to_solid"]
+__all__ = ["NonManifoldMeshError", "mesh_to_surface", "to_solid"]
