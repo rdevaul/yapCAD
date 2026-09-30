@@ -4137,9 +4137,11 @@ def scale(x,sx=1.0,sy=False,sz=False,cent=point(0,0),mat=False):
         if vclose(cent,point(0,0,0)):
             mat = xform.Scale(sx,sy,sz)
         else:
-            mat = xform.Translation(cent,inverse=True)
+            # T(c) S T(-c): move the centre to the origin, scale, move it
+            # back.  The reverse order scales about -c instead.
+            mat = xform.Translation(cent)
             mat = mat.mul(xform.Scale(sx,sy,sz))
-            mat = mat.mul(xform.Translation(cent))
+            mat = mat.mul(xform.Translation(cent,inverse=True))
 
     if ispoint(x):
         return mat.mul(x)
