@@ -88,6 +88,7 @@ Contents
    DSL Tutorial <dsl_tutorial>
    DSL Reference <dsl_reference>
    BREP Implementation <yapBREP>
+   Signed Distance Functions <SDF-DESIGN>
    Assembly System <assembly_system>
    Manufacturing Post-Processing <manufacturing_postprocessing>
    Project Packaging <ycpkg_spec>

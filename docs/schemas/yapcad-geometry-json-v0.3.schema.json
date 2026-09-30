@@ -1,0 +1,521 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yapcad.readthedocs.io/schemas/yapcad-geometry-json-v0.3.schema.json",
+  "title": "yapCAD Geometry JSON v0.3",
+  "type": "object",
+  "required": [
+    "schema",
+    "entities"
+  ],
+  "properties": {
+    "schema": {
+      "const": "yapcad-geometry-json-v0.3"
+    },
+    "units": {
+      "type": "string"
+    },
+    "generator": {
+      "type": "object"
+    },
+    "relationships": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "attachments": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "entities": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/entity"
+      }
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "entity": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/solid"
+        },
+        {
+          "$ref": "#/$defs/surface"
+        },
+        {
+          "$ref": "#/$defs/sketch"
+        }
+      ]
+    },
+    "common": {
+      "type": "object",
+      "required": [
+        "id",
+        "type",
+        "metadata"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "type": "string"
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "metadata": {
+          "type": "object"
+        },
+        "boundingBox": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "number"
+          },
+          "minItems": 4,
+          "maxItems": 6
+        },
+        "properties": {
+          "type": "object"
+        }
+      }
+    },
+    "solid": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/common"
+        },
+        {
+          "type": "object",
+          "required": [
+            "shell",
+            "voids",
+            "representations"
+          ],
+          "properties": {
+            "type": {
+              "const": "solid"
+            },
+            "shell": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "voids": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "representations": {
+              "$ref": "#/$defs/representations"
+            },
+            "construction": {
+              "$ref": "#/$defs/construction"
+            }
+          }
+        }
+      ]
+    },
+    "construction": {
+      "type": "array",
+      "description": "Optional provenance record: a non-empty string kind tag followed by kind-specific payload. Omitted entirely when the solid records no construction information.",
+      "minItems": 1,
+      "prefixItems": [
+        {
+          "type": "string",
+          "minLength": 1
+        }
+      ]
+    },
+    "representations": {
+      "type": "object",
+      "required": [
+        "authoritative",
+        "mesh"
+      ],
+      "properties": {
+        "authoritative": {
+          "enum": [
+            "brep",
+            "mesh",
+            "sdf"
+          ],
+          "description": "Which representation defines this solid. Authority is a per-solid property, not a global ranking: a part authored as a field is sdf-authoritative and regenerates mesh downward, while a part imported from STEP stays brep-authoritative."
+        },
+        "mesh": {
+          "type": "object",
+          "required": [
+            "format",
+            "role"
+          ],
+          "properties": {
+            "format": {
+              "const": "indexed-triangle-set"
+            },
+            "role": {
+              "enum": [
+                "authoritative",
+                "preview"
+              ]
+            },
+            "generatedFrom": {
+              "enum": [
+                "sdf"
+              ],
+              "description": "Present when the mesh is a regenerated preview."
+            },
+            "method": {
+              "type": "string"
+            },
+            "resolution": {
+              "type": "integer",
+              "minimum": 2
+            },
+            "padding": {
+              "type": "number",
+              "minimum": 0
+            },
+            "bounds": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 6,
+              "maxItems": 6
+            }
+          },
+          "description": "Meshing parameters are recorded so the preview is reproducible, which matters because yapCAD signs packages."
+        },
+        "brep": {
+          "$ref": "#/$defs/brep"
+        },
+        "sdf": {
+          "$ref": "#/$defs/sdf"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "authoritative": {
+                "const": "brep"
+              }
+            },
+            "required": [
+              "authoritative"
+            ]
+          },
+          "then": {
+            "required": [
+              "brep"
+            ],
+            "properties": {
+              "brep": {
+                "properties": {
+                  "role": {
+                    "const": "authoritative"
+                  }
+                }
+              }
+            }
+          },
+          "else": {
+            "if": {
+              "properties": {
+                "authoritative": {
+                  "const": "sdf"
+                }
+              },
+              "required": [
+                "authoritative"
+              ]
+            },
+            "then": {
+              "properties": {
+                "brep": {
+                  "properties": {
+                    "role": {
+                      "const": "derived"
+                    }
+                  }
+                }
+              }
+            },
+            "else": {
+              "not": {
+                "required": [
+                  "brep"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "authoritative": {
+                "const": "sdf"
+              }
+            },
+            "required": [
+              "authoritative"
+            ]
+          },
+          "then": {
+            "required": [
+              "sdf"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "sdf"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "brep": {
+      "type": "object",
+      "required": [
+        "role",
+        "format",
+        "encoding",
+        "payload",
+        "hash",
+        "kernel"
+      ],
+      "properties": {
+        "role": {
+          "enum": [
+            "authoritative",
+            "derived"
+          ],
+          "description": "'authoritative' when this BREP defines the solid. 'derived' when the solid is SDF-authoritative and this BREP was replayed from its tree (design document \u00a75.2); a derived BREP carries nothing the tree does not, and a reader may discard it."
+        },
+        "format": {
+          "const": "opencascade-brep"
+        },
+        "encoding": {
+          "const": "base64"
+        },
+        "payload": {
+          "type": "string",
+          "minLength": 1
+        },
+        "hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "kernel": {
+          "type": "object",
+          "required": [
+            "name"
+          ],
+          "properties": {
+            "name": {
+              "const": "OpenCASCADE"
+            },
+            "version": {
+              "type": "string"
+            }
+          }
+        },
+        "modelTolerance": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "derivedFrom": {
+          "enum": [
+            "sdf"
+          ]
+        },
+        "treeDigest": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Digest of the SDF tree this BREP was replayed from. Readers compare it with the digest of the tree as rebuilt, not with the document's own root label."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "role": {
+                "const": "derived"
+              }
+            },
+            "required": [
+              "role"
+            ]
+          },
+          "then": {
+            "required": [
+              "derivedFrom",
+              "treeDigest"
+            ]
+          }
+        }
+      ]
+    },
+    "surface": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/common"
+        },
+        {
+          "type": "object",
+          "required": [
+            "vertices",
+            "normals",
+            "faces"
+          ],
+          "properties": {
+            "type": {
+              "const": "surface"
+            },
+            "vertices": {
+              "type": "array"
+            },
+            "normals": {
+              "type": "array"
+            },
+            "faces": {
+              "type": "array"
+            }
+          }
+        }
+      ]
+    },
+    "sketch": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/common"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "sketch"
+            },
+            "polylines": {
+              "type": "array"
+            },
+            "primitives": {
+              "type": "array"
+            }
+          }
+        }
+      ]
+    },
+    "sdf": {
+      "type": "object",
+      "description": "Signed distance function representation. The node DAG is the source of truth; any mesh is a regenerated preview.",
+      "required": [
+        "role",
+        "format",
+        "lipschitz",
+        "lipschitzConstant",
+        "csgExact",
+        "tree"
+      ],
+      "properties": {
+        "role": {
+          "const": "authoritative"
+        },
+        "format": {
+          "const": "yapcad-sdf-tree-v1"
+        },
+        "lipschitz": {
+          "enum": [
+            "exact",
+            "bound"
+          ],
+          "description": "'exact' when the field is the true signed distance; 'bound' when it only bounds it, as hard CSG and smooth blends do."
+        },
+        "lipschitzConstant": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "L such that |f(p)| <= L * d(p). A ray marcher may step |f| / L; a mesher uses it to bound cell subdivision."
+        },
+        "csgExact": {
+          "type": "boolean",
+          "description": "True when the tree holds only analytic primitives, hard booleans and similarity transforms, and can therefore be replayed through OCC for an exact BREP. False means the part will not round-trip to STEP as analytic geometry."
+        },
+        "bounds": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 6,
+          "maxItems": 6,
+          "description": "Omitted when the field is unbounded."
+        },
+        "tree": {
+          "$ref": "#/$defs/sdfTree"
+        }
+      }
+    },
+    "sdfTree": {
+      "type": "object",
+      "description": "A flat node table keyed by content digest, plus a root reference. Flat rather than nested so that a shared subtree is stored once and the DAG structure survives the round trip.",
+      "required": [
+        "format",
+        "root",
+        "nodes"
+      ],
+      "properties": {
+        "format": {
+          "const": "yapcad-sdf-tree-v1"
+        },
+        "root": {
+          "type": "string",
+          "minLength": 1
+        },
+        "nodes": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "kind",
+              "children"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "minLength": 1
+              },
+              "params": {
+                "type": "object"
+              },
+              "children": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

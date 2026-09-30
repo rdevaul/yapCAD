@@ -54,9 +54,18 @@
               "type": "array",
               "items": {"type": "array", "items": {"type": "string"}}
             },
-            "representations": {"$ref": "#/$defs/representations"}
+            "representations": {"$ref": "#/$defs/representations"},
+            "construction": {"$ref": "#/$defs/construction"}
           }
         }
+      ]
+    },
+    "construction": {
+      "type": "array",
+      "description": "Optional provenance record: a non-empty string kind tag followed by kind-specific payload. Omitted entirely when the solid records no construction information.",
+      "minItems": 1,
+      "prefixItems": [
+        {"type": "string", "minLength": 1}
       ]
     },
     "representations": {

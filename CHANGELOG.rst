@@ -5,6 +5,77 @@ Changelog
 Unreleased
 ==========
 
+- New ``yapcad.sdf`` package: signed distance functions as a peer solid
+  representation (see ``docs/SDF-DESIGN.md``). Fields are an immutable,
+  serialisable node DAG of analytic primitives, hard and smooth booleans,
+  offsets, shells, transforms and gyroid/Schwarz-P lattices, evaluated by a
+  vectorised numpy backend that tracks each field's exactness and Lipschitz
+  bound. ``sdf.to_solid`` dual-contours a field into an ordinary yapCAD solid
+  that the rest of yapCAD can consume, deterministically and with sharp edges
+  preserved; ``to_solid(..., brep=True)`` replays CSG-expressible trees
+  through OpenCASCADE for an exact BREP and analytic STEP export. The package
+  needs only numpy; OCC replay is optional. ``examples/sdf_demo.py`` meshes a
+  gallery of models to STL, PNG and (with ``--step``) STEP.
+- Geometry JSON is now ``yapcad-geometry-json-v0.3``. It adds ``"sdf"`` as an
+  ``authoritative`` representation, with the tree stored in
+  ``representations.sdf`` and an optional BREP marked ``role: "derived"``.
+  v0.1 and v0.2 documents still read; writers emit v0.3, so a reader that
+  checks the schema ID strictly must be updated to accept it.
+- Solid construction provenance (``['procedure', ...]``, ``['boolean', ...]``
+  records) now survives geometry JSON as an optional ``construction`` field,
+  with accessors in the new ``yapcad.construction`` module.
+- Fix ``geom3d.solid()`` filing the construction record in the material slot
+  when called as ``solid(surfaces, [], construction)`` -- the form every
+  producer in the tree uses -- which also made serialised solids emit a
+  spurious ``"voids": [[], []]``.
+- Fix ``geometry_from_json`` writing a document's void surfaces into the
+  solid's material slot. Void surfaces are now merged into the shell list,
+  where mesh solids already carry cavities, and ``geom3d.solid_shells``
+  recovers the outer/void partition on demand.
+- ``geom3d`` solid transforms now carry an SDF-authored solid's tree along
+  with its mesh; previously ``translatesolid`` and friends moved the mesh and
+  left the defining tree where it was.
+- ``jsonschema`` joins the ``tests`` extra, so schema validation runs by
+  default, and the conda environment files request the ``tests`` extra by
+  its correct name.
+
+- **Construction provenance survives serialisation.** New ``yapcad.construction``
+  module defines the record format for the solid ``construction`` slot
+  (``['procedure', call]``, ``['boolean', operation]``, with ``sdf`` reserved)
+  and provides accessors, normalisation, and a JSON round-trip. Geometry JSON
+  gains an optional, additive ``construction`` field on solids; the schema ID
+  stays at ``yapcad-geometry-json-v0.2`` because the field is omitted entirely
+  when a solid records no provenance.
+
+- **Fix: ``solid()`` misfiled construction records under material.** The
+  constructor used an emptiness test rather than positional counting to assign
+  its list arguments, so the near-universal ``solid(surfaces, [], construction)``
+  idiom stored the construction record in the material slot and left
+  construction empty. Every ``geom3d_util`` procedure record and every boolean
+  engine record was affected, and ``geometry_to_json`` compounded it by reading
+  that slot as voids and emitting a spurious ``"voids": [[], []]``. List
+  arguments are now assigned positionally.
+
+- **Derived outer/void shell partitioning.** New ``yapcad.geom3d.solid_shells``
+  groups a solid's surfaces into connected shells by shared edges and
+  classifies each as outer or void by the sign of its volume. yapCAD mesh
+  solids carry cavities as inward-wound shells in the surface list -- a hollow
+  cube already reports the correct ``volumeof`` -- so the partition is derived
+  on demand rather than stored in a slot that could drift out of sync with the
+  geometry.
+
+- **Fix: geometry JSON disagreed with ``geom3d`` about solid slot 2.**
+  ``geometry_from_json`` wrote a document's void surfaces into slot 2, which
+  ``solid()`` and the ``geom3d`` module docstring both document as *material*;
+  ``yapcad.geometry._retessellate_brep_solid`` and ``service/core/tessellator``
+  shared the misreading. Void surfaces now rejoin the shell surface list where
+  mesh solids actually keep cavities, slot 2 stays material, and the
+  interchange-level ``voids`` field is computed from ``solid_shells`` on write.
+
+- Add ``docs/SDF-DESIGN.md``, planning native signed-distance-function support:
+  node-DAG representation, Lipschitz-bound tracking, dual-contouring meshing,
+  CSG-tree replay into OCC for exact BREP, and mixed-authority booleans.
+
 - Test the pure-Python package on Python 3.11 and 3.14, the supported-version
   endpoints, and require Python 3.11 or newer. Python 3.10 support is retired
   ahead of its October 2026 end-of-life.

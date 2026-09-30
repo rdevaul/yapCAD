@@ -31,8 +31,9 @@ from yapcad.geom import (
     line,
     sample,
 )
-from yapcad.geom3d import issolid, issurface, solidbbox, surfacebbox
+from yapcad.geom3d import issolid, issurface, solid_shells, solidbbox, surfacebbox
 from yapcad.brep import brep_from_solid, occ_available
+from yapcad.construction import construction_from_json, construction_to_json
 from yapcad.metadata import (
     get_solid_metadata,
     get_surface_metadata,
@@ -43,8 +44,121 @@ from yapcad.metadata import (
     set_layer,
 )
 LEGACY_SCHEMA_ID = "yapcad-geometry-json-v0.1"
-SCHEMA_ID = "yapcad-geometry-json-v0.2"
-SUPPORTED_SCHEMA_IDS = frozenset({LEGACY_SCHEMA_ID, SCHEMA_ID})
+V0_2_SCHEMA_ID = "yapcad-geometry-json-v0.2"
+#: Current schema. Bumped from v0.2 for SDF: extending the ``authoritative``
+#: enum is a breaking change for a strict reader, so the id has to move with
+#: it (design document §8.2).
+SCHEMA_ID = "yapcad-geometry-json-v0.3"
+SUPPORTED_SCHEMA_IDS = frozenset({LEGACY_SCHEMA_ID, V0_2_SCHEMA_ID, SCHEMA_ID})
+
+#: Schemas that carry an explicit ``representations`` block on every solid.
+REPRESENTATION_SCHEMA_IDS = frozenset({V0_2_SCHEMA_ID, SCHEMA_ID})
+
+#: Serialised SDF tree format, mirrored from :mod:`yapcad.sdf.node` so that
+#: reading a document does not require importing the SDF subsystem.
+SDF_TREE_FORMAT = "yapcad-sdf-tree-v1"
+
+
+def _sdf_node_from_tree(tree: Any):
+    """Parse and validate a serialised SDF tree.
+
+    Imported lazily: the SDF subsystem pulls in numpy and geom3d, and a
+    document with no SDF content should not pay for that.
+    """
+    from yapcad.sdf.node import tree_from_json
+    return tree_from_json(tree)
+
+
+def _sdf_representation(
+    construction: Optional[List[Any]],
+) -> Optional[Dict[str, Any]]:
+    """Build the ``sdf`` representation record from a construction record.
+
+    Returns ``None`` when the solid was not authored as a field.
+    """
+    if not isinstance(construction, list) or len(construction) < 2:
+        return None
+    if construction[0] != "sdf":
+        return None
+    tree = construction[1]
+    node = _sdf_node_from_tree(tree)
+    record: Dict[str, Any] = {
+        "role": "authoritative",
+        "format": SDF_TREE_FORMAT,
+        # Whether the field is the true distance, or merely bounds it.
+        "lipschitz": "exact" if node.exact else "bound",
+        "lipschitzConstant": float(node.lipschitz),
+        # Structural: can this tree be replayed through OCC for an exact
+        # BREP? Surfaced so a consumer can tell before attempting STEP.
+        "csgExact": bool(node.csg_exact),
+        "tree": tree,
+    }
+    lo, hi = node.bounds
+    extent = [float(v) for v in (*lo, *hi)]
+    if all(math.isfinite(v) for v in extent):
+        record["bounds"] = extent
+    return record
+
+
+def _sdf_mesh_parameters(construction: List[Any]) -> Dict[str, Any]:
+    """Reproducibility parameters for a mesh generated from a field."""
+    params: Dict[str, Any] = {"generatedFrom": "sdf"}
+    if len(construction) >= 3 and isinstance(construction[2], dict):
+        for key in ("method", "resolution", "padding", "bounds"):
+            if key in construction[2]:
+                params[key] = deepcopy(construction[2][key])
+    return params
+
+
+def _construction_from_sdf(record: Any, mesh_record: Dict[str, Any],
+                           solid_id: str) -> List[Any]:
+    """Rebuild the ``['sdf', tree, meshing]`` construction record on read."""
+    if not isinstance(record, dict):
+        raise ValueError(
+            f"solid {solid_id} SDF representation must be an object"
+        )
+    if record.get("role") != "authoritative":
+        raise ValueError(
+            f"solid {solid_id} SDF representation role must be 'authoritative'"
+        )
+    if record.get("format") != SDF_TREE_FORMAT:
+        raise ValueError(
+            f"solid {solid_id} has unsupported SDF format "
+            f"{record.get('format')!r}"
+        )
+    tree = record.get("tree")
+    node = _sdf_node_from_tree(tree)
+
+    # The analysis fields are a cache of what the tree already determines.
+    # Verify rather than trust, the same way the BREP payload hash is
+    # checked: a document claiming csgExact for a gyroid must be rejected,
+    # not believed.
+    if bool(record.get("csgExact")) != node.csg_exact:
+        raise ValueError(
+            f"solid {solid_id} SDF csgExact disagrees with its tree"
+        )
+    expected_kind = "exact" if node.exact else "bound"
+    if record.get("lipschitz") != expected_kind:
+        raise ValueError(
+            f"solid {solid_id} SDF lipschitz kind disagrees with its tree"
+        )
+    claimed = record.get("lipschitzConstant")
+    if claimed is None or not math.isclose(
+        float(claimed), node.lipschitz, rel_tol=1e-9, abs_tol=1e-12
+    ):
+        raise ValueError(
+            f"solid {solid_id} SDF lipschitzConstant disagrees with its tree"
+        )
+
+    construction: List[Any] = ["sdf", tree]
+    meshing = {
+        key: deepcopy(mesh_record[key])
+        for key in ("method", "resolution", "padding", "bounds")
+        if key in mesh_record
+    }
+    if meshing:
+        construction.append(meshing)
+    return construction
 
 
 def _kernel_record(legacy_brep: Dict[str, Any]) -> Dict[str, str]:
@@ -67,7 +181,8 @@ def _kernel_record(legacy_brep: Dict[str, Any]) -> Dict[str, str]:
     return {"name": "OpenCASCADE", "version": version}
 
 
-def _explicit_brep_record(legacy_brep: Dict[str, Any]) -> Dict[str, Any]:
+def _explicit_brep_record(legacy_brep: Dict[str, Any],
+                          role: str = "authoritative") -> Dict[str, Any]:
     if legacy_brep.get("encoding") != "brep-ascii-base64":
         raise ValueError(
             f"unsupported legacy BREP encoding: {legacy_brep.get('encoding')!r}"
@@ -80,7 +195,7 @@ def _explicit_brep_record(legacy_brep: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as exc:
         raise ValueError("BREP payload is not valid base64") from exc
     record: Dict[str, Any] = {
-        "role": "authoritative",
+        "role": role,
         "format": "opencascade-brep",
         "encoding": "base64",
         "payload": encoded,
@@ -92,18 +207,24 @@ def _explicit_brep_record(legacy_brep: Dict[str, Any]) -> Dict[str, Any]:
         if not math.isfinite(tolerance) or tolerance <= 0:
             raise ValueError("BREP modelTolerance must be finite and positive")
         record["modelTolerance"] = tolerance
+    if role == "derived":
+        # Which tree this was replayed from, so a reader can tell a derived
+        # BREP from a stale or unrelated one without replaying it.
+        record["derivedFrom"] = "sdf"
+        record["treeDigest"] = legacy_brep["derivedFrom"]["sdf"]
     return record
 
 
-def _legacy_brep_record(explicit: Dict[str, Any]) -> Dict[str, Any]:
+def _legacy_brep_record(explicit: Dict[str, Any],
+                        role: str = "authoritative") -> Dict[str, Any]:
     if not isinstance(explicit, dict):
         raise ValueError("BREP representation must be an object")
     if explicit.get("format") != "opencascade-brep":
         raise ValueError(f"unsupported BREP format: {explicit.get('format')!r}")
     if explicit.get("encoding") != "base64":
         raise ValueError(f"unsupported BREP encoding: {explicit.get('encoding')!r}")
-    if explicit.get("role") != "authoritative":
-        raise ValueError("BREP representation role must be 'authoritative'")
+    if explicit.get("role") != role:
+        raise ValueError(f"BREP representation role must be {role!r}")
     kernel = explicit.get("kernel")
     if not isinstance(kernel, dict) or kernel.get("name") != "OpenCASCADE":
         raise ValueError("BREP representation requires an OpenCASCADE kernel record")
@@ -129,6 +250,14 @@ def _legacy_brep_record(explicit: Dict[str, Any]) -> Dict[str, Any]:
         if not math.isfinite(tolerance) or tolerance <= 0:
             raise ValueError("BREP modelTolerance must be finite and positive")
         legacy["modelTolerance"] = tolerance
+    if role == "derived":
+        if explicit.get("derivedFrom") != "sdf":
+            raise ValueError("a derived BREP must declare derivedFrom 'sdf'")
+        tree_digest = explicit.get("treeDigest")
+        if not isinstance(tree_digest, str) or not tree_digest:
+            raise ValueError("a derived BREP must name the treeDigest it was "
+                             "replayed from")
+        legacy["derivedFrom"] = {"sdf": tree_digest}
     return legacy
 
 
@@ -210,12 +339,11 @@ def _serialize_solid(solid: list, surface_cache: Dict[str, Dict[str, Any]], meta
     except Exception:
         bbox = None
 
-    shell_ids: List[str] = []
     layers_seen = []
     parent_layer = metadata.get("layer")
-    for surf in solid[1]:
-        if not issurface(surf):
-            continue
+
+    def _emit_surface(surf) -> Optional[str]:
+        """Serialize one surface into the cache and return its id."""
         surface_meta = get_surface_metadata(surf, create=True)
         surface_override = None
         if metadata_override:
@@ -234,37 +362,34 @@ def _serialize_solid(solid: list, surface_cache: Dict[str, Dict[str, Any]], meta
             set_surface_metadata(surf, meta)
             surface_id = new_id
         surface_cache[surface_id] = serialized
-        shell_ids.append(surface_id)
         layers_seen.append(serialized["metadata"].get("layer", "default"))
+        return surface_id
+
+    # yapCAD mesh solids carry cavities as inward-wound shells inside the
+    # surface list rather than in a separate slot, so the outer/void split is
+    # derived here (see geom3d.solid_shells).  The partition is only emitted
+    # when it is unambiguous -- a cavity was actually found -- so documents
+    # for ordinary solids are unchanged.
+    outer_surfaces = list(solid[1])
+    void_groups: List[List[list]] = []
+    try:
+        derived_outer, derived_voids = solid_shells(solid)
+    except Exception:
+        derived_outer, derived_voids = None, None
+    if derived_voids:
+        outer_surfaces = [surf for shell in derived_outer for surf in shell]
+        void_groups = derived_voids
+
+    shell_ids: List[str] = []
+    for surf in outer_surfaces:
+        if not issurface(surf):
+            continue
+        shell_ids.append(_emit_surface(surf))
 
     voids: List[List[str]] = []
-    if len(solid) > 2:
-        for void in solid[2] or []:
-            void_ids: List[str] = []
-            for surf in void:
-                if not issurface(surf):
-                    continue
-                surface_meta = get_surface_metadata(surf, create=True)
-                surface_override = None
-                if metadata_override:
-                    surface_override = dict(metadata_override)
-                if parent_layer and (not surface_meta.get("layer") or surface_meta.get("layer") == "default"):
-                    surface_override = dict(surface_override or {})
-                    surface_override["layer"] = parent_layer
-                serialized = _serialize_surface(surf, surface_override)
-                surface_id = serialized["id"]
-                while surface_id in surface_cache:
-                    new_id = uuid.uuid4().hex
-                    meta = serialized["metadata"]
-                    meta["entityId"] = new_id
-                    meta["id"] = new_id
-                    serialized["id"] = new_id
-                    set_surface_metadata(surf, meta)
-                    surface_id = new_id
-                surface_cache[surface_id] = serialized
-                void_ids.append(surface_id)
-                layers_seen.append(serialized["metadata"].get("layer", "default"))
-            voids.append(void_ids)
+    for group in void_groups:
+        void_ids = [_emit_surface(surf) for surf in group if issurface(surf)]
+        voids.append(void_ids)
 
     if "layer" not in metadata or not metadata.get("layer"):
         unique_layers = [layer for layer in layers_seen if layer]
@@ -279,17 +404,54 @@ def _serialize_solid(solid: list, surface_cache: Dict[str, Dict[str, Any]], meta
 
     metadata_record = deepcopy(metadata)
     legacy_brep = metadata_record.pop("brep", None)
+
+    # Provenance from the solid's construction slot. An SDF record is not
+    # merely provenance: it is the authoritative definition of the solid,
+    # and is promoted into the representations block below.
+    construction = construction_to_json(solid)
+    sdf_record = _sdf_representation(construction)
+
+    brep_role = "authoritative"
+    if sdf_record is not None and legacy_brep:
+        # An SDF solid may carry a BREP only as a *derived* representation:
+        # one replayed from this very tree.  Anything else -- an analytic
+        # BREP from prism(), or one replayed from an earlier version of the
+        # tree -- would be a second, disagreeing definition of the solid.
+        marker = (legacy_brep.get("derivedFrom") or {}).get("sdf")
+        if marker != sdf_record["tree"]["root"]:
+            raise ValueError(
+                f"solid {solid_id} claims both SDF and BREP authority; "
+                "authority is a single per-solid property. Its BREP was not "
+                "replayed from its SDF tree -- regenerate it with "
+                "yapcad.sdf.to_solid(..., brep=True), or drop one of the two."
+            )
+        brep_role = "derived"
+
+    if sdf_record is not None:
+        authoritative = "sdf"
+    elif legacy_brep:
+        authoritative = "brep"
+    else:
+        authoritative = "mesh"
+
+    mesh_record: Dict[str, Any] = {
+        "format": "indexed-triangle-set",
+        "role": "authoritative" if authoritative == "mesh" else "preview",
+    }
+    if sdf_record is not None:
+        mesh_record.update(_sdf_mesh_parameters(construction))
+
     representations: Dict[str, Any] = {
-        "authoritative": "brep" if legacy_brep else "mesh",
-        "mesh": {
-            "format": "indexed-triangle-set",
-            "role": "preview" if legacy_brep else "authoritative",
-        },
+        "authoritative": authoritative,
+        "mesh": mesh_record,
     }
     if legacy_brep:
-        representations["brep"] = _explicit_brep_record(legacy_brep)
+        representations["brep"] = _explicit_brep_record(legacy_brep,
+                                                        role=brep_role)
+    if sdf_record is not None:
+        representations["sdf"] = sdf_record
 
-    return {
+    entry = {
         "id": metadata.get("entityId", solid_id),
         "type": "solid",
         "name": metadata.get("name"),
@@ -300,6 +462,15 @@ def _serialize_solid(solid: list, surface_cache: Dict[str, Dict[str, Any]], meta
         "voids": voids,
         "representations": representations,
     }
+
+    # Omitted entirely when the solid records no construction, so documents
+    # for such solids are unchanged. Also omitted for an SDF solid: the tree
+    # is already in representations.sdf.tree, and a second copy here would be
+    # two encodings of one fact that can drift apart.
+    if construction and sdf_record is None:
+        entry["construction"] = construction
+
+    return entry
 
 
 def _polyline_points(sequence: List[float]) -> List[float]:
@@ -547,9 +718,11 @@ def geometry_from_json(doc: Dict[str, Any]) -> List[list]:
                 surfaces[sid] = surface
             shell_surfaces.append(surface)
 
-        voids: List[List[list]] = []
+        # A yapCAD mesh solid keeps cavities in its surface list as inward-wound
+        # shells; it has no voids slot, and slot 2 is material.  Void surfaces
+        # from the document therefore join the shell surfaces, and the split is
+        # recovered on demand via geom3d.solid_shells.
         for void_ids in entry.get("voids", []):
-            void_surfaces: List[list] = []
             for sid in void_ids:
                 surface = surfaces.get(sid)
                 if surface is None:
@@ -558,17 +731,28 @@ def geometry_from_json(doc: Dict[str, Any]) -> List[list]:
                         raise ValueError(f"void surface {sid} missing")
                     surface = _rehydrate_surface(surf_entry)
                     surfaces[sid] = surface
-                void_surfaces.append(surface)
-            voids.append(void_surfaces)
+                shell_surfaces.append(surface)
 
-        solid = ['solid', shell_surfaces, voids, []]
+        try:
+            construction = construction_from_json(entry.get("construction"))
+        except ValueError as exc:
+            raise ValueError(
+                f"solid {entry['id']} has a malformed construction record: {exc}"
+            ) from exc
+
+        solid = ['solid', shell_surfaces, [], construction]
         metadata = deepcopy(entry.get("metadata") or {})
-        if schema == SCHEMA_ID:
+        if schema in REPRESENTATION_SCHEMA_IDS:
             representations = entry.get("representations")
             if not isinstance(representations, dict):
                 raise ValueError(f"solid {entry['id']} missing representations")
             authoritative = representations.get("authoritative")
-            if authoritative not in {"brep", "mesh"}:
+            # "sdf" joined the enum in v0.3; a v0.2 document claiming it is
+            # malformed, which is exactly why the schema id had to bump.
+            allowed = {"brep", "mesh"}
+            if schema == SCHEMA_ID:
+                allowed.add("sdf")
+            if authoritative not in allowed:
                 raise ValueError(
                     f"solid {entry['id']} has invalid authoritative representation"
                 )
@@ -577,7 +761,9 @@ def geometry_from_json(doc: Dict[str, Any]) -> List[list]:
                 raise ValueError(f"solid {entry['id']} missing mesh representation")
             if mesh_record.get("format") != "indexed-triangle-set":
                 raise ValueError(f"solid {entry['id']} has invalid mesh format")
-            expected_mesh_role = "preview" if authoritative == "brep" else "authoritative"
+            expected_mesh_role = (
+                "authoritative" if authoritative == "mesh" else "preview"
+            )
             if mesh_record.get("role") != expected_mesh_role:
                 raise ValueError(
                     f"solid {entry['id']} mesh role must be {expected_mesh_role!r}"
@@ -586,14 +772,46 @@ def geometry_from_json(doc: Dict[str, Any]) -> List[list]:
                 if "brep" not in representations:
                     raise ValueError(f"solid {entry['id']} missing BREP representation")
                 metadata["brep"] = _legacy_brep_record(representations["brep"])
-            elif "brep" in representations:
+            elif "brep" in representations and authoritative != "sdf":
                 raise ValueError(
                     f"solid {entry['id']} contains non-authoritative BREP representation"
                 )
+            if authoritative == "sdf":
+                if "sdf" not in representations:
+                    raise ValueError(
+                        f"solid {entry['id']} missing SDF representation"
+                    )
+                if entry.get("construction") is not None:
+                    raise ValueError(
+                        f"solid {entry['id']} duplicates its SDF tree in the "
+                        "construction field"
+                    )
+                solid[3] = _construction_from_sdf(
+                    representations["sdf"], mesh_record, entry["id"]
+                )
+                if "brep" in representations:
+                    derived = _legacy_brep_record(representations["brep"],
+                                                  role="derived")
+                    # Compare against the digest of the tree as rebuilt, not
+                    # the id the document gives it: a table key is only a
+                    # label, and the check is meant to catch drift.
+                    rebuilt = _sdf_node_from_tree(solid[3][1]).digest
+                    if derived["derivedFrom"]["sdf"] != rebuilt:
+                        raise ValueError(
+                            f"solid {entry['id']} carries a derived BREP that "
+                            "was replayed from a different SDF tree"
+                        )
+                    metadata["brep"] = derived
+            elif "sdf" in representations:
+                raise ValueError(
+                    f"solid {entry['id']} contains a non-authoritative "
+                    "SDF representation"
+                )
         if metadata:
             set_solid_metadata(solid, metadata)
-        restored_brep = brep_from_solid(solid, refresh=(schema == SCHEMA_ID))
-        if schema == SCHEMA_ID and metadata.get("brep") and occ_available():
+        modern = schema in REPRESENTATION_SCHEMA_IDS
+        restored_brep = brep_from_solid(solid, refresh=modern)
+        if modern and metadata.get("brep") and occ_available():
             if restored_brep is None:
                 raise ValueError(f"solid {entry['id']} BREP payload could not be loaded")
             from OCC.Core.BRepCheck import BRepCheck_Analyzer
@@ -716,7 +934,9 @@ def geometry_from_json(doc: Dict[str, Any]) -> List[list]:
 __all__ = [
     "SCHEMA_ID",
     "LEGACY_SCHEMA_ID",
+    "V0_2_SCHEMA_ID",
     "SUPPORTED_SCHEMA_IDS",
+    "REPRESENTATION_SCHEMA_IDS",
     "geometry_to_json",
     "geometry_from_json",
 ]

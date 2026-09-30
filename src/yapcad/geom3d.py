@@ -757,6 +757,7 @@ def solid(*args):
         material = []
         construction = []
         metadata = None
+        listargs = 0
 
         for item in args[1:]:
             if isinstance(item, dict):
@@ -764,12 +765,19 @@ def solid(*args):
                     raise ValueError('multiple metadata dictionaries passed to solid')
                 metadata = item
             elif isinstance(item, list):
-                if material == []:
+                # List arguments are positional: the first is material, the
+                # second is construction.  Count the slots rather than testing
+                # them for emptiness -- an explicitly empty material list must
+                # still consume its slot, or the near-universal
+                # ``solid(surfaces, [], construction)`` idiom files the
+                # construction record under material.
+                if listargs == 0:
                     material = item
-                elif construction == []:
+                elif listargs == 1:
                     construction = item
                 else:
                     raise ValueError('too many list arguments passed to solid')
+                listargs += 1
             else:
                 raise ValueError('bad arguments to solid')
 
@@ -843,6 +851,26 @@ def solidbbox(sld):
 
     return box
 
+def _follow_sdf(original, transformed, matrix):
+    """Let an SDF-authored solid's tree follow a transform of the solid.
+
+    The surfaces have already moved; this wraps the construction tree in the
+    matching transform so the authoritative definition moves with them (see
+    :mod:`yapcad.sdf.sync`).  A cheap no-op for every other solid, and the
+    SDF subsystem is only imported when there is a tree to follow.
+    """
+    record = original[3] if len(original) > 3 else None
+    if not (isinstance(record, list) and record and record[0] == 'sdf'):
+        return
+    from yapcad.sdf.sync import follow_transform
+    follow_transform(original, transformed, matrix)
+
+
+def _matrix_rows(mat):
+    """Row-major 4x4 nested lists from an xform.Matrix, honouring transpose."""
+    return [[mat.get(i, j) for j in range(4)] for i in range(4)]
+
+
 def translatesolid(x,delta):
     if not issolid(x):
         raise ValueError('bad solid passed to translatesolid')
@@ -861,6 +889,8 @@ def translatesolid(x,delta):
         translate_native_brep(s2, delta)
     except ImportError:
         pass
+    _follow_sdf(x, s2, [[1, 0, 0, delta[0]], [0, 1, 0, delta[1]],
+                        [0, 0, 1, delta[2]], [0, 0, 0, 1]])
     return s2
 
 def rotatesolid(x,ang,cent=point(0,0,0),axis=point(0,0,1.0),mat=False):
@@ -881,6 +911,15 @@ def rotatesolid(x,ang,cent=point(0,0,0),axis=point(0,0,1.0),mat=False):
         rotate_native_brep(s2, ang, cent, axis)
     except ImportError:
         pass
+    if not close(ang, 0.0):
+        rot = mat
+        if not rot:
+            # The same matrix rotatesurface builds, so tree and mesh agree.
+            rot = xform.Rotation(axis, ang)
+            if not vclose(cent, point(0, 0, 0)):
+                rot = xform.Translation(cent).mul(rot).mul(
+                    xform.Translation(cent, inverse=True))
+        _follow_sdf(x, s2, _matrix_rows(rot))
     return s2
 
 def mirrorsolid(x,plane,preserveNormal=True):
@@ -904,6 +943,11 @@ def mirrorsolid(x,plane,preserveNormal=True):
         mirror_native_brep(s2, plane)
     except ImportError:
         pass
+    flip = {'yz': 0, 'xz': 1, 'xy': 2}.get(plane)
+    if flip is not None:
+        reflect = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]
+        reflect[flip][flip] = -1
+        _follow_sdf(x, s2, reflect)
     return s2
 
 def scalesolid(x, sx=1.0, sy=False, sz=False, cent=point(0,0,0)):
@@ -976,6 +1020,13 @@ def scalesolid(x, sx=1.0, sy=False, sz=False, cent=point(0,0,0)):
         except ImportError:
             pass
 
+    # Scale about ``cent``: p' = cent + S (p - cent).  The tree follows a
+    # non-uniform scale exactly, even though the BREP cannot and has already
+    # been dropped above.
+    _follow_sdf(x, s2, [[sx, 0, 0, cent[0] - sx * cent[0]],
+                        [0, sy, 0, cent[1] - sy * cent[1]],
+                        [0, 0, sz, cent[2] - sz * cent[2]],
+                        [0, 0, 0, 1]])
     return s2
 
 def _point_to_key(p):
@@ -1154,6 +1205,138 @@ def volumeof(x):
 
     # Return absolute value (orientation might cause negative result)
     return abs(total_volume)
+
+def _surface_signed_volume(surf):
+    """Signed volume contributed by a surface, via the divergence theorem.
+
+    Positive when the surface's faces wind outward (a bounding shell),
+    negative when they wind inward (a cavity).
+    """
+    vertices = surf[1]
+    total = 0.0
+    for face in surf[3]:
+        if len(face) != 3:
+            raise ValueError('non-triangular face encountered')
+        p0 = point(vertices[face[0]])
+        p1 = point(vertices[face[1]])
+        p2 = point(vertices[face[2]])
+        total += dot(p0, cross(sub(p1, p0), sub(p2, p0))) / 6.0
+    return total
+
+
+def solid_shells(x):
+    """Partition a solid's surfaces into connected shells, outer and void.
+
+    yapCAD mesh solids do not store voids separately: a cavity is simply a
+    shell whose faces wind inward, which is why ``volumeof`` already returns
+    the correct answer for a hollow solid.  This function recovers that
+    structure on demand, so consumers that genuinely need the outer/inner
+    partition (STEP export, FEA meshing, SDF meshing) can derive it from the
+    single source of truth rather than from a slot that can drift out of sync
+    with the geometry.
+
+    Surfaces are grouped into shells by shared edges, using the same
+    position-based edge keys as ``issolidclosed``.  Each group's orientation
+    is then read from its signed volume.
+
+    Args:
+        x: A solid data structure.
+
+    Returns:
+        ``(outer_shells, void_shells)``, where each is a list of shells and
+        each shell is a list of surfaces.  Shells appear in the order their
+        first surface appears in the solid, making the result deterministic.
+
+    Raises:
+        ValueError: if ``x`` is not a valid solid.
+
+    Notes:
+        Classification is only meaningful for a closed shell, so an open
+        group is always reported as outer -- an open surface cannot bound a
+        cavity.  Granularity is the surface, not the triangle: a solid whose
+        entire boundary arrived as one surface (the usual shape of an OCC
+        tessellation) yields a single outer shell even when it has cavities.
+        Callers that need triangle-level partitioning must do their own
+        connectivity analysis.
+
+    Example:
+        >>> from yapcad.geom3d_util import prism
+        >>> outer = prism(4, 4, 4)[1]
+        >>> inner = [reversesurface(s) for s in prism(2, 2, 2)[1]]
+        >>> shells, voids = solid_shells(solid(outer + inner))
+        >>> len(shells), len(voids)
+        (1, 1)
+    """
+    if not issolid(x, fast=False):
+        raise ValueError('invalid solid passed to solid_shells')
+
+    surfaces = x[1]
+    if not surfaces:
+        return [], []
+
+    # Map each edge to the surfaces that touch it, and count face uses so we
+    # can tell whether a completed group is closed.
+    edge_surfaces = {}
+    edge_uses = {}
+    for idx, surf in enumerate(surfaces):
+        vertices = surf[1]
+        for face in surf[3]:
+            if len(face) != 3:
+                raise ValueError(f'non-triangular face in surface {idx}')
+            p0 = vertices[face[0]]
+            p1 = vertices[face[1]]
+            p2 = vertices[face[2]]
+            for edge in (_canonical_edge_key(p0, p1),
+                         _canonical_edge_key(p1, p2),
+                         _canonical_edge_key(p2, p0)):
+                edge_surfaces.setdefault(edge, set()).add(idx)
+                edge_uses[edge] = edge_uses.get(edge, 0) + 1
+
+    # Union-find over surfaces joined by a shared edge.
+    parent = list(range(len(surfaces)))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    def union(i, j):
+        ri, rj = find(i), find(j)
+        if ri != rj:
+            parent[max(ri, rj)] = min(ri, rj)
+
+    for touching in edge_surfaces.values():
+        members = sorted(touching)
+        for other in members[1:]:
+            union(members[0], other)
+
+    # Group surface indices by root, ordered by first appearance.
+    groups = {}
+    for idx in range(len(surfaces)):
+        groups.setdefault(find(idx), []).append(idx)
+
+    outer_shells = []
+    void_shells = []
+    for root in sorted(groups):
+        member_indices = groups[root]
+        member_set = set(member_indices)
+        shell = [surfaces[i] for i in member_indices]
+
+        closed = all(
+            count == 2
+            for edge, count in edge_uses.items()
+            if edge_surfaces[edge] & member_set
+        )
+        signed = sum(_surface_signed_volume(surf) for surf in shell)
+
+        if closed and signed < 0.0:
+            void_shells.append(shell)
+        else:
+            outer_shells.append(shell)
+
+    return outer_shells, void_shells
+
 
 def normfunc(tri):
     """
