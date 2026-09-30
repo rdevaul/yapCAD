@@ -380,7 +380,12 @@ def shell(child, thickness):
 
 def _as_matrix4(value):
     """Coerce a yapCAD ``xform.Matrix`` or a 4x4 sequence to nested tuples."""
-    rows = getattr(value, "m", value)
+    if hasattr(value, "get") and hasattr(value, "trans"):
+        # An xform.Matrix: read through get(), which honours its transpose
+        # flag.  Its raw ``.m`` does not, and would silently use M^T.
+        rows = [[value.get(i, j) for j in range(4)] for i in range(4)]
+    else:
+        rows = getattr(value, "m", value)
     try:
         rows = [list(r) for r in rows]
     except TypeError:

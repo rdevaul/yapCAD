@@ -849,6 +849,26 @@ def solidbbox(sld):
 
     return box
 
+def _follow_sdf(original, transformed, matrix):
+    """Let an SDF-authored solid's tree follow a transform of the solid.
+
+    The surfaces have already moved; this wraps the construction tree in the
+    matching transform so the authoritative definition moves with them (see
+    :mod:`yapcad.sdf.sync`).  A cheap no-op for every other solid, and the
+    SDF subsystem is only imported when there is a tree to follow.
+    """
+    record = original[3] if len(original) > 3 else None
+    if not (isinstance(record, list) and record and record[0] == 'sdf'):
+        return
+    from yapcad.sdf.sync import follow_transform
+    follow_transform(original, transformed, matrix)
+
+
+def _matrix_rows(mat):
+    """Row-major 4x4 nested lists from an xform.Matrix, honouring transpose."""
+    return [[mat.get(i, j) for j in range(4)] for i in range(4)]
+
+
 def translatesolid(x,delta):
     if not issolid(x):
         raise ValueError('bad solid passed to translatesolid')
@@ -867,6 +887,8 @@ def translatesolid(x,delta):
         translate_native_brep(s2, delta)
     except ImportError:
         pass
+    _follow_sdf(x, s2, [[1, 0, 0, delta[0]], [0, 1, 0, delta[1]],
+                        [0, 0, 1, delta[2]], [0, 0, 0, 1]])
     return s2
 
 def rotatesolid(x,ang,cent=point(0,0,0),axis=point(0,0,1.0),mat=False):
@@ -887,6 +909,15 @@ def rotatesolid(x,ang,cent=point(0,0,0),axis=point(0,0,1.0),mat=False):
         rotate_native_brep(s2, ang, cent, axis)
     except ImportError:
         pass
+    if not close(ang, 0.0):
+        rot = mat
+        if not rot:
+            # The same matrix rotatesurface builds, so tree and mesh agree.
+            rot = xform.Rotation(axis, ang)
+            if not vclose(cent, point(0, 0, 0)):
+                rot = xform.Translation(cent).mul(rot).mul(
+                    xform.Translation(cent, inverse=True))
+        _follow_sdf(x, s2, _matrix_rows(rot))
     return s2
 
 def mirrorsolid(x,plane,preserveNormal=True):
@@ -910,6 +941,11 @@ def mirrorsolid(x,plane,preserveNormal=True):
         mirror_native_brep(s2, plane)
     except ImportError:
         pass
+    flip = {'yz': 0, 'xz': 1, 'xy': 2}.get(plane)
+    if flip is not None:
+        reflect = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]
+        reflect[flip][flip] = -1
+        _follow_sdf(x, s2, reflect)
     return s2
 
 def scalesolid(x, sx=1.0, sy=False, sz=False, cent=point(0,0,0)):
@@ -965,6 +1001,13 @@ def scalesolid(x, sx=1.0, sy=False, sz=False, cent=point(0,0,0)):
         except ImportError:
             pass
 
+    # Scale about ``cent``: p' = cent + S (p - cent).  Non-uniform scales are
+    # followed exactly by the tree even though the BREP hooks skip them; the
+    # SDF hook then drops the stale derived BREP rather than keep it.
+    _follow_sdf(x, s2, [[sx, 0, 0, cent[0] - sx * cent[0]],
+                        [0, sy, 0, cent[1] - sy * cent[1]],
+                        [0, 0, sz, cent[2] - sz * cent[2]],
+                        [0, 0, 0, 1]])
     return s2
 
 def _point_to_key(p):
