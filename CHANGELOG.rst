@@ -9,6 +9,21 @@ Unreleased
   endpoints, and require Python 3.11 or newer. Python 3.10 support is retired
   ahead of its October 2026 end-of-life.
 
+- Fix scaling about a centre point. ``geom.scale`` and ``geom3d.scalesurface``
+  composed the transform in the wrong order and scaled about ``-cent`` rather
+  than ``cent``; both BREP representations already scaled about ``cent``, so a
+  centred scale of a BREP solid left its mesh and BREP disagreeing. Code that
+  passed a non-origin ``cent`` gets different (correct) results.
+- ``geom3d.scalesolid`` now drops a solid's BREP after a non-uniform scale,
+  which the BREP cannot follow. It previously stayed attached and unscaled,
+  and was then written out and exported as the solid's authoritative
+  geometry.
+- ``Geometry.mirror`` and ``Geometry.scale`` on solids now delegate to
+  ``geom3d.mirrorsolid`` / ``scalesolid``, as ``translate`` and ``rotate``
+  already did. ``mirror`` previously did nothing to a mesh-only solid,
+  ``scale`` produced an invalid one, and on BREP solids both discarded the
+  solid's metadata.
+
 Version 1.1.0 (2026-07-05)
 ==========================
 
