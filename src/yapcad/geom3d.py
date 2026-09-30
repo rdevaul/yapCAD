@@ -702,9 +702,11 @@ def scalesurface(s, sx=1.0, sy=False, sz=False, cent=point(0,0,0)):
     if vclose(cent, point(0,0,0)):
         mat = xform.Scale(sx, sy, sz)
     else:
-        mat = xform.Translation(cent, inverse=True)
+        # T(c) S T(-c): move the centre to the origin, scale, move it back.
+        # The reverse order scales about -c, disagreeing with the BREP hooks.
+        mat = xform.Translation(cent)
         mat = mat.mul(xform.Scale(sx, sy, sz))
-        mat = mat.mul(xform.Translation(cent))
+        mat = mat.mul(xform.Translation(cent, inverse=True))
 
     s2 = deepcopy(s)
     # Transform vertices
@@ -972,7 +974,8 @@ def scalesolid(x, sx=1.0, sy=False, sz=False, cent=point(0,0,0)):
     Notes
     -----
     BREP data is only scaled for uniform scaling (sx == sy == sz).
-    Non-uniform scaling will preserve the mesh but not the BREP representation.
+    Non-uniform scaling scales the mesh and removes any BREP representation,
+    which cannot follow it and would otherwise go stale.
     """
     if not issolid(x):
         raise ValueError('bad solid passed to scalesolid')
@@ -989,6 +992,22 @@ def scalesolid(x, sx=1.0, sy=False, sz=False, cent=point(0,0,0)):
 
     # BREP scaling only supports uniform scale
     is_uniform = close(sx, sy) and close(sy, sz)
+    if not is_uniform:
+        # The BREP hooks cannot follow a non-uniform scale, and a BREP left
+        # attached is still read as authoritative -- by STEP export and by
+        # the package writer -- so it would silently describe the unscaled
+        # part.  Drop it rather than keep a representation that disagrees
+        # with the mesh.
+        try:
+            from yapcad.brep import _clear_brep_data
+            _clear_brep_data(s2)
+        except ImportError:
+            pass
+        try:
+            from yapcad.native_brep import clear_native_brep
+            clear_native_brep(s2)
+        except ImportError:
+            pass
     if is_uniform:
         try:
             from yapcad.brep import scale_brep_solid
@@ -1001,9 +1020,9 @@ def scalesolid(x, sx=1.0, sy=False, sz=False, cent=point(0,0,0)):
         except ImportError:
             pass
 
-    # Scale about ``cent``: p' = cent + S (p - cent).  Non-uniform scales are
-    # followed exactly by the tree even though the BREP hooks skip them; the
-    # SDF hook then drops the stale derived BREP rather than keep it.
+    # Scale about ``cent``: p' = cent + S (p - cent).  The tree follows a
+    # non-uniform scale exactly, even though the BREP cannot and has already
+    # been dropped above.
     _follow_sdf(x, s2, [[sx, 0, 0, cent[0] - sx * cent[0]],
                         [0, sy, 0, cent[1] - sy * cent[1]],
                         [0, 0, sz, cent[2] - sz * cent[2]],

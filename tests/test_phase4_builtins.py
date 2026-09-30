@@ -9,6 +9,7 @@ from yapcad.dsl.types import FLOAT, SOLID, POINT3D, PATH3D
 from yapcad.geom import point, vect
 from yapcad.geom3d import issolid
 from yapcad.geom3d_util import prism
+from yapcad.brep import occ_available
 
 
 @pytest.fixture
@@ -110,7 +111,8 @@ class TestSplitSolid:
     def test_exists(self, registry):
         assert registry.get_function("split_solid") is not None
 
-    @pytest.mark.skipif(True, reason="Requires OCC (pythonocc-core)")
+    @pytest.mark.skipif(not occ_available(),
+                        reason="pythonocc-core is not available")
     def test_split_box(self):
         """Split a box in half — requires OCC."""
         box = prism(20, 10, 10)
@@ -119,5 +121,7 @@ class TestSplitSolid:
             point_val(point(10, 0, 0)),
             vector_val(vect(1, 0, 0, 0)),
         ])
-        # Should return a list of two solids
+        # Both halves come back, as a list.
         assert result.data is not None
+        assert len(result.data) == 2
+        assert all(issolid(half) for half in result.data)

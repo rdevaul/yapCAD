@@ -98,8 +98,6 @@ from yapcad.brep import (
     BrepSolid,
     require_occ,
     has_brep_data,
-    scale_brep_solid,
-    attach_brep_to_solid,
     brep_from_solid,
 )
 
@@ -351,34 +349,14 @@ class Geometry:
                 raise NotImplementedError("Solid scaling currently supports uniform factors only")
             if sz not in (False, None) and not close(sz, sx):
                 raise NotImplementedError("Solid scaling currently supports uniform factors only")
-            if has_brep_data(self.__elem):
-                scale_brep_solid(self.__elem, sx, cent)
-                self.__elem = _retessellate_brep_solid(self.__elem) or self.__elem
-                self._clearSurfaceCache()
-                self._setUpdate(True)
-                return
-            # fallback: scale vertices of each surface (uniform only)
-            def _scale_point(p):
-                return point(
-                    cent[0] + sx * (p[0] - cent[0]),
-                    cent[1] + sx * (p[1] - cent[1]),
-                    cent[2] + sx * (p[2] - cent[2]),
-                )
-            new_surfaces = []
-            for surf in self.__elem[1]:
-                new_pts = [_scale_point(v) for v in surf[1]]
-                new_surf = [new_pts, list(deepcopy(surf[2])), list(deepcopy(surf[3]))]
-                # boundaries/holes/metadata if present
-                if len(surf) > 4:
-                    new_surf.append(deepcopy(surf[4]))
-                if len(surf) > 5:
-                    new_surf.append(deepcopy(surf[5]))
-                if len(surf) > 6:
-                    new_surf.append(deepcopy(surf[6]))
-                new_surfaces.append(new_surf)
-            meta = self.__elem[3] if len(self.__elem) > 3 else []
-            self._setElem(['solid', new_surfaces, [] , meta])
+            # Delegate, as translate and rotate do: scalesolid moves the
+            # surfaces and lets each BREP representation follow.  The former
+            # hand-rolled path rebuilt surfaces without their 'surface' tag
+            # (an invalid solid) and emptied the material slot.
+            from yapcad.geom3d import scalesolid
+            self._setElem(scalesolid(self.__elem, sx, sx, sx, cent))
             self._setUpdate(True)
+            self._clearSurfaceCache()
             return
         if is_brep(self.__elem):
             require_occ()
@@ -440,17 +418,12 @@ class Geometry:
 
         """
         if issolid(self.__elem, fast=False):
-            try:
-                from yapcad.brep import mirror_brep_solid
-                mirror_brep_solid(self.__elem, plane)
-                self.__elem = _retessellate_brep_solid(self.__elem) or self.__elem
-                self._clearSurfaceCache()
-                self._setUpdate(True)
-                return
-            except Exception:
-                pass
-            from yapcad.geom3d import mirror as mirror_solid
-            self._setElem(mirror_solid(self.__elem, plane))
+            # Delegate, as translate and rotate do.  The former path mirrored
+            # only the BREP and rebuilt the mesh from it, so on a mesh-only
+            # solid it silently did nothing: mirror_brep_solid had no BREP to
+            # move and the retessellation came back empty.
+            from yapcad.geom3d import mirrorsolid
+            self._setElem(mirrorsolid(self.__elem, plane))
             self._setUpdate(True)
             self._clearSurfaceCache()
             return
@@ -745,22 +718,6 @@ def Arc(c,rp=False,sn=False,e=False,n=False,samplereverse=False):
 def Figure(*args):
     return Geometry(list(*args))
 
-# helper to rebuild a tessellated solid from its BREP metadata
-def _retessellate_brep_solid(sld: list):
-    if not has_brep_data(sld):
-        return None
-    brep = brep_from_solid(sld)
-    if brep is None:
-        return None
-    surf = brep.tessellate()
-    # Slots 2 and 3 are material and construction (see geom3d.solid); this
-    # copies them positionally.  NOTE: the metadata dict at slot 4 is not
-    # carried over, so the retessellated solid gets a fresh entity id.
-    material = sld[2] if len(sld) > 2 else []
-    construction = sld[3] if len(sld) > 3 else []
-    new_solid = ['solid', [surf], material, construction]
-    attach_brep_to_solid(new_solid, brep)
-    return new_solid
 
 
                     

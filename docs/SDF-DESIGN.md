@@ -323,10 +323,10 @@ single surface — the usual shape of an OCC tessellation — yields one outer
 shell even when it has cavities. Callers needing triangle-level partitioning
 must do their own connectivity analysis.
 
-**Open, minor.** `_retessellate_brep_solid` drops the metadata dict at slot 4,
-so a retessellated solid receives a fresh entity id and loses its tags and
-layer. Unrelated to slot semantics; left alone here because the OCC lane could
-not be exercised locally.
+**Resolved since.** `_retessellate_brep_solid` dropped the metadata dict at
+slot 4, so a retessellated solid received a fresh entity id and lost its tags
+and layer. Its only callers were `Geometry.mirror` and `Geometry.scale`, which
+PR #57 changed to delegate to `geom3d`; the helper was then removed.
 
 ## 9. DSL surface
 
@@ -568,15 +568,17 @@ the tag stays true. A non-uniform scale leaves the BREP behind, so there it
 is dropped, which is safe for a representation that is derived by
 definition.
 
-**Known issues found along the way, not fixed here.** `geom.scale` and
-`geom3d.scalesurface` compose a centred scale as `T(-c) S T(c)`, which scales
-about `-c`; rotation beside them, and the OCC BREP hook, both use the
-correct `T(c) S T(-c)`. The SDF hook follows the documented behaviour, so a
-centred scale of an SDF solid currently leaves tree and mesh disagreeing; the
-test for it is `xfail(strict=True)` and will demand its own removal once the
-core fix lands. Separately, the `Geometry` wrapper's own solid `mirror` is a
-silent no-op on a mesh-only solid, and its solid `scale` drops each surface's
-`'surface'` tag, producing an invalid solid. Neither is SDF-specific.
+**Core defects found along the way, fixed separately in PR #57.** `geom.scale`
+and `geom3d.scalesurface` composed a centred scale as `T(-c) S T(c)`, which
+scales about `-c`, while rotation beside them and both BREP hooks used the
+correct `T(c) S T(-c)`; the SDF hook followed the documented behaviour, so
+until the fix a centred scale of an SDF solid left tree and mesh
+disagreeing. `geom3d.scalesolid` also left a BREP attached and unscaled
+after a non-uniform scale, where it was then read as authoritative. And the
+`Geometry` wrapper's own solid `mirror` was a silent no-op on a mesh-only
+solid, while its solid `scale` produced an invalid one. None of these was
+SDF-specific, so they went to `main` as their own change and were merged
+into this branch afterwards.
 
 **Not implemented.** Mixed-authority booleans remain Phase 4: `solid_boolean`
 on two `brep=True` SDF solids takes the existing OCC path and yields a

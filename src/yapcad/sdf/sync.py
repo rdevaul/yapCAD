@@ -75,7 +75,8 @@ def _follow_derived_brep(original, transformed, before, after, matrix):
         brep["derivedFrom"] = {"sdf": after.digest}
         return
     # The BREP hooks only follow similarity transforms, so this BREP was
-    # left behind.  It is derived, so dropping it loses nothing the tree
-    # does not define.
+    # left behind.  geom3d.scalesolid already drops a BREP on a non-uniform
+    # scale; this is the safety net for any caller that does not.  It is
+    # derived, so dropping it loses nothing the tree does not define.
     from yapcad.brep import _clear_brep_data
     _clear_brep_data(transformed)

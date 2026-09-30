@@ -82,11 +82,6 @@ class TestTreeFollowsTheMesh:
         assert not tree_of(stretched).exact
         assert_tree_matches_mesh(stretched, 1e-6)
 
-    @pytest.mark.xfail(strict=True, reason=(
-        "pre-existing core bug: geom.scale and geom3d.scalesurface compose a "
-        "centred scale as T(-c) S T(c), i.e. S(p + c) - c, which scales about "
-        "-c. The tree (and the OCC BREP hook) scale about c as documented; "
-        "the mesh does not. Remove this marker when the core fix lands."))
     def test_scale_about_a_centre(self, base):
         grown = scalesolid(base, 2.0, cent=point(20.0, 0.0, 0.0))
         assert_tree_matches_mesh(grown, 1e-6)
