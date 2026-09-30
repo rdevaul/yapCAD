@@ -524,6 +524,11 @@ def solid_boolean(a, b, operation, tol=_DEFAULT_RAY_TOL, *, stitch=False, engine
     Engine selection:
     - If ``engine`` parameter or ``YAPCAD_BOOLEAN_ENGINE`` env var is set,
       that engine is used explicitly (backward compatible behavior).
+      ``'sdf'`` selects the field engine, which requires both operands to
+      be SDF-authored.
+    - Otherwise, when both solids were authored as signed distance fields,
+      their fields are combined (see :mod:`yapcad.sdf.booleans`): exact,
+      unable to fail, and the result stays SDF-authoritative.
     - Otherwise, auto-selects OCC BREP engine when available and both solids
       have BREP metadata, falling back to mesh engine on failure or when
       BREP data is missing.
@@ -542,6 +547,13 @@ def solid_boolean(a, b, operation, tol=_DEFAULT_RAY_TOL, *, stitch=False, engine
     explicit_engine = engine or os.environ.get('YAPCAD_BOOLEAN_ENGINE')
     if explicit_engine:
         return _dispatch_boolean_engine(explicit_engine, a, b, operation, tol, stitch)
+
+    # Two SDF-authored operands combine as fields.  This runs before the OCC
+    # path even when both carry derived BREPs: the result keeps its tree, and
+    # gets a BREP replayed from the combined tree when that is possible.
+    if _is_sdf_solid(a) and _is_sdf_solid(b):
+        from yapcad.sdf.booleans import combine_solids
+        return combine_solids(a, b, operation)
 
     # Auto-select: prefer OCC BREP when available and both solids have BREP data
     if occ_available() and has_brep_data(a) and has_brep_data(b):
@@ -573,7 +585,20 @@ def _dispatch_boolean_engine(engine_spec, a, b, operation, tol, stitch):
     if selected == 'occ':
         from yapcad.boolean import occ_engine
         return occ_engine.solid_boolean(a, b, operation)
+    if selected == 'sdf':
+        from yapcad.sdf.booleans import combine_solids
+        return combine_solids(a, b, operation)
     raise ValueError(f'unknown boolean engine {engine_spec!r}')
+
+
+def _is_sdf_solid(x):
+    """True if ``x`` carries an SDF construction tree.
+
+    Checked on the raw slot so that a boolean between ordinary solids never
+    imports the SDF subsystem.
+    """
+    record = x[3] if isinstance(x, list) and len(x) > 3 else None
+    return isinstance(record, list) and bool(record) and record[0] == 'sdf'
 
 def issurface(s,fast=True):
     """

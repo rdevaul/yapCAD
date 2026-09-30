@@ -2591,6 +2591,23 @@ class BuiltinRegistry:
     def _register_boolean_functions(self) -> None:
         """Register boolean operations."""
 
+        def _sdf_fold(operands, operation):
+            """Combine all-SDF operands in one field operation, else None.
+
+            Folding pairwise through solid_boolean would re-mesh -- and then
+            discard -- every intermediate result; fields combine n-ary, so
+            this meshes once.  Declines when any operand is not SDF-authored
+            or when YAPCAD_BOOLEAN_ENGINE forces an engine, leaving the
+            pairwise path exactly as it was.
+            """
+            import os
+            if len(operands) < 2 or os.environ.get('YAPCAD_BOOLEAN_ENGINE'):
+                return None
+            from yapcad.sdf.booleans import combine_all, is_sdf_solid
+            if not all(is_sdf_solid(o) for o in operands):
+                return None
+            return combine_all(operands, operation)
+
         def _union(*args: Value) -> Value:
             """Union of solids."""
             from yapcad.geom3d import solid_boolean
@@ -2601,6 +2618,9 @@ class BuiltinRegistry:
             # Perform pairwise unions
             if len(operands) == 0:
                 raise ValueError("union requires at least one solid")
+            fused = _sdf_fold(operands, 'union')
+            if fused is not None:
+                return solid_val(fused)
             result = operands[0]
             for i in range(1, len(operands)):
                 result = solid_boolean(result, operands[i], 'union')
@@ -2613,6 +2633,9 @@ class BuiltinRegistry:
                 tools = rest[0].data
             else:
                 tools = [r.data for r in rest]
+            fused = _sdf_fold([a.data] + list(tools), 'difference')
+            if fused is not None:
+                return solid_val(fused)
             # Perform pairwise differences
             result = a.data
             for tool in tools:
@@ -2629,6 +2652,9 @@ class BuiltinRegistry:
             # Perform pairwise intersections
             if len(operands) == 0:
                 raise ValueError("intersection requires at least one solid")
+            fused = _sdf_fold(operands, 'intersection')
+            if fused is not None:
+                return solid_val(fused)
             result = operands[0]
             for i in range(1, len(operands)):
                 result = solid_boolean(result, operands[i], 'intersection')

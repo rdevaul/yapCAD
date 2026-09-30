@@ -5,6 +5,17 @@ Changelog
 Unreleased
 ==========
 
+- Booleans between two SDF-authored solids now combine their fields instead
+  of their meshes: ``geom3d.solid_boolean`` -- and so the DSL's ``union``,
+  ``difference`` and ``intersection`` -- returns an exact, closed,
+  SDF-authoritative result in well under a second, where the mesh engine
+  returned an open mesh, took tens of seconds, or failed. The result is
+  meshed no coarser than either operand. An explicit ``engine=`` or
+  ``YAPCAD_BOOLEAN_ENGINE`` still takes precedence, and ``engine="sdf"``
+  selects the field path. Mixed SDF/mesh or SDF/BREP operands are unchanged.
+- ``sdf.to_solid`` raises ``sdf.NonManifoldMeshError`` (an ``SdfError``
+  subclass) when it refuses a mesh, so callers can catch that case alone.
+
 - New ``yapcad.sdf`` package: signed distance functions as a peer solid
   representation (see ``docs/SDF-DESIGN.md``). Fields are an immutable,
   serialisable node DAG of analytic primitives, hard and smooth booleans,
