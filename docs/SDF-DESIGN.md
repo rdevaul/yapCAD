@@ -1,9 +1,8 @@
 # yapCAD SDF Support — Design Document
 
-**Status:** Draft v0.1
+**Status:** Phases 0–3 implemented; Phases 4–6 planned
 **Author:** Rich DeVaul (with Claude)
 **Date:** 2026-09-26
-**Tracking branch:** `feature/sdf-representation`
 
 ---
 

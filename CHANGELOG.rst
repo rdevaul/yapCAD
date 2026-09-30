@@ -5,6 +5,40 @@ Changelog
 Unreleased
 ==========
 
+- New ``yapcad.sdf`` package: signed distance functions as a peer solid
+  representation (see ``docs/SDF-DESIGN.md``). Fields are an immutable,
+  serialisable node DAG of analytic primitives, hard and smooth booleans,
+  offsets, shells, transforms and gyroid/Schwarz-P lattices, evaluated by a
+  vectorised numpy backend that tracks each field's exactness and Lipschitz
+  bound. ``sdf.to_solid`` dual-contours a field into an ordinary yapCAD solid
+  that the rest of yapCAD can consume, deterministically and with sharp edges
+  preserved; ``to_solid(..., brep=True)`` replays CSG-expressible trees
+  through OpenCASCADE for an exact BREP and analytic STEP export. The package
+  needs only numpy; OCC replay is optional. ``examples/sdf_demo.py`` meshes a
+  gallery of models to STL, PNG and (with ``--step``) STEP.
+- Geometry JSON is now ``yapcad-geometry-json-v0.3``. It adds ``"sdf"`` as an
+  ``authoritative`` representation, with the tree stored in
+  ``representations.sdf`` and an optional BREP marked ``role: "derived"``.
+  v0.1 and v0.2 documents still read; writers emit v0.3, so a reader that
+  checks the schema ID strictly must be updated to accept it.
+- Solid construction provenance (``['procedure', ...]``, ``['boolean', ...]``
+  records) now survives geometry JSON as an optional ``construction`` field,
+  with accessors in the new ``yapcad.construction`` module.
+- Fix ``geom3d.solid()`` filing the construction record in the material slot
+  when called as ``solid(surfaces, [], construction)`` -- the form every
+  producer in the tree uses -- which also made serialised solids emit a
+  spurious ``"voids": [[], []]``.
+- Fix ``geometry_from_json`` writing a document's void surfaces into the
+  solid's material slot. Void surfaces are now merged into the shell list,
+  where mesh solids already carry cavities, and ``geom3d.solid_shells``
+  recovers the outer/void partition on demand.
+- ``geom3d`` solid transforms now carry an SDF-authored solid's tree along
+  with its mesh; previously ``translatesolid`` and friends moved the mesh and
+  left the defining tree where it was.
+- ``jsonschema`` joins the ``tests`` extra, so schema validation runs by
+  default, and the conda environment files request the ``tests`` extra by
+  its correct name.
+
 - **Construction provenance survives serialisation.** New ``yapcad.construction``
   module defines the record format for the solid ``construction`` slot
   (``['procedure', call]``, ``['boolean', operation]``, with ``sdf`` reserved)

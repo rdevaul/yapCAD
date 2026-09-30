@@ -1,7 +1,8 @@
 """The signed-distance-function node DAG.
 
-This module defines the representation that :doc:`SDF-DESIGN` makes
-authoritative: an immutable, serialisable directed acyclic graph of nodes.
+This module defines the representation that the design document
+(``docs/SDF-DESIGN.md``) makes authoritative: an immutable, serialisable
+directed acyclic graph of nodes.
 Everything else in :mod:`yapcad.sdf` is either a constructor that builds
 nodes (:mod:`yapcad.sdf.primitives`, :mod:`yapcad.sdf.ops`) or a backend that
 consumes them (:mod:`yapcad.sdf.evaluate`).
