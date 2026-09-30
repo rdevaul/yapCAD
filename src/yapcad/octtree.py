@@ -55,157 +55,23 @@ def boxoverlap2(bbx1,bbx2,dim3=True):
     """Determine if two bounding boxes overlap.  if dim3==True, treat the
     bounding boxes as 3D, otherwise treat them as co-planar 2D boxes.
 
-    First, check to see if the maximum coordinates of one box are
-    smaller than the minimum coordinates of the other, or vice versa.
-    If so, no overlap is possible; return False
+    Boxes are ``[min_point, max_point]``.  Overlap is inclusive: boxes that
+    touch on a face, edge or corner overlap, and a zero-thickness box (the
+    bounds of an axis-aligned triangle, say) overlaps anything it touches.
 
-    if overlap is possible by test #1, check for the box-in-box
-    special case for each box.  If so, return True
-
-    Finally, for the 2D case: determine if horizontal lines of box1
-    intersect with vertical lines of box2, and vice versa.  If any
-    intersections found, return True, else return False
-
-    For the 3D case, project the boxes into the XY, YZ, and XZ planes,
-    and perform the 2D lines intersection check, as above.  Return
-    True if and only if intersections are reported for each
-    projection, otherwise return False
+    Two axis-aligned boxes are disjoint exactly when they are separated
+    along some axis, so this is one interval comparison per axis.  It
+    replaces a projected edge-crossing test that gave the same answers for
+    well-formed boxes but constructed validated ``point`` objects on every
+    call, and whose early rejection used ``and`` across axes -- so it almost
+    never fired, and nearly every call took the slow path.  In the native
+    mesh boolean engine that made box comparisons ~97% of the runtime.
     """
+    for i in range(3 if dim3 else 2):
+        if bbx1[1][i] < bbx2[0][i] or bbx2[1][i] < bbx1[0][i]:
+            return False
+    return True
 
-    # check minmax
-    if ((bbx1[1][0] < bbx2[0][0] and
-         bbx1[1][1] < bbx2[0][1] and
-         (not dim3 or bbx1[1][2] < bbx2[0][2])) or
-        (bbx2[1][0] < bbx1[0][0] and
-         bbx2[1][1] < bbx1[0][1] and
-         (not dim3 or bbx2[1][2] < bbx1[0][2]))):
-        return False # no overlap possible
-
-    # check for box-in-box
-    if ((bbx1[0][0] >= bbx2[0][0] and bbx1[1][0] <= bbx2[1][0] and
-         bbx1[0][1] >= bbx2[0][1] and bbx1[1][1] <= bbx2[1][1] and
-         (not dim3 or (bbx1[0][2] >= bbx2[0][2]
-                       and bbx1[1][2] <= bbx2[1][2]))) or
-        (bbx2[0][0] >= bbx1[0][0] and bbx2[1][0] <= bbx1[1][0] and
-         bbx2[0][1] >= bbx1[0][1] and bbx2[1][1] <= bbx1[1][1] and
-         (not dim3 or (bbx2[0][2] >= bbx1[0][2]
-                       and bbx2[1][2] <= bbx1[1][2])))):
-        return True
-
-    def int2D(bb1,bb2,plane='XY'):
-        """utility function for 2D box line intersection finding"""
-        i = 0
-        j = 0
-        if plane == 'XY':
-            i = 0
-            j = 1
-        elif plane == 'YZ':
-            i = 1
-            j = 2
-        elif plane == 'XZ':
-            i = 0
-            j = 2
-        else:
-            raise ValueError('bad plane in int2D')
-
-        def intHV(hln,vln):
-            """ do a horizontal and vertial line intersect? """
-            minx=hln[0][0]
-            maxx=hln[1][0]
-            if minx>maxx:
-                swap = minx ; minx = maxx; maxx = swap
-
-            if vln[0][0] < minx or vln[0][0] > maxx:
-                return False
-            miny=vln[0][1]
-            maxy=vln[1][1]
-            if miny > maxy:
-                swap = miny ; miny = maxy ; maxy = swap
-            if miny > hln[0][1] or maxy < hln[0][1]:
-                return False
-            return True
-        
-        # check for projected box-in-box
-        if ((bb1[0][i] >= bb2[0][i] and bb1[1][i] <= bb2[1][i] and
-             bb1[0][j] >= bb2[0][j] and bb1[1][j] <= bb2[1][j])
-            or
-            (bb2[0][i] >= bb1[0][i] and bb2[1][i] <= bb1[1][i] and
-             bb2[0][j] >= bb1[0][j] and bb2[1][j] <= bb1[1][j])):
-            return True
-
-        # check for projected line intersections
-        
-        len1 = bb1[1][i] - bb1[0][i] # length
-        wid1 = bb1[1][j] - bb1[0][j] # width
-        len2 = bb2[1][i] - bb2[0][i] # length
-        wid2 = bb2[1][j] - bb2[0][j] # width
-
-        p0 = point(bb1[0][i],bb1[0][j])
-        p1 = add(p0,point(len1,0))
-        p2 = add(p1,point(0,wid1))
-        p3 = add(p0,point(0,wid1))
-
-        p4 = point(bb2[0][i],bb2[0][j])
-        p5 = add(p4,point(len2,0))
-        p6 = add(p5,point(0,wid2))
-        p7 = add(p4,point(0,wid2))
-
-        box1 = [[p0,p1],
-                [p1,p2],
-                [p2,p3],
-                [p3,p0]]
-        box2 = [[p4,p5],
-                [p5,p6],
-                [p6,p7],
-                [p7,p4]]
-        if intHV(box1[0],box2[1]):
-            return True
-        if intHV(box1[0],box2[3]):
-            return True
-        if intHV(box1[2],box2[1]):
-            return True
-        if intHV(box1[2],box2[3]):
-            return True
-
-        if intHV(box2[0],box1[1]):
-            return True
-        if intHV(box2[0],box1[3]):
-            return True
-        if intHV(box2[2],box1[1]):
-            return True
-        if intHV(box2[2],box1[3]):
-            return True
-        # if lineLineIntersectXY(box1[0],box2[1]):
-        #     return True
-        # if lineLineIntersectXY(box1[0],box2[3]):
-        #     return True
-        # if lineLineIntersectXY(box1[2],box2[1]):
-        #     return True
-        # if lineLineIntersectXY(box1[2],box2[3]):
-        #     return True
-
-        # if lineLineIntersectXY(box2[0],box1[1]):
-        #     return True
-        # if lineLineIntersectXY(box2[0],box1[3]):
-        #     return True
-        # if lineLineIntersectXY(box2[2],box1[1]):
-        #     return True
-        # if lineLineIntersectXY(box2[2],box1[3]):
-        #     return True
-        
-        # for l1 in box1:
-        #     for l2 in box2:
-        #         if lineLineIntersectXY(l1,l2):
-        #             return True
-        return False
-        
-    # do projeted box line intersection tests
-    return (int2D(bbx1,bbx2,'XY') and
-            (not dim3 or int2D(bbx1,bbx2,'YZ')) and
-            (not dim3 or int2D(bbx1,bbx2,'XZ')))
-    
-    
-      
 def boxoverlap(bbx1,bbx2,dim3=True):
 
     """determine if two bounding boxes overlap"""
