@@ -349,7 +349,7 @@ lines and should not absorb them.
 | **0** ✅ | Serialise and restore the `construction` slot; fix `solid()` slot assignment | Provenance survives packaging; prerequisite for all of the below |
 | **1** ✅ | `yapcad/sdf/`: node DAG, numpy evaluator, Lipschitz tracking, primitives, hard CSG | Validated against `geom3d.signedFaceDistance` (`geom3d.py:254`) and analytic distances |
 | **2** ✅ | Dual contouring → ordinary yapCAD solids with `authoritative: "sdf"` | The entire existing downstream works on SDF parts |
-| **3** | CSG-exactness classifier + OCC tree replay | STEP export for the common case |
+| **3** ✅ | CSG-exactness classifier + OCC tree replay | STEP export for the common case |
 | **4** | BREP/mesh → SDF promotion via OCC distance queries + cached grid | Mixed-authority booleans |
 | **5** | GLSL/WGSL emitter + browser sphere tracing | Real-time preview |
 | **6** | Lattices, variable-thickness shells, distance-field fillets, topology-optimisation import | The features that justify the effort |
@@ -493,6 +493,94 @@ the QEF already accumulates per-cell contributions from identifiable edges —
 but the §11 question about what a node label means at a smooth-blend
 boundary has to be answered first, and answering it with a blend-weight
 vector changes the surface-group data model rather than just the mesher.
+
+### 10.3 Phase 3 as built
+
+`yapcad/sdf/occ.py` replays `csgExact` trees through OpenCASCADE. Each
+analytic node kind registers an `"occ"` backend on its existing `NodeSpec`
+through `register_backend` -- the seam of §10.1 used for a second time, and
+the reason the module can live apart so that `import yapcad.sdf` never needs
+pythonocc-core. `sdf.to_solid(node, brep=True)` attaches the replayed shape,
+and `write_step_analytic` then emits planes, cylinders, spheres, cones and
+tori rather than facets. `brep="auto"` attaches one when the tree allows it
+and quietly skips it when not.
+
+**"Exact" is tested literally.** Replayed volumes are compared with
+closed-form volumes, not with the mesh: primitives, rotated, uniformly
+scaled and mirrored parts, and half-space cuts agree to about 1e-16 relative,
+the cube frame to 1.1e-7 of `1000 - 254*pi`, a rounded box to 1.6e-9 of its
+Minkowski volume. The analytic cube-frame STEP is 46 KB against 11 MB for
+the same part as STL.
+
+**Two replays are not one-to-one calls.** A `rounded_box` is a box with
+every edge filleted to the same radius, which is exactly the Minkowski
+rounding the field describes -- no edge is ever skipped, because a box with
+one sharp edge is a different part. A `half_space` is replayed as a finite
+box on the correct side of its plane, sized to cover the root's bounds as
+carried into the leaf's frame through any transforms above it. Replacing a
+leaf with anything that agrees with it inside that region cannot change the
+result inside it, and the result lies inside it by construction; the driver
+also checks the replayed shape against the root's bounds afterwards, so a
+violated assumption is loud. That check needed `Bnd_Box.AddOptimal`: the
+default bounds a trimmed face by its whole underlying surface, so a sphere
+cut down by a box reported the sphere's full extent.
+
+**The classifier was wrong in two places, and replay found both.** A
+spindle torus (minor radius >= major) is a perfectly good field, but its BREP
+surface self-intersects; OCC builds it, calls it valid, and counts the
+overlap twice in its volume. A rounded box whose radius is half its smallest
+edge leaves the fillet no face to run along, and OCC refuses it. Both are now
+`csgExact: false`, which is the promise §5.3 makes: the classification is
+what authoring time relies on, so it must not promise a replay that fails.
+
+**Blockers are reported, not just a boolean.** `sdf.csg_blockers(node)`
+lists the nodes that are non-CSG *in their own right*, found by re-running
+each node's analysis with its children forced CSG-exact, so a `smooth_union`
+whose operand is also a lattice reports both. A refused replay names them,
+and the gallery's README lists them per part -- the authoring-time "this part
+uses `smooth_union`; it will not round-trip to STEP" that §5.3 asks for.
+
+**A BREP beside an SDF tree is now either derived or refused.** The Phase 2
+blocker of §10.2 is resolved with a *derived* role rather than by relaxing
+authority. `to_solid(brep=True)` tags the attached BREP with the digest of
+the tree it was replayed from. The serialiser accepts a BREP beside SDF
+authority only when that tag matches the tree it is writing, and emits it as
+`role: "derived"` with `treeDigest`; anything else -- `prism()`'s own analytic
+BREP, or one replayed from an earlier version of the tree -- is still
+refused as a second, disagreeing definition. The reader compares
+`treeDigest` with the digest of the tree *as rebuilt*, not with the table
+key the document gives the root, so relabelling both together does not get
+past it. The v0.3 schema was amended rather than bumped for this, since it
+has not shipped outside this branch.
+
+**Transforms now carry the tree, which fixed a Phase 2 bug.** The solid
+transforms in `geom3d` move a solid's surfaces and then call a hook per
+representation (`translate_brep_solid`, `translate_native_brep`). There was
+no hook for the SDF tree, so translating an SDF solid moved its mesh and left
+the tree that defines it where it was: the document described a sphere at the
+origin carrying a mesh a hundred units away. `yapcad/sdf/sync.py` is that
+hook, called from `translatesolid`, `rotatesolid`, `mirrorsolid` and
+`scalesolid`. It wraps the tree in the equivalent `transform`, drops the
+meshing parameters (a mesh moved after meshing is not what they regenerate),
+and re-tags a derived BREP when the BREP hook moved it too -- replaying
+`transform(tree, M)` is literally the replayed shape carried through `M`, so
+the tag stays true. A non-uniform scale leaves the BREP behind, so there it
+is dropped, which is safe for a representation that is derived by
+definition.
+
+**Known issues found along the way, not fixed here.** `geom.scale` and
+`geom3d.scalesurface` compose a centred scale as `T(-c) S T(c)`, which scales
+about `-c`; rotation beside them, and the OCC BREP hook, both use the
+correct `T(c) S T(-c)`. The SDF hook follows the documented behaviour, so a
+centred scale of an SDF solid currently leaves tree and mesh disagreeing; the
+test for it is `xfail(strict=True)` and will demand its own removal once the
+core fix lands. Separately, the `Geometry` wrapper's own solid `mirror` is a
+silent no-op on a mesh-only solid, and its solid `scale` drops each surface's
+`'surface'` tag, producing an invalid solid. Neither is SDF-specific.
+
+**Not implemented.** Mixed-authority booleans remain Phase 4: `solid_boolean`
+on two `brep=True` SDF solids takes the existing OCC path and yields a
+BREP-authoritative result, which is coherent but discards the tree.
 
 ## 11. Open questions
 

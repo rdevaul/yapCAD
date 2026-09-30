@@ -25,11 +25,15 @@ Usage:
     # Just one model, meshes only, no rendering
     python examples/sdf_demo.py --only cube-frame --no-render
 
+    # Also write analytic STEP for every model that replays as exact CSG
+    python examples/sdf_demo.py --step
+
     # List what is available
     python examples/sdf_demo.py --list
 """
 
 import argparse
+import contextlib
 import json
 import math
 import os
@@ -38,7 +42,9 @@ import sys
 import time
 
 from yapcad import sdf
+from yapcad.brep import has_brep_data
 from yapcad.geom3d import issolidclosed, volumeof
+from yapcad.io.step import write_step_analytic
 from yapcad.io.stl import write_stl
 
 try:                                    # run as a script, or as a module
@@ -125,7 +131,23 @@ def stl_facet_count(path):
         return struct.unpack("<I", handle.read(84)[80:84])[0]
 
 
-def build(model, output, scale, want_stl, want_render, size):
+@contextlib.contextmanager
+def _quiet_stdout():
+    """Silence OCC's STEP transfer banner, which it writes to fd 1 directly."""
+    sys.stdout.flush()
+    saved = os.dup(1)
+    with open(os.devnull, "w") as sink:
+        os.dup2(sink.fileno(), 1)
+        try:
+            yield
+        finally:
+            sys.stdout.flush()
+            os.dup2(saved, 1)
+            os.close(saved)
+
+
+def build(model, output, scale, want_stl, want_render, size,
+          want_step=False):
     """Mesh one model, write its artefacts and return a manifest entry."""
     name, node, resolution, note, view = model
     resolution = max(2, int(round(resolution * scale)))
@@ -153,7 +175,8 @@ def build(model, output, scale, want_stl, want_render, size):
     # check=False so the non-manifold exhibit still builds; the manifest
     # records the truth either way.  Wrapping the mesh is cheap next to
     # meshing it, so the solid's own measurements are always reported.
-    solid = sdf.to_solid(node, resolution=resolution, check=False)
+    solid = sdf.to_solid(node, resolution=resolution, check=False,
+                         brep="auto" if want_step else False)
     entry["closed"] = bool(issolidclosed(solid))
     entry["volume"] = (round(float(volumeof(solid)), 4)
                        if entry["closed"] else None)
@@ -168,12 +191,33 @@ def build(model, output, scale, want_stl, want_render, size):
         entry["stlDropped"] = entry["triangles"] - facets
         entry["stlBytes"] = os.path.getsize(path)
 
+    # Which nodes, if any, keep this part from replaying as exact CSG --
+    # the authoring-time answer to "will this round-trip to STEP?".
+    entry["csgBlockers"] = [n.kind for n in sdf.csg_blockers(node)]
+    if want_step:
+        entry["step"] = None
+        if has_brep_data(solid):
+            path = os.path.join(output, f"{name}.step")
+            with _quiet_stdout():
+                analytic = write_step_analytic(solid, path,
+                                               fallback_to_faceted=False)
+            entry["step"] = "analytic" if analytic else None
+
     if want_render:
         image = render(mesh.vertices, mesh.normals, mesh.triangles,
                        size=size, **view)
         write_png(os.path.join(output, f"{name}.png"), image)
 
     return entry
+
+
+def _step_cell(entry):
+    """What the README says about a model's STEP export."""
+    if entry.get("step") == "analytic":
+        return "analytic"
+    if entry["csgBlockers"]:
+        return "no: " + ", ".join(sorted(set(entry["csgBlockers"])))
+    return "--" if "step" not in entry else "no"
 
 
 def write_readme(output, manifest):
@@ -187,18 +231,19 @@ def write_readme(output, manifest):
         "other yapCAD solid takes.",
         "",
         "| model | res | triangles | volume | exact | L | csgExact "
-        "| manifold | facets | dropped |",
-        "|---|--:|--:|--:|:-:|--:|:-:|:-:|--:|--:|",
+        "| manifold | facets | dropped | STEP |",
+        "|---|--:|--:|--:|:-:|--:|:-:|:-:|--:|--:|---|",
     ]
     for e in manifest:
         volume = e.get("volume")
         lines.append(
             f"| `{e['name']}` | {e['resolution']} | {e['triangles']:,} "
-            f"| {volume if volume is None else format(volume, '.3f')} "
+            f"| {'--' if volume is None else format(volume, '.3f')} "
             f"| {'yes' if e['exact'] else 'no'} | {e['lipschitz']:g} "
             f"| {'yes' if e['csgExact'] else 'no'} "
             f"| {'yes' if e['manifold'] else 'NO'} "
-            f"| {e.get('stlFacets', 0):,} | {e.get('stlDropped', 0)} |"
+            f"| {e.get('stlFacets', 0):,} | {e.get('stlDropped', 0)} "
+            f"| {_step_cell(e)} |"
         )
     lines += [
         "",
@@ -235,6 +280,9 @@ def main(argv=None):
                         help="skip STL export")
     parser.add_argument("--no-render", action="store_true",
                         help="skip PNG rendering")
+    parser.add_argument("--step", action="store_true",
+                        help="also write analytic STEP for models that "
+                             "replay as exact CSG (needs pythonocc-core)")
     parser.add_argument("--list", action="store_true",
                         help="list the models and exit")
     args = parser.parse_args(argv)
@@ -252,7 +300,8 @@ def main(argv=None):
     manifest = []
     for model in selected:
         entry = build(model, args.output, args.scale,
-                      not args.no_stl, not args.no_render, args.size)
+                      not args.no_stl, not args.no_render, args.size,
+                      want_step=args.step)
         manifest.append(entry)
         volume = entry.get("volume")
         shown = "(open)" if volume is None else format(volume, ".3f")

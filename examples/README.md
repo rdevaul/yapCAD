@@ -87,7 +87,9 @@ A collection of example designs for [yapCAD](../README.md)
   models, each defined purely as a field and dual-contoured into an ordinary
   yapCAD solid. Writes STL meshes and rendered PNG previews to
   `build/sdf-demo`, together with a manifest recording each model's volume,
-  Lipschitz constant, manifoldness and CSG-exactness. Doubles as a visual
+  Lipschitz constant, manifoldness and CSG-exactness; with `--step` it also
+  writes analytic STEP for every part that replays as exact CSG, and names
+  what blocks the rest. Doubles as a visual
   regression check on the SDF mesher. Run `python3 examples/sdf_demo.py
   --list` to see the models, `--help` for options. Rendering is handled by
   [sdf_preview.py](./sdf_preview.py), a dependency-free software rasterizer.
