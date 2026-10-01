@@ -5,12 +5,24 @@ Changelog
 Unreleased
 ==========
 
+- The native mesh boolean engine is rewritten (``yapcad.boolean.csg``) and
+  now returns closed, volume-correct solids: 24 of 24 benchmark cases (was
+  8) and 1,800 randomised boxes/spheres/cylinders/icosahedra cases against a
+  manifold3d reference, where the old engine left holes, dropped slivers or
+  timed out. Triangles are split by the planes of the triangles they cross,
+  fragments are classified by generalized winding number (coplanar faces by
+  orientation), each kept triangle is re-triangulated without losing a
+  vertex, and the result is welded and T-junction-repaired into a
+  conforming mesh. It is pure numpy and deterministic; a 10k-triangle sphere
+  union takes about two seconds. ``native.solid_boolean`` keeps its
+  signature; ``tol`` and ``stitch`` are accepted and ignored.
 - New ``manifold`` boolean engine (``yapcad.boolean.manifold_engine``) that
   calls manifold3d directly, without trimesh, in float64. Install it with
   ``pip install 'yapCAD[manifold]'``. When manifold3d is installed it is now
   the default mesh boolean engine, ahead of ``native``: on a 24-case
-  benchmark it returned 24 closed, correct results where ``native`` managed
-  8. ``YAPCAD_MESH_BOOLEAN_ENGINE=native`` restores the old default. An
+  benchmark it returned 24 closed, correct results where the old ``native``
+  engine managed 8, and it is faster than the rewritten one.
+  ``YAPCAD_MESH_BOOLEAN_ENGINE=native`` restores the old default. An
   operand that is not a closed 2-manifold is refused with
   ``NotManifoldError`` when the engine is named explicitly, and falls back
   to ``native`` with a warning otherwise.

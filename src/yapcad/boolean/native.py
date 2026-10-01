@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
 from yapcad.geom import *
 from yapcad.geom_util import *
 from yapcad.xform import *
@@ -1113,52 +1114,41 @@ def solids_intersect(a, b, tol=_DEFAULT_RAY_TOL):
 
 
 def solid_boolean(a, b, operation, tol=_DEFAULT_RAY_TOL, *, stitch=False):
+    """Union, intersection or difference of two mesh solids.
+
+    Implemented by :mod:`yapcad.boolean.csg` (split, classify, select,
+    repair).  ``tol`` and ``stitch`` are accepted for compatibility; the core
+    derives its tolerances from the operands' scale, and its output needs no
+    stitching.
+    """
     if operation not in {'union', 'intersection', 'difference'}:
         raise ValueError(f'unsupported solid boolean operation {operation!r}')
+    from yapcad.boolean import csg
 
-    outside_a, inside_a, overlap_a = _boolean_fragments(a, b, tol)
-    outside_b, inside_b, overlap_b = _boolean_fragments(b, a, tol)
+    V, F = csg.solid_boolean(a, b, operation)
+    record = ['boolean', operation]
+    if len(F) == 0:
+        return _geom3d().solid([], [], record)
 
-    if operation == 'union':
-        result_tris = []
-        filtered_outside_a = _filter_triangles_against_other(outside_a, b, tol)
-        filtered_outside_b = _filter_triangles_against_other(outside_b, a, tol)
-        if filtered_outside_a:
-            result_tris.extend(filtered_outside_a)
-        if filtered_outside_b:
-            result_tris.extend(filtered_outside_b)
-        boundary_a = _union_boundary_from_inside(inside_a, b, tol)
-        if boundary_a:
-            result_tris.extend(boundary_a)
-        boundary_b = _union_boundary_from_inside(inside_b, a, tol)
-        if boundary_b:
-            result_tris.extend(boundary_b)
-        filtered_overlap_a = _filter_triangles_against_other(overlap_a, b, tol)
-        filtered_overlap_b = _filter_triangles_against_other(overlap_b, a, tol)
-        if filtered_overlap_a:
-            result_tris.extend(filtered_overlap_a)
-        if filtered_overlap_b:
-            result_tris.extend(filtered_overlap_b)
-        if not result_tris:
-            result_tris = inside_a if inside_a else inside_b
-
-    elif operation == 'intersection':
-        result_tris = inside_a + inside_b
-        if not result_tris:
-            result_tris = overlap_a + overlap_b
-    else:  # difference
-        # Filter outside_a to remove triangles that are actually inside B
-        # (the clipping process may have missed these due to mesh approximation)
-        filtered_outside_a = _filter_triangles_against_other(outside_a, b, tol)
-        reversed_inside_b = [[tri[0], tri[2], tri[1]] for tri in inside_b]
-        if not reversed_inside_b and overlap_b:
-            reversed_inside_b = [[tri[0], tri[2], tri[1]] for tri in overlap_b]
-        result_tris = filtered_outside_a + reversed_inside_b
-
-    if stitch:
-        result_tris = stitch_open_edges(result_tris, tol)
-
-    surface_result = _surface_from_triangles(result_tris)
-    if surface_result:
-        return _geom3d().solid([surface_result], [], ['boolean', operation])
-    return _geom3d().solid([], [], ['boolean', operation])
+    # A flat-shaded triangle soup, like the other engines produce, so hard
+    # edges shade as edges.  No triangle is dropped: the core has already
+    # made the mesh conforming, and dropping a sliver would open it.
+    corners = V[F]
+    normal = np.cross(corners[:, 1] - corners[:, 0],
+                      corners[:, 2] - corners[:, 0])
+    length = np.linalg.norm(normal, axis=1, keepdims=True)
+    normal = np.divide(normal, length, out=np.zeros_like(normal),
+                       where=length > 0)
+    verts, norms, faces = [], [], []
+    for t in range(len(F)):
+        n = [float(normal[t, 0]), float(normal[t, 1]), float(normal[t, 2]), 0.0]
+        base = len(verts)
+        for k in range(3):
+            c = corners[t, k]
+            verts.append(point(float(c[0]), float(c[1]), float(c[2])))
+            norms.append(list(n))
+        faces.append([base, base + 1, base + 2])
+    surface_obj = ['surface', verts, norms, faces, [], []]
+    _ensure_surface_metadata_dict(surface_obj)
+    invalidate_surface_octree(surface_obj)
+    return _geom3d().solid([surface_obj], [], record)

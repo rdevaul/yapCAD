@@ -109,8 +109,12 @@ The ``manifold`` engine calls manifold3d directly (``pip install
 find hard -- shared and coincident faces, general-position overlaps -- and
 refuses an operand that is not a closed 2-manifold rather than guess; in
 automatic selection such an operand falls back to ``native`` with a
-warning. The ``native`` engine needs no dependencies but is not reliable:
-it can return open meshes, and mishandles coincident faces.
+warning. The ``native`` engine (``yapcad.boolean.csg``) needs only numpy:
+it splits triangles by the planes of the triangles they cross, classifies
+fragments by generalized winding number, and repairs the result into a
+closed, conforming mesh, including for shared and coincident faces. It is
+slower than ``manifold`` -- seconds rather than milliseconds at ten
+thousand triangles -- and is the fallback when manifold3d is absent.
 
 STEP Import/Export
 ------------------
