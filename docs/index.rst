@@ -69,7 +69,8 @@ package format enables provenance tracking and reproducible designs.
     section tools), ``yapcad.geom3d_util.helical_extrude`` (smooth helical
     extrusions), ``yapcad.geom_util.radial_pattern`` and ``linear_pattern``
     (geometry array generation for 2D/3D/solids/surfaces),
-    ``yapcad.boolean.native`` (production-ready boolean engine),
+    ``yapcad.boolean`` (mesh booleans through manifold3d when installed,
+    with a dependency-free native fallback),
     and ``yapcad.io`` for validated STL/STEP export.
 
 Contents

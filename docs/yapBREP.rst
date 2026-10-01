@@ -93,15 +93,24 @@ Solids store BREP data in metadata under ``'brep'`` key::
 Boolean Operations
 ~~~~~~~~~~~~~~~~~~
 
-Environment variables control engine selection:
+``yapcad.geom3d.solid_boolean`` chooses an engine per call. An explicit
+``engine=`` argument, or the ``YAPCAD_BOOLEAN_ENGINE`` environment variable,
+forces one of ``native``, ``trimesh``, ``occ``, ``manifold`` or ``sdf``.
+Otherwise:
 
-* ``YAPCAD_BOOLEAN_ENGINE`` - Force engine: ``native``, ``trimesh``, ``occ``
-* ``YAPCAD_MESH_BOOLEAN_ENGINE`` - Mesh fallback when OCC unavailable
+1. If both operands were authored as signed distance fields → combine the
+   fields (``yapcad.sdf.booleans``); the result stays SDF-authoritative.
+2. If both operands have BREP data and OCC is available → use OCC.
+3. Otherwise → a mesh engine: ``YAPCAD_MESH_BOOLEAN_ENGINE`` if set, else
+   ``manifold`` when manifold3d is installed, else ``native``.
 
-Auto-selection logic:
-
-1. If both operands have BREP data → use OCC
-2. Otherwise → use mesh-based engine
+The ``manifold`` engine calls manifold3d directly (``pip install
+'yapCAD[manifold]'``), in float64. It is robust on the cases mesh booleans
+find hard -- shared and coincident faces, general-position overlaps -- and
+refuses an operand that is not a closed 2-manifold rather than guess; in
+automatic selection such an operand falls back to ``native`` with a
+warning. The ``native`` engine needs no dependencies but is not reliable:
+it can return open meshes, and mishandles coincident faces.
 
 STEP Import/Export
 ------------------

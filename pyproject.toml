@@ -83,11 +83,19 @@ meshcheck = [
 brep = [
   "pythonocc-core>=7.7",
 ]
-# Everything: BREP + mesh repair. (Still expects OCC from conda in practice.)
+# Robust mesh booleans: yapcad.boolean.manifold_engine, preferred
+# automatically when installed. 3.0 is the first release with Mesh64, which
+# the engine needs to stay in float64.
+manifold = [
+  "manifold3d>=3.0",
+]
+# Everything: BREP + mesh repair + robust mesh booleans. (Still expects OCC
+# from conda in practice.)
 full = [
   "pythonocc-core>=7.7",
   "trimesh>=4.0",
   "pymeshfix>=0.16",
+  "manifold3d>=3.0",
 ]
 [project.urls]
 "Homepage" = "https://github.com/rdevaul/yapCAD/"

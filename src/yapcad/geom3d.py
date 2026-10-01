@@ -532,12 +532,16 @@ def solid_boolean(a, b, operation, tol=_DEFAULT_RAY_TOL, *, stitch=False, engine
     - Otherwise, auto-selects OCC BREP engine when available and both solids
       have BREP metadata, falling back to mesh engine on failure or when
       BREP data is missing.
-    - Fallback mesh engine is selectable via ``YAPCAD_MESH_BOOLEAN_ENGINE``
-      env var (defaults to 'native').
+    - Fallback mesh engine is selectable via ``YAPCAD_MESH_BOOLEAN_ENGINE``.
+      Unset, it is manifold3d when installed (robust, and float64 via
+      ``Mesh64``), else 'native'.  If manifold3d refuses an operand as not a
+      closed 2-manifold, the native engine is tried, with a warning.
 
     Environment variables:
-    - ``YAPCAD_BOOLEAN_ENGINE``: Force specific engine ('native', 'trimesh', 'occ')
-    - ``YAPCAD_MESH_BOOLEAN_ENGINE``: Fallback mesh engine ('native' or 'trimesh')
+    - ``YAPCAD_BOOLEAN_ENGINE``: Force specific engine ('native', 'trimesh',
+      'occ', 'manifold', 'sdf')
+    - ``YAPCAD_MESH_BOOLEAN_ENGINE``: Fallback mesh engine ('native',
+      'trimesh' or 'manifold')
     - ``YAPCAD_TRIMESH_BACKEND``: Backend for trimesh engine (e.g., 'manifold', 'blender')
     """
     # Lazy import to avoid circular dependency (geom3d -> brep -> metadata -> geom3d)
@@ -563,9 +567,20 @@ def solid_boolean(a, b, operation, tol=_DEFAULT_RAY_TOL, *, stitch=False, engine
         except Exception:
             pass  # Fall through to mesh engine
 
-    # Fallback to mesh engine (selectable via env var, defaults to native)
-    mesh_engine = os.environ.get('YAPCAD_MESH_BOOLEAN_ENGINE', 'native')
-    return _dispatch_boolean_engine(mesh_engine, a, b, operation, tol, stitch)
+    # Fallback to a mesh engine: the env var if set, else manifold3d when it
+    # is installed, else native.
+    mesh_engine = os.environ.get('YAPCAD_MESH_BOOLEAN_ENGINE')
+    if mesh_engine:
+        return _dispatch_boolean_engine(mesh_engine, a, b, operation, tol, stitch)
+    from yapcad.boolean import manifold_engine
+    if manifold_engine.is_available():
+        try:
+            return manifold_engine.solid_boolean(a, b, operation)
+        except manifold_engine.NotManifoldError as exc:
+            import warnings
+            warnings.warn(f"{exc}; falling back to the native mesh engine",
+                          RuntimeWarning, stacklevel=2)
+    return _dispatch_boolean_engine('native', a, b, operation, tol, stitch)
 
 
 def _dispatch_boolean_engine(engine_spec, a, b, operation, tol, stitch):
@@ -585,6 +600,9 @@ def _dispatch_boolean_engine(engine_spec, a, b, operation, tol, stitch):
     if selected == 'occ':
         from yapcad.boolean import occ_engine
         return occ_engine.solid_boolean(a, b, operation)
+    if selected == 'manifold':
+        from yapcad.boolean import manifold_engine
+        return manifold_engine.solid_boolean(a, b, operation)
     if selected == 'sdf':
         from yapcad.sdf.booleans import combine_solids
         return combine_solids(a, b, operation)
