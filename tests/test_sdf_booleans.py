@@ -109,14 +109,17 @@ class TestRouting:
 
     def test_mixed_operands_still_go_to_the_existing_engines(self,
                                                              monkeypatch):
-        """One field and one mesh is the rest of Phase 4, not this."""
-        import yapcad.boolean.native as native
-        monkeypatch.setattr(native, "solid_boolean",
-                            lambda *a, **k: "native-was-used")
+        """One field and one mesh is the rest of Phase 4, not this: the
+        result comes from a mesh engine (manifold3d when installed, else
+        native) and is not SDF-authoritative."""
+        import yapcad.sdf.booleans as field
+        monkeypatch.setattr(field, "combine_all", lambda *a, **k: (
+            pytest.fail("a mixed pair reached the field path")))
         cube = prism(4.0, 4.0, 4.0)
         from yapcad.brep import _clear_brep_data
         _clear_brep_data(cube)
-        assert solid_boolean(mesh(A), cube, "union") == "native-was-used"
+        result = solid_boolean(mesh(A), cube, "union")
+        assert get_construction(result)[0] == "boolean"
 
     def test_an_unknown_operation_is_refused(self):
         with pytest.raises(ValueError, match="unsupported boolean"):
@@ -313,9 +316,10 @@ class TestDslBooleans:
         assert volumeof(result) == pytest.approx(254.0 * math.pi, rel=5e-3)
 
     def test_mixed_operands_keep_the_pairwise_path(self, monkeypatch):
-        import yapcad.boolean.native as native
+        """Pairwise through solid_boolean, whichever mesh engine it picks."""
+        import yapcad.geom3d as geom3d
         seen = []
-        monkeypatch.setattr(native, "solid_boolean",
+        monkeypatch.setattr(geom3d, "solid_boolean",
                             lambda a, b, op, **k: seen.append(op) or a)
         cube = prism(4.0, 4.0, 4.0)
         from yapcad.brep import _clear_brep_data

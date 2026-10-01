@@ -5,6 +5,16 @@ Changelog
 Unreleased
 ==========
 
+- New ``manifold`` boolean engine (``yapcad.boolean.manifold_engine``) that
+  calls manifold3d directly, without trimesh, in float64. Install it with
+  ``pip install 'yapCAD[manifold]'``. When manifold3d is installed it is now
+  the default mesh boolean engine, ahead of ``native``: on a 24-case
+  benchmark it returned 24 closed, correct results where ``native`` managed
+  8. ``YAPCAD_MESH_BOOLEAN_ENGINE=native`` restores the old default. An
+  operand that is not a closed 2-manifold is refused with
+  ``NotManifoldError`` when the engine is named explicitly, and falls back
+  to ``native`` with a warning otherwise.
+
 - Booleans between two SDF-authored solids now combine their fields instead
   of their meshes: ``geom3d.solid_boolean`` -- and so the DSL's ``union``,
   ``difference`` and ``intersection`` -- returns an exact, closed,
