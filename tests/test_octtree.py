@@ -392,3 +392,53 @@ class TestOctree:
             assert l in sublist
         
   
+
+
+class TestBoxOverlap:
+    """boxoverlap2 is an inclusive axis-aligned interval test.
+
+    It used to reach the same answers through a projected edge-crossing
+    test whose early rejection required separation on *every* axis, so it
+    almost never fired; comparing boxes was then ~97% of the native mesh
+    boolean engine's runtime.  These pin the semantics the rewrite keeps.
+    """
+
+    @staticmethod
+    def box(lo, hi):
+        return [point(*lo), point(*hi)]
+
+    def test_separated_on_a_single_axis_is_disjoint(self):
+        # The case the old early-out missed: apart in x only.
+        a = self.box((0, 0, 0), (1, 1, 1))
+        b = self.box((2, 0, 0), (3, 1, 1))
+        assert not boxoverlap2(a, b)
+        assert not boxoverlap2(b, a)
+
+    def test_overlap_requires_every_axis(self):
+        a = self.box((0, 0, 0), (1, 1, 1))
+        assert boxoverlap2(a, self.box((0.5, 0.5, 0.5), (2, 2, 2)))
+        assert not boxoverlap2(a, self.box((0.5, 0.5, 1.5), (2, 2, 2)))
+
+    def test_touching_counts_as_overlap(self):
+        a = self.box((0, 0, 0), (1, 1, 1))
+        assert boxoverlap2(a, self.box((1, 0, 0), (2, 1, 1)))    # face
+        assert boxoverlap2(a, self.box((1, 1, 0), (2, 2, 1)))    # edge
+        assert boxoverlap2(a, self.box((1, 1, 1), (2, 2, 2)))    # corner
+
+    def test_containment_counts_as_overlap(self):
+        outer = self.box((0, 0, 0), (4, 4, 4))
+        inner = self.box((1, 1, 1), (2, 2, 2))
+        assert boxoverlap2(outer, inner)
+        assert boxoverlap2(inner, outer)
+
+    def test_a_zero_thickness_box_overlaps_what_it_touches(self):
+        # The bounds of an axis-aligned triangle are flat in one axis.
+        flat = self.box((0, 0, 0.5), (1, 1, 0.5))
+        assert boxoverlap2(flat, self.box((0, 0, 0), (1, 1, 1)))
+        assert not boxoverlap2(flat, self.box((0, 0, 0.6), (1, 1, 1)))
+
+    def test_two_dimensional_mode_ignores_z(self):
+        a = self.box((0, 0, 0), (1, 1, 1))
+        b = self.box((0.5, 0.5, 5), (2, 2, 6))
+        assert not boxoverlap2(a, b, dim3=True)
+        assert boxoverlap2(a, b, dim3=False)

@@ -97,8 +97,16 @@ def _candidate_planes_for_triangle(tri, target, tri_plane, tol):
                     candidates.append(elem[0])
                 else:
                     candidates.append(elem)
+            # No candidate means no target triangle's box even overlaps this
+            # one, so the surface cannot cross it and there is nothing to
+            # clip against.  (The query is a superset of the overlapping
+            # triangles.)  Falling back to every triangle of the surface --
+            # as this used to -- clipped against every target plane: O(n)
+            # polygon clips per far-away triangle, and wrong, because the
+            # intersection of all those half-spaces is the target's convex
+            # hull, not the target.
             if not candidates:
-                candidates = list(_iter_triangles_from_surface(surf))
+                continue
         meta = _ensure_surface_metadata_dict(surf)
         orientation = meta.get('_surface_orientation')
         if orientation is None:
@@ -1050,8 +1058,8 @@ def solid_contains_point(sld, p, tol=_DEFAULT_RAY_TOL):
                         candidates.append(elem[0])
                     else:
                         candidates.append(elem)
-                if not candidates:
-                    candidates = list(_iter_triangles_from_surface(surf))
+                # A ray whose box overlaps no triangle hits none; there is no
+                # need to test the whole surface to learn that.
             for tri in candidates:
                 result = _ray_triangle_intersection(p, direction, tri, tol=tol)
                 if result is None:
