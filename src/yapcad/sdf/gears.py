@@ -103,10 +103,9 @@ def straight_bevel_gear(spec, flank_samples=DEFAULT_FLANK_SAMPLES):
     a tooth centred on +x.
     """
     from yapcad.gears.bevel import derive_straight_bevel_geometry
-    try:
-        derive_straight_bevel_geometry(spec)
-    except (TypeError, ValueError, NotImplementedError) as exc:
-        raise SdfError(f"straight_bevel_gear: {exc}") from None
+    # Validated by the BREP generator's own rules, raising its own errors:
+    # an invalid gear fails the same way with or without OCC.
+    derive_straight_bevel_geometry(spec)
     samples = int(flank_samples)
     if samples < 3:
         raise SdfError("straight_bevel_gear: flank_samples must be >= 3")

@@ -168,10 +168,10 @@ def test_the_yaprover_miter_gear_meshes_closed_to_its_volume():
         analytic_volume(MITER, sdf_gears.DEFAULT_FLANK_SAMPLES), rel=1e-3)
 
 
-def test_an_invalid_spec_is_an_sdf_error():
+def test_an_invalid_spec_fails_as_the_brep_generator_does():
     bad = StraightBevelGearSpec(teeth=4, mate_teeth=24, outer_module_mm=1.5,
                                 face_width_mm=8.0)
-    with pytest.raises(sdf.SdfError, match="teeth"):
+    with pytest.raises(ValueError, match="teeth"):
         sdf.straight_bevel_gear(bad)
 
 
