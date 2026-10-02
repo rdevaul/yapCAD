@@ -15,6 +15,7 @@ import numpy as np
 import pytest
 
 from yapcad import sdf
+from yapcad.gears.bevel import StraightBevelGearSpec
 from yapcad.geom3d import signedFaceDistance
 from yapcad.geom3d_util import prism
 
@@ -57,6 +58,18 @@ SAMPLES = {
     "offset": sdf.offset(sdf.box(8.0), 1.25),
     "shell": sdf.shell(sdf.sphere(6.0), 1.0),
     "transform": sdf.rotate(sdf.box((8.0, 4.0, 2.0)), (0, 0, 1), 30.0),
+    "polygon": sdf.polygon([(-4.0, -3.0), (5.0, -2.0), (1.0, 6.0)]),
+    "extrude": sdf.extrude(
+        sdf.polygon([(math.cos(k * math.pi / 3) * 5.0,
+                      math.sin(k * math.pi / 3) * 5.0) for k in range(6)],
+                    symmetry=6), 4.0),
+    "apex_extrude": sdf.apex_extrude(
+        sdf.polygon([(-4.0, -4.0), (4.0, -4.0), (4.0, 4.0), (-4.0, 4.0)]),
+        10.0, 6.0, 10.0),
+    "straight_bevel_gear": sdf.straight_bevel_gear(
+        StraightBevelGearSpec(teeth=12, mate_teeth=12, outer_module_mm=1.0,
+                              face_width_mm=3.0, bore_diameter_mm=2.0),
+        flank_samples=5),
 }
 
 
