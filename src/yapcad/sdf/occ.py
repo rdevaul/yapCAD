@@ -57,6 +57,8 @@ try:  # pragma: no cover - exercised only where OCC is installed
     )
     from OCC.Core.BRepBndLib import brepbndlib
     from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
+    from OCC.Core.BRep import BRep_Builder
+    from OCC.Core.BRepAdaptor import BRepAdaptor_Curve
     from OCC.Core.BRepCheck import BRepCheck_Analyzer
     from OCC.Core.BRepFilletAPI import BRepFilletAPI_MakeFillet
     from OCC.Core.BRepGProp import brepgprop
@@ -70,8 +72,10 @@ try:  # pragma: no cover - exercised only where OCC is installed
     from OCC.Core.Bnd import Bnd_Box
     from OCC.Core.GProp import GProp_GProps
     from OCC.Core.TopAbs import TopAbs_EDGE
-    from OCC.Core.TopExp import TopExp_Explorer
-    from OCC.Core.TopoDS import topods
+    from OCC.Core.TopExp import TopExp_Explorer, topexp
+    from OCC.Core.TopTools import TopTools_IndexedMapOfShape
+    from OCC.Core.GeomAbs import GeomAbs_Circle
+    from OCC.Core.TopoDS import TopoDS_Compound, topods
     from OCC.Core.gp import gp_Ax2, gp_Dir, gp_Pnt, gp_Trsf
     _OCC_ERROR = None
 except ImportError as exc:  # pragma: no cover
@@ -244,6 +248,36 @@ def _occ_cylinder(params, _children, _build, _region):
     return BRepPrimAPI_MakeCylinder(axis, params["radius"], h).Shape()
 
 
+def _occ_rounded_cylinder(params, children, build, region):
+    shape = _occ_cylinder(params, children, build, region)
+    radius = params["edge_radius"]
+    fillet = BRepFilletAPI_MakeFillet(shape)
+    edges = TopTools_IndexedMapOfShape()
+    topexp.MapShapes(shape, TopAbs_EDGE, edges)
+    count = 0
+    for k in range(1, edges.Size() + 1):
+        edge = topods.Edge(edges.FindKey(k))
+        # The two cap circles; the seam line is not an edge of the part.
+        if BRepAdaptor_Curve(edge).GetType() == GeomAbs_Circle:
+            fillet.Add(radius, edge)
+            count += 1
+    fillet.Build()
+    if count != 2 or not fillet.IsDone():
+        raise SdfError(
+            f"OCC could not fillet a rounded_cylinder of edge radius {radius}"
+        )
+    return fillet.Shape()
+
+
+def _occ_compound(_params, children, build, region):
+    shape = TopoDS_Compound()
+    builder = BRep_Builder()
+    builder.MakeCompound(shape)
+    for child in children:
+        builder.Add(shape, build(child, region))
+    return shape
+
+
 def _occ_cone(params, _children, _build, _region):
     h = params["height"]
     r1 = params["radius_bottom"]
@@ -342,6 +376,8 @@ _BACKENDS = {
     "sphere": _occ_sphere,
     "box": _occ_box,
     "rounded_box": _occ_rounded_box,
+    "rounded_cylinder": _occ_rounded_cylinder,
+    "compound": _occ_compound,
     "cylinder": _occ_cylinder,
     "cone": _occ_cone,
     "torus": _occ_torus,
