@@ -5,6 +5,18 @@ Changelog
 Unreleased
 ==========
 
+- Straight bevel and miter gears build without OCC. The new
+  ``straight_bevel_gear`` field stores the gear spec and evaluates as the
+  BREP generator's own construction, the outer tooth section carried to
+  the pitch apex; it still replays to that generator's exact BREP. The DSL's
+  ``miter_gear`` and ``straight_bevel_gear`` use it when OCC is absent, and
+  ``gears.make_straight_bevel_gear_sdf`` exposes it directly. New planar
+  field kinds back it: ``polygon`` (exact, with a symmetry fold),
+  ``extrude`` and ``apex_extrude``.
+- ``metric_hex_nut`` and ``unified_hex_nut`` take ``representation="sdf"``
+  for a closed, SDF-authoritative nut with a helical ``thread`` field whose
+  profile is ``threadgen``'s own. The swept mesh, which is not closed,
+  remains the default.
 - The native mesh boolean engine is rewritten (``yapcad.boolean.csg``) and
   now returns closed, volume-correct solids: 24 of 24 benchmark cases (was
   8) and 1,800 randomised boxes/spheres/cylinders/icosahedra cases against a

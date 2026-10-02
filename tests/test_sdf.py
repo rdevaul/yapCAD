@@ -16,6 +16,7 @@ import pytest
 
 from yapcad import sdf
 from yapcad.gears.bevel import StraightBevelGearSpec
+from yapcad.threadgen import ThreadProfile
 from yapcad.geom3d import signedFaceDistance
 from yapcad.geom3d_util import prism
 
@@ -70,6 +71,12 @@ SAMPLES = {
         StraightBevelGearSpec(teeth=12, mate_teeth=12, outer_module_mm=1.0,
                               face_width_mm=3.0, bore_diameter_mm=2.0),
         flank_samples=5),
+    "thread": sdf.thread([(0.0, 4.0), (0.1, 4.0), (0.55, 3.3), (0.7, 3.3),
+                          (1.15, 4.0), (1.25, 4.0)], 1.25),
+    "hex_nut": sdf.hex_nut(
+        ThreadProfile(D_nominal=8.0, P_pitch=1.25, crest_flat_ratio=0.125,
+                      root_flat_ratio=0.125, thread_depth_ratio=0.57,
+                      internal=True), 13.0, 6.8),
 }
 
 
