@@ -151,6 +151,7 @@ def metric_hex_nut(
     thread_arc_samples: int = 180,
     thread_samples_per_pitch: int = 6,
     catalog_path: Optional[Path] = None,
+    representation: str = "mesh",
 ):
     """Create a metric hex nut per ISO 4032.
 
@@ -163,6 +164,9 @@ def metric_hex_nut(
         thread_arc_samples: Angular resolution for thread generation
         thread_samples_per_pitch: Samples per pitch for thread profile
         catalog_path: Optional path to custom catalog YAML file
+        representation: ``"mesh"`` (default) for the swept thread mesh,
+            or ``"sdf"`` for an SDF-authored nut: a closed mesh of an
+            exact-dimension field that combines in field booleans
 
     Returns:
         yapCAD solid representing the hex nut
@@ -185,6 +189,7 @@ def metric_hex_nut(
         thread_arc_samples=thread_arc_samples,
         thread_samples_per_pitch=thread_samples_per_pitch,
         catalog_path=catalog_path,
+        representation=representation,
     )
 
 
@@ -250,6 +255,7 @@ def unified_hex_nut(
     thread_arc_samples: int = 180,
     thread_samples_per_pitch: int = 6,
     catalog_path: Optional[Path] = None,
+    representation: str = "mesh",
 ):
     """Create a unified (UNC/UNF) hex nut per ASME B18.2.2.
 
@@ -262,6 +268,9 @@ def unified_hex_nut(
         thread_arc_samples: Angular resolution for thread generation
         thread_samples_per_pitch: Samples per pitch for thread profile
         catalog_path: Optional path to custom catalog YAML file
+        representation: ``"mesh"`` (default) for the swept thread mesh,
+            or ``"sdf"`` for an SDF-authored nut: a closed mesh of an
+            exact-dimension field that combines in field booleans
 
     Returns:
         yapCAD solid representing the hex nut
@@ -284,4 +293,5 @@ def unified_hex_nut(
         thread_arc_samples=thread_arc_samples,
         thread_samples_per_pitch=thread_samples_per_pitch,
         catalog_path=catalog_path,
+        representation=representation,
     )

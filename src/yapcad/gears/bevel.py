@@ -347,6 +347,40 @@ def make_straight_bevel_gear(
     return result
 
 
+def make_straight_bevel_gear_sdf(
+    spec: StraightBevelGearSpec,
+    *,
+    flank_samples: int | None = None,
+    cell_mm: float | None = None,
+):
+    """Generate a straight bevel gear as an SDF-authored solid; no OCC needed.
+
+    The field (:func:`yapcad.sdf.straight_bevel_gear`) is the same
+    construction as :func:`make_straight_bevel_gear`'s ruled loft, and the
+    solid it meshes to carries it, so the gear combines in field booleans
+    and -- with OCC installed -- still replays to that generator's exact
+    BREP.  ``cell_mm`` defaults to a fraction of the top land at the small
+    end, the gear's thinnest feature, which dual contouring must resolve.
+    """
+    from yapcad.sdf import gears as sdf_gears
+    from yapcad.sdf.convert import to_solid
+
+    samples = flank_samples or sdf_gears.DEFAULT_FLANK_SAMPLES
+    node = sdf_gears.straight_bevel_gear(spec, flank_samples=samples)
+    cell = cell_mm or sdf_gears.tip_land(spec, samples) / 2.5
+    lo, hi = node.bounds
+    longest = max(hi[i] - lo[i] for i in range(3))
+    return to_solid(node, resolution=max(16, math.ceil(longest / cell)),
+                    metadata={"gear": {
+                        "kind": "straight_bevel",
+                        "generation_type": spec.generation_type,
+                        "teeth": spec.teeth,
+                        "mate_teeth": spec.mate_teeth,
+                        "outer_module_mm": spec.outer_module_mm,
+                        "shaft_angle_deg": spec.shaft_angle_deg,
+                    }})
+
+
 def make_straight_bevel_pair(
     spec: StraightBevelGearSpec,
     *,

@@ -1891,9 +1891,11 @@ class BuiltinRegistry:
                 raise RuntimeError(
                     f"unknown straight bevel gear generation type '{mode}'"
                 )
+            from yapcad.brep import occ_available
             from yapcad.gears.bevel import (
                 StraightBevelGearSpec,
                 make_straight_bevel_gear,
+                make_straight_bevel_gear_sdf,
             )
             spec = StraightBevelGearSpec(
                 teeth=int(teeth.data),
@@ -1906,6 +1908,10 @@ class BuiltinRegistry:
                 bore_diameter_mm=float(bore_diameter_mm.data),
                 generation_type=mode,
             )
+            if not occ_available():
+                # The same gear as a field: no OCC needed, and it stays
+                # SDF-authoritative, so later field booleans keep it exact.
+                return solid_val(make_straight_bevel_gear_sdf(spec))
             return solid_val(make_straight_bevel_gear(spec))
 
         self.register(BuiltinFunction(

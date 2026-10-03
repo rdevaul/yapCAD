@@ -351,7 +351,7 @@ lines and should not absorb them.
 | **1** ✅ | `yapcad/sdf/`: node DAG, numpy evaluator, Lipschitz tracking, primitives, hard CSG | Validated against `geom3d.signedFaceDistance` (`geom3d.py:254`) and analytic distances |
 | **2** ✅ | Dual contouring → ordinary yapCAD solids with `authoritative: "sdf"` | The entire existing downstream works on SDF parts |
 | **3** ✅ | CSG-exactness classifier + OCC tree replay | STEP export for the common case |
-| **4** (in progress: §10.4–10.5) | BREP/mesh → SDF promotion via OCC distance queries + cached grid | Mixed-authority booleans |
+| **4** (in progress: §10.4, §10.6) | BREP/mesh → SDF promotion via OCC distance queries + cached grid | Mixed-authority booleans |
 | **5** | GLSL/WGSL emitter + browser sphere tracing | Real-time preview |
 | **6** | Lattices, variable-thickness shells, distance-field fillets, topology-optimisation import | The features that justify the effort |
 
@@ -641,6 +641,55 @@ children. Mixed operands keep the pairwise path unchanged.
 intersection returns `['solid', [], [], ['sdf', tree]]`, which yapCAD
 already allows for empty CSG results and which serialises and reads back.
 
+### 10.6 Gears and threaded fasteners
+
+The last OCC dependency in yapRover's release design is its differential's
+`miter_gear`, built as an OCC ruled loft. Gears and fasteners are, at
+heart, a 2D outline carried through space, so three planar kinds carry
+most of the weight:
+
+- **`polygon`** — the exact signed distance to a closed 2D polygon,
+  constant along z. An `n`-fold symmetric polygon (a gear) rotates each
+  point into one sector and tests only the segments within reach of it,
+  which is exact and about `n/3` times cheaper. The sign comes from a ray
+  cast radially outward, so it stays inside the sector, with a half-open
+  straddle rule so that a ray through a vertex counts once.
+- **`extrude`** — exact extrusion of a planar child about z = 0.
+- **`apex_extrude`** — the cone through the origin over a profile given at
+  `z_ref`, clipped between two planes: every section is the profile scaled
+  by `z / z_ref`. Not exact, with a conservative Lipschitz bound.
+
+On these sit *semantic* nodes, whose parameters are the part's
+specification rather than its geometry, so trees stay a few hundred bytes
+and re-evaluate from the same numbers the BREP generators use:
+
+- **`straight_bevel_gear`** — the outer tooth section (an exact polygon,
+  17 samples per flank) carried to the pitch apex between the inner and
+  outer planes, minus the bore. That is the BREP generator's own
+  construction, since its two loft sections are the same outline scaled
+  toward the apex. It replays through OCC by calling that generator, so it
+  is `csg_exact`: the field and BREP differ only between flank samples,
+  straight segments against an interpolating spline, by under 5 µm.
+  `make_straight_bevel_gear_sdf` meshes it at a cell set by the top land at
+  the small end; the DSL's `miter_gear` and `straight_bevel_gear` use it
+  when OCC is absent.
+- **`thread`** — a helical thread about z: the distance in
+  `(u, r)`, `u = z − hand·lead·θ/2π` folded by the pitch, to the profile
+  `r = R(u)` over three periods. The helical map stretches space by
+  `sqrt(1 + (lead/2πr)²)`, 1.002 at an M8 minor radius, so the field is
+  very nearly exact on the flanks. That stretch is unbounded at the axis,
+  so inside half the minor radius the angular dependence is blended out.
+  The profile comes from `threadgen._radius_at` itself, so the field nut
+  is the same part as the mesh nut.
+- **`hex_nut`** — a hexagonal prism less an internal `thread`, placed as
+  `fasteners_legacy.build_hex_nut` places it. `metric_hex_nut(...,
+  representation="sdf")` (and the unified equivalent) meshes it closed,
+  where the swept-mesh nut is not; the mesh nut stays the default.
+
+Not yet done: external threads and bolts, spur, helical and herringbone
+gears (polygon plus a `twist` domain operator), and a DSL switch to author
+fasteners as fields. The investigation behind this section measured those
+too; they mesh closed within 0.1% of reference.
 ### 10.5 Fillets and compounds
 
 Building the yapRover release design without OCC (field primitives in
