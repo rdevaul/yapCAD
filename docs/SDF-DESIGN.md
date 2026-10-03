@@ -361,10 +361,10 @@ quarter of their thinnest extent. Other primitives — extrusions of regions,
 sweeps, lofts — still produce meshes, which booleans then combine through
 the mesh engine.
 
-The switch reproduces the mesh primitives' geometry, including one
-oddity: the DSL's `sphere(radius)` passes its argument to
-`geom3d_util.sphere`, which takes a diameter, so both representations make
-a sphere of half the documented radius.
+Building this switch turned up a long-standing bug: the DSL's
+`sphere(radius)` passed its argument to `geom3d_util.sphere`, which takes a
+diameter, so every DSL sphere was half its documented size. It now honours
+the radius in both representations.
 
 ## 10. Phased plan
 

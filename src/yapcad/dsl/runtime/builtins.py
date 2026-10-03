@@ -1541,17 +1541,16 @@ class BuiltinRegistry:
             return solid_val(conic(r, r, h))
 
         def _sphere(radius: Value) -> Value:
-            """Create a sphere solid."""
+            """Create a sphere solid of the given radius, centred on the
+            origin."""
             from yapcad.dsl.runtime import representation
             if representation.is_sdf():
                 from yapcad import sdf
-                # geom3d_util.sphere takes a diameter, so the mesh sphere has
-                # radius radius/2; the field reproduces that exactly, so that
-                # switching representation never changes a part's size.
                 return solid_val(representation.mesh_field(
-                    sdf.sphere(radius.data / 2.0)))
+                    sdf.sphere(radius.data)))
             from yapcad.geom3d_util import sphere
-            return solid_val(sphere(radius.data))
+            # geom3d_util.sphere takes a diameter.
+            return solid_val(sphere(2.0 * radius.data))
 
         def _oblate_spheroid(equatorial_diameter: Value, oblateness: Value) -> Value:
             """Create an oblate spheroid (flattened sphere).

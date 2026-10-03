@@ -38,8 +38,7 @@ PRIMITIVES = [
     ("cylinder(3.0, 5.0)", math.pi * 9 * 5),
     ("cone(3.0, 1.0, 6.0)", math.pi * 6 / 3 * (9 + 3 + 1)),
     ("tube(6.0, 1.0, 4.0)", math.pi * (9 - 4) * 4),
-    # sphere() passes its argument to geom3d_util.sphere as a diameter.
-    ("sphere(6.0)", 4 / 3 * math.pi * 27),
+    ("sphere(3.0)", 4 / 3 * math.pi * 27),
     ("spherical_shell(8.0, 1.0)", 4 / 3 * math.pi * (64 - 27)),
 ]
 

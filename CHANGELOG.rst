@@ -5,6 +5,12 @@ Changelog
 Unreleased
 ==========
 
+- Fix the DSL's ``sphere(radius)`` making a sphere of half the documented
+  radius: it passed its argument to ``geom3d_util.sphere``, which takes a
+  diameter. **Designs that call ``sphere`` in the DSL now get spheres twice
+  the size they did**; halve the argument to keep the old geometry. No DSL
+  source in this repository or in yapRover calls it. The Python API's
+  ``geom3d_util.sphere`` is unchanged and still takes a diameter.
 - DSL designs can be built as SDF fields: ``compile_and_run`` and
   ``package_from_dsl`` take ``representation="sdf"`` (also
   ``yapcad.dsl run --representation sdf`` and
