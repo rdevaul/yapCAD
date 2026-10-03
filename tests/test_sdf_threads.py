@@ -128,3 +128,79 @@ def test_thread_validation():
         sdf.thread(good, M8_THREAD.P_pitch, hand="up")
     with pytest.raises(sdf.SdfError, match="wider"):
         sdf.hex_nut(M8_THREAD, 7.0, T)
+
+
+# ---------------------------------------------------------------------------
+# hex bolt
+# ---------------------------------------------------------------------------
+
+
+def bolt_node(length=20.0):
+    from yapcad.fasteners.catalog import get_bolt_data
+    data = get_bolt_data("metric_coarse", "M8", "6g")
+    spec = _make_profile_from_catalog(data["thread"], internal=False)
+    head = data["head"]
+    node = sdf.hex_bolt(spec, 14.0, length, head["head_height"],
+                        head["width_across_flats"],
+                        washer_thickness=head.get("washer_face_thickness",
+                                                  0.5),
+                        washer_diameter=head.get("washer_face_diameter"))
+    return node, spec
+
+
+def in_bolt(q, node, spec):
+    p = node.p
+    prof = np.array(sdf.thread_profile(spec))
+    r = np.hypot(q[:, 0], q[:, 1])
+    theta = np.arctan2(q[:, 1], q[:, 0])
+    z = q[:, 2]
+    u = np.mod(z - spec.P_pitch * theta / (2 * math.pi), spec.P_pitch)
+    lt, ls = p["thread_length"], p["shank_length"]
+    top = ls + p["washer_thickness"]
+    flats = np.max([q[:, 0] * math.cos(k * math.pi / 3)
+                    + q[:, 1] * math.sin(k * math.pi / 3)
+                    for k in range(6)], axis=0)
+    threaded = (z >= 0) & (z <= lt) & \
+        (r < np.interp(u, prof[:, 0], prof[:, 1]))
+    shank = (z > lt) & (z <= ls) & (r < p["shank_diameter"] / 2)
+    washer = (z > ls) & (z <= top) & (r < p["washer_diameter"] / 2)
+    head = (z > top) & (z <= top + p["head_height"]) & \
+        (flats <= p["head_flat"] / 2)
+    return threaded | shank | washer | head
+
+
+def test_bolt_field_classifies_every_point_correctly():
+    node, spec = bolt_node()
+    lo, hi = node.bounds
+    q = np.random.default_rng(7).uniform(lo, hi, (100000, 3))
+    assert np.array_equal(sdf.evaluate(node, q) < 0, in_bolt(q, node, spec))
+
+
+def test_sdf_bolt_is_closed_with_the_analytic_volume():
+    from yapcad.fasteners import metric_hex_bolt
+    from yapcad.construction import get_construction
+    _, spec = bolt_node()
+    bolt = metric_hex_bolt("M8", 20.0, thread_length=14.0,
+                           representation="sdf")
+    assert issolidclosed(bolt)
+    node = sdf.from_construction(get_construction(bolt))
+    assert node.kind == "hex_bolt"
+    p = node.p
+    prof = np.array(sdf.thread_profile(spec))
+    u = np.linspace(0, spec.P_pitch, 200001)
+    thread = math.pi * np.mean(np.interp(u, prof[:, 0], prof[:, 1]) ** 2) \
+        * p["thread_length"]
+    shank = math.pi * (p["shank_diameter"] / 2) ** 2 * \
+        (p["shank_length"] - p["thread_length"])
+    washer = math.pi * (p["washer_diameter"] / 2) ** 2 * p["washer_thickness"]
+    head = 2 * math.sqrt(3) * (p["head_flat"] / 2) ** 2 * p["head_height"]
+    assert volumeof(bolt) == pytest.approx(thread + shank + washer + head,
+                                           rel=2e-3)
+
+
+def test_bolt_validation():
+    _, spec = bolt_node()
+    with pytest.raises(sdf.SdfError, match="longer"):
+        sdf.hex_bolt(spec, 30.0, 20.0, 5.3, 13.0)
+    with pytest.raises(sdf.SdfError, match="positive"):
+        sdf.hex_bolt(spec, 10.0, 20.0, 0.0, 13.0)

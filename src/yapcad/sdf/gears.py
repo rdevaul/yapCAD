@@ -1,5 +1,10 @@
 """Gears as fields.
 
+``spur_gear`` covers spur, helical and herringbone gears: the involute
+profile :mod:`yapcad.contrib.figgear` generates -- with the same parameters
+the DSL builtins pass it -- as an exact symmetric polygon, extruded from
+``z = 0`` to the face width, and twisted for a helix.
+
 A ``straight_bevel_gear`` node stores the gear's specification -- a dozen
 numbers -- rather than its tooth outline, so the tree stays a few hundred
 bytes and re-evaluates from the same spec :mod:`yapcad.gears.bevel` builds
@@ -23,10 +28,10 @@ from functools import lru_cache
 from yapcad.sdf.node import FieldProps, NodeSpec, SdfError, analyze, \
     make_node, register, register_backend
 from yapcad.sdf.ops import subtract, translate
-from yapcad.sdf.planar import apex_extrude, polygon
+from yapcad.sdf.planar import apex_extrude, extrude, polygon, twist
 from yapcad.sdf.primitives import cylinder
 
-__all__ = ["straight_bevel_gear", "DEFAULT_FLANK_SAMPLES"]
+__all__ = ["straight_bevel_gear", "spur_gear", "DEFAULT_FLANK_SAMPLES"]
 
 #: Samples per tooth flank in the field's polygon.
 DEFAULT_FLANK_SAMPLES = 17
@@ -126,3 +131,81 @@ def tip_land(spec, flank_samples=DEFAULT_FLANK_SAMPLES):
     inner = tooth_section_points(spec, geometry, cone_distance="inner",
                                  flank_samples=flank_samples)
     return math.dist(inner[flank_samples - 1][:2], inner[flank_samples][:2])
+
+
+# ---------------------------------------------------------------------------
+# spur, helical and herringbone gears
+# ---------------------------------------------------------------------------
+
+
+@lru_cache(maxsize=32)
+def _spur_tree(items):
+    from yapcad.contrib.figgear import make_gear_figure
+    p = dict(items)
+    options = {"bottom_type": "spline"}
+    if p["involute_step"] is not None:
+        options["involute_step"] = p["involute_step"]
+    if p["spline_division_num"] is not None:
+        options["spline_division_num"] = p["spline_division_num"]
+    points, _ = make_gear_figure(m=p["module_mm"], z=p["teeth"],
+                                 alpha_deg=p["pressure_angle_deg"],
+                                 **options)
+    profile = polygon(points, symmetry=p["teeth"])
+    width = p["face_width_mm"]
+    body = translate(extrude(profile, width), (0.0, 0.0, 0.5 * width))
+    if p["helix_angle_deg"]:
+        rate = math.tan(math.radians(p["helix_angle_deg"])) / \
+            (0.5 * p["teeth"] * p["module_mm"])
+        body = twist(body, rate,
+                     fold_z=0.5 * width if p["herringbone"] else None)
+    return body
+
+
+def _spur_items(params):
+    return tuple(sorted(params.items()))
+
+
+def _analyze_spur(params, _children):
+    return analyze(_spur_tree(_spur_items(params)))
+
+
+def _eval_spur(params, p, _children, ev):
+    return ev(_spur_tree(_spur_items(params)), p)
+
+
+register(NodeSpec(
+    kind="spur_gear",
+    min_children=0,
+    max_children=0,
+    analyze=_analyze_spur,
+    backends={"numpy": _eval_spur},
+))
+
+
+def spur_gear(teeth, module_mm, face_width_mm, pressure_angle_deg=20.0,
+              helix_angle_deg=0.0, herringbone=False, involute_step=None,
+              spline_division_num=None):
+    """An involute gear as a field: spur, or helical/herringbone with a
+    nonzero ``helix_angle_deg``.  Axis +z, faces at ``z = 0`` and ``z =
+    face_width_mm``; a helix turns counter-clockwise going up for a
+    positive angle, matching :func:`yapcad.geom3d_util.helical_extrude`.
+    """
+    try:
+        n = int(teeth)
+        m, w, a, h = (float(v) for v in (module_mm, face_width_mm,
+                                         pressure_angle_deg, helix_angle_deg))
+    except (TypeError, ValueError):
+        raise SdfError("spur_gear: dimensions must be numbers") from None
+    if n < 6 or m <= 0 or w <= 0 or not 0 < a < 45 or abs(h) >= 60:
+        raise SdfError("spur_gear: needs teeth >= 6, positive module and "
+                       "width, a pressure angle in (0, 45) and a helix "
+                       "angle under 60 degrees")
+    return make_node("spur_gear", {
+        "teeth": n, "module_mm": m, "face_width_mm": w,
+        "pressure_angle_deg": a, "helix_angle_deg": h,
+        "herringbone": bool(herringbone),
+        "involute_step": None if involute_step is None
+        else float(involute_step),
+        "spline_division_num": None if spline_division_num is None
+        else int(spline_division_num),
+    })
