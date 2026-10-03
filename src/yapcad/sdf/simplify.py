@@ -24,7 +24,11 @@ edges whose neighbourhoods do not overlap, and tests all of them together:
 
 The rounds repeat until no collapse passes.  Everything is array-at-a-time
 and deterministic -- stable sorts, no randomness -- so a simplified preview
-regenerates bit-for-bit, which signed packages need.
+regenerates bit-for-bit on the same platform.  Not necessarily across
+platforms: the quadric solves and field evaluations can differ in the last
+bit between builds of numpy and LAPACK, and a collapse whose error sits
+right at the tolerance can then pass on one and fail on the other.  The
+results differ in detail, not in quality -- both meet the same bounds.
 
 For an exact field ``|f|`` is the distance to the part.  For an inexact one
 it is the field's value, which for hard CSG and the other bounds yapCAD's
@@ -42,7 +46,7 @@ from yapcad.sdf.node import SdfError
 __all__ = ["simplify_mesh", "simplify_solid"]
 
 #: Most subdivisions per edge of the barycentric sample grid on a triangle.
-_MAX_DIVISIONS = 24
+_MAX_DIVISIONS = 32
 
 
 def _lattice(n):
@@ -63,7 +67,10 @@ def _max_error(node, tris, spacing):
     small ones it replaces."""
     longest = np.max(np.linalg.norm(tris - np.roll(tris, 1, axis=1), axis=2),
                      axis=1)
-    divisions = np.clip(np.ceil(longest / spacing), 2,
+    # Two samples per original edge length, and at least four divisions:
+    # a triangle cut across a sharp edge bulges away from it between
+    # samples, and two divisions once read 0.095 where the truth was 0.142.
+    divisions = np.clip(np.ceil(2.0 * longest / spacing), 4,
                         _MAX_DIVISIONS).astype(int)
     out = np.zeros(len(tris))
     for n in np.unique(divisions).tolist():
@@ -150,7 +157,7 @@ def _quadric_cost(Q, E, P):
     return np.einsum("ij,ijk,ik->i", h, q, h)
 
 
-def _round(node, V, F, tolerance, rejected, spacing):
+def _round(node, V, F, tolerance, rejected, spacing, face_err):
     """One round of collapses.
 
     :param rejected: ``(k, 2)`` edges tested and rejected in earlier rounds
@@ -158,11 +165,14 @@ def _round(node, V, F, tolerance, rejected, spacing):
         so they are not tested again.  This is what keeps the long tail of
         rounds, each collapsing a few dozen edges, cheap.  An edge that was
         merely locked out by a neighbour's collapse is not in it.
-    :returns: ``(V, F, collapsed, rejected)`` for the next round.
+    :param face_err: each triangle's sampled ``|f|``, kept up to date across
+        rounds: a triangle's error changes only when a collapse rewrites it,
+        so it is measured once, not every round it borders a candidate.
+    :returns: ``(V, F, collapsed, rejected, face_err)`` for the next round.
     """
     E = _edges(F)
     if len(E) == 0:
-        return V, F, 0, rejected
+        return V, F, 0, rejected, face_err
     Q = _quadrics(V, F)
     P = _candidates(V, Q, E)
     cost = _quadric_cost(Q, E, P)
@@ -197,7 +207,7 @@ def _round(node, V, F, tolerance, rejected, spacing):
         locked[nb] = True
         chosen.append(e)
     if not chosen:
-        return V, F, 0, rejected
+        return V, F, 0, rejected, face_err
     chosen = np.asarray(chosen)
     # Only the chosen candidates are moved onto the surface: projection
     # costs a field and gradient evaluation per point per step.
@@ -239,7 +249,7 @@ def _round(node, V, F, tolerance, rejected, spacing):
     # bad region grows a ring every round.  So the worst error may not rise,
     # and the excess over the tolerance, integrated over area, may not grow.
     new_face_err = _max_error(node, new[survives], spacing)
-    old_face_err = _max_error(node, corners, spacing)
+    old_face_err = face_err[faces]
     new_err = np.zeros(len(chosen))
     old_err = np.zeros(len(chosen))
     np.maximum.at(new_err, owner[survives], new_face_err)
@@ -258,7 +268,7 @@ def _round(node, V, F, tolerance, rejected, spacing):
     ok[np.unique(owner[bad_face])] = False
     rejected = np.concatenate([rejected, E[chosen[~ok]]])
     if not ok.any():
-        return V, F, 0, rejected
+        return V, F, 0, rejected, face_err
 
     # A rejection stands only while nothing around it changes: forget any
     # that touch a vertex of a triangle around one of these collapses.
@@ -266,20 +276,25 @@ def _round(node, V, F, tolerance, rejected, spacing):
     touched[F[faces[ok[owner]]].reshape(-1)] = True
     rejected = rejected[~(touched[rejected[:, 0]] | touched[rejected[:, 1]])]
 
+    applied = ok[owner] & survives
+    face_err = face_err.copy()
+    face_err[faces[applied]] = new_face_err[applied[survives]]
+
     keep, drop = E[chosen[ok], 0], E[chosen[ok], 1]
     V = V.copy()
     V[keep] = P[chosen[ok]]
     remap = np.arange(nv)
     remap[drop] = keep
     F = remap[F]
-    F = F[(F[:, 0] != F[:, 1]) & (F[:, 1] != F[:, 2]) & (F[:, 0] != F[:, 2])]
+    alive = (F[:, 0] != F[:, 1]) & (F[:, 1] != F[:, 2]) & (F[:, 0] != F[:, 2])
+    F, face_err = F[alive], face_err[alive]
     used, F = np.unique(F, return_inverse=True)
     renumber = np.full(nv, -1, dtype=np.int64)
     renumber[used] = np.arange(len(used))
     rejected = renumber[rejected]
     rejected = rejected[(rejected >= 0).all(axis=1)]
     rejected.sort(axis=1)
-    return V[used], F.reshape(-1, 3), int(ok.sum()), rejected
+    return V[used], F.reshape(-1, 3), int(ok.sum()), rejected, face_err
 
 
 def simplify_mesh(node, vertices, triangles, tolerance, max_rounds=200):
@@ -299,8 +314,12 @@ def simplify_mesh(node, vertices, triangles, tolerance, max_rounds=200):
     edges = _edges(F)
     spacing = float(np.median(np.linalg.norm(V[edges[:, 0]] - V[edges[:, 1]],
                                              axis=1))) if len(edges) else 1.0
+    if len(F) == 0:
+        return V, F
+    face_err = _max_error(node, V[F], spacing)
     for _ in range(int(max_rounds)):
-        V, F, done, rejected = _round(node, V, F, tol, rejected, spacing)
+        V, F, done, rejected, face_err = _round(node, V, F, tol, rejected,
+                                                spacing, face_err)
         if done == 0:
             break
     return V, F

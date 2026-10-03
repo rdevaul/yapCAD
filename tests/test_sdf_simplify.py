@@ -57,13 +57,27 @@ def test_it_removes_most_of_the_triangles(plate, simplified):
     assert len(simplified[1][0][3]) < 0.3 * len(plate[1][0][3])
 
 
+def worst_error(node, V, F, divisions=24):
+    """``|f|`` at its worst over every triangle, on a dense barycentric
+    lattice.  The maximum of random samples is a poor estimate of this: on
+    the same mesh it varies by about 8% from seed to seed, which is more
+    than the margin a test can allow."""
+    pts = [(i / divisions) * V[F[:, 0]] + (j / divisions) * V[F[:, 1]]
+           + ((divisions - i - j) / divisions) * V[F[:, 2]]
+           for i in range(divisions + 1) for j in range(divisions + 1 - i)]
+    return np.abs(sdf.evaluate(node, np.vstack(pts))).max()
+
+
 def test_it_is_no_less_accurate_than_the_uniform_mesh(plate, simplified):
     before = area_error(PLATE, *arrays(plate))
     after = area_error(PLATE, *arrays(simplified))
     tol = 0.01
     assert np.percentile(after, 99) <= max(tol, np.percentile(before, 99))
     assert (after > tol).mean() <= (before > tol).mean() + 0.01
-    assert after.max() <= before.max() * 1.06
+    # The worst error is at the rounded box's edges, which dual contouring
+    # already cut across; simplification must not make it worse.
+    assert worst_error(PLATE, *arrays(simplified)) <= \
+        worst_error(PLATE, *arrays(plate)) * 1.02
 
 
 def test_volume_is_preserved(plate, simplified):
