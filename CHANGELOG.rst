@@ -5,6 +5,13 @@ Changelog
 Unreleased
 ==========
 
+- ``sdf.simplify_solid`` simplifies a meshed field by quadric edge collapse,
+  checking every collapse against the field: a closed manifold result, no
+  flipped triangles, and the field's value on every changed triangle within
+  the tolerance, or no worse than the uniform mesh already was. At 0.01 mm
+  a threaded M8 nut keeps 4% of its triangles and a miter gear 6%, both
+  with lower 99th-percentile error than the uniform mesh. The tolerance is
+  recorded with the meshing parameters.
 - The native mesh boolean engine is rewritten (``yapcad.boolean.csg``) and
   now returns closed, volume-correct solids: 24 of 24 benchmark cases (was
   8) and 1,800 randomised boxes/spheres/cylinders/icosahedra cases against a
