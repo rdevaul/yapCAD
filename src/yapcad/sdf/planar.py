@@ -43,20 +43,19 @@ BATCH = 4096
 # ---------------------------------------------------------------------------
 
 
-def _segment_field(px, py, ax, ay, bx, by):
-    """Squared distance from each point to the nearest segment, and the
-    parity of the segments a ray from the point crosses.
+def _segment_field(px, py, ax, ay, bx, by, parity=True):
+    """Squared distance from each point to the nearest segment, and (with
+    ``parity``) whether a ray from the point crosses an odd number of them.
 
     The ray runs radially outward from each point -- along ``p / |p|``, or
     along +x from the origin -- so after the symmetry fold it stays inside
-    the point's own sector, where the retained segments are.  Each segment
-    is tested with a half-open straddle rule on the side of the ray its
-    endpoints fall, so a ray through a shared vertex is counted exactly
-    once.
+    the point's own sector.  Each segment is tested with a half-open
+    straddle rule on the side of the ray its endpoints fall, so a ray
+    through a shared vertex is counted exactly once.
     """
     n = px.shape[0]
     d2 = np.empty(n)
-    odd = np.empty(n, dtype=bool)
+    odd = np.zeros(n, dtype=bool)
     ex, ey = bx - ax, by - ay
     ee = ex * ex + ey * ey
     ee = np.where(ee > 0.0, ee, 1e-300)
@@ -67,7 +66,8 @@ def _segment_field(px, py, ax, ay, bx, by):
         t = np.clip((wx * ex + wy * ey) / ee, 0.0, 1.0)
         dx, dy = wx - t * ex, wy - t * ey
         d2[s:s + BATCH] = np.min(dx * dx + dy * dy, axis=1)
-
+        if not parity:
+            continue
         length = np.hypot(X, Y)
         at_origin = length == 0.0
         ux = np.where(at_origin, 1.0, X / np.where(at_origin, 1.0, length))
@@ -88,33 +88,68 @@ def _segment_field(px, py, ax, ay, bx, by):
 _SEGMENTS = {}
 
 
+def _split(a, b):
+    return (a[:, 0].copy(), a[:, 1].copy(), b[:, 0].copy(), b[:, 1].copy())
+
+
 def _segments(points, symmetry):
-    """The polygon's segments, restricted to the sectors a folded point can
-    be nearest to when the polygon is ``symmetry``-fold symmetric."""
+    """The polygon's segments, organised for evaluation.
+
+    Returns ``(core, rest, boxes)``.  For an asymmetric polygon ``core`` is
+    every segment and ``rest`` is empty.  For an ``n``-fold symmetric one,
+    a folded point lies within half a sector of angle 0, so
+
+    * ``core`` is every segment whose angular extent reaches into that
+      sector.  A point's radial ray stays at its own angle, so it can only
+      cross these: they alone decide the sign, and give a first distance.
+    * ``rest`` is every other segment still within reach -- one more sector
+      either side -- with ``boxes``, the bounding box of each side's share.
+      A point needs them only if a box is nearer than its core distance.
+    """
     key = (points, symmetry)
     hit = _SEGMENTS.get(key)
     if hit is not None:
         return hit
     a = np.asarray(points, dtype=float)
     b = np.roll(a, -1, axis=0)
-    if symmetry > 1:
-        sector = 2.0 * math.pi / symmetry
-        mid = 0.5 * (a + b)
-        angle = np.arctan2(mid[:, 1], mid[:, 0])
+    if symmetry == 1:
+        hit = (_split(a, b), None, ())
+    else:
+        half = math.pi / symmetry
         aa = np.arctan2(a[:, 1], a[:, 0])
         ab = np.arctan2(b[:, 1], b[:, 0])
-        span = np.abs((ab - aa + math.pi) % (2 * math.pi) - math.pi)
-        # A folded point is within half a sector of angle 0; its nearest
-        # segment is within one more sector of it.  Keep everything that
-        # reaches into that window.
-        window = 1.5 * sector + float(span.max())
-        keep = np.abs((angle + math.pi) % (2 * math.pi) - math.pi) <= window
-        a, b = a[keep], b[keep]
-    hit = (a[:, 0].copy(), a[:, 1].copy(), b[:, 0].copy(), b[:, 1].copy())
+        sweep = (ab - aa + math.pi) % (2 * math.pi) - math.pi
+        lo = np.minimum(aa, aa + sweep)
+        hi = np.maximum(aa, aa + sweep)
+        # Unwrap each extent to lie around angle 0 where possible.
+        shift = np.round(0.5 * (lo + hi) / (2 * math.pi)) * 2 * math.pi
+        lo, hi = lo - shift, hi - shift
+        eps = 1e-9
+        core = (hi >= -half - eps) & (lo <= half + eps)
+        span = float(np.max(hi - lo))
+        reach = (hi >= -3 * half - span) & (lo <= 3 * half + span)
+        rest = reach & ~core
+        boxes = []
+        mid = 0.5 * (lo + hi)
+        for side in (mid < 0.0, mid >= 0.0):
+            pick = rest & side
+            if pick.any():
+                pts = np.vstack([a[pick], b[pick]])
+                boxes.append((pts.min(axis=0), pts.max(axis=0)))
+        hit = (_split(a[core], b[core]),
+               _split(a[rest], b[rest]) if rest.any() else None,
+               tuple(boxes))
     if len(_SEGMENTS) > 64:
         _SEGMENTS.clear()
     _SEGMENTS[key] = hit
     return hit
+
+
+def _box_distance2(px, py, box):
+    (x0, y0), (x1, y1) = box
+    dx = np.maximum(np.maximum(x0 - px, px - x1), 0.0)
+    dy = np.maximum(np.maximum(y0 - py, py - y1), 0.0)
+    return dx * dx + dy * dy
 
 
 def _analyze_polygon(params, _children):
@@ -141,7 +176,15 @@ def _eval_polygon(params, p, _children, _ev):
         k = np.round(np.arctan2(py, px) / sector)
         c, s = np.cos(-k * sector), np.sin(-k * sector)
         px, py = c * px - s * py, s * px + c * py
-    d2, odd = _segment_field(px, py, *_segments(params["points"], n))
+    core, rest, boxes = _segments(params["points"], n)
+    d2, odd = _segment_field(px, py, *core)
+    if rest is not None:
+        near = np.zeros(len(px), dtype=bool)
+        for box in boxes:
+            near |= _box_distance2(px, py, box) < d2
+        if near.any():
+            d2r, _ = _segment_field(px[near], py[near], *rest, parity=False)
+            d2[near] = np.minimum(d2[near], d2r)
     return np.where(odd, -1.0, 1.0) * np.sqrt(d2)
 
 
