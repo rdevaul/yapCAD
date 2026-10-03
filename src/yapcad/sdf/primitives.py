@@ -246,6 +246,69 @@ def cylinder(radius, height):
 
 
 # ---------------------------------------------------------------------------
+# rounded cylinder
+# ---------------------------------------------------------------------------
+
+
+def _analyze_rounded_cylinder(params, _children):
+    r = params["radius"]
+    h = params["height"] * 0.5
+    props = _exact(((-r, -r, -h), (r, r, h)))
+    # Replayed as a cylinder with both circular edges filleted.  As with
+    # rounded_box, a radius that leaves no flat cap or no straight side has
+    # no face for the fillet to run along, and OCC refuses it.
+    e = params["edge_radius"]
+    if e >= r or 2.0 * e >= params["height"]:
+        props = FieldProps(exact=props.exact, lipschitz=props.lipschitz,
+                           bounds=props.bounds, csg_exact=False)
+    return props
+
+
+def _eval_rounded_cylinder(params, p, _children, _ev):
+    # The core cylinder, shrunk by the edge radius on every side, then grown
+    # back by it: dilating an exact field by a constant keeps it exact.  The
+    # core may be degenerate -- a disc or a line -- which this form allows.
+    e = params["edge_radius"]
+    d_radial = np.hypot(p[:, 0], p[:, 1]) - (params["radius"] - e)
+    d_axial = np.abs(p[:, 2]) - (0.5 * params["height"] - e)
+    outside = np.hypot(
+        np.maximum(d_radial, 0.0), np.maximum(d_axial, 0.0)
+    )
+    inside = np.minimum(np.maximum(d_radial, d_axial), 0.0)
+    return outside + inside - e
+
+
+register(NodeSpec(
+    kind="rounded_cylinder",
+    min_children=0,
+    max_children=0,
+    analyze=_analyze_rounded_cylinder,
+    backends={"numpy": _eval_rounded_cylinder},
+))
+
+
+def rounded_cylinder(radius, height, edge_radius):
+    """A capped cylinder on the z axis, centred on the origin, with both
+    circular edges rounded to ``edge_radius``.
+
+    Like :func:`rounded_box`, the rounding is taken out of the cylinder, so
+    the overall extent is still ``radius`` by ``height``.
+    """
+    r = _positive("rounded_cylinder", "radius", radius)
+    h = _positive("rounded_cylinder", "height", height)
+    e = _nonnegative("rounded_cylinder", "edge_radius", edge_radius)
+    if e > r or 2.0 * e > h:
+        raise SdfError(
+            f"rounded_cylinder: edge radius {e} exceeds the radius {r} or "
+            f"half the height {0.5 * h}"
+        )
+    if e == 0.0:
+        return cylinder(r, h)
+    return make_node("rounded_cylinder",
+                     {"radius": r, "height": h, "edge_radius": e})
+
+
+# ---------------------------------------------------------------------------
 # capsule
 # ---------------------------------------------------------------------------
 

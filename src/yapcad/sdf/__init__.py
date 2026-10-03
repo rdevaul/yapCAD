@@ -73,11 +73,13 @@ from yapcad.sdf.primitives import (
     gyroid,
     half_space,
     rounded_box,
+    rounded_cylinder,
     schwarz_p,
     sphere,
     torus,
 )
 from yapcad.sdf.ops import (
+    compound,
     intersect,
     offset,
     rotate,
@@ -102,6 +104,7 @@ from yapcad.sdf.booleans import combine_all, is_sdf_solid
 from yapcad.sdf.planar import apex_extrude, extrude, polygon, twist
 from yapcad.sdf.gears import spur_gear, straight_bevel_gear
 from yapcad.sdf.threads import hex_bolt, hex_nut, thread, thread_profile
+from yapcad.sdf.fillet import fillet, fillet_solid
 from yapcad.sdf.occ import (
     csg_blockers,
     describe_blockers,
@@ -147,6 +150,7 @@ __all__ = [
     "box",
     "rounded_box",
     "cylinder",
+    "rounded_cylinder",
     "capsule",
     "torus",
     "cone",
@@ -167,6 +171,9 @@ __all__ = [
     "hex_bolt",
     # operators
     "union",
+    "compound",
+    "fillet",
+    "fillet_solid",
     "intersect",
     "subtract",
     "smooth_union",
