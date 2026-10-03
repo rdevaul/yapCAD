@@ -97,6 +97,35 @@ def union(*children):
     return make_node("union", {}, kids)
 
 
+# ---------------------------------------------------------------------------
+# Compound: separate bodies
+# ---------------------------------------------------------------------------
+
+
+register(NodeSpec(
+    kind="compound",
+    min_children=1,
+    max_children=None,
+    analyze=_analyze_union,
+    backends={"numpy": _eval_union},
+))
+
+
+def compound(*children):
+    """Several bodies kept separate, as the DSL's ``compound`` keeps them.
+
+    As a field it *is* a union -- the region the bodies occupy -- so it
+    combines in booleans exactly like one.  What it adds is the intent:
+    :func:`yapcad.sdf.to_solid` meshes each body on its own, so touching or
+    overlapping bodies stay distinct, closed meshes instead of being fused,
+    and the OCC replay builds a compound rather than a fused solid.
+    """
+    kids = _child_nodes("compound", children)
+    if len(kids) == 1:
+        return kids[0]
+    return make_node("compound", {}, kids)
+
+
 def _analyze_intersect(_params, child_props):
     bounds = child_props[0].bounds
     for c in child_props[1:]:

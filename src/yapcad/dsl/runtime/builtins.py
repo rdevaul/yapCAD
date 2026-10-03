@@ -1518,21 +1518,39 @@ class BuiltinRegistry:
 
         def _box(width: Value, depth: Value, height: Value) -> Value:
             """Create a box solid (rectangular prism)."""
+            from yapcad.dsl.runtime import representation
+            if representation.is_sdf():
+                from yapcad import sdf
+                return solid_val(representation.mesh_field(
+                    sdf.box((width.data, depth.data, height.data))))
             from yapcad.geom3d_util import prism
             return solid_val(prism(width.data, depth.data, height.data))
 
         def _cylinder(radius: Value, height: Value) -> Value:
             """Create a solid cylinder using conic with equal radii."""
-            from yapcad.geom3d_util import conic
             r = radius.data
             h = height.data
+            from yapcad.dsl.runtime import representation
+            if representation.is_sdf():
+                from yapcad import sdf
+                # conic stands on z = 0; the field cylinder is centred.
+                return solid_val(representation.mesh_field(
+                    sdf.translate(sdf.cylinder(r, h), (0.0, 0.0, h / 2.0))))
+            from yapcad.geom3d_util import conic
             # conic(base_radius, top_radius, height) - equal radii makes a cylinder
             return solid_val(conic(r, r, h))
 
         def _sphere(radius: Value) -> Value:
-            """Create a sphere solid."""
+            """Create a sphere solid of the given radius, centred on the
+            origin."""
+            from yapcad.dsl.runtime import representation
+            if representation.is_sdf():
+                from yapcad import sdf
+                return solid_val(representation.mesh_field(
+                    sdf.sphere(radius.data)))
             from yapcad.geom3d_util import sphere
-            return solid_val(sphere(radius.data))
+            # geom3d_util.sphere takes a diameter.
+            return solid_val(sphere(2.0 * radius.data))
 
         def _oblate_spheroid(equatorial_diameter: Value, oblateness: Value) -> Value:
             """Create an oblate spheroid (flattened sphere).
@@ -1557,6 +1575,13 @@ class BuiltinRegistry:
 
         def _cone(radius1: Value, radius2: Value, height: Value) -> Value:
             """Create a cone/frustum solid using conic."""
+            from yapcad.dsl.runtime import representation
+            if representation.is_sdf():
+                from yapcad import sdf
+                h = height.data
+                return solid_val(representation.mesh_field(sdf.translate(
+                    sdf.cone(radius1.data, radius2.data, h),
+                    (0.0, 0.0, h / 2.0))))
             from yapcad.geom3d_util import conic
             # conic(base_radius, top_radius, height)
             # radius2=0 makes a true cone, radius1!=radius2 makes a frustum
@@ -1841,6 +1866,13 @@ class BuiltinRegistry:
             Returns:
                 A solid representing the gear
             """
+            from yapcad.dsl.runtime import representation
+            if representation.is_sdf():
+                from yapcad.gears.involute import make_involute_gear_sdf
+                return solid_val(make_involute_gear_sdf(
+                    int(teeth.data), float(module_mm.data),
+                    float(face_width.data),
+                    pressure_angle_deg=float(pressure_angle.data)))
             from yapcad.contrib.figgear import make_gear_figure
             from yapcad.geom3d import poly2surfaceXY
             from yapcad.geom3d_util import extrude
@@ -1908,7 +1940,8 @@ class BuiltinRegistry:
                 bore_diameter_mm=float(bore_diameter_mm.data),
                 generation_type=mode,
             )
-            if not occ_available():
+            from yapcad.dsl.runtime import representation
+            if representation.is_sdf() or not occ_available():
                 # The same gear as a field: no OCC needed, and it stays
                 # SDF-authoritative, so later field booleans keep it exact.
                 return solid_val(make_straight_bevel_gear_sdf(spec))
@@ -1979,7 +2012,8 @@ class BuiltinRegistry:
             from yapcad.geom3d_util import helical_extrude
             from yapcad.brep import brep_from_solid, attach_brep_to_solid, BrepSolid, occ_available
 
-            if not occ_available():
+            from yapcad.dsl.runtime import representation
+            if representation.is_sdf() or not occ_available():
                 # The same gear as a field, with the profile options below.
                 from yapcad.gears.involute import make_involute_gear_sdf
                 return solid_val(make_involute_gear_sdf(
@@ -2278,6 +2312,16 @@ class BuiltinRegistry:
 
         def _tube(outer_diameter: Value, wall_thickness: Value, length: Value) -> Value:
             """Create a cylindrical tube (hollow cylinder)."""
+            from yapcad.dsl.runtime import representation
+            if representation.is_sdf():
+                from yapcad import sdf
+                ro, h = outer_diameter.data / 2.0, length.data
+                ri = ro - wall_thickness.data
+                body = sdf.cylinder(ro, h)
+                if ri > 0.0:
+                    body = sdf.subtract(body, sdf.cylinder(ri, h + 2.0))
+                return solid_val(representation.mesh_field(
+                    sdf.translate(body, (0.0, 0.0, h / 2.0))))
             from yapcad.geom3d_util import tube
             return solid_val(tube(outer_diameter.data, wall_thickness.data, length.data))
 
@@ -2288,6 +2332,15 @@ class BuiltinRegistry:
 
         def _spherical_shell(outer_diameter: Value, wall_thickness: Value) -> Value:
             """Create a spherical shell (hollow sphere)."""
+            from yapcad.dsl.runtime import representation
+            if representation.is_sdf():
+                from yapcad import sdf
+                ro = outer_diameter.data / 2.0
+                ri = ro - wall_thickness.data
+                body = sdf.sphere(ro)
+                if ri > 0.0:
+                    body = sdf.subtract(body, sdf.sphere(ri))
+                return solid_val(representation.mesh_field(body))
             from yapcad.geom3d_util import spherical_shell
             return solid_val(spherical_shell(outer_diameter.data, wall_thickness.data))
 
@@ -2535,8 +2588,11 @@ class BuiltinRegistry:
             Returns:
                 yapCAD solid representing the bolt
             """
+            from yapcad.dsl.runtime import representation
             from yapcad.fasteners import metric_hex_bolt
-            return solid_val(metric_hex_bolt(size.data, length.data))
+            return solid_val(metric_hex_bolt(
+                size.data, length.data,
+                **representation.fastener_kwargs()))
 
         def _metric_hex_nut(size: Value) -> Value:
             """Create a metric hex nut (ISO 4032).
@@ -2547,8 +2603,10 @@ class BuiltinRegistry:
             Returns:
                 yapCAD solid representing the nut
             """
+            from yapcad.dsl.runtime import representation
             from yapcad.fasteners import metric_hex_nut
-            return solid_val(metric_hex_nut(size.data))
+            return solid_val(metric_hex_nut(
+                size.data, **representation.fastener_kwargs()))
 
         def _unified_hex_bolt(size: Value, length: Value) -> Value:
             """Create a unified (UNC/UNF) hex bolt (ASME B18.2.1).
@@ -2560,8 +2618,11 @@ class BuiltinRegistry:
             Returns:
                 yapCAD solid representing the bolt
             """
+            from yapcad.dsl.runtime import representation
             from yapcad.fasteners import unified_hex_bolt
-            return solid_val(unified_hex_bolt(size.data, length.data))
+            return solid_val(unified_hex_bolt(
+                size.data, length.data,
+                **representation.fastener_kwargs()))
 
         def _unified_hex_nut(size: Value) -> Value:
             """Create a unified (UNC/UNF) hex nut (ASME B18.2.2).
@@ -2572,8 +2633,10 @@ class BuiltinRegistry:
             Returns:
                 yapCAD solid representing the nut
             """
+            from yapcad.dsl.runtime import representation
             from yapcad.fasteners import unified_hex_nut
-            return solid_val(unified_hex_nut(size.data))
+            return solid_val(unified_hex_nut(
+                size.data, **representation.fastener_kwargs()))
 
         self.register(BuiltinFunction(
             "metric_hex_bolt",
@@ -2703,7 +2766,20 @@ class BuiltinRegistry:
                 if len(op) > 1 and op[1]:
                     all_surfaces.extend(op[1])
 
-            # Create result solid with combined surfaces
+            # Create result solid with combined surfaces.  When every
+            # operand is field-authored the compound keeps their fields, so
+            # booleans against it stay on the field path rather than falling
+            # back to the mesh engine with a fused-looking mesh.
+            from yapcad.sdf.booleans import is_sdf_solid
+            if all(is_sdf_solid(op) for op in operands):
+                from yapcad.construction import get_construction
+                from yapcad.sdf.node import from_construction, \
+                    to_construction
+                from yapcad.sdf.ops import compound as sdf_compound
+                tree = sdf_compound(*(from_construction(get_construction(op))
+                                      for op in operands))
+                return solid_val(solid(all_surfaces, [],
+                                       to_construction(tree)))
             result = solid(all_surfaces, [], ['procedure', 'compound'])
 
             # If OCC available, create a proper compound shape
@@ -3195,8 +3271,10 @@ class BuiltinRegistry:
         def _fillet(s: Value, radius: Value) -> Value:
             """Apply fillet (rounded edge) to all edges of a solid.
 
-            Requires pythonocc-core/OCC. Uses the BREP representation
-            attached to the solid for precise edge operations.
+            An SDF-authored solid is filleted on its field, without OCC
+            (:func:`yapcad.sdf.fillet_solid`).  Otherwise this needs
+            pythonocc-core and the BREP attached to the solid.  Mesh-only
+            solids are not supported yet.
 
             Args:
                 s: A solid to fillet
@@ -3210,9 +3288,17 @@ class BuiltinRegistry:
                 fillet_all_edges, occ_available, BrepSolid
             )
             from yapcad.geom3d import solid
+            from yapcad.sdf.booleans import is_sdf_solid
 
+            if is_sdf_solid(s.data):
+                from yapcad.sdf.fillet import fillet_solid
+                return solid_val(fillet_solid(s.data, float(radius.data)))
             if not occ_available():
-                raise RuntimeError("fillet requires pythonocc-core (OCC)")
+                raise RuntimeError(
+                    "fillet needs an SDF-authored solid, or a BREP solid "
+                    "with pythonocc-core (OCC) installed; filleting a "
+                    "mesh-only solid is not implemented yet"
+                )
 
             # Get BREP representation from solid
             brep = brep_from_solid(s.data)
