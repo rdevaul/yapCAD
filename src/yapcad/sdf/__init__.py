@@ -101,7 +101,7 @@ from yapcad.sdf.convert import NonManifoldMeshError, mesh_to_surface, to_solid
 from yapcad.sdf.booleans import combine_all, is_sdf_solid
 from yapcad.sdf.planar import apex_extrude, extrude, polygon
 from yapcad.sdf.gears import straight_bevel_gear
-from yapcad.sdf.threads import hex_nut, thread, thread_profile
+from yapcad.sdf.threads import hex_bolt, hex_nut, thread, thread_profile
 from yapcad.sdf.occ import (
     csg_blockers,
     describe_blockers,
@@ -162,6 +162,7 @@ __all__ = [
     "thread",
     "thread_profile",
     "hex_nut",
+    "hex_bolt",
     # operators
     "union",
     "intersect",

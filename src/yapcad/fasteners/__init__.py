@@ -102,6 +102,7 @@ def metric_hex_bolt(
     thread_arc_samples: int = 180,
     thread_samples_per_pitch: int = 6,
     catalog_path: Optional[Path] = None,
+    representation: str = "mesh",
 ):
     """Create a metric hex bolt per ISO 4014/4017.
 
@@ -115,6 +116,8 @@ def metric_hex_bolt(
         thread_arc_samples: Angular resolution for thread generation
         thread_samples_per_pitch: Samples per pitch for thread profile
         catalog_path: Optional path to custom catalog YAML file
+        representation: ``"mesh"`` (default) or ``"sdf"`` for a closed,
+            SDF-authored bolt; see :func:`metric_hex_nut`
 
     Returns:
         yapCAD solid representing the hex bolt
@@ -139,6 +142,7 @@ def metric_hex_bolt(
         thread_arc_samples=thread_arc_samples,
         thread_samples_per_pitch=thread_samples_per_pitch,
         catalog_path=catalog_path,
+        representation=representation,
     )
 
 
@@ -203,6 +207,7 @@ def unified_hex_bolt(
     thread_arc_samples: int = 180,
     thread_samples_per_pitch: int = 6,
     catalog_path: Optional[Path] = None,
+    representation: str = "mesh",
 ):
     """Create a unified (UNC/UNF) hex bolt per ASME B18.2.1.
 
@@ -216,6 +221,8 @@ def unified_hex_bolt(
         thread_arc_samples: Angular resolution for thread generation
         thread_samples_per_pitch: Samples per pitch for thread profile
         catalog_path: Optional path to custom catalog YAML file
+        representation: ``"mesh"`` (default) or ``"sdf"`` for a closed,
+            SDF-authored bolt; see :func:`metric_hex_nut`
 
     Returns:
         yapCAD solid representing the hex bolt
@@ -243,6 +250,7 @@ def unified_hex_bolt(
         thread_arc_samples=thread_arc_samples,
         thread_samples_per_pitch=thread_samples_per_pitch,
         catalog_path=catalog_path,
+        representation=representation,
     )
 
 

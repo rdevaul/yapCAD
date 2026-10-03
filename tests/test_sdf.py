@@ -77,6 +77,8 @@ SAMPLES = {
         ThreadProfile(D_nominal=8.0, P_pitch=1.25, crest_flat_ratio=0.125,
                       root_flat_ratio=0.125, thread_depth_ratio=0.57,
                       internal=True), 13.0, 6.8),
+    "hex_bolt": sdf.hex_bolt(
+        ThreadProfile(D_nominal=8.0, P_pitch=1.25), 6.0, 10.0, 5.3, 13.0),
 }
 
 

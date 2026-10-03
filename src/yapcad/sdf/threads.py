@@ -13,10 +13,13 @@ the flanks.  Toward the axis the stretch grows without bound, so inside a
 guard radius -- half the minor radius, far from any surface -- the angular
 dependence is faded out, which keeps the Lipschitz bound finite.
 
-``hex_nut`` is the semantic node for a nut, storing its dimensions and
-evaluating as a hexagonal prism minus an internal thread, matching
-:func:`yapcad.fasteners_legacy.build_hex_nut`'s placement: axis +z, faces
-at ``z = 0`` and ``z = thickness``, flats parallel to the x axis.
+``hex_nut`` and ``hex_bolt`` are semantic nodes storing a fastener's
+dimensions.  A nut is a hexagonal prism minus an internal thread; a bolt is
+an external thread from its tip at ``z = 0`` to the thread length, then a
+plain shank, a washer face and a hex head -- both placed as
+:mod:`yapcad.fasteners_legacy` places them, axis +z, flats parallel to the
+x axis.  The legacy meshes taper their threads out over the last fifth of
+a lead at each end; the fields end them square.
 """
 
 import math
@@ -26,10 +29,11 @@ import numpy as np
 
 from yapcad.sdf.node import INF, FieldProps, NodeSpec, SdfError, analyze, \
     make_node, register
-from yapcad.sdf.ops import subtract, translate
+from yapcad.sdf.ops import intersect, subtract, translate, union
 from yapcad.sdf.planar import _segment_field, extrude, polygon
+from yapcad.sdf.primitives import box, cylinder
 
-__all__ = ["thread", "thread_profile", "hex_nut"]
+__all__ = ["thread", "thread_profile", "hex_nut", "hex_bolt"]
 
 
 # ---------------------------------------------------------------------------
@@ -236,3 +240,107 @@ def hex_nut(thread_spec, width_flat, thickness):
         "thread_depth_ratio": float(thread_spec.thread_depth_ratio),
     }
     return make_node("hex_nut", params)
+
+
+# ---------------------------------------------------------------------------
+# hex bolt
+# ---------------------------------------------------------------------------
+
+
+def _hexagon(width_flat):
+    circum = width_flat / 2.0 / math.cos(math.pi / 6.0)
+    return polygon([(circum * math.cos(math.pi / 6 + k * math.pi / 3),
+                     circum * math.sin(math.pi / 6 + k * math.pi / 3))
+                    for k in range(6)], symmetry=6)
+
+
+def _slab(r, z0, z1):
+    """A box of half-width ``r`` spanning ``z0 <= z <= z1``."""
+    return translate(box((2 * r, 2 * r, z1 - z0)), (0.0, 0.0, 0.5 * (z0 + z1)))
+
+
+def _rod(r, z0, z1):
+    return translate(cylinder(r, z1 - z0), (0.0, 0.0, 0.5 * (z0 + z1)))
+
+
+@lru_cache(maxsize=32)
+def _bolt_tree(items):
+    from yapcad.threadgen import ThreadProfile
+    p = dict(items)
+    spec = ThreadProfile(D_nominal=p["diameter"], P_pitch=p["pitch"],
+                         crest_flat_ratio=p["crest_flat_ratio"],
+                         root_flat_ratio=p["root_flat_ratio"],
+                         thread_depth_ratio=p["thread_depth_ratio"])
+    radius = p["diameter"] / 2.0
+    lt, ls = p["thread_length"], p["shank_length"]
+    parts = [intersect(thread(thread_profile(spec), p["pitch"],
+                              starts=p["starts"], hand=p["hand"]),
+                       _slab(radius, 0.0, lt))]
+    if ls > lt:
+        parts.append(_rod(p["shank_diameter"] / 2.0, lt, ls))
+    top = ls
+    if p["washer_thickness"] > 0.0:
+        parts.append(_rod(p["washer_diameter"] / 2.0, ls,
+                          ls + p["washer_thickness"]))
+        top += p["washer_thickness"]
+    parts.append(translate(extrude(_hexagon(p["head_flat"]),
+                                   p["head_height"]),
+                           (0.0, 0.0, top + 0.5 * p["head_height"])))
+    return union(*parts)
+
+
+def _analyze_bolt(params, _children):
+    return analyze(_bolt_tree(tuple(sorted(params.items()))))
+
+
+def _eval_bolt(params, p, _children, ev):
+    return ev(_bolt_tree(tuple(sorted(params.items()))), p)
+
+
+register(NodeSpec(
+    kind="hex_bolt",
+    min_children=0,
+    max_children=0,
+    analyze=_analyze_bolt,
+    backends={"numpy": _eval_bolt},
+))
+
+
+def hex_bolt(thread_spec, thread_length, shank_length, head_height,
+             head_flat, washer_thickness=0.5, washer_diameter=None,
+             shank_diameter=None):
+    """A hex bolt with an external thread from a
+    :class:`yapcad.threadgen.ThreadProfile`; dimensions as
+    :class:`yapcad.fasteners_legacy.HexCapScrewSpec` names them."""
+    try:
+        values = [float(v) for v in (thread_length, shank_length,
+                                     head_height, head_flat,
+                                     washer_thickness)]
+    except (TypeError, ValueError):
+        raise SdfError("hex_bolt: dimensions must be numbers") from None
+    lt, ls, hh, hf, wt = values
+    if not all(math.isfinite(v) for v in values) or min(lt, ls, hh, hf) <= 0 \
+            or wt < 0:
+        raise SdfError("hex_bolt: dimensions must be positive")
+    if lt > ls:
+        raise SdfError("hex_bolt: the thread is longer than the shank")
+    if thread_spec.handedness not in ("right", "left"):
+        raise SdfError("hex_bolt: handedness must be 'right' or 'left'")
+    d = float(thread_spec.D_nominal)
+    params = {
+        "diameter": d,
+        "pitch": float(thread_spec.P_pitch),
+        "thread_length": lt,
+        "shank_length": ls,
+        "head_height": hh,
+        "head_flat": hf,
+        "washer_thickness": wt,
+        "washer_diameter": float(washer_diameter or hf),
+        "shank_diameter": float(shank_diameter or d),
+        "starts": int(max(1, thread_spec.starts)),
+        "hand": thread_spec.handedness,
+        "crest_flat_ratio": float(thread_spec.crest_flat_ratio),
+        "root_flat_ratio": float(thread_spec.root_flat_ratio),
+        "thread_depth_ratio": float(thread_spec.thread_depth_ratio),
+    }
+    return make_node("hex_bolt", params)

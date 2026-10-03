@@ -119,6 +119,7 @@ def build_hex_bolt_from_catalog(
     thread_arc_samples: int = 180,
     thread_samples_per_pitch: int = 6,
     catalog_path: Optional[Path] = None,
+    representation: str = "mesh",
 ):
     """Build a hex bolt using catalog dimensions.
 
@@ -176,7 +177,55 @@ def build_hex_bolt_from_catalog(
         thread_samples_per_pitch=thread_samples_per_pitch,
     )
 
+    if representation == "sdf":
+        return _build_hex_bolt_sdf(profile, spec)
+    if representation != "mesh":
+        raise ValueError(
+            f"representation must be 'mesh' or 'sdf', got {representation!r}"
+        )
     return build_hex_cap_screw(profile, spec)
+
+
+def _fastener_cell(thread_spec):
+    """A cell size the thread's narrowest flat survives dual contouring at."""
+    return 0.9 * min(thread_spec.crest_flat_ratio,
+                     thread_spec.root_flat_ratio) * thread_spec.P_pitch
+
+
+def _mesh_fastener(node, cell):
+    import math
+
+    from yapcad.sdf.convert import to_solid
+    lo, hi = node.bounds
+    longest = max(hi[i] - lo[i] for i in range(3))
+    return to_solid(node, resolution=max(16, math.ceil(longest / cell)))
+
+
+def _build_hex_bolt_sdf(profile, spec):
+    """The bolt as a field (:func:`yapcad.sdf.threads.hex_bolt`)."""
+    from yapcad.metadata import add_tags, get_solid_metadata, set_layer
+    from yapcad.sdf.threads import hex_bolt
+
+    thread_spec = replace(profile, internal=False, starts=spec.starts)
+    node = hex_bolt(thread_spec, spec.thread_length, spec.shank_length,
+                    spec.head_height, spec.head_flat_diameter,
+                    washer_thickness=spec.washer_thickness,
+                    washer_diameter=spec.washer_diameter,
+                    shank_diameter=spec.shank_diameter)
+    bolt = _mesh_fastener(node, _fastener_cell(thread_spec))
+    meta = get_solid_metadata(bolt, create=True)
+    add_tags(meta, ["fastener", "hex_cap_screw"])
+    set_layer(meta, "hardware")
+    meta["hex_cap_screw"] = {
+        "diameter": spec.diameter,
+        "thread_length": spec.thread_length,
+        "shank_length": spec.shank_length,
+        "head_height": spec.head_height,
+        "head_flat": spec.head_flat_diameter,
+        "washer_thickness": spec.washer_thickness,
+        "washer_diameter": spec.washer_diameter or spec.head_flat_diameter,
+    }
+    return bolt
 
 
 def build_hex_nut_from_catalog(
@@ -248,21 +297,13 @@ def build_hex_nut_from_catalog(
 def _build_hex_nut_sdf(profile, spec):
     """The nut as a field (:func:`yapcad.sdf.threads.hex_nut`), meshed at
     a cell size its thread's narrowest flat can survive."""
-    import math
-
     from yapcad.metadata import add_tags, get_solid_metadata, set_layer
-    from yapcad.sdf.convert import to_solid
     from yapcad.sdf.threads import hex_nut
 
     thread_spec = replace(profile, internal=True, handedness=spec.handedness,
                           starts=spec.starts)
     node = hex_nut(thread_spec, spec.width_flat, spec.thickness)
-    narrowest = min(thread_spec.crest_flat_ratio,
-                    thread_spec.root_flat_ratio) * thread_spec.P_pitch
-    cell = 0.9 * narrowest
-    lo, hi = node.bounds
-    longest = max(hi[i] - lo[i] for i in range(3))
-    nut = to_solid(node, resolution=max(16, math.ceil(longest / cell)))
+    nut = _mesh_fastener(node, _fastener_cell(thread_spec))
     meta = get_solid_metadata(nut, create=True)
     add_tags(meta, ["fastener", "hex_nut"])
     set_layer(meta, "hardware")
