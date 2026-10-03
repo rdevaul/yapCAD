@@ -197,6 +197,8 @@ def cmd_run(args):
             description=args.description,
             component_exports=args.component_export,
             overwrite=args.force,
+            representation=args.representation,
+            sdf_cell_mm=args.sdf_cell,
         )
 
         if not result.success:
@@ -208,7 +210,9 @@ def cmd_run(args):
 
     # Regular execution
     recursion_limit = getattr(args, 'recursion_limit', None)
-    result = compile_and_run(source, args.command, parameters, recursion_limit=recursion_limit)
+    result = compile_and_run(source, args.command, parameters, recursion_limit=recursion_limit,
+                             representation=args.representation,
+                             sdf_cell_mm=args.sdf_cell)
 
     if not result.success:
         print(f"Error: {result.error_message}", file=sys.stderr)
@@ -361,6 +365,12 @@ def main():
                           help='Overwrite existing output')
     run_parser.add_argument('--recursion-limit', type=int, metavar='N',
                           help='Maximum recursion depth for command calls (default: 100, env: YAPCAD_DSL_RECURSION_LIMIT)')
+    run_parser.add_argument('--representation', choices=('mesh', 'sdf'),
+                          help='Build primitives, fasteners and gears as meshes or as '
+                               'SDF fields (default: mesh, env: YAPCAD_DSL_REPRESENTATION)')
+    run_parser.add_argument('--sdf-cell', type=float, metavar='MM',
+                          help='Cell size SDF primitives are meshed at '
+                               '(env: YAPCAD_DSL_SDF_CELL_MM)')
 
     args = parser.parse_args()
 

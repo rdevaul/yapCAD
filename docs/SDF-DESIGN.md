@@ -343,6 +343,29 @@ New builtins (`sdf_sphere`, `sdf_box`, `smooth_union(a, b, k)`, `offset`,
 a new `dsl/runtime/builtins_sdf.py`. `dsl/runtime/builtins.py` is already 4216
 lines and should not absorb them.
 
+### 9.1 As built: a representation switch
+
+Rather than an `SDF` type and parallel `sdf_*` builtins, the first DSL
+surface is a switch: with `representation="sdf"` —
+`compile_and_run(...)`, `package_from_dsl(...)`, `yapcad.dsl run
+--representation sdf`, or `YAPCAD_DSL_REPRESENTATION=sdf` for tools that do
+not pass it — `box`, `cylinder`, `sphere`, `cone`, `tube` and
+`spherical_shell` produce SDF-authored solids placed exactly as their mesh
+versions are, `metric_hex_nut`/`_bolt` and the unified versions build their
+field nuts and bolts, and `miter_gear`, `straight_bevel_gear`,
+`involute_gear` and `herringbone_gear` their field gears. Everything else in
+a design is unchanged, and because booleans, `fillet` and `compound` already
+keep fields, an existing design builds as fields without edits. Primitives
+mesh at `sdf_cell_mm` (or `YAPCAD_DSL_SDF_CELL_MM`), never coarser than a
+quarter of their thinnest extent. Other primitives — extrusions of regions,
+sweeps, lofts — still produce meshes, which booleans then combine through
+the mesh engine.
+
+The switch reproduces the mesh primitives' geometry, including one
+oddity: the DSL's `sphere(radius)` passes its argument to
+`geom3d_util.sphere`, which takes a diameter, so both representations make
+a sphere of half the documented radius.
+
 ## 10. Phased plan
 
 | Phase | Work | Unlocks |
