@@ -101,6 +101,7 @@ from yapcad.sdf.contour import (
 )
 from yapcad.sdf.convert import NonManifoldMeshError, mesh_to_surface, to_solid
 from yapcad.sdf.booleans import combine_all, is_sdf_solid
+from yapcad.sdf.simplify import simplify_mesh, simplify_solid
 from yapcad.sdf.planar import apex_extrude, extrude, polygon
 from yapcad.sdf.gears import straight_bevel_gear
 from yapcad.sdf.threads import hex_nut, thread, thread_profile
@@ -157,6 +158,9 @@ __all__ = [
     "half_space",
     "gyroid",
     "schwarz_p",
+    # meshing
+    "simplify_mesh",
+    "simplify_solid",
     # planar profiles
     "polygon",
     "extrude",

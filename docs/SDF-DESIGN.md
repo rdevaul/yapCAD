@@ -641,6 +641,53 @@ children. Mixed operands keep the pairwise path unchanged.
 intersection returns `['solid', [], [], ['sdf', tree]]`, which yapCAD
 already allows for empty CSG results and which serialises and reads back.
 
+### 10.7 Simplifying against the field
+
+Dual contouring meshes a part at the cell size its finest feature needs,
+everywhere: an M8 nut fine enough for its 0.16 mm crest flats is just as
+fine across its flat faces. `sdf.simplify_solid(solid, tolerance)` recovers
+that by quadric edge collapse (Garland–Heckbert), checked against the
+field. It runs in rounds. Each scores every edge at once, picks greedily a
+set of the cheapest edges with disjoint neighbourhoods, moves each merged
+vertex onto the surface by Newton steps, and tests them all together:
+
+- **Topology** by the link condition, so the mesh stays a closed manifold.
+- **Orientation**: no surrounding triangle flips or collapses.
+- **Fidelity**: `|f|` is sampled across every changed triangle on a grid
+  of two points per original edge length and at least four divisions, so a
+  large merged triangle is checked more densely than the small ones it
+  replaces. A sparser grid (one point per edge, two divisions minimum)
+  read 0.095 mm on a triangle cut across a sharp edge whose true error was
+  0.142 mm; with it the worst error over the whole part rose about 1.5%.
+  Each triangle's error is cached and remeasured only when a collapse
+  rewrites it. It must stay within the
+  tolerance — or, where dual contouring already strayed further (along
+  sharp edges it rounds), the worst error may not rise and the excess over
+  the tolerance, integrated over area, may not grow. Without that second
+  rule a sharp edge either froze every collapse near it or, with a looser
+  rule, licensed its neighbours to reach its error, and the bad region
+  spread a ring per round.
+
+Rejected edges are remembered until something near them changes, which
+keeps the tail of rounds cheap. It is deterministic, and the tolerance is
+recorded with the meshing parameters.
+
+At 0.01 mm, measured by sampling uniformly by area (sampling per triangle
+over-weights the small triangles left at sharp edges and misleads):
+
+| Part | Triangles kept | p99 `\|f\|`, before → after | Area over 0.01 mm | Volume |
+|---|---|---|---|---|
+| Plate with two holes | 9.9% | 0.0121 → 0.0112 mm | 1.7% → 1.5% | −0.03% |
+| Threaded M8 nut | 3.8% | 0.0157 → 0.0086 mm | 2.1% → 0.7% | +0.12% |
+| Miter gear, z24 | 5.9% | 0.0276 → 0.0153 mm | 4.7% → 1.8% | −0.09% |
+
+The result is *more* accurate than the uniform mesh, because merged
+vertices land on the surface. Its cost is dominated by field evaluation, so
+it inherits the field's speed: about 6 s for the plate and 18 s for the nut,
+but minutes for the gear, whose polygon field is the slow part.
+Meshing adaptively in the first place — refining only where the field says
+so — would avoid building the uniform mesh at all, and is the larger
+follow-on.
 ### 10.6 Gears and threaded fasteners
 
 The last OCC dependency in yapRover's release design is its differential's
