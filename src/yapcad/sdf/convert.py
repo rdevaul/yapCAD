@@ -11,10 +11,18 @@ made round-trip, alongside the meshing parameters needed to reproduce the
 preview exactly — which matters because yapCAD signs packages.
 """
 
+import math
+
 from yapcad.geom3d import solid, surface
 from yapcad.sdf.contour import dual_contour, manifold_defects
 from yapcad.sdf.evaluate import DEFAULT_BACKEND
-from yapcad.sdf.node import SdfError, to_construction
+from yapcad.sdf.node import (
+    SdfError,
+    bounds_intersect,
+    bounds_is_empty,
+    make_node,
+    to_construction,
+)
 
 
 class NonManifoldMeshError(SdfError):
@@ -73,22 +81,44 @@ def to_solid(node, resolution=64, bounds=None, padding=None, chunk=32,
         raise SdfError(f"brep must be True, False or 'auto', got {brep!r}")
     replayed = _replay(node, brep)
 
-    mesh = dual_contour(node, resolution=resolution, bounds=bounds,
-                        padding=padding, chunk=chunk, prune=prune,
-                        backend=backend)
-    if check:
-        defects = manifold_defects(mesh)
-        if any(defects.values()):
-            raise NonManifoldMeshError(
-                f"dual contouring produced an unusable mesh at resolution "
-                f"{resolution}: {defects['nonmanifold']} non-manifold edges, "
-                f"{defects['boundary']} boundary edges, "
-                f"{defects['coincident']} coincident vertices. The surface "
-                f"most likely passes through one cell twice -- a wall or a "
-                f"gap thinner than a cell. Raise the resolution, or pass "
-                f"check=False to accept the mesh as-is."
-            )
-    surf = mesh_to_surface(mesh)
+    def contour(body, body_resolution, body_bounds):
+        mesh = dual_contour(body, resolution=body_resolution,
+                            bounds=body_bounds, padding=padding, chunk=chunk,
+                            prune=prune, backend=backend)
+        if check:
+            defects = manifold_defects(mesh)
+            if any(defects.values()):
+                raise NonManifoldMeshError(
+                    f"dual contouring produced an unusable mesh at "
+                    f"resolution {body_resolution}: "
+                    f"{defects['nonmanifold']} non-manifold edges, "
+                    f"{defects['boundary']} boundary edges, "
+                    f"{defects['coincident']} coincident vertices. The "
+                    f"surface most likely passes through one cell twice -- "
+                    f"a wall or a gap thinner than a cell. Raise the "
+                    f"resolution, or pass check=False to accept the mesh "
+                    f"as-is."
+                )
+        return mesh_to_surface(mesh)
+
+    bodies = _bodies(node)
+    if len(bodies) == 1:
+        surfaces = [contour(node, resolution, bounds)]
+    else:
+        # A compound: each body meshed on its own, at the cell size the
+        # whole region would have had, so the result neither fuses touching
+        # bodies nor depends on how they were grouped.
+        region = bounds if bounds is not None else node.bounds
+        cell = _longest(region) / float(resolution)
+        surfaces = []
+        for body in bodies:
+            body_bounds = body.bounds if bounds is None else \
+                bounds_intersect(body.bounds, bounds)
+            if bounds_is_empty(body_bounds):
+                continue
+            body_resolution = max(2, math.ceil(_longest(body_bounds) / cell))
+            explicit = None if bounds is None else body_bounds
+            surfaces.append(contour(body, body_resolution, explicit))
     meshing = {
         "method": "dual-contouring",
         "resolution": int(resolution),
@@ -101,13 +131,30 @@ def to_solid(node, resolution=64, bounds=None, padding=None, chunk=32,
         meshing["bounds"] = [float(v) for v in bounds[0]] + \
                             [float(v) for v in bounds[1]]
     record = to_construction(node, meshing=meshing)
-    result = solid([surf], [], record)
+    result = solid(surfaces, [], record)
     if metadata:
         from yapcad.metadata import set_solid_metadata
         set_solid_metadata(result, dict(metadata))
     if replayed is not None:
         _attach_derived_brep(result, replayed, node)
     return result
+
+
+def _longest(region):
+    lo, hi = region
+    return max(hi[i] - lo[i] for i in range(3))
+
+
+def _bodies(node):
+    """The separate bodies of ``node``: its compound's members, with any
+    transforms above the compound pushed down onto them, or ``[node]``."""
+    if node.kind == "compound":
+        return [b for child in node.children for b in _bodies(child)]
+    if node.kind == "transform":
+        inner = _bodies(node.children[0])
+        if len(inner) > 1:
+            return [make_node("transform", node.p, (b,)) for b in inner]
+    return [node]
 
 
 def _replay(node, mode):
