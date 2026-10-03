@@ -347,13 +347,82 @@ def _plane_key(normal, offset, quantum):
     return tuple(np.round(np.append(n, offset) / quantum).astype(np.int64))
 
 
-def _point_in_triangle(p, tri, normal, tol):
-    """Is ``p`` (already in the triangle's plane) inside it, edges included?"""
+def _points_in_triangles(p, tris, normals, tol):
+    """For each triangle, is ``p`` (already in its plane) inside it, edges
+    included?"""
+    inside = np.ones(len(tris), dtype=bool)
     for i in range(3):
-        a, b = tri[i], tri[(i + 1) % 3]
-        if float(np.dot(np.cross(b - a, p - a), normal)) < -tol:
-            return False
-    return True
+        a, b = tris[:, i], tris[:, (i + 1) % 3]
+        side = np.einsum("ij,ij->i", np.cross(b - a, p - a), normals)
+        inside &= side >= -tol
+    return inside
+
+
+def _intervals_on_lines(P, dist, direction, tol):
+    """Per row, the span along ``direction[k]`` of triangle ``P[k]``'s cut
+    by a plane, given its corners' signed distances ``dist[k]`` from it.
+
+    The cut is the corners on the plane and the points where edges cross
+    it.  Rows with no cut get an empty interval (``lo > hi``).
+    """
+    lo = np.full(len(P), np.inf)
+    hi = np.full(len(P), -np.inf)
+    for k in range(3):
+        on = np.abs(dist[:, k]) <= tol
+        t = np.einsum("ij,ij->i", P[:, k], direction)
+        lo = np.where(on, np.minimum(lo, t), lo)
+        hi = np.where(on, np.maximum(hi, t), hi)
+        a, b = dist[:, k], dist[:, (k + 1) % 3]
+        cross = ((a > tol) & (b < -tol)) | ((a < -tol) & (b > tol))
+        with np.errstate(divide="ignore", invalid="ignore"):
+            w = np.where(cross, a / np.where(cross, a - b, 1.0), 0.0)
+        point = P[:, k] + (P[:, (k + 1) % 3] - P[:, k]) * w[:, None]
+        t = np.einsum("ij,ij->i", point, direction)
+        lo = np.where(cross, np.minimum(lo, t), lo)
+        hi = np.where(cross, np.maximum(hi, t), hi)
+    return lo, hi
+
+
+def _overlap_on_lines(Pi, dist_i, Pj, dist_j, n_i, n_j, tol):
+    """For each candidate ``j``, whether triangle ``i`` and triangle
+    ``Pj[j]``, each straddling the other's plane, overlap along their
+    planes' line of intersection (the Moller interval test).
+
+    ``dist_i[j]`` holds ``i``'s corner distances from ``j``'s plane and
+    ``dist_j[j]`` the reverse.
+    """
+    direction = np.cross(n_i[None, :], n_j)
+    length = np.linalg.norm(direction, axis=1)
+    parallel = length <= 1e-12          # near-parallel: stay conservative
+    direction = direction / np.where(parallel, 1.0, length)[:, None]
+    Pi = np.broadcast_to(Pi, Pj.shape)
+    lo_i, hi_i = _intervals_on_lines(Pi, dist_i, direction, tol)
+    lo_j, hi_j = _intervals_on_lines(Pj, dist_j, direction, tol)
+    empty = (lo_i > hi_i) | (lo_j > hi_j)
+    seg_lo = np.maximum(lo_i, lo_j)
+    seg_hi = np.minimum(hi_i, hi_j)
+    meet = seg_lo <= seg_hi + tol
+    # Where the test cannot be made, the segment is the whole line.
+    unknown = parallel | empty
+    seg_lo = np.where(unknown, -np.inf, seg_lo)
+    seg_hi = np.where(unknown, np.inf, seg_hi)
+    return unknown | meet, direction, seg_lo, seg_hi
+
+
+def _chord(piece, normal, offset, tol):
+    """The points where convex polygon ``piece`` meets a plane, or ``None``
+    if it lies on one side (touching does not count)."""
+    dist = [float(p @ normal) - offset for p in piece]
+    if all(d >= -tol for d in dist) or all(d <= tol for d in dist):
+        return None
+    pts = []
+    for k, (p, d) in enumerate(zip(piece, dist)):
+        if abs(d) <= tol:
+            pts.append(p)
+        q, e = piece[(k + 1) % len(piece)], dist[(k + 1) % len(piece)]
+        if (d > tol and e < -tol) or (d < -tol and e > tol):
+            pts.append(p + (q - p) * (d / (d - e)))
+    return np.asarray(pts)
 
 
 def fragments(src, other, pairs, tol, cos_tol):
@@ -378,13 +447,33 @@ def fragments(src, other, pairs, tol, cos_tol):
             continue
         n_i = src.N[i]
         cutters = {}
-        for j in cands:
-            if other.area2[j] <= 0.0:
-                continue
-            n_j, d_j = other.N[j], other.D[j]
-            dist_i = src.P[i] @ n_j - d_j
-            aligned = abs(float(np.dot(n_i, n_j))) >= cos_tol
-            if aligned and np.all(np.abs(dist_i) <= tol):
+        # The plane tests run over all candidates at once; only the few
+        # survivors reach the per-pair Python below.
+        c = np.asarray(cands, dtype=np.int64)
+        c = c[other.area2[c] > 0.0]
+        n_j_all, d_j_all = other.N[c], other.D[c]
+        dist_i_all = src.P[i] @ n_j_all.T - d_j_all          # (3, k)
+        dist_j_all = other.P[c] @ n_i - src.D[i]             # (k, 3)
+        aligned = np.abs(n_j_all @ n_i) >= cos_tol
+        flat = np.all(np.abs(dist_i_all) <= tol, axis=0)
+        is_coplanar = aligned & flat
+        apart_i = (np.all(dist_i_all > tol, axis=0)
+                   | np.all(dist_i_all < -tol, axis=0))
+        apart_j = (np.all(dist_j_all > tol, axis=1)
+                   | np.all(dist_j_all < -tol, axis=1))
+        crossing = ~is_coplanar & ~apart_i & ~apart_j
+        # Straddling each other's planes is not meeting: the two triangles
+        # must also overlap along the line their planes share.  Without
+        # this, the plane of every triangle a fan wedge straddles diced it
+        # -- dozens of cuts where nothing crosses it.
+        meets, line_dir, seg_lo, seg_hi = _overlap_on_lines(
+            src.P[i], dist_i_all.T, other.P[c], dist_j_all, n_i, n_j_all,
+            tol)
+        crossing &= meets
+        for k in np.nonzero(is_coplanar | crossing)[0].tolist():
+            j = int(c[k])
+            n_j, d_j = n_j_all[k], float(d_j_all[k])
+            if is_coplanar[k]:
                 coplanar[i].append(j)
                 # Split along the lines of the coplanar triangle's edges.
                 for e in range(3):
@@ -393,22 +482,46 @@ def fragments(src, other, pairs, tol, cos_tol):
                     length = np.linalg.norm(m)
                     if length > 0:
                         m = m / length
-                        cutters.setdefault(_plane_key(m, float(m @ p),
-                                                      quantum),
-                                           (m, float(m @ p)))
+                        span = q - p
+                        along = span / np.linalg.norm(span)
+                        a, b = float(p @ along), float(q @ along)
+                        cutters.setdefault(
+                            _plane_key(m, float(m @ p), quantum),
+                            (m, float(m @ p), []))[2].append(
+                                (along, min(a, b), max(a, b)))
                 continue
-            # Only planes of triangles that can actually cross this one.
-            if np.all(dist_i > tol) or np.all(dist_i < -tol):
-                continue
-            dist_j = other.P[j] @ n_i - src.D[i]
-            if np.all(dist_j > tol) or np.all(dist_j < -tol):
-                continue
-            cutters.setdefault(_plane_key(n_j, d_j, quantum), (n_j, d_j))
+            cutters.setdefault(_plane_key(n_j, d_j, quantum),
+                               (n_j, d_j, []))[2].append(
+                (line_dir[k], float(seg_lo[k]), float(seg_hi[k])))
+        # Cut a piece by a plane only where it meets one of the segments
+        # that plane actually contributes -- the real intersection of the
+        # two triangles, or the coplanar triangle's edge.  Every segment
+        # still ends up on piece boundaries, so each piece lies wholly on
+        # one side of the other solid's surface, but a box face crossed by
+        # a ring of k triangles splits into O(k) pieces, not the O(k^2) an
+        # unrestricted cut by every infinite plane makes.
         pieces = [tri]
         for key in sorted(cutters):
-            normal, offset = cutters[key]
+            normal, offset, segments = cutters[key]
+            # Which pieces straddle the plane at all, for every piece at
+            # once; only those are worth the per-piece chord test.
+            sizes = [len(piece) for piece in pieces]
+            dist = np.concatenate(pieces) @ normal - offset
+            starts = np.cumsum([0] + sizes[:-1])
+            straddles = ((np.minimum.reduceat(dist, starts) < -tol)
+                         & (np.maximum.reduceat(dist, starts) > tol))
             next_pieces = []
-            for piece in pieces:
+            for piece, crosses in zip(pieces, straddles.tolist()):
+                if not crosses:
+                    next_pieces.append(piece)
+                    continue
+                chord = _chord(piece, normal, offset, tol)
+                if chord is None or not any(
+                        max(float((chord @ d).min()), lo) <=
+                        min(float((chord @ d).max()), hi) + tol
+                        for d, lo, hi in segments):
+                    next_pieces.append(piece)
+                    continue
                 front, back = split_polygon(piece, normal, offset, tol)
                 if front is not None:
                     next_pieces.append(front)
@@ -469,11 +582,14 @@ def classify(src, other, polys, owner, coplanar, isolated, tol):
             continue
         centre = np.mean(polys[k], axis=0)
         found = None
-        for j in coplanar[i]:
-            if _point_in_triangle(centre, other.P[j], other.N[j], tol):
+        if coplanar[i]:
+            cj = np.asarray(coplanar[i], dtype=np.int64)
+            inside = _points_in_triangles(centre, other.P[cj], other.N[cj],
+                                          tol)
+            if inside.any():
+                j = int(cj[int(np.argmax(inside))])
                 found = SAME if float(np.dot(src.N[i], other.N[j])) > 0 \
                     else OPPOSITE
-                break
         if found is not None:
             classes[k] = found
             query_of.append(-1)
@@ -514,7 +630,30 @@ def _inside_2d(pt, loop2d):
     return inside
 
 
-def merge_fragments(polys, origin, normal, tol, flat_tol):
+def _drop_pass_through(loop, pts, corners, tol):
+    """Remove from ``loop`` the vertices that lie, with both neighbours, on
+    one edge of the triangle ``corners``."""
+    on = []
+    for vid in loop:
+        edges = set()
+        for e in range(3):
+            a, b = corners[e], corners[(e + 1) % 3]
+            d = b - a
+            dd = float(d @ d)
+            if dd == 0.0:
+                continue
+            t = float((pts[vid] - a) @ d) / dd
+            if -1e-9 <= t <= 1.0 + 1e-9 and \
+                    np.linalg.norm(pts[vid] - (a + t * d)) <= tol:
+                edges.add(e)
+        on.append(edges)
+    keep = [loop[k] for k in range(len(loop))
+            if not (on[k] & on[k - 1] & on[(k + 1) % len(loop)])]
+    return keep
+
+
+def merge_fragments(polys, origin, normal, tol, flat_tol,
+                    corners=None):
     """Re-triangulate the region a triangle's kept fragments cover.
 
     Cutting by infinite planes slices a triangle where its cutter never was,
@@ -525,6 +664,11 @@ def merge_fragments(polys, origin, normal, tol, flat_tol):
     leaving the region's boundary loops, which earcut triangulates afresh.
     Vertices that only existed on phantom cuts disappear; the ones shared
     with neighbouring triangles come back in the T-junction repair.
+
+    That includes boundary points: given the source triangle's ``corners``,
+    a loop vertex whose neighbours both lie on the same original edge is a
+    straight pass-through -- typically where a real cut line, extended
+    across the kept region, met the edge -- and is dropped.
 
     Returns 3D triangles, or ``None`` to mean "emit the fragments as they
     are" -- for a pinched boundary, an ambiguous hole, or a result whose
@@ -574,6 +718,12 @@ def merge_fragments(polys, origin, normal, tol, flat_tol):
         if cur != start or len(loop) < 3:
             return None
         loops.append(loop)
+
+    if corners is not None:
+        loops = [_drop_pass_through(loop, pts, corners, tol)
+                 for loop in loops]
+        if any(len(loop) < 3 for loop in loops):
+            return None
 
     flat = (pts - origin) @ np.stack([u, v], axis=1)
     outers, holes = [], []
@@ -626,6 +776,10 @@ def merge_fragments(polys, origin, normal, tol, flat_tol):
     return tris
 
 
+_NEIGHBOURS = np.array([(x, y, z) for x in (-1, 0, 1) for y in (-1, 0, 1)
+                        for z in (-1, 0, 1)], dtype=np.int64)
+
+
 def _repair_t_junctions(V, F, tol, flat_tol):
     """Split every edge that has a welded vertex lying strictly inside it.
 
@@ -649,24 +803,37 @@ def _repair_t_junctions(V, F, tol, flat_tol):
         dd = float(d @ d)
         if dd == 0.0:
             return []
-        found = []
-        for x in range(lo[0], hi[0] + 1):
-            for y in range(lo[1], hi[1] + 1):
-                for z in range(lo[2], hi[2] + 1):
-                    for v in grid.get((x, y, z), ()):
-                        if v == a or v == b:
-                            continue
-                        t = float((V[v] - p) @ d) / dd
-                        # Within tol of an endpoint is the endpoint itself
-                        # (the cluster weld has merged such points); only
-                        # genuinely interior points split the edge.
-                        span = math.sqrt(dd)
-                        if t * span <= tol or (1.0 - t) * span <= tol:
-                            continue
-                        if np.linalg.norm(V[v] - (p + t * d)) <= tol:
-                            found.append((t, v))
-        found.sort()
-        return [v for _, v in found]
+        extent = hi - lo + 1
+        samples = int(math.ceil(math.sqrt(dd) / cell)) + 1
+        if int(np.prod(extent)) <= 27 * samples:
+            keys = [(x, y, z) for x in range(lo[0], hi[0] + 1)
+                    for y in range(lo[1], hi[1] + 1)
+                    for z in range(lo[2], hi[2] + 1)]
+        else:
+            # A long, oblique edge's box holds far more cells than the edge
+            # passes through.  Points within tol of it (tol << cell) lie in
+            # the cells it crosses or their neighbours, so walk it in steps
+            # under one cell and take each step's 3x3x3 neighbourhood.
+            pts = p + np.linspace(0.0, 1.0, samples + 1)[:, None] * d
+            base = np.floor(pts / cell).astype(np.int64)
+            keys = {tuple(k) for k in
+                    (base[:, None, :] + _NEIGHBOURS[None]).reshape(-1, 3)
+                    .tolist()}
+        ids = [v for key in keys for v in grid.get(key, ())
+               if v != a and v != b]
+        if not ids:
+            return []
+        ids = np.asarray(ids, dtype=np.int64)
+        rel = V[ids] - p
+        t = (rel @ d) / dd
+        span = math.sqrt(dd)
+        # Within tol of an endpoint is the endpoint itself (the cluster weld
+        # has merged such points); only genuinely interior points split it.
+        interior = (t * span > tol) & ((1.0 - t) * span > tol)
+        near = np.linalg.norm(rel - t[:, None] * d, axis=1) <= tol
+        keep = np.nonzero(interior & near)[0]
+        order = keep[np.lexsort((ids[keep], t[keep]))]
+        return ids[order].tolist()
 
     cache = {}
     out = []
@@ -744,7 +911,8 @@ def solid_boolean(a, b, operation):
                 out_tris = None
                 if len(kept[i]) > 1:
                     out_tris = merge_fragments(kept[i], src.P[i, 0],
-                                               src.N[i], tol, flat_tol)
+                                               src.N[i], tol, flat_tol,
+                                               corners=src.P[i])
                 if out_tris is None:
                     out_tris = []
                     for poly in kept[i]:

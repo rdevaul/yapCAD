@@ -17,6 +17,18 @@ Unreleased
   for a closed, SDF-authoritative nut with a helical ``thread`` field whose
   profile is ``threadgen``'s own. The swept mesh, which is not closed,
   remains the default.
+- ``fillet`` works on SDF-authored solids without OCC. ``sdf.fillet``
+  rounds every edge exactly for the analytic primitives -- a box becomes a
+  ``rounded_box``, a cylinder the new exact ``rounded_cylinder`` -- through
+  similarity transforms and across the bodies of a compound, and the result
+  still replays to analytic STEP. The DSL's ``fillet`` uses it for any
+  SDF-authored solid. Fillets of combined fields, through non-uniform
+  scales, and of mesh-only solids are refused with an explanation; the plan
+  for them is in ``docs/SDF-DESIGN.md`` §10.5.
+- ``compound`` keeps the fields of SDF-authored operands, as a new
+  ``sdf.compound`` node: a union for booleans, separate bodies for meshing
+  and OCC replay. Booleans against a compound no longer fall back to the
+  mesh engine.
 - The native mesh boolean engine is rewritten (``yapcad.boolean.csg``) and
   now returns closed, volume-correct solids: 24 of 24 benchmark cases (was
   8) and 1,800 randomised boxes/spheres/cylinders/icosahedra cases against a
