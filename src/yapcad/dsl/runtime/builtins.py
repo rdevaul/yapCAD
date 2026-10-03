@@ -1530,9 +1530,11 @@ class BuiltinRegistry:
             return solid_val(conic(r, r, h))
 
         def _sphere(radius: Value) -> Value:
-            """Create a sphere solid."""
+            """Create a sphere solid of the given radius, centred on the
+            origin."""
             from yapcad.geom3d_util import sphere
-            return solid_val(sphere(radius.data))
+            # geom3d_util.sphere takes a diameter.
+            return solid_val(sphere(2.0 * radius.data))
 
         def _oblate_spheroid(equatorial_diameter: Value, oblateness: Value) -> Value:
             """Create an oblate spheroid (flattened sphere).

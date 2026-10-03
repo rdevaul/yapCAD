@@ -5,6 +5,12 @@ Changelog
 Unreleased
 ==========
 
+- Fix the DSL's ``sphere(radius)`` making a sphere of half the documented
+  radius: it passed its argument to ``geom3d_util.sphere``, which takes a
+  diameter. **Designs that call ``sphere`` in the DSL now get spheres twice
+  the size they did**; halve the argument to keep the old geometry. No DSL
+  source in this repository or in yapRover calls it. The Python API's
+  ``geom3d_util.sphere`` is unchanged and still takes a diameter.
 - The native mesh boolean engine is rewritten (``yapcad.boolean.csg``) and
   now returns closed, volume-correct solids: 24 of 24 benchmark cases (was
   8) and 1,800 randomised boxes/spheres/cylinders/icosahedra cases against a
