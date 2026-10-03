@@ -1,5 +1,7 @@
 """Parametric gear geometry."""
 
+from .involute import make_involute_gear_sdf
+
 from .bevel import (
     StraightBevelGearGeometry,
     StraightBevelGearSpec,
@@ -12,6 +14,7 @@ from .bevel import (
 )
 
 __all__ = [
+    "make_involute_gear_sdf",
     "StraightBevelGearGeometry",
     "StraightBevelGearSpec",
     "derive_straight_bevel_geometry",

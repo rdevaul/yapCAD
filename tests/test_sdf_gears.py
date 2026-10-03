@@ -201,3 +201,57 @@ def test_the_field_matches_the_occ_gear():
     assert np.abs(sdf.evaluate(node, surface)).max() < 5e-3
     assert occ.volume(occ.to_occ_shape(node)) == pytest.approx(
         analytic_volume(MITER, 17), rel=1e-3)
+
+
+# ---------------------------------------------------------------------------
+# spur, helical and herringbone gears
+# ---------------------------------------------------------------------------
+
+
+def spur_area(teeth, module, **kw):
+    from yapcad.contrib.figgear import make_gear_figure
+    pts, _ = make_gear_figure(m=module, z=teeth, alpha_deg=20.0,
+                              bottom_type="spline", **kw)
+    p = np.array(pts[:-1])
+    return 0.5 * abs(np.dot(p[:, 0], np.roll(p[:, 1], -1))
+                     - np.dot(p[:, 1], np.roll(p[:, 0], -1)))
+
+
+@pytest.mark.parametrize("helix,herringbone", [(0.0, False), (25.0, False),
+                                               (25.0, True)])
+def test_involute_gears_mesh_closed_to_their_volume(helix, herringbone):
+    """A twist preserves each section's area, so every variant's volume is
+    the profile area times the face width.  At 25 degrees the tooth tips'
+    acute edges once broke dual contouring at every resolution."""
+    kw = dict(involute_step=0.8, spline_division_num=12)
+    node = sdf.spur_gear(24, 1.5, 8.0, helix_angle_deg=helix,
+                         herringbone=herringbone, **kw)
+    lo, hi = node.bounds
+    longest = max(hi[i] - lo[i] for i in range(3))
+    solid = sdf.to_solid(node, resolution=math.ceil(longest / (1.5 / 8)))
+    assert issolidclosed(solid)
+    assert volumeof(solid) == pytest.approx(spur_area(24, 1.5, **kw) * 8.0,
+                                            rel=2e-3)
+
+
+def test_twist_turns_counter_clockwise_going_up():
+    bar = sdf.translate(sdf.box((10.0, 1.0, 20.0)), (0, 0, 10.0))
+    turned = sdf.twist(bar, math.radians(90) / 10.0)        # 90 deg at z=10
+    # At z = 10 the bar lies along y.
+    assert sdf.evaluate(turned, [0.0, 4.0, 10.0]) < 0
+    assert sdf.evaluate(turned, [4.0, 0.0, 10.0]) > 0
+    folded = sdf.twist(bar, math.radians(90) / 10.0, fold_z=10.0)
+    # Turned 90 degrees at the fold, and back along x near the top.
+    assert sdf.evaluate(folded, [0.0, 4.0, 10.0]) < 0
+    assert sdf.evaluate(folded, [4.0, 0.0, 19.9]) < 0
+
+
+def test_dsl_herringbone_gear_needs_no_occ(monkeypatch):
+    import yapcad.brep
+    monkeypatch.setattr(yapcad.brep, "occ_available", lambda: False)
+    gear = get_builtin_registry().get_function("herringbone_gear")
+    solid = gear.implementation(int_val(16), float_val(1.0), float_val(6.0),
+                                float_val(25.0)).data
+    assert issolidclosed(solid)
+    tree = sdf.from_construction(get_construction(solid))
+    assert tree.kind == "spur_gear" and tree.p["herringbone"]

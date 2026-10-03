@@ -684,10 +684,41 @@ and re-evaluate from the same numbers the BREP generators use:
   representation="sdf")` (and the unified equivalent) meshes it closed,
   where the swept-mesh nut is not; the mesh nut stays the default.
 
-Not yet done: external threads and bolts, spur, helical and herringbone
-gears (polygon plus a `twist` domain operator), and a DSL switch to author
-fasteners as fields. The investigation behind this section measured those
-too; they mesh closed within 0.1% of reference.
+- **`hex_bolt`** — an external `thread` from the tip at z = 0, a plain
+  shank, a washer face and a hex head, placed as `build_hex_cap_screw`
+  places them; `metric_hex_bolt(..., representation="sdf")`. Both nut and
+  bolt end their threads square, where the legacy meshes taper them.
+- **`spur_gear`** — spur, helical and herringbone involute gears: the
+  `figgear` profile as a symmetric `polygon`, extruded, and for a helix
+  wrapped in **`twist`**, a domain operator rotating each section by
+  `rate·z` (or `rate·(c − |z − c|)` for a herringbone, peaking at mid
+  face). A twist preserves section area, so the volume is exactly profile
+  area × face width, which the tests check. `gears.make_involute_gear_sdf`
+  meshes it, and the DSL's `herringbone_gear` uses it without OCC.
+
+Symmetric polygons evaluate in two levels: a folded point's radial ray can
+cross only the segments reaching into its own sector, so those ~35 decide
+the sign and a first distance, and the ~100 in neighbouring sectors are
+tested only where their bounding box is nearer. That is exact and three
+times faster, which matters because the gear field dominates both meshing
+and simplification.
+
+**Acute edges needed Manifold Dual Contouring.** A 25° helical gear came
+out non-manifold at every resolution tried: its tooth tips' acute edges
+leave a wedge of material thinner than any cell, and one vertex per cell
+cannot represent a cell the surface crosses twice. The gyroid lattice
+wheel failed the same way. `dual_contour` now places one vertex per
+surface component of a cell (Schaefer, Ju and Warren). A 256-entry table
+groups each configuration's crossing edges into components: edges join
+when they bound one segment of a shared face, and a face with diagonal
+inside corners pairs its edges around each inside corner, a rule both
+cells sharing the face agree on. Cells with one component, almost all of
+them, get the vertex they always had. One case remains: a cell whose single
+component crosses one face twice still doubles an edge. That needs local
+refinement and belongs with adaptive meshing.
+
+Not yet done: `sun_gear_with_hub` without OCC, and a DSL switch to author
+parts as fields.
 
 ## 11. Open questions
 

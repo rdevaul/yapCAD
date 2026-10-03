@@ -5,6 +5,16 @@ Changelog
 Unreleased
 ==========
 
+- ``metric_hex_bolt`` and ``unified_hex_bolt`` take ``representation="sdf"``
+  for a closed bolt with an external ``thread`` field (``sdf.hex_bolt``).
+- Spur, helical and herringbone gears as fields: ``sdf.spur_gear`` (the
+  ``figgear`` profile, extruded, and twisted by the new ``sdf.twist``
+  operator) and ``gears.make_involute_gear_sdf``. The DSL's
+  ``herringbone_gear`` uses it when OCC is absent.
+- Dual contouring places one vertex per surface component of a cell
+  (Manifold Dual Contouring), so acute edges -- helical gear tips, lattice
+  walls -- no longer mesh non-manifold. Ordinary meshes are unchanged.
+- Symmetric ``polygon`` fields evaluate three times faster.
 - Straight bevel and miter gears build without OCC. The new
   ``straight_bevel_gear`` field stores the gear spec and evaluates as the
   BREP generator's own construction, the outer tooth section carried to

@@ -20,6 +20,11 @@ pattern exact fields:
     profile scaled by ``z / z_ref``.  This is exactly how a straight bevel
     gear's teeth are built (see :mod:`yapcad.gears.bevel`).
 
+``twist``
+    Rotates each section about the z axis by an angle that grows linearly
+    with z -- a helical gear -- or rises to a fold and falls back, a
+    herringbone.
+
 None of them replays through OCC directly; semantic nodes built on them,
 like ``straight_bevel_gear``, replay through their own generators.
 """
@@ -31,7 +36,7 @@ import numpy as np
 from yapcad.sdf.node import INF, FieldProps, NodeSpec, SdfError, make_node, \
     register
 
-__all__ = ["polygon", "extrude", "apex_extrude"]
+__all__ = ["polygon", "extrude", "apex_extrude", "twist"]
 
 #: Points evaluated per batch against all segments, bounding memory at
 #: about ``BATCH x segments`` doubles per temporary.
@@ -354,3 +359,65 @@ def apex_extrude(child, z_ref, z_lo, z_hi):
         raise SdfError("apex_extrude: needs 0 < z_lo < z_hi and z_ref > 0")
     return make_node("apex_extrude",
                      {"z_ref": zr, "z_lo": zl, "z_hi": zh}, (child,))
+
+
+# ---------------------------------------------------------------------------
+# twist
+# ---------------------------------------------------------------------------
+
+
+def _twist_angle(params, z):
+    rate = params["rate"]
+    fold = params["fold_z"]
+    if fold is None:
+        return rate * z
+    return rate * (fold - np.abs(z - fold))
+
+
+def _analyze_twist(params, child_props):
+    (child,) = child_props
+    (x0, y0, z0), (x1, y1, z1) = child.bounds
+    r = math.hypot(max(abs(x0), abs(x1)), max(abs(y0), abs(y1)))
+    # The map p -> R(-angle(z)) p has Jacobian a rotation composed with a
+    # shear of size |rate| r in the z direction; its largest singular value
+    # is that of [[1, kr], [0, 1]].
+    kr = abs(params["rate"]) * r
+    stretch = 0.5 * (kr + math.sqrt(kr * kr + 4.0))
+    return FieldProps(
+        exact=False,
+        lipschitz=child.lipschitz * stretch,
+        bounds=((-r, -r, z0), (r, r, z1)),
+        csg_exact=False,
+    )
+
+
+def _eval_twist(params, p, children, ev):
+    angle = -_twist_angle(params, p[:, 2])
+    c, s = np.cos(angle), np.sin(angle)
+    q = np.column_stack((c * p[:, 0] - s * p[:, 1],
+                         s * p[:, 0] + c * p[:, 1], p[:, 2]))
+    return ev(children[0], q)
+
+
+register(NodeSpec(
+    kind="twist",
+    min_children=1,
+    max_children=1,
+    analyze=_analyze_twist,
+    backends={"numpy": _eval_twist},
+))
+
+
+def twist(child, rate, fold_z=None):
+    """Rotate ``child``'s section at height ``z`` counter-clockwise (seen
+    from +z) by ``rate * z`` radians -- or, given ``fold_z``, by ``rate *
+    (fold_z - |z - fold_z|)``, rising to the fold and back: a herringbone.
+    """
+    try:
+        k = float(rate)
+        fold = None if fold_z is None else float(fold_z)
+    except (TypeError, ValueError):
+        raise SdfError("twist: rate and fold_z must be numbers") from None
+    if not math.isfinite(k) or (fold is not None and not math.isfinite(fold)):
+        raise SdfError("twist: rate and fold_z must be finite")
+    return make_node("twist", {"rate": k, "fold_z": fold}, (child,))
