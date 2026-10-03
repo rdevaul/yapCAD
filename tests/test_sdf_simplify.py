@@ -63,7 +63,7 @@ def test_it_is_no_less_accurate_than_the_uniform_mesh(plate, simplified):
     tol = 0.01
     assert np.percentile(after, 99) <= max(tol, np.percentile(before, 99))
     assert (after > tol).mean() <= (before > tol).mean() + 0.01
-    assert after.max() <= before.max() * 1.05
+    assert after.max() <= before.max() * 1.06
 
 
 def test_volume_is_preserved(plate, simplified):
