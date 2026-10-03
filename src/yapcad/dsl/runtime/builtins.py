@@ -1891,9 +1891,11 @@ class BuiltinRegistry:
                 raise RuntimeError(
                     f"unknown straight bevel gear generation type '{mode}'"
                 )
+            from yapcad.brep import occ_available
             from yapcad.gears.bevel import (
                 StraightBevelGearSpec,
                 make_straight_bevel_gear,
+                make_straight_bevel_gear_sdf,
             )
             spec = StraightBevelGearSpec(
                 teeth=int(teeth.data),
@@ -1906,6 +1908,10 @@ class BuiltinRegistry:
                 bore_diameter_mm=float(bore_diameter_mm.data),
                 generation_type=mode,
             )
+            if not occ_available():
+                # The same gear as a field: no OCC needed, and it stays
+                # SDF-authoritative, so later field booleans keep it exact.
+                return solid_val(make_straight_bevel_gear_sdf(spec))
             return solid_val(make_straight_bevel_gear(spec))
 
         self.register(BuiltinFunction(
@@ -2690,7 +2696,20 @@ class BuiltinRegistry:
                 if len(op) > 1 and op[1]:
                     all_surfaces.extend(op[1])
 
-            # Create result solid with combined surfaces
+            # Create result solid with combined surfaces.  When every
+            # operand is field-authored the compound keeps their fields, so
+            # booleans against it stay on the field path rather than falling
+            # back to the mesh engine with a fused-looking mesh.
+            from yapcad.sdf.booleans import is_sdf_solid
+            if all(is_sdf_solid(op) for op in operands):
+                from yapcad.construction import get_construction
+                from yapcad.sdf.node import from_construction, \
+                    to_construction
+                from yapcad.sdf.ops import compound as sdf_compound
+                tree = sdf_compound(*(from_construction(get_construction(op))
+                                      for op in operands))
+                return solid_val(solid(all_surfaces, [],
+                                       to_construction(tree)))
             result = solid(all_surfaces, [], ['procedure', 'compound'])
 
             # If OCC available, create a proper compound shape
@@ -3182,8 +3201,10 @@ class BuiltinRegistry:
         def _fillet(s: Value, radius: Value) -> Value:
             """Apply fillet (rounded edge) to all edges of a solid.
 
-            Requires pythonocc-core/OCC. Uses the BREP representation
-            attached to the solid for precise edge operations.
+            An SDF-authored solid is filleted on its field, without OCC
+            (:func:`yapcad.sdf.fillet_solid`).  Otherwise this needs
+            pythonocc-core and the BREP attached to the solid.  Mesh-only
+            solids are not supported yet.
 
             Args:
                 s: A solid to fillet
@@ -3197,9 +3218,17 @@ class BuiltinRegistry:
                 fillet_all_edges, occ_available, BrepSolid
             )
             from yapcad.geom3d import solid
+            from yapcad.sdf.booleans import is_sdf_solid
 
+            if is_sdf_solid(s.data):
+                from yapcad.sdf.fillet import fillet_solid
+                return solid_val(fillet_solid(s.data, float(radius.data)))
             if not occ_available():
-                raise RuntimeError("fillet requires pythonocc-core (OCC)")
+                raise RuntimeError(
+                    "fillet needs an SDF-authored solid, or a BREP solid "
+                    "with pythonocc-core (OCC) installed; filleting a "
+                    "mesh-only solid is not implemented yet"
+                )
 
             # Get BREP representation from solid
             brep = brep_from_solid(s.data)

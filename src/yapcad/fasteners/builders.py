@@ -188,6 +188,7 @@ def build_hex_nut_from_catalog(
     thread_arc_samples: int = 180,
     thread_samples_per_pitch: int = 6,
     catalog_path: Optional[Path] = None,
+    representation: str = "mesh",
 ):
     """Build a hex nut using catalog dimensions.
 
@@ -235,4 +236,42 @@ def build_hex_nut_from_catalog(
         thread_samples_per_pitch=thread_samples_per_pitch,
     )
 
+    if representation == "sdf":
+        return _build_hex_nut_sdf(profile, spec)
+    if representation != "mesh":
+        raise ValueError(
+            f"representation must be 'mesh' or 'sdf', got {representation!r}"
+        )
     return build_hex_nut(profile, spec)
+
+
+def _build_hex_nut_sdf(profile, spec):
+    """The nut as a field (:func:`yapcad.sdf.threads.hex_nut`), meshed at
+    a cell size its thread's narrowest flat can survive."""
+    import math
+
+    from yapcad.metadata import add_tags, get_solid_metadata, set_layer
+    from yapcad.sdf.convert import to_solid
+    from yapcad.sdf.threads import hex_nut
+
+    thread_spec = replace(profile, internal=True, handedness=spec.handedness,
+                          starts=spec.starts)
+    node = hex_nut(thread_spec, spec.width_flat, spec.thickness)
+    narrowest = min(thread_spec.crest_flat_ratio,
+                    thread_spec.root_flat_ratio) * thread_spec.P_pitch
+    cell = 0.9 * narrowest
+    lo, hi = node.bounds
+    longest = max(hi[i] - lo[i] for i in range(3))
+    nut = to_solid(node, resolution=max(16, math.ceil(longest / cell)))
+    meta = get_solid_metadata(nut, create=True)
+    add_tags(meta, ["fastener", "hex_nut"])
+    set_layer(meta, "hardware")
+    meta["hex_nut"] = {
+        "diameter": spec.diameter,
+        "pitch": spec.pitch,
+        "width_flat": spec.width_flat,
+        "thickness": spec.thickness,
+        "starts": spec.starts,
+        "handedness": spec.handedness,
+    }
+    return nut

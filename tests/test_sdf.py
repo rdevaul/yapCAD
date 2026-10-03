@@ -15,6 +15,8 @@ import numpy as np
 import pytest
 
 from yapcad import sdf
+from yapcad.gears.bevel import StraightBevelGearSpec
+from yapcad.threadgen import ThreadProfile
 from yapcad.geom3d import signedFaceDistance
 from yapcad.geom3d_util import prism
 
@@ -40,6 +42,7 @@ SAMPLES = {
     "box": sdf.box((8.0, 12.0, 5.0)),
     "rounded_box": sdf.rounded_box((8.0, 12.0, 5.0), 1.5),
     "cylinder": sdf.cylinder(4.0, 11.0),
+    "rounded_cylinder": sdf.rounded_cylinder(4.0, 11.0, 1.5),
     "capsule": sdf.capsule((-3.0, 0.0, -2.0), (4.0, 1.0, 3.0), 2.5),
     "torus": sdf.torus(9.0, 2.5),
     "cone": sdf.cone(6.0, 2.0, 10.0),
@@ -47,6 +50,8 @@ SAMPLES = {
     "gyroid": sdf.gyroid(12.0, 0.4),
     "schwarz_p": sdf.schwarz_p(15.0, 0.5),
     "union": sdf.union(sdf.sphere(6.0), sdf.box(8.0)),
+    "compound": sdf.compound(sdf.sphere(4.0),
+                             sdf.translate(sdf.box(6.0), (9.0, 0.0, 0.0))),
     "intersect": sdf.intersect(sdf.sphere(6.0), sdf.box(8.0)),
     "subtract": sdf.subtract(sdf.box(9.0), sdf.sphere(5.0)),
     "smooth_union": sdf.smooth_union(sdf.sphere(6.0), sdf.box(8.0), 2.0),
@@ -57,6 +62,24 @@ SAMPLES = {
     "offset": sdf.offset(sdf.box(8.0), 1.25),
     "shell": sdf.shell(sdf.sphere(6.0), 1.0),
     "transform": sdf.rotate(sdf.box((8.0, 4.0, 2.0)), (0, 0, 1), 30.0),
+    "polygon": sdf.polygon([(-4.0, -3.0), (5.0, -2.0), (1.0, 6.0)]),
+    "extrude": sdf.extrude(
+        sdf.polygon([(math.cos(k * math.pi / 3) * 5.0,
+                      math.sin(k * math.pi / 3) * 5.0) for k in range(6)],
+                    symmetry=6), 4.0),
+    "apex_extrude": sdf.apex_extrude(
+        sdf.polygon([(-4.0, -4.0), (4.0, -4.0), (4.0, 4.0), (-4.0, 4.0)]),
+        10.0, 6.0, 10.0),
+    "straight_bevel_gear": sdf.straight_bevel_gear(
+        StraightBevelGearSpec(teeth=12, mate_teeth=12, outer_module_mm=1.0,
+                              face_width_mm=3.0, bore_diameter_mm=2.0),
+        flank_samples=5),
+    "thread": sdf.thread([(0.0, 4.0), (0.1, 4.0), (0.55, 3.3), (0.7, 3.3),
+                          (1.15, 4.0), (1.25, 4.0)], 1.25),
+    "hex_nut": sdf.hex_nut(
+        ThreadProfile(D_nominal=8.0, P_pitch=1.25, crest_flat_ratio=0.125,
+                      root_flat_ratio=0.125, thread_depth_ratio=0.57,
+                      internal=True), 13.0, 6.8),
 }
 
 
