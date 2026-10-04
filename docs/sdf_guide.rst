@@ -85,16 +85,17 @@ Building fields
 
 **Combinators.**
 
-====================================  ====================================================
+====================================  =================================================
 ``union(*parts)``                     the region any part occupies
 ``intersect(*parts)``                 the region every part occupies
 ``subtract(target, *tools)``          ``target`` less every tool
 ``compound(*parts)``                  a union for booleans; separate bodies when meshed
 ``smooth_union(a, b, radius)``        a union blended over ``radius``
-``smooth_intersect`` / ``smooth_subtract``  the blended forms of the others
+``smooth_intersect(a, b, radius)``    an intersection blended over ``radius``
+``smooth_subtract(a, b, radius)``     a difference blended over ``radius``
 ``offset(part, distance)``            grow (or, negative, shrink) a part
 ``shell(part, thickness)``            a wall of ``thickness`` straddling the surface
-====================================  ====================================================
+====================================  =================================================
 
 **Transforms**: ``translate(part, delta)``, ``rotate(part, axis, degrees)``,
 ``scale(part, factor)`` and ``transform(part, matrix)``. A field moved by
@@ -156,20 +157,29 @@ broken solid. Raise the resolution if it does.
 Meshing uniformly makes more triangles than a part needs: an M8 nut fine
 enough for its threads is just as fine across its flat faces.
 ``sdf.simplify_solid`` merges triangles wherever the field confirms the
-merged surface stays within a tolerance of the true part:
+merged surface stays within a tolerance of the true part -- by default a
+twentieth of the cell the part was meshed at:
 
 .. code-block:: python
 
     from yapcad.fasteners import metric_hex_nut
 
-    nut = metric_hex_nut("M8", representation="sdf")    # about 97,000 triangles
-    light = sdf.simplify_solid(nut, 0.01)                # about 3,500
+    uniform = metric_hex_nut("M8", representation="sdf", simplify=False)
+    light = sdf.simplify_solid(uniform)    # about 97,000 -> 3,500 triangles
     assert issolidclosed(light)
 
 The simplified mesh is closed, no less accurate than the uniform one, and
-records the tolerance alongside the other meshing parameters. It costs
-roughly twenty times the meshing, so apply it to finished parts rather
-than intermediate results.
+records the tolerance alongside the other meshing parameters.
+
+**Finished parts are simplified by default**: the fastener and gear
+builders, the solids a field-mode DSL call returns, and the parts of a
+packaged field-mode assembly. Intermediate results -- every boolean -- are
+not, because simplifying costs about twenty times the meshing and those
+meshes are usually discarded. Pass ``simplify=False`` (fasteners, gears),
+``sdf_simplify=False`` (``compile_and_run``, ``package_from_dsl``),
+``--no-simplify`` on the DSL command line, or set ``YAPCAD_SDF_SIMPLIFY=0``
+to keep the uniform meshes. ``sdf.simplify_finished`` applies the same rule
+to your own parts.
 
 
 Booleans

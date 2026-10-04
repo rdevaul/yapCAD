@@ -18,8 +18,10 @@ would build them.
     A straight bevel gear and a double-helical involute gear, from
     ``yapcad.gears``.
 
-Every part is meshed by dual contouring, then simplified against its own
-field (``sdf.simplify_solid``); the report gives both triangle counts.
+Every part is meshed by dual contouring and then simplified against its
+own field.  yapCAD's builders simplify finished parts by default; this demo
+asks them for the uniform mesh and simplifies it itself
+(``sdf.simplify_solid``), so the report can give both triangle counts.
 
 Usage:
     # STL meshes, PNG previews and a summary in build/sdf-parts
@@ -79,7 +81,8 @@ command WHEEL_HUB() -> solid:
 
 def yaprover_wheel():
     result = compile_and_run(WHEEL_DSL, "WHEEL_HUB", {},
-                             representation="sdf", sdf_cell_mm=0.5)
+                             representation="sdf", sdf_cell_mm=0.5,
+                             sdf_simplify=False)
     if not result.success:
         raise RuntimeError(result.error_message)
     geometry = result.geometry
@@ -109,12 +112,12 @@ def gyroid_wheel():
 def miter_gear():
     return make_straight_bevel_gear_sdf(StraightBevelGearSpec(
         teeth=24, mate_teeth=24, outer_module_mm=1.5, face_width_mm=8.0,
-        backlash_mm=0.25, bore_diameter_mm=8.4))
+        backlash_mm=0.25, bore_diameter_mm=8.4), simplify=False)
 
 
 def herringbone_gear():
     return make_involute_gear_sdf(20, 1.5, 8.0, helix_angle_deg=25.0,
-                                  herringbone=True)
+                                  herringbone=True, simplify=False)
 
 
 #: name, builder, what it shows, camera overrides
@@ -125,10 +128,14 @@ PARTS = [
     ("gyroid-wheel", gyroid_wheel,
      "a gyroid web blended into rim and hub in place of the spokes",
      {"elevation": 40.0}),
-    ("m8-nut", lambda: metric_hex_nut("M8", representation="sdf"),
-     "ISO 4032 M8 nut with a helical thread field", {"elevation": 50.0}),
-    ("m8x30-bolt", lambda: metric_hex_bolt("M8", 30.0, representation="sdf"),
-     "M8x30 hex bolt: external thread, shank, washer face, head", {}),
+    ("m8-nut", lambda: metric_hex_nut("M8", representation="sdf",
+                                      simplify=False),
+     "ISO 4032 M8 nut with a helical thread field",
+     {"elevation": 50.0, "zoom": 3.4}),
+    ("m8x30-bolt", lambda: metric_hex_bolt("M8", 30.0, representation="sdf",
+                                           simplify=False),
+     "M8x30 hex bolt: external thread, shank, washer face, head",
+     {"zoom": 3.6}),
     ("miter-gear", miter_gear,
      "24-tooth straight bevel gear: the outer tooth section carried to the "
      "pitch apex", {"elevation": 45.0}),

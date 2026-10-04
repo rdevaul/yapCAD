@@ -2,105 +2,100 @@
 yapCAD
 ======
 
-.. figure:: images/RocketDemoScreenshot.png
-   :width: 400px
-   :alt: parametric rocket example
+**yapCAD** is a procedural CAD and computational geometry system written in
+Python_. Designs are programs -- Python, or yapCAD's own parametric DSL --
+so a part is regenerated, not redrawn, when a dimension changes.
 
-   Multi-stage rocket generated with **yapCAD** and exported to STL.
+yapCAD models solids three ways, and lets each part use the one that suits
+it (see :doc:`representations`):
 
-.. figure:: images/RocketCutawaySTEP.png
-   :width: 400px
-   :alt: rocket internal cutaway
+* **Signed distance fields**, for exact booleans, fillets, blends, offsets
+  and lattices that cannot fail, with nothing but numpy. Fasteners and
+  gears have field versions, and a whole DSL design builds as fields with
+  one setting. Start with :doc:`sdf_guide`.
+* **OpenCASCADE BREPs**, optional, for exact surfaces, fillets on any edge
+  and analytic STEP.
+* **Triangle meshes**, for everything else, including imported STL, with
+  robust booleans.
 
-   Internal layout from ``examples/rocket_cutaway_internal.py`` rendered from
-   the exported STEP file in FreeCAD.
+Packages (``.ycpkg``) carry a design's geometry, assembly, bill of
+materials, provenance and signatures, and the assembly system solves mates
+and joints across parts.
 
-.. figure:: images/yapCadM10pair2.png
-   :width: 400px
-   :alt: M10 fastener pair with material properties
+.. figure:: images/sdf/gallery.png
+   :width: 640px
+   :alt: field-built parts: the yapRover wheel, a gyroid-spoked wheel, an
+         M8 nut and bolt, a miter gear and a herringbone gear
 
-   M10 hex-cap screw and nut pair demonstrating **yapCAD**'s material properties
-   support, rendered with zinc (left) and brass (right) finishes.
+   Parts built as signed distance fields, without OpenCASCADE, by
+   ``examples/sdf_parts_demo.py``. See :doc:`examples`.
 
-Welcome to **yapCAD**, yet another procedural CAD and computational
-geometry system, written in Python_.  Version 1.0 delivers a complete
-parametric DSL, OCC BREP kernel integration, package signing, validation
-schemas, and production-ready STL/STEP/DXF export. The reusable `.ycpkg`
-package format enables provenance tracking and reproducible designs.
+.. figure:: images/yapRoverOverview.png
+   :width: 640px
+   :alt: the yapRover rocker-bogie rover assembly
 
-.. note::
+   The yapRover rocker-bogie rover, a yapCAD DSL design. Its release
+   design builds either with OpenCASCADE or entirely as fields.
 
-    **yapCAD** was created to solve some fairly specific problems in
-    procedural CAD and `parametric design`_.  Earlier releases focused
-    on 2D drawings in `AutoCad DXF`_ format; version 1.0 delivers a
-    complete parametric DSL, OCC BREP kernel for exact solid modeling,
-    `.ycpkg` packaging with signing and validation schemas, and
-    production-ready STL/STEP/DXF export.
-
-    Why use yapCAD? yapCAD allows you to transform the 2D and 3D mechanical
-    design process from the manual creation of drawings, parts, and assemblies
-    into a highly automatable process focused creation of
-    modular, parametric, and even LLM-generated code.
-
-    Because yapCAD's foundations are in software, you can use powerful agentic
-    tools to translate your design intent into functional, parameterized code
-    without manual drawing edits. Several shipped examples were authored via LLM
-    prompts to demonstrate automation-friendly workflows.
-
-    And becuse yapCAD designs are software, they can be parametric and modular.
-    So if you are tired of manually editing your CAD files whenever you change the
-    thickness of a material, the size of a pipe fitting, or the diameter and
-    spacing of bolts, *etc.*, this might just be the tool you are looking for.
-
-    For an example and discussion of what parametric design is and why
-    it might be useful see `What is Parametric Design?`_ below.
-
-    Much of the documentation for **yapCAD** can be found in the
-    **README** files, as well as in the ``yapcad.geom`` module
-    documentation linked below.  Key helper modules include
-    ``yapcad.geometry_utils``/``yapcad.triangulator`` (triangle
-    helpers and ear-cut tessellation), ``yapcad.geometry_checks`` (mesh
-    validation), ``yapcad.metadata`` (surface/solid provenance),
-    ``yapcad.text3d`` (3D text with TrueType font support and engraving),
-    ``yapcad.brep`` (fillets and chamfers for BREP solids),
-    ``yapcad.brep_edge_select`` (edge selection helpers for selective
-    fillet/chamfer operations),
-    ``yapcad.geom3d_util.stack_solids`` and ``cutaway_solid_x`` (layout and
-    section tools), ``yapcad.geom3d_util.helical_extrude`` (smooth helical
-    extrusions), ``yapcad.geom_util.radial_pattern`` and ``linear_pattern``
-    (geometry array generation for 2D/3D/solids/surfaces),
-    ``yapcad.boolean`` (mesh booleans through manifold3d when installed,
-    with a dependency-free native fallback),
-    and ``yapcad.io`` for validated STL/STEP export.
 
 Contents
 ========
 
 .. toctree::
-   :maxdepth: 4
+   :maxdepth: 2
+   :caption: Getting started
 
+   Installation <installation>
+   Representations and boolean engines <representations>
+   README <README>
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Signed distance functions
+
+   The SDF guide <sdf_guide>
+   Examples <examples>
+   SDF design notes <SDF-DESIGN>
+
+.. toctree::
+   :maxdepth: 2
+   :caption: The DSL
+
+   DSL tutorial <dsl_tutorial>
+   DSL guide <dsl_guide>
+   DSL reference <dsl_reference>
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Solids, assemblies and manufacturing
+
+   BREP and OpenCASCADE <yapBREP>
+   Assemblies <assembly_system>
+   Mesh validation <mesh_validation>
+   Manufacturing post-processing <manufacturing_postprocessing>
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Packages and formats
+
+   Package format (.ycpkg) <ycpkg_spec>
+   Product definition <ycpkg_product_definition>
+   Manufacturing exports <ycpkg_manufacturing>
+   Geometry JSON <geometry_json_schema>
+   Metadata namespace <metadata_namespace>
+   Validation schema <validation_schema>
+   Package signing <signing_spec>
+   Material schema <material_schema_spec>
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Reference
+
+   Module reference <api/modules>
+   Changelog <changelog>
+   Roadmap <yapCADone>
    License <license>
    Authors <authors>
-   Changelog <changelog>
-   Module Reference <api/modules>
-   README <README>
-   Roadmap <yapCADone>
-   DSL Language Guide <dsl_guide>
-   DSL Tutorial <dsl_tutorial>
-   DSL Reference <dsl_reference>
-   BREP Implementation <yapBREP>
-   Signed Distance Functions <SDF-DESIGN>
-   Assembly System <assembly_system>
-   Manufacturing Post-Processing <manufacturing_postprocessing>
-   Project Packaging <ycpkg_spec>
-   Package Product Definition Proposal <ycpkg_product_definition>
-   Package Manufacturing Exports <ycpkg_manufacturing>
-   Geometry JSON Schema <geometry_json_schema>
-   Metadata Namespace <metadata_namespace>
-   Validation Schema <validation_schema>
-   Package Signing <signing_spec>
-   Material Schema <material_schema_spec>
-   Mesh Validation <mesh_validation>
 
 
 Indices and tables
@@ -168,16 +163,16 @@ automatically, and without having to revise any code or drawing.
     workflow, and ``rocket_demo.py`` for a 3D generative workflow that
     visualises and exports STL.
 
-Generative fasteners
---------------------
-
-The ``yapcad.fasteners`` helpers provide canonically parameterized screws, nuts, and washers for both metric and unified standards.  They build on the thread sampler developed for the involute gear work and support external/internal threads, handedness, multi-start configurations, and catalog-backed defaults.  See ``examples/threaded_fastener_package.py`` for a CLI that emits ``.ycpkg`` packages for common fasteners, or consume the helpers directly from Python/DSL to populate assemblies.
-
 This ability to solve for an entire family of related design problems
 with a single parametric design system is what gives this approach
 it's power and flexibility.  For anyone who has spent hours
 re-drafting a drawing to accommodate minor variations in requirements,
 this can be an impressive force multiplier on productivity.
+
+Generative fasteners
+--------------------
+
+The ``yapcad.fasteners`` helpers provide canonically parameterized screws, nuts, and washers for both metric and unified standards.  They build on the thread sampler developed for the involute gear work and support external/internal threads, handedness, multi-start configurations, and catalog-backed defaults.  See ``examples/threaded_fastener_package.py`` for a CLI that emits ``.ycpkg`` packages for common fasteners, or consume the helpers directly from Python/DSL to populate assemblies.
 
 
 .. _AutoCad DXF: https://en.wikipedia.org/wiki/AutoCAD_DXF

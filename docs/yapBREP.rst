@@ -8,14 +8,13 @@ which provides native solid modeling through integration with OpenCascade (OCC).
 Overview
 --------
 
-yapCAD supports two modes of solid geometry:
+yapCAD solids are triangle meshes that can carry a more precise
+definition: an OpenCASCADE BREP, described here, or a signed distance field
+(see :doc:`sdf_guide`). :doc:`representations` compares the three.
 
-1. **Tessellated Mode** (default, no dependencies) - Solids are represented as
-   triangle meshes. Suitable for visualization and STL export.
-
-2. **BREP Mode** (requires pythonocc-core) - Solids carry native OCC BREP data
-   with exact geometric definitions. Required for STEP import/export and
-   high-fidelity boolean operations.
+With ``pythonocc-core`` installed, primitives carry an exact BREP, booleans
+between BREP solids use OCC, and STEP import and analytic STEP export are
+available. Without it, solids are meshes or fields.
 
 Implementation Status
 ---------------------
@@ -23,9 +22,10 @@ Implementation Status
 **Complete:**
 
 * Full OCC BREP wrapper classes (``BrepSolid``, ``BrepFace``, ``BrepEdge``, ``BrepVertex``)
-* BREP-aware primitives: ``box()``, ``sphere()``, ``cylinder()``, ``cone()``, ``prism()``
-* Solid operations: ``extrude()``, ``tube()``, ``makeRevolutionSolid()``, ``makeLoftSolid()``
-* Adaptive sweep: ``sweep_adaptive()``, ``sweep_adaptive_hollow()``
+* BREP-aware primitives in ``yapcad.geom3d_util``: ``prism()``, ``conic()``
+  (cylinders and cones), ``sphere()``, ``tube()``
+* Solid operations: ``extrude()``, ``makeRevolutionSolid()``, ``makeLoftSolid()``
+* Adaptive sweep: ``sweep_adaptive()``, hollow with ``inner_profiles=``
 * Boolean operations via OCC when BREP data present
 * STEP import with topology preservation
 * STEP export (tessellated and analytic modes)
@@ -53,11 +53,9 @@ BREP functionality requires pythonocc-core, installed via conda::
     conda env create -f environment.yml
     conda activate yapcad-brep
 
-Without OCC, yapCAD operates in tessellation-only mode with reduced functionality:
-
-* No STEP import/export
-* Boolean operations use mesh-based algorithms (lower fidelity)
-* Sweep operations produce tessellated results only
+Without OCC there is no STEP import or analytic STEP export, booleans use
+the mesh or field engines (see :doc:`representations`), and
+``sweep_adaptive()`` raises. See :doc:`installation`.
 
 Architecture
 ------------
@@ -72,23 +70,33 @@ Located in ``yapcad/brep.py``:
 * ``BrepEdge`` - Edge with curve geometry
 * ``BrepVertex`` - Vertex with tolerance
 
-These classes provide bidirectional conversion::
+Converting between yapCAD solids and OCC shapes::
+
+    from yapcad.brep import BrepSolid, attach_brep_to_solid, brep_from_solid
+    from yapcad.geom3d import solid
+    from yapcad.geom3d_util import prism
 
     # yapCAD solid -> OCC shape
-    from yapcad.brep import brep_from_solid
-    occ_shape = brep_from_solid(solid).shape
+    occ_shape = brep_from_solid(prism(10, 20, 30)).shape
 
-    # OCC shape -> yapCAD solid
-    from yapcad.brep import solid_from_brep
-    solid = solid_from_brep(occ_shape)
+    # OCC shape -> yapCAD solid: tessellate it, and keep the BREP attached
+    brep = BrepSolid(occ_shape)
+    part = solid([brep.tessellate()])
+    attach_brep_to_solid(part, brep)
 
 BREP Attachment
 ~~~~~~~~~~~~~~~
 
-Solids store BREP data in metadata under ``'brep'`` key::
+A solid keeps its BREP, serialised, in its metadata under ``'brep'``.
+Read it with ``brep_from_solid``, which returns ``None`` for a solid
+without one::
 
-    solid = box(10, 20, 30)
-    brep = solid[5].get('brep')  # BrepSolid instance if OCC available
+    from yapcad.brep import brep_from_solid, has_brep_data
+    from yapcad.geom3d_util import prism
+
+    part = prism(10, 20, 30)
+    has_brep_data(part)            # True when OCC is installed
+    brep = brep_from_solid(part)   # a BrepSolid, or None
 
 Boolean Operations
 ~~~~~~~~~~~~~~~~~~
@@ -122,36 +130,37 @@ STEP Import/Export
 Import
 ~~~~~~
 
-::
+``import_step`` returns one ``Geometry`` per solid in the file, each
+wrapping a ``BrepSolid``::
 
-    from yapcad.brep import import_step
+    from yapcad.brep import attach_brep_to_solid
+    from yapcad.geom3d import solid
+    from yapcad.io.step_importer import import_step
 
-    # Returns yapCAD Geometry with attached BREP
-    geometry = import_step("model.step")
-
-    # Access the underlying solid
-    solid = geometry.geom
+    parts = []
+    for geometry in import_step("model.step"):
+        part = solid([geometry.surface()])        # its tessellation
+        attach_brep_to_solid(part, geometry.geom)  # and its exact BREP
+        parts.append(part)
 
 Export
 ~~~~~~
 
 Two modes available:
 
-**Tessellated (default)**::
+**Faceted**, from any solid's mesh::
 
-    from yapcad.geom3d import write_solid_step
-    write_solid_step(solid, "output.step")
+    from yapcad.io.step import write_step
+    write_step(part, "output.step")
 
-**Analytic** (preserves exact geometry)::
+**Analytic**, from the solid's BREP, falling back to faceted when it has
+none (the return value says which you got)::
 
-    # Via environment variable
-    import os
-    os.environ['YAPCAD_STEP_FORMAT'] = 'analytic'
-    write_solid_step(solid, "output.step")
+    from yapcad.io.step import write_step_analytic
+    analytic = write_step_analytic(part, "output.step")
 
-    # Or via write_step_analytic directly
-    from yapcad.brep import write_step_analytic
-    write_step_analytic(solid, "output.step")
+From the DSL command line, ``YAPCAD_STEP_FORMAT=analytic`` selects the
+analytic writer for ``yapcad.dsl run ... -o part.step``.
 
 Adaptive Sweep Operations
 -------------------------
@@ -187,10 +196,10 @@ Apply rounded (fillet) or beveled (chamfer) edges to BREP solids::
         fillet_edges, chamfer_edges,
         brep_from_solid
     )
-    from yapcad.geom3d_util import box
+    from yapcad.geom3d_util import prism
 
     # Create a box solid
-    my_box = box(20, 20, 10)
+    my_box = prism(20, 20, 10)
     brep_solid = brep_from_solid(my_box)
 
     # Apply fillet (rounded edges) to all edges
@@ -376,10 +385,10 @@ Here's a complete example showing how to apply fillets only to specific edges::
         select_top_edges,
         intersect_edges
     )
-    from yapcad.geom3d_util import box
+    from yapcad.geom3d_util import prism
 
     # Create a box
-    my_box = box(20, 20, 10)
+    my_box = prism(20, 20, 10)
     brep = brep_from_solid(my_box)
 
     # Select only the vertical edges at the top of the box
@@ -443,10 +452,9 @@ Key Functions
 
 ``yapcad.brep``:
 
-* ``import_step(path)`` - Import STEP file
-* ``write_step_analytic(solid, path)`` - Export analytic STEP
-* ``brep_from_solid(solid)`` - Extract BREP wrapper
-* ``solid_from_brep(shape)`` - Create solid from OCC shape
+* ``brep_from_solid(solid)`` - The solid's ``BrepSolid``, or ``None``
+* ``attach_brep_to_solid(solid, brep)`` - Attach a ``BrepSolid`` to a solid
+* ``has_brep_data(solid)`` / ``occ_available()`` - What is present
 * ``fillet_all_edges(brep_solid, radius)`` - Round all edges
 * ``chamfer_all_edges(brep_solid, distance)`` - Bevel all edges
 * ``fillet_edges(brep_solid, edges, radius)`` - Round specific edges
@@ -473,18 +481,21 @@ Key Functions
 * ``intersect_edges(*edge_lists)`` - Find common edges
 * ``subtract_edges(base_edges, edges_to_remove)`` - Remove edges from list
 
-``yapcad.geom3d``:
+``yapcad.io.step`` and ``yapcad.io.step_importer``:
 
-* ``box(l, w, h)`` - Rectangular prism with BREP
-* ``sphere(center, radius)`` - Sphere with BREP
-* ``cylinder(center, axis, radius, height)`` - Cylinder with BREP
-* ``cone(center, axis, radius1, radius2, height)`` - Cone/frustum with BREP
+* ``import_step(path)`` - One ``Geometry`` per solid in a STEP file
+* ``write_step(solid, path)`` - Faceted STEP
+* ``write_step_analytic(solid, path)`` - Analytic STEP from the BREP
 
-``yapcad.geom3d_util``:
+``yapcad.geom3d_util`` (with a BREP when OCC is installed):
 
-* ``extrude(profile, direction, height)`` - Linear extrusion
-* ``makeRevolutionSolid(profile, axis, angle)`` - Revolution
-* ``makeLoftSolid(profiles)`` - Loft through profiles
+* ``prism(length, width, height, center=...)`` - Box, centred on ``center``
+* ``conic(base_r, top_r, height, center=...)`` - Cylinder or cone, standing on ``center``
+* ``sphere(diameter, center=...)`` - Sphere (note: a diameter)
+* ``tube(outer_diameter, wall_thickness, length)`` - Hollow cylinder
+* ``extrude(surface, distance, direction=...)`` - Linear extrusion of a surface
+* ``makeRevolutionSolid(contour, zStart, zEnd, steps, ...)`` - Solid of revolution
+* ``makeLoftSolid(lower_loop, upper_loop)`` - Loft between two loops
 * ``sweep_adaptive(profile, spine, ...)`` - Adaptive sweep
 * ``helical_extrude(profile, height, twist_angle_deg, ...)`` - Helical/twisted extrusion
 * ``radial_pattern_solid(solid, count, ...)`` - Circular array of solids
@@ -506,8 +517,8 @@ Key Functions
 Testing
 -------
 
-BREP tests are in ``tests/test_brep.py`` and ``tests/test_step_import.py``.
-Run with::
+BREP tests are in ``tests/test_brep.py``, ``tests/test_brep_edge_select.py``,
+``tests/test_step_importer.py`` and ``tests/test_io_step.py``. Run with::
 
     PYTHONPATH=./src pytest tests/test_brep.py -v
 
@@ -524,4 +535,4 @@ Future Work
 * Improved NURBS surface support
 * Direct BREP editing operations
 * Better error reporting for failed operations
-* Integration with DSL for BREP-specific operations
+* Promoting BREP solids to fields, for booleans between BREP and SDF parts
