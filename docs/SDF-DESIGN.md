@@ -106,9 +106,11 @@ evaluator signature takes and returns numpy arrays of shape `(N, 3)` and
 
 An SDF is a serialisable directed acyclic graph:
 
-- **Primitives:** `sphere`, `box`, `rounded_box`, `cylinder`, `capsule`,
-  `torus`, `cone`, `half_space`, `gyroid`, `schwarz_p`
-- **Combinators:** `union`, `intersect`, `subtract`, `smooth_union(k)`,
+- **Primitives:** `sphere`, `box`, `rounded_box`, `cylinder`,
+  `rounded_cylinder`, `capsule`, `torus`, `cone`, `half_space`, `gyroid`,
+  `schwarz_p`
+- **Combinators:** `union`, `compound`, `intersect`, `subtract`,
+  `smooth_union(k)`,
   `smooth_subtract(k)`, `offset(d)`, `shell(t)`
 - **Domain operators:** `transform(M)`, `twist`, `bend`, `repeat`, `mirror`
 - **Escape hatch:** `sampled(grid_ref)`, `mesh_field(entity_ref)`
@@ -349,7 +351,7 @@ lines and should not absorb them.
 | **1** ✅ | `yapcad/sdf/`: node DAG, numpy evaluator, Lipschitz tracking, primitives, hard CSG | Validated against `geom3d.signedFaceDistance` (`geom3d.py:254`) and analytic distances |
 | **2** ✅ | Dual contouring → ordinary yapCAD solids with `authoritative: "sdf"` | The entire existing downstream works on SDF parts |
 | **3** ✅ | CSG-exactness classifier + OCC tree replay | STEP export for the common case |
-| **4** (in progress: §10.4, §10.6) | BREP/mesh → SDF promotion via OCC distance queries + cached grid | Mixed-authority booleans |
+| **4** (in progress: §10.4–10.7) | BREP/mesh → SDF promotion via OCC distance queries + cached grid | Mixed-authority booleans |
 | **5** | GLSL/WGSL emitter + browser sphere tracing | Real-time preview |
 | **6** | Lattices, variable-thickness shells, distance-field fillets, topology-optimisation import | The features that justify the effort |
 
@@ -639,6 +641,70 @@ children. Mixed operands keep the pairwise path unchanged.
 intersection returns `['solid', [], [], ['sdf', tree]]`, which yapCAD
 already allows for empty CSG results and which serialises and reads back.
 
+### 10.5 Fillets and compounds
+
+Building the yapRover release design without OCC (field primitives in
+place of the DSL's mesh ones) found two gaps that blocked it outright, and
+both are closed for SDF-authored solids.
+
+**`fillet` works on fields.** `sdf.fillet(node, r)` rounds every edge, the
+meaning of the DSL's `fillet` and of OCC's fillet-all-edges. For the
+analytic primitives it is exact and closed-form: a `box` becomes a
+`rounded_box`, a `cylinder` the new `rounded_cylinder` (an exact field: the
+core cylinder shrunk by `r` and dilated back). It passes through similarity
+transforms, whose uniform scale divides the radius, and through each body of
+a `compound`; spheres, tori, capsules and already-rounded primitives have no
+edges and are returned unchanged. Both rounded primitives replay through
+OCC as filleted primitives, so a filleted part still exports analytic STEP.
+`sdf.fillet_solid` re-meshes no coarser than its input, and the DSL's
+`fillet` takes this path for any SDF-authored solid, with no OCC needed.
+
+It refuses, rather than approximates, three things:
+
+- **Combined fields.** Rounding each operand and blending each boolean
+  also rounds edges the boolean removes: two boxes sharing a face come out
+  with a groove along the seam, where OCC's fuse-then-fillet leaves a clean
+  box. Circular blend operators have the same flaw at the seam. A correct
+  fillet of a combination needs the distance to the *combined* part, which
+  hard CSG does not give inside the part; that needs re-distancing on a
+  sampled grid, so it waits for the `sampled` node of §4.2. Every
+  yapRover fillet is of a primitive, filleted before it is combined.
+- **Non-uniform scales**, whose rounds would be elliptical.
+- **Cones and the remaining kinds**, for now: a rounded frustum is a
+  closed form worth adding when a design needs it.
+
+**Mesh-only solids are not filleted yet.** The DSL's `fillet` says so
+rather than claiming OCC is the only route. The plan, in two steps:
+
+1. **Basic shapes by promotion.** `prism`, `conic` and `sphere` record
+   their call — `['procedure', 'yapcad.geom3d_util.prism(1,2,3,...)']` —
+   which is enough to rebuild the corresponding field primitive, fillet it
+   and mesh it, giving the same SDF-authoritative part as authoring it as a
+   field. One prerequisite: today a transform leaves that record unchanged
+   (`translatesolid(prism(1, 2, 3), ...)` still says `prism(1,2,3,...)`), so
+   the record is stale after a move. The solid transforms must first
+   append the transform to the record, as they already do for SDF trees,
+   or drop it.
+2. **Arbitrary meshes by sampling.** Sample the mesh's signed distance onto
+   a grid (generalized winding number for the sign, as the native boolean
+   engine already computes it), then fillet by re-distancing: opening by
+   `r` rounds convex edges, closing by `r` rounds concave ones. This is the
+   same machinery as the general fillet of combined fields, so the two
+   arrive together with the `sampled` node.
+
+**`compound` keeps its fields.** The DSL's `compound` concatenated its
+operands' meshes and dropped their trees, so every later boolean against a
+compound fell back to the mesh engine; in yapRover one such difference took
+154 s against a 730,000-triangle operand. There is now a `compound` node:
+as a field it is a union, so booleans combine it exactly like one, but it
+records that the bodies are separate. `to_solid` meshes each body on its
+own at the cell size the whole would have had — pushing any transforms
+above the compound down onto the bodies — so touching bodies stay distinct,
+closed meshes, and the OCC replay builds a compound rather than a fused
+solid. The DSL's `compound` attaches this tree when every operand is
+SDF-authored and keeps the operands' own meshes; a compound with any mesh or
+BREP operand is unchanged.
+
 ### 10.6 Gears and threaded fasteners
 
 The last OCC dependency in yapRover's release design is its differential's
@@ -719,6 +785,54 @@ refinement and belongs with adaptive meshing.
 
 Not yet done: `sun_gear_with_hub` without OCC, and a DSL switch to author
 parts as fields.
+
+### 10.7 Simplifying against the field
+
+Dual contouring meshes a part at the cell size its finest feature needs,
+everywhere: an M8 nut fine enough for its 0.16 mm crest flats is just as
+fine across its flat faces. `sdf.simplify_solid(solid, tolerance)` recovers
+that by quadric edge collapse (Garland–Heckbert), checked against the
+field. It runs in rounds. Each scores every edge at once, picks greedily a
+set of the cheapest edges with disjoint neighbourhoods, moves each merged
+vertex onto the surface by Newton steps, and tests them all together:
+
+- **Topology** by the link condition, so the mesh stays a closed manifold.
+- **Orientation**: no surrounding triangle flips or collapses.
+- **Fidelity**: `|f|` is sampled across every changed triangle on a grid
+  of two points per original edge length and at least four divisions, so a
+  large merged triangle is checked more densely than the small ones it
+  replaces. A sparser grid (one point per edge, two divisions minimum)
+  read 0.095 mm on a triangle cut across a sharp edge whose true error was
+  0.142 mm; with it the worst error over the whole part rose about 1.5%.
+  Each triangle's error is cached and remeasured only when a collapse
+  rewrites it. It must stay within the
+  tolerance — or, where dual contouring already strayed further (along
+  sharp edges it rounds), the worst error may not rise and the excess over
+  the tolerance, integrated over area, may not grow. Without that second
+  rule a sharp edge either froze every collapse near it or, with a looser
+  rule, licensed its neighbours to reach its error, and the bad region
+  spread a ring per round.
+
+Rejected edges are remembered until something near them changes, which
+keeps the tail of rounds cheap. It is deterministic, and the tolerance is
+recorded with the meshing parameters.
+
+At 0.01 mm, measured by sampling uniformly by area (sampling per triangle
+over-weights the small triangles left at sharp edges and misleads):
+
+| Part | Triangles kept | p99 `\|f\|`, before → after | Area over 0.01 mm | Volume |
+|---|---|---|---|---|
+| Plate with two holes | 9.9% | 0.0121 → 0.0112 mm | 1.7% → 1.5% | −0.03% |
+| Threaded M8 nut | 3.8% | 0.0157 → 0.0086 mm | 2.1% → 0.7% | +0.12% |
+| Miter gear, z24 | 5.9% | 0.0276 → 0.0153 mm | 4.7% → 1.8% | −0.09% |
+
+The result is *more* accurate than the uniform mesh, because merged
+vertices land on the surface. Its cost is dominated by field evaluation, so
+it inherits the field's speed: about 6 s for the plate and 18 s for the nut,
+but minutes for the gear, whose polygon field is the slow part.
+Meshing adaptively in the first place — refining only where the field says
+so — would avoid building the uniform mesh at all, and is the larger
+follow-on.
 
 ## 11. Open questions
 

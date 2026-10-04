@@ -197,6 +197,25 @@ def test_results_are_deterministic():
     assert first[1][0][3] == second[1][0][3]
 
 
+def test_coaxial_cylinders_do_not_shatter():
+    """A bore through a bearing seat, as in a printed boss.  Cutting by the
+    full plane of every triangle a cap's fan wedge merely straddled diced
+    each wedge by dozens of lines: 1,600 input triangles became 32,608 and
+    the union took 20 s.  Cuts now need a real triangle-triangle overlap,
+    are confined to the intersection segment, and pass-through points on a
+    triangle's own edges are dropped."""
+    bore = mesh_only(conic(4.2, 4.2, 18.0, center=point(0, 0, -9)))
+    seat = mesh_only(conic(11.15, 11.15, 7.2, center=point(0, 0, 0.8)))
+    union = native(bore, seat, "union")
+    inputs = sum(len(s[3]) for s in bore[1] + seat[1])
+    out = sum(len(s[3]) for s in union[1])
+    assert issolidclosed(union)
+    identity = (signed_volume(bore) + signed_volume(seat)
+                - signed_volume(native(bore, seat, "intersection")))
+    assert signed_volume(union) == pytest.approx(identity, rel=1e-9)
+    assert out < 3 * inputs, f"{inputs} triangles in, {out} out"
+
+
 def test_identical_solids():
     """Every face coincides with a SAME face: the hardest coplanar case."""
     a, b = mesh_only(prism(2, 2, 2)), mesh_only(prism(2, 2, 2))

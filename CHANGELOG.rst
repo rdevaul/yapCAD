@@ -15,6 +15,13 @@ Unreleased
   (Manifold Dual Contouring), so acute edges -- helical gear tips, lattice
   walls -- no longer mesh non-manifold. Ordinary meshes are unchanged.
 - Symmetric ``polygon`` fields evaluate three times faster.
+- ``sdf.simplify_solid`` simplifies a meshed field by quadric edge collapse,
+  checking every collapse against the field: a closed manifold result, no
+  flipped triangles, and the field's value on every changed triangle within
+  the tolerance, or no worse than the uniform mesh already was. At 0.01 mm
+  a threaded M8 nut keeps 4% of its triangles and a miter gear 6%, both
+  with lower 99th-percentile error than the uniform mesh. The tolerance is
+  recorded with the meshing parameters.
 - Straight bevel and miter gears build without OCC. The new
   ``straight_bevel_gear`` field stores the gear spec and evaluates as the
   BREP generator's own construction, the outer tooth section carried to
@@ -27,6 +34,18 @@ Unreleased
   for a closed, SDF-authoritative nut with a helical ``thread`` field whose
   profile is ``threadgen``'s own. The swept mesh, which is not closed,
   remains the default.
+- ``fillet`` works on SDF-authored solids without OCC. ``sdf.fillet``
+  rounds every edge exactly for the analytic primitives -- a box becomes a
+  ``rounded_box``, a cylinder the new exact ``rounded_cylinder`` -- through
+  similarity transforms and across the bodies of a compound, and the result
+  still replays to analytic STEP. The DSL's ``fillet`` uses it for any
+  SDF-authored solid. Fillets of combined fields, through non-uniform
+  scales, and of mesh-only solids are refused with an explanation; the plan
+  for them is in ``docs/SDF-DESIGN.md`` §10.5.
+- ``compound`` keeps the fields of SDF-authored operands, as a new
+  ``sdf.compound`` node: a union for booleans, separate bodies for meshing
+  and OCC replay. Booleans against a compound no longer fall back to the
+  mesh engine.
 - The native mesh boolean engine is rewritten (``yapcad.boolean.csg``) and
   now returns closed, volume-correct solids: 24 of 24 benchmark cases (was
   8) and 1,800 randomised boxes/spheres/cylinders/icosahedra cases against a
