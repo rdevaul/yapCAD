@@ -636,3 +636,43 @@ class TestDownstreamUsability:
         node = sdf.torus(9.0, 2.5)
         mesh = sdf.dual_contour(node, resolution=32)
         assert sdf.manifold_defects(mesh)["coincident"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Manifold dual contouring
+# ---------------------------------------------------------------------------
+
+
+def _wedge(degrees):
+    """A thin wedge, tilted off the lattice: near its edge the material is
+    thinner than any cell, which one vertex per cell cannot represent."""
+    import math
+    a = math.radians(degrees)
+    wedge = sdf.intersect(
+        sdf.half_space((math.sin(a / 2), math.cos(a / 2), 0), 0),
+        sdf.half_space((math.sin(a / 2), -math.cos(a / 2), 0), 0),
+        sdf.translate(sdf.box((10, 10, 4)), (-5.3, 0.17, 0.05)))
+    return sdf.rotate(wedge, (0.3, 0.2, 1.0), 17.0)
+
+
+@pytest.mark.parametrize("resolution", [24, 32])
+def test_a_thin_wedge_meshes_manifold(resolution):
+    """One vertex per cell gave non-manifold edges here at every
+    resolution; one vertex per surface component of a cell does not."""
+    from yapcad.sdf.contour import manifold_defects
+    from yapcad.sdf.contour import dual_contour
+    mesh = dual_contour(_wedge(20.0), resolution=resolution)
+    assert not any(manifold_defects(mesh).values())
+
+
+def test_component_table_is_consistent():
+    from yapcad.sdf.contour import _COMPONENT, _COMPONENT_COUNT
+    assert _COMPONENT_COUNT[0] == 0 and _COMPONENT_COUNT[255] == 0
+    # A single inside corner is one component; two body-diagonal corners
+    # (no shared face) are two.
+    assert _COMPONENT_COUNT[1] == 1
+    assert _COMPONENT_COUNT[(1 << 0) | (1 << 7)] == 2
+    # Complementary configurations have the same crossing edges.
+    for config in range(256):
+        assert np.array_equal(_COMPONENT[config] >= 0,
+                              _COMPONENT[255 - config] >= 0)

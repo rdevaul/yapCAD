@@ -20,6 +20,11 @@ pattern exact fields:
     profile scaled by ``z / z_ref``.  This is exactly how a straight bevel
     gear's teeth are built (see :mod:`yapcad.gears.bevel`).
 
+``twist``
+    Rotates each section about the z axis by an angle that grows linearly
+    with z -- a helical gear -- or rises to a fold and falls back, a
+    herringbone.
+
 None of them replays through OCC directly; semantic nodes built on them,
 like ``straight_bevel_gear``, replay through their own generators.
 """
@@ -31,7 +36,7 @@ import numpy as np
 from yapcad.sdf.node import INF, FieldProps, NodeSpec, SdfError, make_node, \
     register
 
-__all__ = ["polygon", "extrude", "apex_extrude"]
+__all__ = ["polygon", "extrude", "apex_extrude", "twist"]
 
 #: Points evaluated per batch against all segments, bounding memory at
 #: about ``BATCH x segments`` doubles per temporary.
@@ -43,20 +48,19 @@ BATCH = 4096
 # ---------------------------------------------------------------------------
 
 
-def _segment_field(px, py, ax, ay, bx, by):
-    """Squared distance from each point to the nearest segment, and the
-    parity of the segments a ray from the point crosses.
+def _segment_field(px, py, ax, ay, bx, by, parity=True):
+    """Squared distance from each point to the nearest segment, and (with
+    ``parity``) whether a ray from the point crosses an odd number of them.
 
     The ray runs radially outward from each point -- along ``p / |p|``, or
     along +x from the origin -- so after the symmetry fold it stays inside
-    the point's own sector, where the retained segments are.  Each segment
-    is tested with a half-open straddle rule on the side of the ray its
-    endpoints fall, so a ray through a shared vertex is counted exactly
-    once.
+    the point's own sector.  Each segment is tested with a half-open
+    straddle rule on the side of the ray its endpoints fall, so a ray
+    through a shared vertex is counted exactly once.
     """
     n = px.shape[0]
     d2 = np.empty(n)
-    odd = np.empty(n, dtype=bool)
+    odd = np.zeros(n, dtype=bool)
     ex, ey = bx - ax, by - ay
     ee = ex * ex + ey * ey
     ee = np.where(ee > 0.0, ee, 1e-300)
@@ -67,7 +71,8 @@ def _segment_field(px, py, ax, ay, bx, by):
         t = np.clip((wx * ex + wy * ey) / ee, 0.0, 1.0)
         dx, dy = wx - t * ex, wy - t * ey
         d2[s:s + BATCH] = np.min(dx * dx + dy * dy, axis=1)
-
+        if not parity:
+            continue
         length = np.hypot(X, Y)
         at_origin = length == 0.0
         ux = np.where(at_origin, 1.0, X / np.where(at_origin, 1.0, length))
@@ -88,33 +93,68 @@ def _segment_field(px, py, ax, ay, bx, by):
 _SEGMENTS = {}
 
 
+def _split(a, b):
+    return (a[:, 0].copy(), a[:, 1].copy(), b[:, 0].copy(), b[:, 1].copy())
+
+
 def _segments(points, symmetry):
-    """The polygon's segments, restricted to the sectors a folded point can
-    be nearest to when the polygon is ``symmetry``-fold symmetric."""
+    """The polygon's segments, organised for evaluation.
+
+    Returns ``(core, rest, boxes)``.  For an asymmetric polygon ``core`` is
+    every segment and ``rest`` is empty.  For an ``n``-fold symmetric one,
+    a folded point lies within half a sector of angle 0, so
+
+    * ``core`` is every segment whose angular extent reaches into that
+      sector.  A point's radial ray stays at its own angle, so it can only
+      cross these: they alone decide the sign, and give a first distance.
+    * ``rest`` is every other segment still within reach -- one more sector
+      either side -- with ``boxes``, the bounding box of each side's share.
+      A point needs them only if a box is nearer than its core distance.
+    """
     key = (points, symmetry)
     hit = _SEGMENTS.get(key)
     if hit is not None:
         return hit
     a = np.asarray(points, dtype=float)
     b = np.roll(a, -1, axis=0)
-    if symmetry > 1:
-        sector = 2.0 * math.pi / symmetry
-        mid = 0.5 * (a + b)
-        angle = np.arctan2(mid[:, 1], mid[:, 0])
+    if symmetry == 1:
+        hit = (_split(a, b), None, ())
+    else:
+        half = math.pi / symmetry
         aa = np.arctan2(a[:, 1], a[:, 0])
         ab = np.arctan2(b[:, 1], b[:, 0])
-        span = np.abs((ab - aa + math.pi) % (2 * math.pi) - math.pi)
-        # A folded point is within half a sector of angle 0; its nearest
-        # segment is within one more sector of it.  Keep everything that
-        # reaches into that window.
-        window = 1.5 * sector + float(span.max())
-        keep = np.abs((angle + math.pi) % (2 * math.pi) - math.pi) <= window
-        a, b = a[keep], b[keep]
-    hit = (a[:, 0].copy(), a[:, 1].copy(), b[:, 0].copy(), b[:, 1].copy())
+        sweep = (ab - aa + math.pi) % (2 * math.pi) - math.pi
+        lo = np.minimum(aa, aa + sweep)
+        hi = np.maximum(aa, aa + sweep)
+        # Unwrap each extent to lie around angle 0 where possible.
+        shift = np.round(0.5 * (lo + hi) / (2 * math.pi)) * 2 * math.pi
+        lo, hi = lo - shift, hi - shift
+        eps = 1e-9
+        core = (hi >= -half - eps) & (lo <= half + eps)
+        span = float(np.max(hi - lo))
+        reach = (hi >= -3 * half - span) & (lo <= 3 * half + span)
+        rest = reach & ~core
+        boxes = []
+        mid = 0.5 * (lo + hi)
+        for side in (mid < 0.0, mid >= 0.0):
+            pick = rest & side
+            if pick.any():
+                pts = np.vstack([a[pick], b[pick]])
+                boxes.append((pts.min(axis=0), pts.max(axis=0)))
+        hit = (_split(a[core], b[core]),
+               _split(a[rest], b[rest]) if rest.any() else None,
+               tuple(boxes))
     if len(_SEGMENTS) > 64:
         _SEGMENTS.clear()
     _SEGMENTS[key] = hit
     return hit
+
+
+def _box_distance2(px, py, box):
+    (x0, y0), (x1, y1) = box
+    dx = np.maximum(np.maximum(x0 - px, px - x1), 0.0)
+    dy = np.maximum(np.maximum(y0 - py, py - y1), 0.0)
+    return dx * dx + dy * dy
 
 
 def _analyze_polygon(params, _children):
@@ -141,7 +181,15 @@ def _eval_polygon(params, p, _children, _ev):
         k = np.round(np.arctan2(py, px) / sector)
         c, s = np.cos(-k * sector), np.sin(-k * sector)
         px, py = c * px - s * py, s * px + c * py
-    d2, odd = _segment_field(px, py, *_segments(params["points"], n))
+    core, rest, boxes = _segments(params["points"], n)
+    d2, odd = _segment_field(px, py, *core)
+    if rest is not None:
+        near = np.zeros(len(px), dtype=bool)
+        for box in boxes:
+            near |= _box_distance2(px, py, box) < d2
+        if near.any():
+            d2r, _ = _segment_field(px[near], py[near], *rest, parity=False)
+            d2[near] = np.minimum(d2[near], d2r)
     return np.where(odd, -1.0, 1.0) * np.sqrt(d2)
 
 
@@ -311,3 +359,65 @@ def apex_extrude(child, z_ref, z_lo, z_hi):
         raise SdfError("apex_extrude: needs 0 < z_lo < z_hi and z_ref > 0")
     return make_node("apex_extrude",
                      {"z_ref": zr, "z_lo": zl, "z_hi": zh}, (child,))
+
+
+# ---------------------------------------------------------------------------
+# twist
+# ---------------------------------------------------------------------------
+
+
+def _twist_angle(params, z):
+    rate = params["rate"]
+    fold = params["fold_z"]
+    if fold is None:
+        return rate * z
+    return rate * (fold - np.abs(z - fold))
+
+
+def _analyze_twist(params, child_props):
+    (child,) = child_props
+    (x0, y0, z0), (x1, y1, z1) = child.bounds
+    r = math.hypot(max(abs(x0), abs(x1)), max(abs(y0), abs(y1)))
+    # The map p -> R(-angle(z)) p has Jacobian a rotation composed with a
+    # shear of size |rate| r in the z direction; its largest singular value
+    # is that of [[1, kr], [0, 1]].
+    kr = abs(params["rate"]) * r
+    stretch = 0.5 * (kr + math.sqrt(kr * kr + 4.0))
+    return FieldProps(
+        exact=False,
+        lipschitz=child.lipschitz * stretch,
+        bounds=((-r, -r, z0), (r, r, z1)),
+        csg_exact=False,
+    )
+
+
+def _eval_twist(params, p, children, ev):
+    angle = -_twist_angle(params, p[:, 2])
+    c, s = np.cos(angle), np.sin(angle)
+    q = np.column_stack((c * p[:, 0] - s * p[:, 1],
+                         s * p[:, 0] + c * p[:, 1], p[:, 2]))
+    return ev(children[0], q)
+
+
+register(NodeSpec(
+    kind="twist",
+    min_children=1,
+    max_children=1,
+    analyze=_analyze_twist,
+    backends={"numpy": _eval_twist},
+))
+
+
+def twist(child, rate, fold_z=None):
+    """Rotate ``child``'s section at height ``z`` counter-clockwise (seen
+    from +z) by ``rate * z`` radians -- or, given ``fold_z``, by ``rate *
+    (fold_z - |z - fold_z|)``, rising to the fold and back: a herringbone.
+    """
+    try:
+        k = float(rate)
+        fold = None if fold_z is None else float(fold_z)
+    except (TypeError, ValueError):
+        raise SdfError("twist: rate and fold_z must be numbers") from None
+    if not math.isfinite(k) or (fold is not None and not math.isfinite(fold)):
+        raise SdfError("twist: rate and fold_z must be finite")
+    return make_node("twist", {"rate": k, "fold_z": fold}, (child,))

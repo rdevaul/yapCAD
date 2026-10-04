@@ -1980,7 +1980,14 @@ class BuiltinRegistry:
             from yapcad.brep import brep_from_solid, attach_brep_to_solid, BrepSolid, occ_available
 
             if not occ_available():
-                raise RuntimeError("herringbone_gear requires pythonocc-core")
+                # The same gear as a field, with the profile options below.
+                from yapcad.gears.involute import make_involute_gear_sdf
+                return solid_val(make_involute_gear_sdf(
+                    int(teeth.data), float(module_mm.data),
+                    float(face_width.data),
+                    helix_angle_deg=float(helix_angle.data),
+                    herringbone=True, involute_step=0.8,
+                    spline_division_num=12))
 
             from OCC.Core.gp import gp_Pnt, gp_Dir, gp_Ax2, gp_Vec, gp_Trsf
             from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Fuse

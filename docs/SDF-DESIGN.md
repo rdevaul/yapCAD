@@ -351,7 +351,7 @@ lines and should not absorb them.
 | **1** ✅ | `yapcad/sdf/`: node DAG, numpy evaluator, Lipschitz tracking, primitives, hard CSG | Validated against `geom3d.signedFaceDistance` (`geom3d.py:254`) and analytic distances |
 | **2** ✅ | Dual contouring → ordinary yapCAD solids with `authoritative: "sdf"` | The entire existing downstream works on SDF parts |
 | **3** ✅ | CSG-exactness classifier + OCC tree replay | STEP export for the common case |
-| **4** (in progress: §10.4, §10.6) | BREP/mesh → SDF promotion via OCC distance queries + cached grid | Mixed-authority booleans |
+| **4** (in progress: §10.4–10.7) | BREP/mesh → SDF promotion via OCC distance queries + cached grid | Mixed-authority booleans |
 | **5** | GLSL/WGSL emitter + browser sphere tracing | Real-time preview |
 | **6** | Lattices, variable-thickness shells, distance-field fillets, topology-optimisation import | The features that justify the effort |
 
@@ -641,102 +641,6 @@ children. Mixed operands keep the pairwise path unchanged.
 intersection returns `['solid', [], [], ['sdf', tree]]`, which yapCAD
 already allows for empty CSG results and which serialises and reads back.
 
-### 10.7 Simplifying against the field
-
-Dual contouring meshes a part at the cell size its finest feature needs,
-everywhere: an M8 nut fine enough for its 0.16 mm crest flats is just as
-fine across its flat faces. `sdf.simplify_solid(solid, tolerance)` recovers
-that by quadric edge collapse (Garland–Heckbert), checked against the
-field. It runs in rounds. Each scores every edge at once, picks greedily a
-set of the cheapest edges with disjoint neighbourhoods, moves each merged
-vertex onto the surface by Newton steps, and tests them all together:
-
-- **Topology** by the link condition, so the mesh stays a closed manifold.
-- **Orientation**: no surrounding triangle flips or collapses.
-- **Fidelity**: `|f|` is sampled across every changed triangle on a grid
-  of two points per original edge length and at least four divisions, so a
-  large merged triangle is checked more densely than the small ones it
-  replaces. A sparser grid (one point per edge, two divisions minimum)
-  read 0.095 mm on a triangle cut across a sharp edge whose true error was
-  0.142 mm; with it the worst error over the whole part rose about 1.5%.
-  Each triangle's error is cached and remeasured only when a collapse
-  rewrites it. It must stay within the
-  tolerance — or, where dual contouring already strayed further (along
-  sharp edges it rounds), the worst error may not rise and the excess over
-  the tolerance, integrated over area, may not grow. Without that second
-  rule a sharp edge either froze every collapse near it or, with a looser
-  rule, licensed its neighbours to reach its error, and the bad region
-  spread a ring per round.
-
-Rejected edges are remembered until something near them changes, which
-keeps the tail of rounds cheap. It is deterministic, and the tolerance is
-recorded with the meshing parameters.
-
-At 0.01 mm, measured by sampling uniformly by area (sampling per triangle
-over-weights the small triangles left at sharp edges and misleads):
-
-| Part | Triangles kept | p99 `\|f\|`, before → after | Area over 0.01 mm | Volume |
-|---|---|---|---|---|
-| Plate with two holes | 9.9% | 0.0121 → 0.0112 mm | 1.7% → 1.5% | −0.03% |
-| Threaded M8 nut | 3.8% | 0.0157 → 0.0086 mm | 2.1% → 0.7% | +0.12% |
-| Miter gear, z24 | 5.9% | 0.0276 → 0.0153 mm | 4.7% → 1.8% | −0.09% |
-
-The result is *more* accurate than the uniform mesh, because merged
-vertices land on the surface. Its cost is dominated by field evaluation, so
-it inherits the field's speed: about 6 s for the plate and 18 s for the nut,
-but minutes for the gear, whose polygon field is the slow part.
-Meshing adaptively in the first place — refining only where the field says
-so — would avoid building the uniform mesh at all, and is the larger
-follow-on.
-### 10.6 Gears and threaded fasteners
-
-The last OCC dependency in yapRover's release design is its differential's
-`miter_gear`, built as an OCC ruled loft. Gears and fasteners are, at
-heart, a 2D outline carried through space, so three planar kinds carry
-most of the weight:
-
-- **`polygon`** — the exact signed distance to a closed 2D polygon,
-  constant along z. An `n`-fold symmetric polygon (a gear) rotates each
-  point into one sector and tests only the segments within reach of it,
-  which is exact and about `n/3` times cheaper. The sign comes from a ray
-  cast radially outward, so it stays inside the sector, with a half-open
-  straddle rule so that a ray through a vertex counts once.
-- **`extrude`** — exact extrusion of a planar child about z = 0.
-- **`apex_extrude`** — the cone through the origin over a profile given at
-  `z_ref`, clipped between two planes: every section is the profile scaled
-  by `z / z_ref`. Not exact, with a conservative Lipschitz bound.
-
-On these sit *semantic* nodes, whose parameters are the part's
-specification rather than its geometry, so trees stay a few hundred bytes
-and re-evaluate from the same numbers the BREP generators use:
-
-- **`straight_bevel_gear`** — the outer tooth section (an exact polygon,
-  17 samples per flank) carried to the pitch apex between the inner and
-  outer planes, minus the bore. That is the BREP generator's own
-  construction, since its two loft sections are the same outline scaled
-  toward the apex. It replays through OCC by calling that generator, so it
-  is `csg_exact`: the field and BREP differ only between flank samples,
-  straight segments against an interpolating spline, by under 5 µm.
-  `make_straight_bevel_gear_sdf` meshes it at a cell set by the top land at
-  the small end; the DSL's `miter_gear` and `straight_bevel_gear` use it
-  when OCC is absent.
-- **`thread`** — a helical thread about z: the distance in
-  `(u, r)`, `u = z − hand·lead·θ/2π` folded by the pitch, to the profile
-  `r = R(u)` over three periods. The helical map stretches space by
-  `sqrt(1 + (lead/2πr)²)`, 1.002 at an M8 minor radius, so the field is
-  very nearly exact on the flanks. That stretch is unbounded at the axis,
-  so inside half the minor radius the angular dependence is blended out.
-  The profile comes from `threadgen._radius_at` itself, so the field nut
-  is the same part as the mesh nut.
-- **`hex_nut`** — a hexagonal prism less an internal `thread`, placed as
-  `fasteners_legacy.build_hex_nut` places it. `metric_hex_nut(...,
-  representation="sdf")` (and the unified equivalent) meshes it closed,
-  where the swept-mesh nut is not; the mesh nut stays the default.
-
-Not yet done: external threads and bolts, spur, helical and herringbone
-gears (polygon plus a `twist` domain operator), and a DSL switch to author
-fasteners as fields. The investigation behind this section measured those
-too; they mesh closed within 0.1% of reference.
 ### 10.5 Fillets and compounds
 
 Building the yapRover release design without OCC (field primitives in
@@ -800,6 +704,135 @@ closed meshes, and the OCC replay builds a compound rather than a fused
 solid. The DSL's `compound` attaches this tree when every operand is
 SDF-authored and keeps the operands' own meshes; a compound with any mesh or
 BREP operand is unchanged.
+
+### 10.6 Gears and threaded fasteners
+
+The last OCC dependency in yapRover's release design is its differential's
+`miter_gear`, built as an OCC ruled loft. Gears and fasteners are, at
+heart, a 2D outline carried through space, so three planar kinds carry
+most of the weight:
+
+- **`polygon`** — the exact signed distance to a closed 2D polygon,
+  constant along z. An `n`-fold symmetric polygon (a gear) rotates each
+  point into one sector and tests only the segments within reach of it,
+  which is exact and about `n/3` times cheaper. The sign comes from a ray
+  cast radially outward, so it stays inside the sector, with a half-open
+  straddle rule so that a ray through a vertex counts once.
+- **`extrude`** — exact extrusion of a planar child about z = 0.
+- **`apex_extrude`** — the cone through the origin over a profile given at
+  `z_ref`, clipped between two planes: every section is the profile scaled
+  by `z / z_ref`. Not exact, with a conservative Lipschitz bound.
+
+On these sit *semantic* nodes, whose parameters are the part's
+specification rather than its geometry, so trees stay a few hundred bytes
+and re-evaluate from the same numbers the BREP generators use:
+
+- **`straight_bevel_gear`** — the outer tooth section (an exact polygon,
+  17 samples per flank) carried to the pitch apex between the inner and
+  outer planes, minus the bore. That is the BREP generator's own
+  construction, since its two loft sections are the same outline scaled
+  toward the apex. It replays through OCC by calling that generator, so it
+  is `csg_exact`: the field and BREP differ only between flank samples,
+  straight segments against an interpolating spline, by under 5 µm.
+  `make_straight_bevel_gear_sdf` meshes it at a cell set by the top land at
+  the small end; the DSL's `miter_gear` and `straight_bevel_gear` use it
+  when OCC is absent.
+- **`thread`** — a helical thread about z: the distance in
+  `(u, r)`, `u = z − hand·lead·θ/2π` folded by the pitch, to the profile
+  `r = R(u)` over three periods. The helical map stretches space by
+  `sqrt(1 + (lead/2πr)²)`, 1.002 at an M8 minor radius, so the field is
+  very nearly exact on the flanks. That stretch is unbounded at the axis,
+  so inside half the minor radius the angular dependence is blended out.
+  The profile comes from `threadgen._radius_at` itself, so the field nut
+  is the same part as the mesh nut.
+- **`hex_nut`** — a hexagonal prism less an internal `thread`, placed as
+  `fasteners_legacy.build_hex_nut` places it. `metric_hex_nut(...,
+  representation="sdf")` (and the unified equivalent) meshes it closed,
+  where the swept-mesh nut is not; the mesh nut stays the default.
+
+- **`hex_bolt`** — an external `thread` from the tip at z = 0, a plain
+  shank, a washer face and a hex head, placed as `build_hex_cap_screw`
+  places them; `metric_hex_bolt(..., representation="sdf")`. Both nut and
+  bolt end their threads square, where the legacy meshes taper them.
+- **`spur_gear`** — spur, helical and herringbone involute gears: the
+  `figgear` profile as a symmetric `polygon`, extruded, and for a helix
+  wrapped in **`twist`**, a domain operator rotating each section by
+  `rate·z` (or `rate·(c − |z − c|)` for a herringbone, peaking at mid
+  face). A twist preserves section area, so the volume is exactly profile
+  area × face width, which the tests check. `gears.make_involute_gear_sdf`
+  meshes it, and the DSL's `herringbone_gear` uses it without OCC.
+
+Symmetric polygons evaluate in two levels: a folded point's radial ray can
+cross only the segments reaching into its own sector, so those ~35 decide
+the sign and a first distance, and the ~100 in neighbouring sectors are
+tested only where their bounding box is nearer. That is exact and three
+times faster, which matters because the gear field dominates both meshing
+and simplification.
+
+**Acute edges needed Manifold Dual Contouring.** A 25° helical gear came
+out non-manifold at every resolution tried: its tooth tips' acute edges
+leave a wedge of material thinner than any cell, and one vertex per cell
+cannot represent a cell the surface crosses twice. The gyroid lattice
+wheel failed the same way. `dual_contour` now places one vertex per
+surface component of a cell (Schaefer, Ju and Warren). A 256-entry table
+groups each configuration's crossing edges into components: edges join
+when they bound one segment of a shared face, and a face with diagonal
+inside corners pairs its edges around each inside corner, a rule both
+cells sharing the face agree on. Cells with one component, almost all of
+them, get the vertex they always had. One case remains: a cell whose single
+component crosses one face twice still doubles an edge. That needs local
+refinement and belongs with adaptive meshing.
+
+Not yet done: `sun_gear_with_hub` without OCC, and a DSL switch to author
+parts as fields.
+
+### 10.7 Simplifying against the field
+
+Dual contouring meshes a part at the cell size its finest feature needs,
+everywhere: an M8 nut fine enough for its 0.16 mm crest flats is just as
+fine across its flat faces. `sdf.simplify_solid(solid, tolerance)` recovers
+that by quadric edge collapse (Garland–Heckbert), checked against the
+field. It runs in rounds. Each scores every edge at once, picks greedily a
+set of the cheapest edges with disjoint neighbourhoods, moves each merged
+vertex onto the surface by Newton steps, and tests them all together:
+
+- **Topology** by the link condition, so the mesh stays a closed manifold.
+- **Orientation**: no surrounding triangle flips or collapses.
+- **Fidelity**: `|f|` is sampled across every changed triangle on a grid
+  of two points per original edge length and at least four divisions, so a
+  large merged triangle is checked more densely than the small ones it
+  replaces. A sparser grid (one point per edge, two divisions minimum)
+  read 0.095 mm on a triangle cut across a sharp edge whose true error was
+  0.142 mm; with it the worst error over the whole part rose about 1.5%.
+  Each triangle's error is cached and remeasured only when a collapse
+  rewrites it. It must stay within the
+  tolerance — or, where dual contouring already strayed further (along
+  sharp edges it rounds), the worst error may not rise and the excess over
+  the tolerance, integrated over area, may not grow. Without that second
+  rule a sharp edge either froze every collapse near it or, with a looser
+  rule, licensed its neighbours to reach its error, and the bad region
+  spread a ring per round.
+
+Rejected edges are remembered until something near them changes, which
+keeps the tail of rounds cheap. It is deterministic, and the tolerance is
+recorded with the meshing parameters.
+
+At 0.01 mm, measured by sampling uniformly by area (sampling per triangle
+over-weights the small triangles left at sharp edges and misleads):
+
+| Part | Triangles kept | p99 `\|f\|`, before → after | Area over 0.01 mm | Volume |
+|---|---|---|---|---|
+| Plate with two holes | 9.9% | 0.0121 → 0.0112 mm | 1.7% → 1.5% | −0.03% |
+| Threaded M8 nut | 3.8% | 0.0157 → 0.0086 mm | 2.1% → 0.7% | +0.12% |
+| Miter gear, z24 | 5.9% | 0.0276 → 0.0153 mm | 4.7% → 1.8% | −0.09% |
+
+The result is *more* accurate than the uniform mesh, because merged
+vertices land on the surface. Its cost is dominated by field evaluation, so
+it inherits the field's speed: about 6 s for the plate and 18 s for the nut,
+but minutes for the gear, whose polygon field is the slow part.
+Meshing adaptively in the first place — refining only where the field says
+so — would avoid building the uniform mesh at all, and is the larger
+follow-on.
 
 ## 11. Open questions
 

@@ -247,6 +247,113 @@ def _edge_normals(node, points, axis, eps, backend):
     return normals
 
 
+# ---------------------------------------------------------------------------
+# Manifold dual contouring: one vertex per surface component of a cell
+# ---------------------------------------------------------------------------
+#
+# Plain dual contouring places one vertex per cell.  Where the surface
+# passes through a cell twice -- a thin wall, or the thin wedge of material
+# near any acute edge, such as a helical gear's tooth tip -- that one vertex
+# serves two sheets and the mesh comes out non-manifold, at any resolution.
+# Following Schaefer, Ju and Warren's Manifold Dual Contouring, each cell
+# instead gets a vertex per connected component of the surface within it.
+#
+# A cell's sign configuration fixes those components.  Two crossing edges of
+# the cell belong to one component when they bound one surface segment on a
+# face the cell shares: a face with two crossings has one segment joining
+# them; a face with four -- inside corners on a diagonal -- has two, each
+# cutting off one inside corner.  That rule depends only on the face, so the
+# two cells sharing a face always agree, which is what keeps the result
+# manifold.  A cell with a single component gets exactly the vertex plain
+# dual contouring would give it.
+
+#: Local cell edges as (axis, u, v): u and v are the edge's offsets along the
+#: axes (axis + 1) % 3 and (axis + 2) % 3.  Index = axis * 4 + u * 2 + v.
+_CELL_EDGES = [(a, u, v) for a in range(3) for u in (0, 1) for v in (0, 1)]
+
+
+def _edge_corners(edge):
+    """The two corners of a local edge, as (x, y, z) offsets."""
+    a, u, v = edge
+    ends = []
+    for t in (0, 1):
+        c = [0, 0, 0]
+        c[a] = t
+        c[(a + 1) % 3] = u
+        c[(a + 2) % 3] = v
+        ends.append(tuple(c))
+    return ends
+
+
+def _corner_bit(c):
+    return c[0] | (c[1] << 1) | (c[2] << 2)
+
+
+def _component_table():
+    """For each of the 256 sign configurations, the component of each of
+    the 12 cell edges (-1 where the edge has no crossing), and the count."""
+    edge_ends = [_edge_corners(e) for e in _CELL_EDGES]
+    table = np.full((256, 12), -1, dtype=np.int64)
+    count = np.zeros(256, dtype=np.int64)
+    for config in range(256):
+        def inside(c):
+            return bool((config >> _corner_bit(c)) & 1)
+        crossing = [inside(a) != inside(b) for a, b in edge_ends]
+        parent = list(range(12))
+
+        def find(x):
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        for normal in range(3):
+            for side in (0, 1):
+                on_face = [e for e, ends in enumerate(edge_ends)
+                           if _CELL_EDGES[e][0] != normal
+                           and ends[0][normal] == side and crossing[e]]
+                if len(on_face) == 2:
+                    a, b = on_face
+                    parent[find(a)] = find(b)
+                elif len(on_face) == 4:
+                    # Pair the two edges around each inside corner.
+                    corners = {c for e in on_face for c in edge_ends[e]}
+                    for c in sorted(corners):
+                        if not inside(c):
+                            continue
+                        pair = [e for e in on_face if c in edge_ends[e]]
+                        parent[find(pair[0])] = find(pair[1])
+        roots = {}
+        for e in range(12):
+            if crossing[e]:
+                root = find(e)
+                table[config, e] = roots.setdefault(root, len(roots))
+        count[config] = len(roots)
+    return table, count
+
+
+_COMPONENT, _COMPONENT_COUNT = _component_table()
+
+
+def _cell_configs(values, cells):
+    """Sign configuration (bit per corner, set when inside) of each cell."""
+    ci, cj, ck = cells
+    config = np.zeros(ci.size, dtype=np.int64)
+    for c in range(8):
+        dx, dy, dz = c & 1, (c >> 1) & 1, (c >> 2) & 1
+        config |= (values[ci + dx, cj + dy, ck + dz] < 0.0).astype(
+            np.int64) << c
+    return config
+
+
+def _local_edge(axis, offset):
+    """Local index, within an incident cell, of a grid edge along ``axis``
+    reached from that cell at ``offset`` (each component 0 or -1)."""
+    u = -offset[(axis + 1) % 3]
+    v = -offset[(axis + 2) % 3]
+    return axis * 4 + u * 2 + v
+
+
 def dual_contour(node, resolution=64, bounds=None, padding=None,
                  chunk=32, prune=True, backend=DEFAULT_BACKEND):
     """Mesh the surface of ``node`` by dual contouring.
@@ -283,15 +390,33 @@ def dual_contour(node, resolution=64, bounds=None, padding=None,
         empty = np.zeros((0, 3), dtype=float)
         return Mesh(empty, empty, np.zeros((0, 3), dtype=np.int64))
 
-    # C-order of the mask, so vertex numbering is reproducible.
+    # C-order of the mask, then component order within a cell, so vertex
+    # numbering is reproducible.  A cell holds one vertex per surface
+    # component; almost every cell has exactly one.
+    config = _cell_configs(values, active_idx)
+    components = _COMPONENT_COUNT[config]
+    first_vertex = np.concatenate([[0], np.cumsum(components)[:-1]])
+    n_vertices = int(components.sum())
+    cell_of_vertex = np.repeat(np.arange(n_active), components)
     cell_index = np.full(counts, -1, dtype=np.int64)
     cell_index[active_idx] = np.arange(n_active, dtype=np.int64)
+    cell_config = np.zeros(counts, dtype=np.int64)
+    cell_config[active_idx] = config
+    cell_first = np.zeros(counts, dtype=np.int64)
+    cell_first[active_idx] = first_vertex
 
-    ata = np.zeros((n_active, 9), dtype=float)
-    atb = np.zeros((n_active, 3), dtype=float)
-    mass = np.zeros((n_active, 3), dtype=float)
-    tally = np.zeros(n_active, dtype=float)
-    normal_sum = np.zeros((n_active, 3), dtype=float)
+    def vertex_of(ci, cj, ck, axis, offset):
+        """The vertex, in cells (ci, cj, ck), of the component containing
+        the grid edge they reach at ``offset``."""
+        local = _local_edge(axis, offset)
+        comp = _COMPONENT[cell_config[ci, cj, ck], local]
+        return cell_first[ci, cj, ck] + comp
+
+    ata = np.zeros((n_vertices, 9), dtype=float)
+    atb = np.zeros((n_vertices, 3), dtype=float)
+    mass = np.zeros((n_vertices, 3), dtype=float)
+    tally = np.zeros(n_vertices, dtype=float)
+    normal_sum = np.zeros((n_vertices, 3), dtype=float)
 
     eps = 1e-4 * spacing
     crossing_points = []
@@ -310,22 +435,22 @@ def dual_contour(node, resolution=64, bounds=None, padding=None,
 
         for offset in _QUAD_CELL_OFFSETS[axis]:
             ci, cj, ck, ok = _incident_cells(idx, offset, counts)
-            cells = cell_index[ci[ok], cj[ok], ck[ok]]
+            cells = vertex_of(ci[ok], cj[ok], ck[ok], axis, offset)
             for comp in range(9):
                 ata[:, comp] += np.bincount(
-                    cells, weights=outer[ok, comp], minlength=n_active
+                    cells, weights=outer[ok, comp], minlength=n_vertices
                 )
             for comp in range(3):
                 atb[:, comp] += np.bincount(
-                    cells, weights=nb[ok, comp], minlength=n_active
+                    cells, weights=nb[ok, comp], minlength=n_vertices
                 )
                 mass[:, comp] += np.bincount(
-                    cells, weights=pts[ok, comp], minlength=n_active
+                    cells, weights=pts[ok, comp], minlength=n_vertices
                 )
                 normal_sum[:, comp] += np.bincount(
-                    cells, weights=nrm[ok, comp], minlength=n_active
+                    cells, weights=nrm[ok, comp], minlength=n_vertices
                 )
-            tally += np.bincount(cells, minlength=n_active)
+            tally += np.bincount(cells, minlength=n_vertices)
 
     # Solve each cell's quadratic error function about its mass point, using
     # a pseudo-inverse with singular-value truncation rather than uniform
@@ -338,7 +463,7 @@ def dual_contour(node, resolution=64, bounds=None, padding=None,
     # the surface, which is what drives vertices out of their cells and
     # produces coincident points where two neighbours both clamp to the
     # corner they share.
-    matrices = ata.reshape(n_active, 3, 3)
+    matrices = ata.reshape(n_vertices, 3, 3)
     centre = mass / tally[:, None]
     residual = atb - np.einsum("nij,nj->ni", matrices, centre)
 
@@ -356,12 +481,13 @@ def dual_contour(node, resolution=64, bounds=None, padding=None,
 
     # Keep each vertex in its own cell; an unclamped QEF can place a vertex
     # far outside on a nearly-degenerate configuration and tangle the mesh.
-    cell_lo = origin + np.stack(active_idx, axis=1).astype(float) * spacing
+    cell_lo = origin + np.stack(active_idx, axis=1).astype(float)[
+        cell_of_vertex] * spacing
     vertices = np.clip(vertices, cell_lo, cell_lo + spacing)
     vertices = _separate_coincident(vertices, cell_lo, spacing)
 
     normals = _vertex_normals(node, vertices, normal_sum, eps, backend)
-    triangles = _emit_triangles(values, edge_idx, cell_index, counts)
+    triangles = _emit_triangles(values, edge_idx, vertex_of, counts)
     return Mesh(vertices, normals, triangles)
 
 
@@ -419,7 +545,7 @@ def _vertex_normals(node, vertices, normal_sum, eps, backend):
     return normals
 
 
-def _emit_triangles(values, edge_idx, cell_index, counts):
+def _emit_triangles(values, edge_idx, vertex_of, counts):
     """One quad per interior crossing edge, split into two triangles.
 
     Winding is taken from the direction the field increases along the edge,
@@ -437,12 +563,14 @@ def _emit_triangles(values, edge_idx, cell_index, counts):
         for offset in _QUAD_CELL_OFFSETS[axis]:
             ci, cj, ck, ok = _incident_cells(idx, offset, counts)
             valid &= ok
-            corners.append((ci, cj, ck))
+            corners.append((ci, cj, ck, offset))
         if not np.any(valid):
             continue
 
+        # Each quad corner is the vertex of the component, in that cell,
+        # that this edge's crossing belongs to.
         quad = np.stack(
-            [cell_index[c[0][valid], c[1][valid], c[2][valid]]
+            [vertex_of(c[0][valid], c[1][valid], c[2][valid], axis, c[3])
              for c in corners],
             axis=1,
         )
