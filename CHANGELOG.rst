@@ -5,91 +5,8 @@ Changelog
 Unreleased
 ==========
 
-- Fix the DSL's ``sphere(radius)`` making a sphere of half the documented
-  radius: it passed its argument to ``geom3d_util.sphere``, which takes a
-  diameter. **Designs that call ``sphere`` in the DSL now get spheres twice
-  the size they did**; halve the argument to keep the old geometry. No DSL
-  source in this repository or in yapRover calls it. The Python API's
-  ``geom3d_util.sphere`` is unchanged and still takes a diameter.
-- DSL designs can be built as SDF fields: ``compile_and_run`` and
-  ``package_from_dsl`` take ``representation="sdf"`` (also
-  ``yapcad.dsl run --representation sdf`` and
-  ``YAPCAD_DSL_REPRESENTATION=sdf``). The solid primitives, fasteners and
-  gears then produce SDF-authored solids placed as their mesh versions are,
-  so an existing design builds as fields, without OCC, unchanged.
-- ``metric_hex_bolt`` and ``unified_hex_bolt`` take ``representation="sdf"``
-  for a closed bolt with an external ``thread`` field (``sdf.hex_bolt``).
-- Spur, helical and herringbone gears as fields: ``sdf.spur_gear`` (the
-  ``figgear`` profile, extruded, and twisted by the new ``sdf.twist``
-  operator) and ``gears.make_involute_gear_sdf``. The DSL's
-  ``herringbone_gear`` uses it when OCC is absent.
-- Dual contouring places one vertex per surface component of a cell
-  (Manifold Dual Contouring), so acute edges -- helical gear tips, lattice
-  walls -- no longer mesh non-manifold. Ordinary meshes are unchanged.
-- Symmetric ``polygon`` fields evaluate three times faster.
-- ``sdf.simplify_solid`` simplifies a meshed field by quadric edge collapse,
-  checking every collapse against the field: a closed manifold result, no
-  flipped triangles, and the field's value on every changed triangle within
-  the tolerance, or no worse than the uniform mesh already was. At 0.01 mm
-  a threaded M8 nut keeps 4% of its triangles and a miter gear 6%, both
-  with lower 99th-percentile error than the uniform mesh. The tolerance is
-  recorded with the meshing parameters.
-- Straight bevel and miter gears build without OCC. The new
-  ``straight_bevel_gear`` field stores the gear spec and evaluates as the
-  BREP generator's own construction, the outer tooth section carried to
-  the pitch apex; it still replays to that generator's exact BREP. The DSL's
-  ``miter_gear`` and ``straight_bevel_gear`` use it when OCC is absent, and
-  ``gears.make_straight_bevel_gear_sdf`` exposes it directly. New planar
-  field kinds back it: ``polygon`` (exact, with a symmetry fold),
-  ``extrude`` and ``apex_extrude``.
-- ``metric_hex_nut`` and ``unified_hex_nut`` take ``representation="sdf"``
-  for a closed, SDF-authoritative nut with a helical ``thread`` field whose
-  profile is ``threadgen``'s own. The swept mesh, which is not closed,
-  remains the default.
-- ``fillet`` works on SDF-authored solids without OCC. ``sdf.fillet``
-  rounds every edge exactly for the analytic primitives -- a box becomes a
-  ``rounded_box``, a cylinder the new exact ``rounded_cylinder`` -- through
-  similarity transforms and across the bodies of a compound, and the result
-  still replays to analytic STEP. The DSL's ``fillet`` uses it for any
-  SDF-authored solid. Fillets of combined fields, through non-uniform
-  scales, and of mesh-only solids are refused with an explanation; the plan
-  for them is in ``docs/SDF-DESIGN.md`` §10.5.
-- ``compound`` keeps the fields of SDF-authored operands, as a new
-  ``sdf.compound`` node: a union for booleans, separate bodies for meshing
-  and OCC replay. Booleans against a compound no longer fall back to the
-  mesh engine.
-- The native mesh boolean engine is rewritten (``yapcad.boolean.csg``) and
-  now returns closed, volume-correct solids: 24 of 24 benchmark cases (was
-  8) and 1,800 randomised boxes/spheres/cylinders/icosahedra cases against a
-  manifold3d reference, where the old engine left holes, dropped slivers or
-  timed out. Triangles are split by the planes of the triangles they cross,
-  fragments are classified by generalized winding number (coplanar faces by
-  orientation), each kept triangle is re-triangulated without losing a
-  vertex, and the result is welded and T-junction-repaired into a
-  conforming mesh. It is pure numpy and deterministic; a 10k-triangle sphere
-  union takes about two seconds. ``native.solid_boolean`` keeps its
-  signature; ``tol`` and ``stitch`` are accepted and ignored.
-- New ``manifold`` boolean engine (``yapcad.boolean.manifold_engine``) that
-  calls manifold3d directly, without trimesh, in float64. Install it with
-  ``pip install 'yapCAD[manifold]'``. When manifold3d is installed it is now
-  the default mesh boolean engine, ahead of ``native``: on a 24-case
-  benchmark it returned 24 closed, correct results where the old ``native``
-  engine managed 8, and it is faster than the rewritten one.
-  ``YAPCAD_MESH_BOOLEAN_ENGINE=native`` restores the old default. An
-  operand that is not a closed 2-manifold is refused with
-  ``NotManifoldError`` when the engine is named explicitly, and falls back
-  to ``native`` with a warning otherwise.
-
-- Booleans between two SDF-authored solids now combine their fields instead
-  of their meshes: ``geom3d.solid_boolean`` -- and so the DSL's ``union``,
-  ``difference`` and ``intersection`` -- returns an exact, closed,
-  SDF-authoritative result in well under a second, where the mesh engine
-  returned an open mesh, took tens of seconds, or failed. The result is
-  meshed no coarser than either operand. An explicit ``engine=`` or
-  ``YAPCAD_BOOLEAN_ENGINE`` still takes precedence, and ``engine="sdf"``
-  selects the field path. Mixed SDF/mesh or SDF/BREP operands are unchanged.
-- ``sdf.to_solid`` raises ``sdf.NonManifoldMeshError`` (an ``SdfError``
-  subclass) when it refuses a mesh, so callers can catch that case alone.
+Signed distance functions
+-------------------------
 
 - New ``yapcad.sdf`` package: signed distance functions as a peer solid
   representation (see ``docs/SDF-DESIGN.md``). Fields are an immutable,
@@ -102,47 +19,113 @@ Unreleased
   through OpenCASCADE for an exact BREP and analytic STEP export. The package
   needs only numpy; OCC replay is optional. ``examples/sdf_demo.py`` meshes a
   gallery of models to STL, PNG and (with ``--step``) STEP.
+- Booleans between two SDF-authored solids now combine their fields instead
+  of their meshes: ``geom3d.solid_boolean`` -- and so the DSL's ``union``,
+  ``difference`` and ``intersection`` -- returns an exact, closed,
+  SDF-authoritative result in well under a second, where the mesh engine
+  returned an open mesh, took tens of seconds, or failed. The result is
+  meshed no coarser than either operand. An explicit ``engine=`` or
+  ``YAPCAD_BOOLEAN_ENGINE`` still takes precedence, and ``engine="sdf"``
+  selects the field path. Mixed SDF/mesh or SDF/BREP operands are unchanged.
+- ``fillet`` works on SDF-authored solids without OCC. ``sdf.fillet``
+  rounds every edge exactly for the analytic primitives -- a box becomes a
+  ``rounded_box``, a cylinder the new exact ``rounded_cylinder`` -- through
+  similarity transforms and across the bodies of a compound, and the result
+  still replays to analytic STEP. The DSL's ``fillet`` uses it for any
+  SDF-authored solid. Fillets of combined fields, through non-uniform
+  scales, and of mesh-only solids are refused with an explanation; the plan
+  for them is in ``docs/SDF-DESIGN.md`` §10.5.
+- ``compound`` keeps the fields of SDF-authored operands, as a new
+  ``sdf.compound`` node: a union for booleans, separate bodies for meshing
+  and OCC replay. Booleans against a compound no longer fall back to the
+  mesh engine.
+- Straight bevel and miter gears build without OCC. The new
+  ``straight_bevel_gear`` field stores the gear spec and evaluates as the
+  BREP generator's own construction, the outer tooth section carried to
+  the pitch apex; it still replays to that generator's exact BREP. The DSL's
+  ``miter_gear`` and ``straight_bevel_gear`` use it when OCC is absent, and
+  ``gears.make_straight_bevel_gear_sdf`` exposes it directly. New planar
+  field kinds back it: ``polygon`` (exact, with a symmetry fold),
+  ``extrude`` and ``apex_extrude``.
+- Spur, helical and herringbone gears as fields: ``sdf.spur_gear`` (the
+  ``figgear`` profile, extruded, and twisted by the new ``sdf.twist``
+  operator) and ``gears.make_involute_gear_sdf``. The DSL's
+  ``herringbone_gear`` uses it when OCC is absent.
+- ``metric_hex_nut`` and ``unified_hex_nut`` take ``representation="sdf"``
+  for a closed, SDF-authoritative nut with a helical ``thread`` field whose
+  profile is ``threadgen``'s own. The swept mesh, which is not closed,
+  remains the default.
+- ``metric_hex_bolt`` and ``unified_hex_bolt`` take ``representation="sdf"``
+  for a closed bolt with an external ``thread`` field (``sdf.hex_bolt``).
+- DSL designs can be built as SDF fields: ``compile_and_run`` and
+  ``package_from_dsl`` take ``representation="sdf"`` (also
+  ``yapcad.dsl run --representation sdf`` and
+  ``YAPCAD_DSL_REPRESENTATION=sdf``). The solid primitives, fasteners and
+  gears then produce SDF-authored solids placed as their mesh versions are,
+  so an existing design builds as fields, without OCC, unchanged.
+- ``sdf.simplify_solid`` simplifies a meshed field by quadric edge collapse,
+  checking every collapse against the field: a closed manifold result, no
+  flipped triangles, and the field's value on every changed triangle within
+  the tolerance, or no worse than the uniform mesh already was. At 0.01 mm
+  a threaded M8 nut keeps 4% of its triangles and a miter gear 6%, both
+  with lower 99th-percentile error than the uniform mesh. The tolerance is
+  recorded with the meshing parameters.
+- Dual contouring places one vertex per surface component of a cell
+  (Manifold Dual Contouring), so acute edges -- helical gear tips, lattice
+  walls -- no longer mesh non-manifold. Ordinary meshes are unchanged.
+- Symmetric ``polygon`` fields evaluate three times faster.
+- ``geom3d`` solid transforms now carry an SDF-authored solid's tree along
+  with its mesh; previously ``translatesolid`` and friends moved the mesh and
+  left the defining tree where it was.
+- ``sdf.to_solid`` raises ``sdf.NonManifoldMeshError`` (an ``SdfError``
+  subclass) when it refuses a mesh, so callers can catch that case alone.
+
+Mesh booleans
+-------------
+
+- The native mesh boolean engine is rewritten (``yapcad.boolean.csg``) and
+  now returns closed, volume-correct solids: 24 of 24 benchmark cases (was
+  8) and 1,800 randomised boxes/spheres/cylinders/icosahedra cases against a
+  manifold3d reference, where the old engine left holes, dropped slivers or
+  timed out. Triangles are split by the planes of the triangles they cross,
+  fragments are classified by generalized winding number (coplanar faces by
+  orientation), each kept triangle is re-triangulated without losing a
+  vertex, and the result is welded and T-junction-repaired into a
+  conforming mesh. It is pure numpy and deterministic; a 10k-triangle sphere
+  union takes about two seconds. ``native.solid_boolean`` keeps its
+  signature; ``tol`` and ``stitch`` are accepted and ignored.
+- The native engine no longer shatters triangles. Cuts now require a real
+  triangle-triangle overlap (the Moller interval test), are confined to the
+  pieces the intersection segment touches, and pass-through vertices on a
+  triangle's own edges are dropped when its fragments are merged. Two
+  coaxial ~800-triangle cylinders unioned into 32,608 triangles in 20 s;
+  they now give 3,904 in about a second, and a full yapRover build with
+  the native engine completes.
+- New ``manifold`` boolean engine (``yapcad.boolean.manifold_engine``) that
+  calls manifold3d directly, without trimesh, in float64. Install it with
+  ``pip install 'yapCAD[manifold]'``. When manifold3d is installed it is now
+  the default mesh boolean engine, ahead of ``native``: on a 24-case
+  benchmark it returned 24 closed, correct results where the old ``native``
+  engine managed 8, and it is faster than the rewritten one.
+  ``YAPCAD_MESH_BOOLEAN_ENGINE=native`` restores the old default. An
+  operand that is not a closed 2-manifold is refused with
+  ``NotManifoldError`` when the engine is named explicitly, and falls back
+  to ``native`` with a warning otherwise.
+
+Geometry, provenance and serialisation
+--------------------------------------
+
 - Geometry JSON is now ``yapcad-geometry-json-v0.3``. It adds ``"sdf"`` as an
   ``authoritative`` representation, with the tree stored in
   ``representations.sdf`` and an optional BREP marked ``role: "derived"``.
   v0.1 and v0.2 documents still read; writers emit v0.3, so a reader that
   checks the schema ID strictly must be updated to accept it.
-- Solid construction provenance (``['procedure', ...]``, ``['boolean', ...]``
-  records) now survives geometry JSON as an optional ``construction`` field,
-  with accessors in the new ``yapcad.construction`` module.
-- Fix ``geom3d.solid()`` filing the construction record in the material slot
-  when called as ``solid(surfaces, [], construction)`` -- the form every
-  producer in the tree uses -- which also made serialised solids emit a
-  spurious ``"voids": [[], []]``.
-- Fix ``geometry_from_json`` writing a document's void surfaces into the
-  solid's material slot. Void surfaces are now merged into the shell list,
-  where mesh solids already carry cavities, and ``geom3d.solid_shells``
-  recovers the outer/void partition on demand.
-- ``geom3d`` solid transforms now carry an SDF-authored solid's tree along
-  with its mesh; previously ``translatesolid`` and friends moved the mesh and
-  left the defining tree where it was.
-- ``jsonschema`` joins the ``tests`` extra, so schema validation runs by
-  default, and the conda environment files request the ``tests`` extra by
-  its correct name.
-
-- **Construction provenance survives serialisation.** New ``yapcad.construction``
-  module defines the record format for the solid ``construction`` slot
-  (``['procedure', call]``, ``['boolean', operation]``, with ``sdf`` reserved)
-  and provides accessors, normalisation, and a JSON round-trip. Geometry JSON
-  gains an optional, additive ``construction`` field on solids; the schema ID
-  stays at ``yapcad-geometry-json-v0.2`` because the field is omitted entirely
-  when a solid records no provenance.
-
-- **Fix: ``solid()`` misfiled construction records under material.** The
-  constructor used an emptiness test rather than positional counting to assign
-  its list arguments, so the near-universal ``solid(surfaces, [], construction)``
-  idiom stored the construction record in the material slot and left
-  construction empty. Every ``geom3d_util`` procedure record and every boolean
-  engine record was affected, and ``geometry_to_json`` compounded it by reading
-  that slot as voids and emitting a spurious ``"voids": [[], []]``. List
-  arguments are now assigned positionally.
-
-- **Derived outer/void shell partitioning.** New ``yapcad.geom3d.solid_shells``
+- Solid construction provenance (``['procedure', call]``,
+  ``['boolean', operation]``, ``['sdf', tree]``) now survives geometry
+  JSON as an optional ``construction`` field. The new ``yapcad.construction``
+  module defines the record format and provides accessors, normalisation and
+  the JSON round-trip.
+- New ``yapcad.geom3d.solid_shells``
   groups a solid's surfaces into connected shells by shared edges and
   classifies each as outer or void by the sign of its volume. yapCAD mesh
   solids carry cavities as inward-wound shells in the surface list -- a hollow
@@ -150,22 +133,27 @@ Unreleased
   on demand rather than stored in a slot that could drift out of sync with the
   geometry.
 
-- **Fix: geometry JSON disagreed with ``geom3d`` about solid slot 2.**
-  ``geometry_from_json`` wrote a document's void surfaces into slot 2, which
-  ``solid()`` and the ``geom3d`` module docstring both document as *material*;
-  ``yapcad.geometry._retessellate_brep_solid`` and ``service/core/tessellator``
-  shared the misreading. Void surfaces now rejoin the shell surface list where
-  mesh solids actually keep cavities, slot 2 stays material, and the
-  interchange-level ``voids`` field is computed from ``solid_shells`` on write.
+Fixes
+-----
 
-- Add ``docs/SDF-DESIGN.md``, planning native signed-distance-function support:
-  node-DAG representation, Lipschitz-bound tracking, dual-contouring meshing,
-  CSG-tree replay into OCC for exact BREP, and mixed-authority booleans.
-
-- Test the pure-Python package on Python 3.11 and 3.14, the supported-version
-  endpoints, and require Python 3.11 or newer. Python 3.10 support is retired
-  ahead of its October 2026 end-of-life.
-
+- Fix the DSL's ``sphere(radius)`` making a sphere of half the documented
+  radius: it passed its argument to ``geom3d_util.sphere``, which takes a
+  diameter. **Designs that call ``sphere`` in the DSL now get spheres twice
+  the size they did**; halve the argument to keep the old geometry. No DSL
+  source in this repository or in yapRover calls it. The Python API's
+  ``geom3d_util.sphere`` is unchanged and still takes a diameter.
+- Fix ``geom3d.solid()`` filing the construction record in the material
+  slot. It assigned its list arguments by an emptiness test rather than by
+  position, so the near-universal ``solid(surfaces, [], construction)``
+  idiom stored the record as material and left construction empty; every
+  ``geom3d_util`` procedure record and boolean engine record was affected,
+  and serialised solids gained a spurious ``"voids": [[], []]``.
+- Fix ``geometry_from_json`` writing a document's void surfaces into the
+  solid's material slot (``yapcad.geometry._retessellate_brep_solid`` and
+  ``service/core/tessellator`` shared the misreading). Void surfaces now
+  rejoin the shell list, where mesh solids keep cavities, and the
+  interchange-level ``voids`` field is computed from ``solid_shells`` on
+  write.
 - Fix scaling about a centre point. ``geom.scale`` and ``geom3d.scalesurface``
   composed the transform in the wrong order and scaled about ``-cent`` rather
   than ``cent``; both BREP representations already scaled about ``cent``, so a
@@ -180,6 +168,19 @@ Unreleased
   already did. ``mirror`` previously did nothing to a mesh-only solid,
   ``scale`` produced an invalid one, and on BREP solids both discarded the
   solid's metadata.
+
+Packaging, testing and documentation
+------------------------------------
+
+- Test the pure-Python package on Python 3.11 and 3.14, the supported-version
+  endpoints, and require Python 3.11 or newer. Python 3.10 support is retired
+  ahead of its October 2026 end-of-life.
+- ``jsonschema`` joins the ``tests`` extra, so schema validation runs by
+  default, and the conda environment files request the ``tests`` extra by
+  its correct name.
+- Add ``docs/SDF-DESIGN.md``, planning native signed-distance-function support:
+  node-DAG representation, Lipschitz-bound tracking, dual-contouring meshing,
+  CSG-tree replay into OCC for exact BREP, and mixed-authority booleans.
 
 Version 1.1.0 (2026-07-05)
 ==========================
@@ -252,8 +253,8 @@ what's new:
     ``YapcadBrepUnavailableWarning`` describing the reduced-functionality state
     and the conda upgrade path.
 
-Version 1.0.1 (Development)
-============================
+Version 1.0.1 (never released; these changes shipped in 1.1.0)
+===============================================================
 
 what's new:
 -----------
@@ -379,6 +380,15 @@ chore:
 
   - Removed internal project files from ``projects/`` so private robot, hanger,
     and jig designs can live in separate internal repositories.
+
+Version 1.0.0rc2 (2026-01-04)
+=============================
+
+- DSL static verifiability: ``while`` loops are removed and execution has
+  resource limits, so a program cannot run without bound.
+- Emacs major mode for the DSL, a fastener catalog system, and a DSL
+  fastener example.
+- Documentation and roadmap updates for the 1.0.0 release candidates.
 
 Version 1.0.0rc1 (2025-12-30)
 =============================
