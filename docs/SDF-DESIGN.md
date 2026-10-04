@@ -857,6 +857,23 @@ Meshing adaptively in the first place — refining only where the field says
 so — would avoid building the uniform mesh at all, and is the larger
 follow-on.
 
+**On by default for finished parts.** Comparisons of the nut, bolt, miter
+and herringbone gears, uniform against simplified at 0.01 mm, kept 2–5% of
+their triangles with every thread crest and tooth flank intact and lower
+99th-percentile error; the field-built yapRover chassis went from 757,000
+triangles to 8,000 in 3.5 minutes. So yapCAD now simplifies *finished*
+parts by default (`sdf.simplify_finished`): the field fastener and gear
+builders, the solids a field-mode DSL call returns, and each distinct part
+of a packaged field-mode assembly. The default tolerance is a twentieth of
+the part's cell, well inside dual contouring's own error. Intermediate
+results are not simplified: most are discarded by the next boolean, and
+simplification costs about twenty times the meshing. A part already
+simplified is left alone, and simplification keeps the solid's metadata,
+including a BREP replayed from the tree, which depends only on the tree.
+`simplify=False`, `sdf_simplify=False`, `--no-simplify` or
+`YAPCAD_SDF_SIMPLIFY=0` keep the uniform meshes; the test suite does that
+except where it tests the default.
+
 ## 11. Open questions
 
 - Should `sampled` grid sidecars use `.npy`, or a raw f32 blob with a JSON

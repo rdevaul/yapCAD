@@ -39,3 +39,18 @@ def pytest_collection_modifyitems(config, items):
             if _reason_mentions_occ(reason):
                 item.add_marker(pytest.mark.requires_occ)
                 break
+
+
+@pytest.fixture(autouse=True)
+def _uniform_sdf_meshes(request, monkeypatch):
+    """Keep finished SDF parts' uniform meshes unless a test asks otherwise.
+
+    yapCAD simplifies finished SDF parts by default, which costs about
+    twenty times their meshing.  Most tests build fasteners and gears for
+    other reasons, so they skip it; tests of the default carry the
+    ``sdf_simplify`` marker and see yapCAD's real behaviour.
+    """
+    if request.node.get_closest_marker("sdf_simplify") is None:
+        monkeypatch.setenv("YAPCAD_SDF_SIMPLIFY", "0")
+    else:
+        monkeypatch.delenv("YAPCAD_SDF_SIMPLIFY", raising=False)

@@ -43,7 +43,13 @@ import numpy as np
 from yapcad.sdf.evaluate import evaluate, gradient
 from yapcad.sdf.node import SdfError
 
-__all__ = ["simplify_mesh", "simplify_solid"]
+__all__ = ["simplify_mesh", "simplify_solid", "simplify_finished",
+           "DEFAULT_TOLERANCE_CELLS"]
+
+#: The default tolerance, as a fraction of the cell the part was meshed at.
+#: A twentieth of a cell sits well inside dual contouring's own error, so the
+#: simplified part is no less accurate than the uniform mesh was.
+DEFAULT_TOLERANCE_CELLS = 0.05
 
 #: Most subdivisions per edge of the barycentric sample grid on a triangle.
 _MAX_DIVISIONS = 32
@@ -325,11 +331,25 @@ def simplify_mesh(node, vertices, triangles, tolerance, max_rounds=200):
     return V, F
 
 
-def simplify_solid(solid, tolerance):
+def _default_tolerance(solid, node):
+    from yapcad.sdf.booleans import _cell_size
+    cell = _cell_size(solid, node)
+    if not cell or cell <= 0.0:
+        raise SdfError("simplify_solid: cannot tell the cell size this solid "
+                       "was meshed at; pass a tolerance")
+    return DEFAULT_TOLERANCE_CELLS * cell
+
+
+def simplify_solid(solid, tolerance=None):
     """Simplify every surface of an SDF-authored solid against its field.
 
+    :param tolerance: how far, in model units, the simplified surface may
+        stray from the field.  By default a twentieth of the cell the solid
+        was meshed at (:data:`DEFAULT_TOLERANCE_CELLS`).
+
     The construction record keeps the field and gains the tolerance, so
-    the simplified preview is as reproducible as the original.
+    the simplified preview is as reproducible as the original.  A solid
+    already simplified is returned unchanged.
     """
     from yapcad.construction import get_construction
     from yapcad.geom3d import solid as make_solid
@@ -343,6 +363,11 @@ def simplify_solid(solid, tolerance):
         raise SdfError("simplify_solid: the solid is not SDF-authored")
     record = get_construction(solid)
     node = from_construction(record)
+    meshing = dict(meshing_from_construction(record) or {})
+    if "simplify" in meshing:
+        return solid
+    if tolerance is None:
+        tolerance = _default_tolerance(solid, node)
     surfaces = []
     for surf in solid[1]:
         V = np.array([p[:3] for p in surf[1]], dtype=float)
@@ -352,9 +377,44 @@ def simplify_solid(solid, tolerance):
             [[float(x), float(y), float(z), 1.0] for x, y, z in V],
             [[float(x), float(y), float(z), 0.0] for x, y, z in N],
             [[int(i), int(j), int(k)] for i, j, k in F]))
-    meshing = dict(meshing_from_construction(record) or {})
     if meshing:
         meshing["simplify"] = {"method": "field-qem",
                                "tolerance": float(tolerance)}
-    return make_solid(surfaces, [], to_construction(
+    result = make_solid(surfaces, [], to_construction(
         node, meshing=meshing or None))
+    # Keep the metadata -- fastener and gear specs, tags, and any BREP
+    # replayed from the tree, which depends on the tree and not the mesh.
+    from yapcad.metadata import get_solid_metadata, set_solid_metadata
+    meta = get_solid_metadata(solid)
+    if meta:
+        set_solid_metadata(result, dict(meta))
+    return result
+
+
+def _enabled():
+    """Whether finished parts are simplified: on unless
+    ``YAPCAD_SDF_SIMPLIFY`` is ``0``, ``off``, ``false`` or ``no``."""
+    import os
+    value = os.environ.get("YAPCAD_SDF_SIMPLIFY", "").strip().lower()
+    return value not in ("0", "off", "false", "no")
+
+
+def simplify_finished(solid, simplify=None):
+    """Simplify a *finished* SDF-authored part, as yapCAD does by default.
+
+    Fastener and gear builders, field-mode DSL results and packaged parts
+    pass through here.  Intermediate results -- every boolean -- are not
+    simplified: their meshes are usually discarded, and simplifying costs
+    about twenty times the meshing.
+
+    :param simplify: ``True`` or ``False`` to decide here; ``None`` (the
+        default) follows ``YAPCAD_SDF_SIMPLIFY``, which is on unless set to
+        ``0``/``off``.  Anything that is not an SDF-authored solid is
+        returned unchanged.
+    """
+    from yapcad.sdf.booleans import is_sdf_solid
+    if simplify is None:
+        simplify = _enabled()
+    if not simplify or not is_sdf_solid(solid) or not solid[1]:
+        return solid
+    return simplify_solid(solid)

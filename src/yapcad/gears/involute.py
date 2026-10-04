@@ -6,13 +6,16 @@ import math
 def make_involute_gear_sdf(teeth, module_mm, face_width_mm, *,
                            pressure_angle_deg=20.0, helix_angle_deg=0.0,
                            herringbone=False, involute_step=None,
-                           spline_division_num=None, cell_mm=None):
+                           spline_division_num=None, cell_mm=None,
+                           simplify=None):
     """Mesh :func:`yapcad.sdf.spur_gear` into a closed solid; no OCC needed.
 
     The profile is :func:`yapcad.contrib.figgear.make_gear_figure`'s, with
     the same options the DSL builtins pass it; axis +z, faces at ``z = 0``
     and ``z = face_width_mm``.  ``cell_mm`` defaults to an eighth of the
-    module, fine enough for the tooth tips.
+    module, fine enough for the tooth tips.  The mesh is simplified against
+    the field (:func:`yapcad.sdf.simplify_finished`) unless
+    ``simplify=False`` or ``YAPCAD_SDF_SIMPLIFY=0``.
     """
     from yapcad.sdf.convert import to_solid
     from yapcad.sdf.gears import spur_gear
@@ -27,8 +30,10 @@ def make_involute_gear_sdf(teeth, module_mm, face_width_mm, *,
     longest = max(hi[i] - lo[i] for i in range(3))
     kind = "herringbone" if herringbone else (
         "helical" if helix_angle_deg else "spur")
-    return to_solid(node, resolution=max(16, math.ceil(longest / cell)),
-                    metadata={"gear": {"kind": kind, "teeth": int(teeth),
-                                       "module_mm": float(module_mm),
-                                       "helix_angle_deg":
-                                           float(helix_angle_deg)}})
+    from yapcad.sdf.simplify import simplify_finished
+    solid = to_solid(node, resolution=max(16, math.ceil(longest / cell)),
+                     metadata={"gear": {
+                         "kind": kind, "teeth": int(teeth),
+                         "module_mm": float(module_mm),
+                         "helix_angle_deg": float(helix_angle_deg)}})
+    return simplify_finished(solid, simplify)

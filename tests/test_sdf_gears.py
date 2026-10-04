@@ -161,7 +161,7 @@ def test_the_gear_tree_is_a_spec_not_an_outline():
 
 
 def test_the_yaprover_miter_gear_meshes_closed_to_its_volume():
-    solid = make_straight_bevel_gear_sdf(MITER)
+    solid = make_straight_bevel_gear_sdf(MITER, simplify=False)
     assert issolidclosed(solid)
     assert sdf.is_sdf_solid(solid)
     assert volumeof(solid) == pytest.approx(

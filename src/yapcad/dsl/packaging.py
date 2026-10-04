@@ -33,6 +33,7 @@ def package_from_dsl(
     overwrite: bool = False,
     representation: Optional[str] = None,
     sdf_cell_mm: Optional[float] = None,
+    sdf_simplify: Optional[bool] = None,
 ) -> "PackageResult":
     """Compile DSL source, execute a command, and package the result.
 
@@ -60,6 +61,9 @@ def package_from_dsl(
             design's primitives, fasteners and gears as fields; see
             :mod:`yapcad.dsl.runtime.representation`.
         sdf_cell_mm: Cell size SDF primitives are meshed at.
+        sdf_simplify: With ``representation="sdf"``, whether to simplify
+            each part against its field before packaging; by default yes,
+            unless ``YAPCAD_SDF_SIMPLIFY=0``.
 
     Returns:
         PackageResult with success status, manifest, and any error info.
@@ -96,7 +100,8 @@ def package_from_dsl(
     # Step 1: Compile and execute the DSL
     exec_result = compile_and_run(source, command_name, parameters,
                                   representation=representation,
-                                  sdf_cell_mm=sdf_cell_mm)
+                                  sdf_cell_mm=sdf_cell_mm,
+                                  sdf_simplify=sdf_simplify)
 
     if not exec_result.success:
         return PackageResult(
