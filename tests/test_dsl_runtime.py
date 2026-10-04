@@ -1597,3 +1597,19 @@ class TestFunctionalCombinators:
         holes_vol = 6 * math.pi * 25.0 * 10.0
         expected = plate_vol - holes_vol
         assert abs(volumeof(exec_result.geometry) - expected) < expected * 0.05
+
+
+def test_sphere_takes_a_radius():
+    """sphere(radius) once passed its radius to geom3d_util.sphere, which
+    takes a diameter, making every DSL sphere half the documented size."""
+    from yapcad.dsl import compile_and_run
+    from yapcad.geom3d import solidbbox
+    source = "module s\ncommand PART() -> solid:\n    emit sphere(5.0)\n"
+    result = compile_and_run(source, "PART", {})
+    assert result.success, result.error_message
+    geometry = result.geometry
+    if isinstance(geometry, list) and geometry and geometry[0] != "solid":
+        geometry = geometry[0]
+    lo, hi = solidbbox(geometry)
+    assert [round(v, 3) for v in hi[:3]] == [5.0, 5.0, 5.0]
+    assert [round(v, 3) for v in lo[:3]] == [-5.0, -5.0, -5.0]

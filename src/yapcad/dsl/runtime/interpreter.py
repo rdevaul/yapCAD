@@ -1060,6 +1060,8 @@ def compile_and_run(
     command_name: str,
     parameters: Dict[str, Any],
     recursion_limit: Optional[int] = None,
+    representation: Optional[str] = None,
+    sdf_cell_mm: Optional[float] = None,
 ) -> ExecutionResult:
     """
     High-level API to compile and run DSL source code in one call.
@@ -1086,6 +1088,10 @@ def compile_and_run(
         parameters: Parameter values (raw Python values)
         recursion_limit: Maximum depth for command-to-command calls (default 100,
                          can also be set via YAPCAD_DSL_RECURSION_LIMIT env var)
+        representation: ``"mesh"`` (the default) or ``"sdf"``, which makes the
+                        solid primitives, fasteners and gears SDF-authored; see
+                        :mod:`yapcad.dsl.runtime.representation`
+        sdf_cell_mm: cell size SDF primitives are meshed at
 
     Returns:
         ExecutionResult with geometry, provenance, and any errors
@@ -1123,5 +1129,11 @@ def compile_and_run(
         )
 
     # Execute
+    from .representation import using
     interpreter = Interpreter(recursion_limit=recursion_limit)
-    return interpreter.execute(module, command_name, parameters, source)
+    try:
+        with using(representation, sdf_cell_mm):
+            return interpreter.execute(module, command_name, parameters,
+                                       source)
+    except ValueError as e:
+        return ExecutionResult(success=False, error_message=str(e))

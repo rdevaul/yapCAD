@@ -31,6 +31,8 @@ def package_from_dsl(
     strict_component_step: bool = True,
     strict_component_stl: bool = True,
     overwrite: bool = False,
+    representation: Optional[str] = None,
+    sdf_cell_mm: Optional[float] = None,
 ) -> "PackageResult":
     """Compile DSL source, execute a command, and package the result.
 
@@ -54,6 +56,10 @@ def package_from_dsl(
         strict_component_step: Require analytic BREP for component STEP files.
         strict_component_stl: Require OCC BREP tessellation for component STL.
         overwrite: If True, overwrite existing package directory.
+        representation: ``"mesh"`` (default) or ``"sdf"`` to build the
+            design's primitives, fasteners and gears as fields; see
+            :mod:`yapcad.dsl.runtime.representation`.
+        sdf_cell_mm: Cell size SDF primitives are meshed at.
 
     Returns:
         PackageResult with success status, manifest, and any error info.
@@ -88,7 +94,9 @@ def package_from_dsl(
     from yapcad.geom3d import issolid, issurface
 
     # Step 1: Compile and execute the DSL
-    exec_result = compile_and_run(source, command_name, parameters)
+    exec_result = compile_and_run(source, command_name, parameters,
+                                  representation=representation,
+                                  sdf_cell_mm=sdf_cell_mm)
 
     if not exec_result.success:
         return PackageResult(
