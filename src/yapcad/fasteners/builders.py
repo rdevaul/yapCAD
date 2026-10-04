@@ -120,6 +120,7 @@ def build_hex_bolt_from_catalog(
     thread_samples_per_pitch: int = 6,
     catalog_path: Optional[Path] = None,
     representation: str = "mesh",
+    simplify: Optional[bool] = None,
 ):
     """Build a hex bolt using catalog dimensions.
 
@@ -178,7 +179,7 @@ def build_hex_bolt_from_catalog(
     )
 
     if representation == "sdf":
-        return _build_hex_bolt_sdf(profile, spec)
+        return _build_hex_bolt_sdf(profile, spec, simplify)
     if representation != "mesh":
         raise ValueError(
             f"representation must be 'mesh' or 'sdf', got {representation!r}"
@@ -201,7 +202,7 @@ def _mesh_fastener(node, cell):
     return to_solid(node, resolution=max(16, math.ceil(longest / cell)))
 
 
-def _build_hex_bolt_sdf(profile, spec):
+def _build_hex_bolt_sdf(profile, spec, simplify=None):
     """The bolt as a field (:func:`yapcad.sdf.threads.hex_bolt`)."""
     from yapcad.metadata import add_tags, get_solid_metadata, set_layer
     from yapcad.sdf.threads import hex_bolt
@@ -225,7 +226,8 @@ def _build_hex_bolt_sdf(profile, spec):
         "washer_thickness": spec.washer_thickness,
         "washer_diameter": spec.washer_diameter or spec.head_flat_diameter,
     }
-    return bolt
+    from yapcad.sdf.simplify import simplify_finished
+    return simplify_finished(bolt, simplify)
 
 
 def build_hex_nut_from_catalog(
@@ -238,6 +240,7 @@ def build_hex_nut_from_catalog(
     thread_samples_per_pitch: int = 6,
     catalog_path: Optional[Path] = None,
     representation: str = "mesh",
+    simplify: Optional[bool] = None,
 ):
     """Build a hex nut using catalog dimensions.
 
@@ -286,7 +289,7 @@ def build_hex_nut_from_catalog(
     )
 
     if representation == "sdf":
-        return _build_hex_nut_sdf(profile, spec)
+        return _build_hex_nut_sdf(profile, spec, simplify)
     if representation != "mesh":
         raise ValueError(
             f"representation must be 'mesh' or 'sdf', got {representation!r}"
@@ -294,7 +297,7 @@ def build_hex_nut_from_catalog(
     return build_hex_nut(profile, spec)
 
 
-def _build_hex_nut_sdf(profile, spec):
+def _build_hex_nut_sdf(profile, spec, simplify=None):
     """The nut as a field (:func:`yapcad.sdf.threads.hex_nut`), meshed at
     a cell size its thread's narrowest flat can survive."""
     from yapcad.metadata import add_tags, get_solid_metadata, set_layer
@@ -315,4 +318,5 @@ def _build_hex_nut_sdf(profile, spec):
         "starts": spec.starts,
         "handedness": spec.handedness,
     }
-    return nut
+    from yapcad.sdf.simplify import simplify_finished
+    return simplify_finished(nut, simplify)

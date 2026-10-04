@@ -1062,6 +1062,7 @@ def compile_and_run(
     recursion_limit: Optional[int] = None,
     representation: Optional[str] = None,
     sdf_cell_mm: Optional[float] = None,
+    sdf_simplify: Optional[bool] = None,
 ) -> ExecutionResult:
     """
     High-level API to compile and run DSL source code in one call.
@@ -1092,6 +1093,9 @@ def compile_and_run(
                         solid primitives, fasteners and gears SDF-authored; see
                         :mod:`yapcad.dsl.runtime.representation`
         sdf_cell_mm: cell size SDF primitives are meshed at
+        sdf_simplify: in ``"sdf"`` mode, whether to simplify the finished
+                      parts against their fields; by default yes, unless
+                      ``YAPCAD_SDF_SIMPLIFY=0``
 
     Returns:
         ExecutionResult with geometry, provenance, and any errors
@@ -1129,11 +1133,14 @@ def compile_and_run(
         )
 
     # Execute
-    from .representation import using
+    from .representation import is_sdf, simplify_result, using
     interpreter = Interpreter(recursion_limit=recursion_limit)
     try:
         with using(representation, sdf_cell_mm):
-            return interpreter.execute(module, command_name, parameters,
-                                       source)
+            result = interpreter.execute(module, command_name, parameters,
+                                         source)
+            if result.success and is_sdf():
+                simplify_result(result, sdf_simplify)
+            return result
     except ValueError as e:
         return ExecutionResult(success=False, error_message=str(e))

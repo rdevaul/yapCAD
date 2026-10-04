@@ -121,3 +121,77 @@ def test_bad_arguments_are_refused(plate):
         simplify_mesh(PLATE, V, F, "fine")
     with pytest.raises(sdf.SdfError):
         simplify_solid(prism(1, 1, 1), 0.01)
+
+
+# ---------------------------------------------------------------------------
+# Simplification by default for finished parts
+# ---------------------------------------------------------------------------
+
+
+def meshing(solid):
+    return sdf.meshing_from_construction(get_construction(solid))
+
+
+def test_the_default_tolerance_is_a_twentieth_of_a_cell(plate):
+    """Dual contouring's cell is the longest extent over the resolution:
+    40 mm / 64 here."""
+    simplified = simplify_solid(plate)
+    tolerance = meshing(simplified)["simplify"]["tolerance"]
+    assert tolerance == pytest.approx(0.05 * 40.0 / 64)
+
+
+def test_simplifying_twice_does_nothing(simplified):
+    assert simplify_solid(simplified) is simplified
+
+
+@pytest.mark.sdf_simplify
+def test_metadata_survives_simplification():
+    from yapcad.fasteners import metric_hex_nut
+    nut = metric_hex_nut("M8", representation="sdf")
+    assert "simplify" in meshing(nut)
+    from yapcad.metadata import get_solid_metadata
+    meta = get_solid_metadata(nut)
+    assert "hex_nut" in meta.get("tags", []) and meta["hex_nut"]["pitch"]
+
+
+@pytest.mark.sdf_simplify
+def test_finished_parts_are_simplified_by_default():
+    from yapcad.gears import make_involute_gear_sdf
+    default = make_involute_gear_sdf(12, 1.0, 3.0, involute_step=0.8,
+                                     spline_division_num=6)
+    uniform = make_involute_gear_sdf(12, 1.0, 3.0, involute_step=0.8,
+                                     spline_division_num=6, simplify=False)
+    assert "simplify" in meshing(default)
+    assert "simplify" not in meshing(uniform)
+    assert len(default[1][0][3]) < 0.5 * len(uniform[1][0][3])
+
+
+@pytest.mark.sdf_simplify
+def test_the_environment_turns_it_off(monkeypatch):
+    from yapcad.sdf.simplify import simplify_finished
+    monkeypatch.setenv("YAPCAD_SDF_SIMPLIFY", "0")
+    solid = sdf.to_solid(sdf.box(4.0), resolution=16)
+    assert simplify_finished(solid) is solid
+    assert simplify_finished(solid, True) is not solid
+
+
+@pytest.mark.sdf_simplify
+def test_dsl_results_are_simplified_in_sdf_mode():
+    from yapcad.dsl import compile_and_run
+    source = ("module s\ncommand PART() -> solid:\n"
+              "    emit difference(box(10.0, 10.0, 4.0), "
+              "cylinder(2.0, 10.0))\n")
+    default = compile_and_run(source, "PART", {}, representation="sdf")
+    kept = compile_and_run(source, "PART", {}, representation="sdf",
+                           sdf_simplify=False)
+    assert "simplify" in meshing(default.geometry)
+    assert "simplify" not in meshing(kept.geometry)
+    mesh_mode = compile_and_run(source, "PART", {})
+    assert not sdf.is_sdf_solid(mesh_mode.geometry)
+
+
+def test_intermediate_booleans_are_not_simplified():
+    from yapcad.geom3d import solid_boolean
+    a = sdf.to_solid(sdf.box(10.0), resolution=20)
+    b = sdf.to_solid(sdf.sphere(6.0), resolution=24)
+    assert "simplify" not in meshing(solid_boolean(a, b, "difference"))
