@@ -10,8 +10,9 @@ knowledge of fields.
 The gallery doubles as a visual regression check.  Every model reports its
 volume, whether the mesh is a closed manifold, whether the field is an exact
 distance or only bounds one, its Lipschitz constant, and whether the tree is
-replayable as exact CSG.  ``lattice-in-a-part`` is deliberately non-manifold
-and is kept as an exhibit of dual contouring's one-vertex-per-cell limit.
+replayable as exact CSG.  ``lattice-in-a-part`` was once non-manifold -- its
+knife-edged corner cut defeated one vertex per cell -- and now meshes clean
+because dual contouring places a vertex per surface component of a cell.
 
 See ``docs/SDF-DESIGN.md`` for the representation and its phases.
 
@@ -67,10 +68,10 @@ def _bracket_plate():
 def _lattice_in_a_part():
     """A solid skin over a gyroid core, opened at one corner.
 
-    Kept despite being non-manifold: the three-plane corner cut leaves knife
-    edges in the shell, a few cells there see the surface twice, and dual
-    contouring cannot represent that.  It is the documented limit rather
-    than a defect, and it is worth being able to look at.
+    The three-plane corner cut leaves knife edges in the shell, so a few
+    cells there see the surface twice.  One vertex per cell made this
+    non-manifold; Manifold Dual Contouring gives such a cell a vertex per
+    surface component, and it meshes clean.
     """
     skin = sdf.subtract(sdf.rounded_box((26.0, 26.0, 26.0), 3.0),
                         sdf.box(21.0))
@@ -119,8 +120,8 @@ MODELS = [
      {}),
     ("lattice-in-a-part",
      _lattice_in_a_part(), 112,
-     "solid skin over a lattice core, corner opened; a few knife-edge cells "
-     "make this one non-manifold -- the documented dual-contouring limit",
+     "solid skin over a lattice core, corner opened; its knife-edge cells "
+     "need a vertex per surface component",
      {"azimuth": 50.0}),
 ]
 
@@ -172,9 +173,10 @@ def build(model, output, scale, want_stl, want_render, size,
         "seconds": round(elapsed, 3),
     }
 
-    # check=False so the non-manifold exhibit still builds; the manifest
-    # records the truth either way.  Wrapping the mesh is cheap next to
-    # meshing it, so the solid's own measurements are always reported.
+    # check=False so a model that does come out non-manifold still builds;
+    # the manifest records the truth either way.  Wrapping the mesh is cheap
+    # next to meshing it, so the solid's own measurements are always
+    # reported.
     solid = sdf.to_solid(node, resolution=resolution, check=False,
                          brep="auto" if want_step else False)
     entry["closed"] = bool(issolidclosed(solid))
@@ -251,9 +253,6 @@ def write_readme(output, manifest):
         "skips any face with area <= `geom.epsilon`, and dual contouring",
         "makes a few slivers that small on curved geometry. Cosmetically",
         "irrelevant, but a strict watertight checker will notice.",
-        "",
-        "`lattice-in-a-part` is deliberately non-manifold; see the module",
-        "docstring of `examples/sdf_demo.py`.",
         "",
     ]
     for e in manifest:

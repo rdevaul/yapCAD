@@ -2,8 +2,9 @@
 ==========
 
 advanced procedural CAD and computational geometry for humans and agents written
-in python 3, featuring mates, assemblies, and linkages, a parametric DSL, BREP
-modeling via OpenCascade, and comprehensive STL/STEP/DXF export
+in python 3, featuring signed distance field solids, mates, assemblies, and
+linkages, a parametric DSL, BREP modeling via OpenCascade, and comprehensive
+STL/STEP/DXF export
 
 .. figure:: https://raw.githubusercontent.com/rdevaul/yapCAD/main/images/yapCadM10pair2.png
    :alt: **yapCAD** M10 fastener pair with material properties
@@ -22,8 +23,9 @@ modeling via OpenCascade, and comprehensive STL/STEP/DXF export
 .. figure:: https://raw.githubusercontent.com/rdevaul/yapCAD/main/images/yapRoverOverview.png
    :alt: **yapCAD** articulated, mate-solved rocker-bogie suspension system
 
-   Internal layout generated with ``examples/rocket_cutaway_internal.py`` and
-   rendered from the exported STEP file in FreeCAD.
+   The yapRover rocker-bogie suspension: datum-driven assembly with solved
+   mates and coupled joints. Its release design builds with OpenCascade or,
+   with no OCC installed, entirely as signed distance fields.
 
 .. figure:: https://raw.githubusercontent.com/rdevaul/yapCAD/main/images/RocketDemoScreenshot.png
    :alt: **yapCAD** rocket example
@@ -46,7 +48,20 @@ software status (version 1.1.0, July 2026)
 ------------------------------------------------------
 
 **yapCAD** is in **active development** and already powers production design
-pipelines. Highlights from the 1.0 release cycle include:
+pipelines. New since 1.1.0 (see ``CHANGELOG.rst``):
+
+* **Signed distance fields**: ``yapcad.sdf`` authors solids as fields --
+  exact booleans, fillets, smooth blends, offsets, shells and lattices that
+  cannot fail, with nothing but numpy. Fields mesh into ordinary yapCAD
+  solids, replay through OpenCascade into exact BREPs when they are CSG,
+  and are simplified against the field for compact meshes. Threaded
+  fasteners and bevel, spur, helical and herringbone gears have field
+  versions, and a whole DSL design builds as fields with
+  ``representation="sdf"``. See ``docs/sdf_guide.rst``.
+* **Robust mesh booleans**: a rewritten native engine and a direct
+  manifold3d engine both return closed, volume-correct solids.
+
+Highlights from the 1.0 release cycle include:
 
 * **Parametric DSL**: Full domain-specific language with lexer, parser, type checker,
   and runtime interpreter. CLI supports ``check``, ``run``, ``list`` commands with
@@ -82,7 +97,8 @@ pipelines. Highlights from the 1.0 release cycle include:
 * **Validation schemas** for test definitions and solver integration.
 * **YAML-based fastener catalogs** with ISO metric and ASME unified thread specifications.
 * **Emacs major mode** for DSL syntax highlighting (``editors/yapcad-dsl-mode.el``).
-* 600+ regression tests covering geometry, DSL, import/export, packaging, and validation.
+* About 1,950 regression tests covering geometry, fields, booleans, the DSL,
+  import/export, packaging, and validation.
 
 Upcoming work (tracked in ``docs/yapCADone.rst``) focuses on solver adapter
 hardening, provenance/security extensions, and migration tooling.
@@ -101,11 +117,12 @@ yapCAD ships in **two functionality tiers**. Pick the one that matches your work
 .. important::
 
    **Tier 1 — pip (pure-Python core):** ``pip install yapcad`` installs the
-   pure-Python core with **no compiled dependencies**. This gives you 2D
-   geometry, the DSL, metadata, and the assembly graph — but **NOT** BREP solid
-   modeling, OCC-backed boolean operations, or STEP import/export. Those require
-   OpenCASCADE via ``pythonocc-core``, which is **not** pip-installable and must
-   come from conda-forge. When yapCAD is imported without ``pythonocc-core``
+   pure-Python core. It is a complete modeller for mesh solids and signed
+   distance field solids -- booleans, fillets of field primitives, threaded
+   fasteners, gears, the DSL, packages and the assembly system -- but **NOT**
+   OpenCASCADE BREP solids, STEP import, or analytic STEP export. Those need
+   ``pythonocc-core``, which is **not** pip-installable and must come from
+   conda-forge. When yapCAD is imported without ``pythonocc-core``
    present, it emits a one-time ``YapcadBrepUnavailableWarning`` explaining this
    and how to upgrade. Check availability at runtime with ``yapcad.has_brep()``.
 
@@ -125,12 +142,16 @@ Or clone the repository and install from source (PEP 517 build)::
    cd yapCAD
    pip install .
 
-Optional extras are declared for BREP and mesh tooling, but note that the
-``brep``/``full`` extras pull ``pythonocc-core`` from PyPI, which is
-**not reliable across platforms** — the supported channel for OCC is conda-forge
-(see Tier 2)::
+Optional extras::
 
-   pip install "yapcad[meshcheck]"   # trimesh + pymeshfix mesh repair (pip-safe)
+   pip install "yapcad[manifold]"    # manifold3d: fast, robust mesh booleans
+   pip install "yapcad[meshcheck]"   # trimesh + pymeshfix mesh repair
+   pip install -e ".[tests]"         # from a checkout: pytest and friends
+
+The ``brep`` and ``full`` extras name ``pythonocc-core``, which is not
+published on PyPI, so pip cannot install them; get OCC from conda-forge (Tier
+2). ``docs/installation.rst`` has the full matrix and the environment
+variables.
 
 **Tier 2 — conda (full functionality, recommended for solid modeling)**
 
@@ -152,7 +173,8 @@ To set up the OCC BREP environment::
 
 Once activated, all BREP features are available:
 
-* ``--engine occ`` for exact boolean operations on analytic solids
+* exact boolean operations on BREP solids (chosen automatically; force with
+  ``engine="occ"`` or ``YAPCAD_BOOLEAN_ENGINE=occ``)
 * STEP import via ``yapcad.io.step_importer.import_step()``
 * Round-trip BREP serialization in ``.ycpkg`` geometry JSON
 * Bidirectional Native↔OCC BREP conversion
@@ -166,20 +188,20 @@ Without pythonocc-core, yapCAD operates in **reduced functionality mode**:
 
 **Available:**
 
-* 2D geometry (lines, arcs, ellipses, splines, polygons)
-* DXF export for 2D geometry
-* STL export (tessellated solids)
-* Tessellated solid primitives
-* Mesh-based boolean operations (lower fidelity)
-* DSL interpreter (2D features, tessellated 3D)
-* Package creation and validation
+* 2D geometry (lines, arcs, ellipses, splines, polygons) and DXF export
+* Mesh solids, with closed, volume-correct booleans (native engine, or
+  manifold3d with the ``manifold`` extra)
+* Signed distance field solids: exact booleans, fillets of primitives,
+  blends, offsets, shells, lattices, threaded fasteners and gears
+* The DSL, including building whole designs as fields
+  (``representation="sdf"``)
+* STL export, faceted STEP export, packages and validation
 
 **Not available (requires the conda / pythonocc-core install):**
 
-* STEP import/export
-* OCC-backed boolean operations
+* STEP import and analytic STEP export
+* BREP solids and OCC booleans and fillets on arbitrary edges
 * Adaptive sweep operations
-* Analytic solid modeling
 
 When OCC is absent, importing yapCAD emits a one-time
 ``YapcadBrepUnavailableWarning`` (a ``UserWarning`` subclass) documenting the
@@ -195,6 +217,8 @@ top-level ``src`` directory. Example entry points:
 
 **DSL Examples** (run with ``python -m yapcad.dsl run <file> <command>``):
 
+* ``examples/quickstart.dsl`` - a filleted bracket; builds as a mesh/BREP or,
+  with ``--representation sdf``, as a signed distance field.
 * ``examples/new_2d_features.dsl`` - 2D curves, splines, ellipses, and boolean operations.
 * ``examples/spur_gears.dsl`` - parametric spur gear generation.
 * ``examples/figgear.dsl`` - involute gear profiles using figgear integration.
@@ -202,6 +226,10 @@ top-level ``src`` directory. Example entry points:
 
 **Python Examples**:
 
+* ``examples/sdf_demo.py`` - a gallery of signed distance field primitives and
+  operators, meshed to STL and PNG (and analytic STEP with ``--step``).
+* ``examples/sdf_parts_demo.py`` - real parts as fields: the yapRover wheel from
+  its own DSL, a gyroid-spoked wheel, an M8 nut and bolt, and two gears.
 * ``examples/boxcut`` - parametric 2D joinery workflow (DXF output).
 * ``examples/rocket_demo.py`` - generative multi-stage rocket with viewer + STL export.
 * ``examples/rocket_cutaway_internal.py`` - subsystem layout/cutaway demo exporting STEP.
@@ -239,8 +267,11 @@ documentation
 
 Online **yapCAD** documentation is available at https://yapcad.readthedocs.io/en/latest/ - key references:
 
+* ``docs/installation.rst`` - install options, extras, and environment variables.
+* ``docs/representations.rst`` - mesh, BREP and SDF solids, and how booleans choose an engine.
+* ``docs/sdf_guide.rst`` - the signed distance field guide.
 * ``docs/dsl_reference.md`` - DSL language reference: syntax, types, builtins, and CLI usage.
-* ``docs/dsl_spec.rst`` - DSL design specification and architecture.
+* ``docs/historical/dsl_spec.rst`` - the original DSL design specification.
 * ``docs/yapBREP.rst`` - OCC BREP implementation guide (installation, API, examples).
 * ``docs/assembly_system.rst`` - datum/mate assembly, kinematics, collision, and viewer workflow.
 * ``docs/manufacturing_postprocessing.rst`` - beam segmentation and connector post-processing framework.
@@ -250,19 +281,27 @@ Online **yapCAD** documentation is available at https://yapcad.readthedocs.io/en
 * Module references for ``yapcad.geom``, ``yapcad.geom3d``, ``yapcad.geom3d_util``, ``yapcad.brep``, and ``yapcad.dsl``.
 * Mesh validation workflow (``docs/mesh_validation.md``, ``tools/validate_mesh.py``).
 
-**DSL Quick Start**::
+**DSL Quick Start** (``examples/quickstart.dsl``)::
 
-   # examples/spur_gears.dsl - parametric spur gear
-   module = 2.0
-   teeth = 20
-   pressure_angle = 20.0
-   thickness = 8.0
+   module quickstart
 
-   profile = involute_gear_profile(module, teeth, pressure_angle)
-   gear = extrude(profile, thickness)
-   export gear
+   command BRACKET(width: float = 40.0, depth: float = 30.0,
+                   thickness: float = 6.0, bore: float = 8.0) -> solid:
+       let plate: solid = fillet(box(width, depth, thickness), 1.0)
+       let hole: solid = translate(cylinder(bore / 2.0, thickness + 2.0),
+                                   0.0, 0.0, -thickness / 2.0 - 1.0)
+       let bolt: solid = cylinder(2.0, thickness + 2.0)
+       let left: solid = translate(bolt, -width / 2.0 + 6.0, 0.0,
+                                   -thickness / 2.0 - 1.0)
+       let right: solid = translate(bolt, width / 2.0 - 6.0, 0.0,
+                                    -thickness / 2.0 - 1.0)
+       emit difference(plate, hole, left, right)
 
-Run with: ``python -m yapcad.dsl run examples/spur_gears.dsl --output gear.step``
+Run it, change a parameter, or build it as a signed distance field::
+
+   python -m yapcad.dsl run examples/quickstart.dsl BRACKET -o bracket.stl
+   python -m yapcad.dsl run examples/quickstart.dsl BRACKET -p width=60 -o wide.stl
+   python -m yapcad.dsl run examples/quickstart.dsl BRACKET -o bracket.stl --representation sdf
 
 To build the HTML **yapCAD** documentation locally, install the
 documentation dependencies and run Sphinx from the project root::
