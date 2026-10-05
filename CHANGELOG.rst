@@ -5,6 +5,23 @@ Changelog
 Unreleased
 ==========
 
+- Finished SDF parts are simplified against their fields by default: the
+  field fastener and gear builders, the solids a field-mode DSL call
+  returns, and the parts of a packaged field-mode assembly. The default
+  tolerance is a twentieth of the cell the part was meshed at. A threaded
+  M8 nut drops from about 97,000 triangles to 3,500 and the field-built
+  yapRover chassis from 757,000 to 8,000, each closed and no less accurate
+  than its uniform mesh. It costs about twenty times the meshing, so
+  intermediate booleans are left alone. Turn it off with
+  ``simplify=False`` / ``sdf_simplify=False``, ``--no-simplify`` on the DSL
+  command line, or ``YAPCAD_SDF_SIMPLIFY=0``. Simplification now keeps a
+  solid's metadata, and ``sdf.simplify_solid``'s tolerance is optional.
+- Fix the DSL's ``sphere(radius)`` making a sphere of half the documented
+  radius: it passed its argument to ``geom3d_util.sphere``, which takes a
+  diameter. **Designs that call ``sphere`` in the DSL now get spheres twice
+  the size they did**; halve the argument to keep the old geometry. No DSL
+  source in this repository or in yapRover calls it. The Python API's
+  ``geom3d_util.sphere`` is unchanged and still takes a diameter.
 Signed distance functions
 -------------------------
 

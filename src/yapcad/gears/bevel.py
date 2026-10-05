@@ -352,6 +352,7 @@ def make_straight_bevel_gear_sdf(
     *,
     flank_samples: int | None = None,
     cell_mm: float | None = None,
+    simplify: bool | None = None,
 ):
     """Generate a straight bevel gear as an SDF-authored solid; no OCC needed.
 
@@ -361,6 +362,9 @@ def make_straight_bevel_gear_sdf(
     and -- with OCC installed -- still replays to that generator's exact
     BREP.  ``cell_mm`` defaults to a fraction of the top land at the small
     end, the gear's thinnest feature, which dual contouring must resolve.
+    The mesh is simplified against the field
+    (:func:`yapcad.sdf.simplify_finished`) unless ``simplify=False`` or
+    ``YAPCAD_SDF_SIMPLIFY=0``.
     """
     from yapcad.sdf import gears as sdf_gears
     from yapcad.sdf.convert import to_solid
@@ -370,15 +374,17 @@ def make_straight_bevel_gear_sdf(
     cell = cell_mm or sdf_gears.tip_land(spec, samples) / 2.5
     lo, hi = node.bounds
     longest = max(hi[i] - lo[i] for i in range(3))
-    return to_solid(node, resolution=max(16, math.ceil(longest / cell)),
-                    metadata={"gear": {
-                        "kind": "straight_bevel",
-                        "generation_type": spec.generation_type,
-                        "teeth": spec.teeth,
-                        "mate_teeth": spec.mate_teeth,
-                        "outer_module_mm": spec.outer_module_mm,
-                        "shaft_angle_deg": spec.shaft_angle_deg,
-                    }})
+    from yapcad.sdf.simplify import simplify_finished
+    solid = to_solid(node, resolution=max(16, math.ceil(longest / cell)),
+                     metadata={"gear": {
+                         "kind": "straight_bevel",
+                         "generation_type": spec.generation_type,
+                         "teeth": spec.teeth,
+                         "mate_teeth": spec.mate_teeth,
+                         "outer_module_mm": spec.outer_module_mm,
+                         "shaft_angle_deg": spec.shaft_angle_deg,
+                     }})
+    return simplify_finished(solid, simplify)
 
 
 def make_straight_bevel_pair(

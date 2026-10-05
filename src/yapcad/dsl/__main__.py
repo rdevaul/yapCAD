@@ -199,6 +199,7 @@ def cmd_run(args):
             overwrite=args.force,
             representation=args.representation,
             sdf_cell_mm=args.sdf_cell,
+            sdf_simplify=False if args.no_simplify else None,
         )
 
         if not result.success:
@@ -212,7 +213,8 @@ def cmd_run(args):
     recursion_limit = getattr(args, 'recursion_limit', None)
     result = compile_and_run(source, args.command, parameters, recursion_limit=recursion_limit,
                              representation=args.representation,
-                             sdf_cell_mm=args.sdf_cell)
+                             sdf_cell_mm=args.sdf_cell,
+                             sdf_simplify=False if args.no_simplify else None)
 
     if not result.success:
         print(f"Error: {result.error_message}", file=sys.stderr)
@@ -368,6 +370,10 @@ def main():
     run_parser.add_argument('--representation', choices=('mesh', 'sdf'),
                           help='Build primitives, fasteners and gears as meshes or as '
                                'SDF fields (default: mesh, env: YAPCAD_DSL_REPRESENTATION)')
+    run_parser.add_argument('--no-simplify', action='store_true',
+                          help='With --representation sdf, keep the uniform meshes '
+                               'instead of simplifying finished parts against their '
+                               'fields (env: YAPCAD_SDF_SIMPLIFY=0)')
     run_parser.add_argument('--sdf-cell', type=float, metavar='MM',
                           help='Cell size SDF primitives are meshed at '
                                '(env: YAPCAD_DSL_SDF_CELL_MM)')

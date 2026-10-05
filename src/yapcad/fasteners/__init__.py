@@ -103,6 +103,7 @@ def metric_hex_bolt(
     thread_samples_per_pitch: int = 6,
     catalog_path: Optional[Path] = None,
     representation: str = "mesh",
+    simplify: Optional[bool] = None,
 ):
     """Create a metric hex bolt per ISO 4014/4017.
 
@@ -143,6 +144,7 @@ def metric_hex_bolt(
         thread_samples_per_pitch=thread_samples_per_pitch,
         catalog_path=catalog_path,
         representation=representation,
+        simplify=simplify,
     )
 
 
@@ -156,6 +158,7 @@ def metric_hex_nut(
     thread_samples_per_pitch: int = 6,
     catalog_path: Optional[Path] = None,
     representation: str = "mesh",
+    simplify: Optional[bool] = None,
 ):
     """Create a metric hex nut per ISO 4032.
 
@@ -171,6 +174,9 @@ def metric_hex_nut(
         representation: ``"mesh"`` (default) for the swept thread mesh,
             or ``"sdf"`` for an SDF-authored nut: a closed mesh of an
             exact-dimension field that combines in field booleans
+        simplify: with ``representation="sdf"``, whether to simplify the
+            mesh against the field; by default yes, unless
+            ``YAPCAD_SDF_SIMPLIFY=0``
 
     Returns:
         yapCAD solid representing the hex nut
@@ -194,6 +200,7 @@ def metric_hex_nut(
         thread_samples_per_pitch=thread_samples_per_pitch,
         catalog_path=catalog_path,
         representation=representation,
+        simplify=simplify,
     )
 
 
@@ -208,6 +215,7 @@ def unified_hex_bolt(
     thread_samples_per_pitch: int = 6,
     catalog_path: Optional[Path] = None,
     representation: str = "mesh",
+    simplify: Optional[bool] = None,
 ):
     """Create a unified (UNC/UNF) hex bolt per ASME B18.2.1.
 
@@ -251,6 +259,7 @@ def unified_hex_bolt(
         thread_samples_per_pitch=thread_samples_per_pitch,
         catalog_path=catalog_path,
         representation=representation,
+        simplify=simplify,
     )
 
 
@@ -264,6 +273,7 @@ def unified_hex_nut(
     thread_samples_per_pitch: int = 6,
     catalog_path: Optional[Path] = None,
     representation: str = "mesh",
+    simplify: Optional[bool] = None,
 ):
     """Create a unified (UNC/UNF) hex nut per ASME B18.2.2.
 
@@ -279,6 +289,9 @@ def unified_hex_nut(
         representation: ``"mesh"`` (default) for the swept thread mesh,
             or ``"sdf"`` for an SDF-authored nut: a closed mesh of an
             exact-dimension field that combines in field booleans
+        simplify: with ``representation="sdf"``, whether to simplify the
+            mesh against the field; by default yes, unless
+            ``YAPCAD_SDF_SIMPLIFY=0``
 
     Returns:
         yapCAD solid representing the hex nut
@@ -302,4 +315,5 @@ def unified_hex_nut(
         thread_samples_per_pitch=thread_samples_per_pitch,
         catalog_path=catalog_path,
         representation=representation,
+        simplify=simplify,
     )
