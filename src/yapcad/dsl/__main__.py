@@ -63,6 +63,16 @@ def format_type(type_node) -> str:
         return str(type_node)
 
 
+def format_default(expr, source: str) -> str:
+    """A parameter default as written in the source (e.g. ``40.0``)."""
+    span = getattr(expr, "span", None)
+    if span is not None and source:
+        text = source[span.start.offset:span.end.offset].strip()
+        if text:
+            return text
+    return repr(getattr(expr, "value", expr))
+
+
 def parse_param(param_str: str) -> tuple:
     """Parse a parameter string like 'name=value' into (name, typed_value)."""
     if '=' not in param_str:
@@ -149,7 +159,8 @@ def cmd_list(args):
 
         for cmd in module.commands:
             params = ", ".join(
-                f"{p.name}: {format_type(p.type_annotation)}" + (f" = {p.default_value}" if p.default_value else "")
+                f"{p.name}: {format_type(p.type_annotation)}"
+                + (f" = {format_default(p.default_value, source)}" if p.default_value else "")
                 for p in cmd.parameters
             )
             print(f"  {cmd.name}({params}) -> {format_type(cmd.return_type)}")
