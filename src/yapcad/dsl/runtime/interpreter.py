@@ -318,8 +318,24 @@ class Interpreter:
             raise RuntimeError(f"Unknown statement type: {type(stmt).__name__}")
 
     def _execute_let(self, stmt: LetStatement, ctx: ExecutionContext) -> None:
-        """Execute a let statement."""
+        """Execute a let statement.
+
+        ``x = expr`` parses as an untyped declaration wherever it appears, so
+        inside a ``for``/``if`` block it would bind a new block-local ``x``
+        and the enclosing ``x`` would never change (``total = total + 1.0``
+        in a loop silently did nothing). An untyped declaration of a name
+        already bound in an enclosing scope therefore updates that binding.
+        A typed declaration (``x: float = ...``) still declares a new local.
+        """
         value = self._evaluate(stmt.initializer, ctx)
+        scope = ctx.current_scope
+        if (
+            stmt.type_annotation is None
+            and stmt.name not in scope.variables
+            and scope.parent is not None
+            and scope.parent.update(stmt.name, value)
+        ):
+            return
         ctx.set_variable(stmt.name, value)
 
     def _execute_assignment(self, stmt: AssignmentStatement, ctx: ExecutionContext) -> None:
