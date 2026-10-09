@@ -134,6 +134,8 @@ class Interpreter:
 
         # Store the module for command lookups during execution
         self.current_module = transformed_module
+        # Kept so diagnostics can quote the source of the failing expression
+        self.current_source = source
 
         # Execute native blocks to register their exported functions
         for native_block in transformed_module.native_blocks:
@@ -328,12 +330,21 @@ class Interpreter:
         if not ctx.update_variable(stmt.target.name, value):
             ctx.add_error(f"Cannot assign to undefined variable '{stmt.target.name}'", stmt.span)
 
+    def _source_text(self, node) -> Optional[str]:
+        """The source text of ``node`` with its line, e.g. ``"line 12: w > 0.0"``."""
+        source = getattr(self, "current_source", "") or ""
+        span = getattr(node, "span", None)
+        if not source or span is None:
+            return None
+        text = source[span.start.offset:span.end.offset].strip()
+        return f"line {span.start.line}: {text}" if text else None
+
     def _execute_require(self, stmt: RequireStatement, ctx: ExecutionContext) -> None:
         """Execute a require statement."""
         condition = self._evaluate(stmt.condition, ctx)
         if not condition.is_truthy():
             message = stmt.message if stmt.message else "Constraint violated"
-            ctx.add_require_failure(message)
+            ctx.add_require_failure(message, self._source_text(stmt.condition))
 
     def _execute_emit(self, stmt: EmitStatement, ctx: ExecutionContext) -> None:
         """Execute an emit statement."""
