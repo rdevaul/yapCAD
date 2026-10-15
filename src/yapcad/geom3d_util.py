@@ -2561,11 +2561,80 @@ def sweep_adaptive(profile, spine, *, inner_profiles=None,
     return sld
 
 
+# Arc sampling for mesh extrusion, in degrees per segment.
+MESH_EXTRUDE_ARC_STEP_DEG = 3.0
+
+
+def extrude_region2d_mesh(profile, height, *, direction=None,
+                          twist_angle_deg=0.0, segments=64, metadata=None):
+    """Extrude a 2D region into a watertight mesh solid with manifold3d.
+
+    The OCC-free path behind :func:`extrude_region2d` and
+    :func:`helical_extrude`: regions with holes extrude from z=0 to
+    ``height`` (or along ``direction``, sheared when oblique), optionally
+    twisted about +Z (positive is counter-clockwise viewed from +Z, as in the
+    OCC path). Twisted sides are ruled between slices of at most one degree,
+    which keeps the volume within about 1% of the exact helicoid. Arcs and
+    curves are sampled at :data:`MESH_EXTRUDE_ARC_STEP_DEG`.
+
+    Requires the optional ``manifold3d`` package (``pip install
+    "yapcad[manifold]"``).
+    """
+    try:
+        from manifold3d import CrossSection, FillRule, Manifold
+    except ImportError as exc:
+        raise RuntimeError(
+            "extruding a region needs pythonocc-core (BREP) or manifold3d "
+            '(mesh); install one, e.g. pip install "yapcad[manifold]"'
+        ) from exc
+    import numpy as np
+    from yapcad.boolean.manifold_engine import _from_manifold
+
+    height = float(height)
+    if height == 0:
+        raise ValueError("extrude: height must be non-zero")
+    contours = []
+    for outer, holes in geomlist2poly_components(
+            profile, minang=MESH_EXTRUDE_ARC_STEP_DEG, minlen=0.01):
+        for loop in [outer, *holes]:
+            pts = np.array([[float(p[0]), float(p[1])] for p in loop])
+            if len(pts) > 1 and np.allclose(pts[0], pts[-1]):
+                pts = pts[:-1]
+            if len(pts) >= 3:
+                contours.append(pts)
+    if not contours:
+        raise ValueError("extrude: the region has no closed contour")
+    section = CrossSection(contours, FillRule.EvenOdd)
+    if section.is_empty():
+        raise ValueError("extrude: the region encloses no area")
+    twist = float(twist_angle_deg)
+    divisions = max(int(segments) - 1, math.ceil(abs(twist))) if twist else 0
+    body = Manifold.extrude(section, 1.0, divisions, twist)
+    dx, dy, dz = [float(v) for v in (direction or (0.0, 0.0, 1.0))[:3]]
+    if abs(dz) < 1e-12:
+        raise ValueError("extrude: direction must have a z component")
+    norm = math.sqrt(dx * dx + dy * dy + dz * dz)
+    sx, sy, sz = (c / norm * height for c in (dx, dy, dz))
+    # (x, y, t) -> profile point + t * extrusion vector
+    body = body.transform([[1.0, 0.0, sx, 0.0], [0.0, 1.0, sy, 0.0],
+                           [0.0, 0.0, sz, 0.0]])
+    result = _from_manifold(body, "extrude")
+    result[3] = ["procedure",
+                 "helical_extrude:manifold" if twist else "extrude:manifold"]
+    if metadata:
+        while len(result) < 5:
+            result.append({})
+        result[4] = dict(metadata)
+    return result
+
+
 def extrude_region2d(profile, height, *, direction=None, metadata=None):
     """
     Extrude a 2D region (list of line/arc segments) to create a solid.
 
-    This uses OCC's BRepPrimAPI_MakePrism to create the extruded solid.
+    With pythonocc-core this uses OCC's BRepPrimAPI_MakePrism (an analytic
+    BREP solid); without it, :func:`extrude_region2d_mesh` builds a
+    watertight mesh solid with manifold3d.
     The profile should be a closed 2D region (list of line/arc segments in XY plane).
 
     Args:
@@ -2578,7 +2647,8 @@ def extrude_region2d(profile, height, *, direction=None, metadata=None):
         A yapCAD solid representing the extruded shape
     """
     if not occ_available():
-        raise RuntimeError("extrude_region2d requires pythonocc-core")
+        return extrude_region2d_mesh(profile, height, direction=direction,
+                                     metadata=metadata)
 
     from OCC.Core.gp import gp_Pnt, gp_Dir, gp_Ax2, gp_Circ, gp_Vec
     from OCC.Core.BRepBuilderAPI import (
@@ -3027,7 +3097,9 @@ def helical_extrude(profile, height, twist_angle_deg, *,
     :returns: A yapCAD solid with smooth helical surfaces
 
     .. note::
-       This function requires pythonocc-core and will raise RuntimeError if not available.
+       With pythonocc-core this lofts an analytic BREP; without it,
+       :func:`extrude_region2d_mesh` builds a watertight twisted mesh with
+       manifold3d (RuntimeError only if neither is installed).
        For small twist angles (<10 degrees), the result may be similar to a simple extrusion.
        The helical effect is most visible with larger twist angles. Using segments=64 or
        higher is recommended for smooth surfaces.
@@ -3045,7 +3117,9 @@ def helical_extrude(profile, height, twist_angle_deg, *,
         >>> twisted = helical_extrude(square, height=20, twist_angle_deg=90)
     """
     if not occ_available():
-        raise RuntimeError("helical_extrude requires pythonocc-core")
+        return extrude_region2d_mesh(profile, height,
+                                     twist_angle_deg=twist_angle_deg,
+                                     segments=segments, metadata=metadata)
 
     from OCC.Core.gp import gp_Pnt, gp_Dir, gp_Ax2, gp_Circ, gp_Trsf, gp_Ax1
     from OCC.Core.BRepBuilderAPI import (
