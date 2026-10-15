@@ -5,6 +5,10 @@ Changelog
 Unreleased
 ==========
 
+- Repeated untyped DSL assignments update existing bindings in the same or
+  enclosing scope. Assignment type checks and typed local shadowing remain
+  intact.
+  
 - Mesh views and STL exports preserve small nonzero-area triangles instead of
   discarding them using the global geometry epsilon. Only exactly degenerate
   faces are skipped; default geometric-predicate tolerances are unchanged.

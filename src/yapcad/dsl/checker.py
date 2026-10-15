@@ -380,6 +380,15 @@ class TypeChecker:
     def _check_let_statement(self, stmt: LetStatement) -> None:
         """Check a let statement."""
         init_type = self._check_expression(stmt.initializer)
+        previous = self.symbols.lookup(stmt.name)
+        if (stmt.type_annotation is None and previous is not None
+                and previous.kind in (SymbolKind.VARIABLE, SymbolKind.PARAMETER)):
+            if not previous.type.is_assignable_from(init_type):
+                self._error(
+                    f"Cannot assign '{init_type}' to target of type '{previous.type}'",
+                    stmt.initializer.span, "E212")
+            return
+
 
         if stmt.type_annotation is not None:
             declared_type = self._resolve_type_node(stmt.type_annotation)
