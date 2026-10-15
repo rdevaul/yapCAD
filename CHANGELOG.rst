@@ -5,6 +5,11 @@ Changelog
 Unreleased
 ==========
 
+- ``dsl run -o out.dxf`` now refuses a solid up front, naming STEP and STL
+  and suggesting a planar section, instead of passing it to the 2D exporter
+  and reporting ``bad argument to Drawable.draw(): solid``. Exporting 2D
+  geometry to DXF is unchanged (#79).
+
 - Finished SDF parts are simplified against their fields by default: the
   field fastener and gear builders, the solids a field-mode DSL call
   returns, and the parts of a packaged field-mode assembly. The default
