@@ -10,6 +10,14 @@ Unreleased
   and reporting ``bad argument to Drawable.draw(): solid``. Exporting 2D
   geometry to DXF is unchanged (#79).
 
+- **Behaviour change:** ``dsl run -o FILE`` now exits non-zero whenever it
+  writes no file. Asking for DXF from geometry that is not 2D, for STEP or
+  STL without a solid, and for an extension nothing handles each warned and
+  exited ``0`` before, so a script could believe an export had succeeded
+  when nothing had been written. They are errors now, and the unknown-format
+  message lists the extensions that are understood. Runs that produce a file
+  are unaffected, as is every run without ``-o``.
+
 - Finished SDF parts are simplified against their fields by default: the
   field fastener and gear builders, the solids a field-mode DSL call
   returns, and the parts of a packaged field-mode assembly. The default

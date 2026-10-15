@@ -278,8 +278,9 @@ def cmd_run(args):
                       "planar section or outline for DXF.", file=sys.stderr)
                 return 1
             if not is_2d:
-                print(f"Warning: Cannot export geometry to DXF", file=sys.stderr)
-                return 0
+                print(f"Error: Cannot export this geometry to DXF; DXF needs "
+                      f"2D geometry.", file=sys.stderr)
+                return 1
             from yapcad.ezdxf_exporter import write_dxf
             success = write_dxf(geometry, str(output_path))
             if success:
@@ -291,8 +292,9 @@ def cmd_run(args):
         # 3D-only formats (STEP, STL) require solid geometry
         elif suffix in ('.step', '.stp', '.stl'):
             if not is_solid:
-                print(f"Warning: {suffix.upper()} export requires solid geometry", file=sys.stderr)
-                return 0
+                print(f"Error: {suffix.upper()} export requires solid "
+                      f"geometry.", file=sys.stderr)
+                return 1
 
             # Prepare solid for export
             if issolid(geometry):
@@ -336,7 +338,10 @@ def cmd_run(args):
                 print(f"Exported to: {output_path} ({detail})")
 
         else:
-            print(f"Warning: Unknown output format: {suffix}", file=sys.stderr)
+            print(f"Error: Unknown output format: {suffix}", file=sys.stderr)
+            print(f"       Known formats: .dxf (2D), .step, .stp, .stl "
+                  f"(solids).", file=sys.stderr)
+            return 1
 
     return 0
 
