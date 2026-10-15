@@ -24,6 +24,7 @@ Future enhancements (v1.1+):
 
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Tuple
+import copy
 import math
 
 from .values import (
@@ -59,6 +60,38 @@ def _make_sig(name: str, param_types: List[Type], return_type: Type,
         is_variadic=is_variadic,
     )
 
+
+
+# Metadata keys that identify one particular solid; a derived solid gets its own.
+_IDENTITY_METADATA_KEYS = {"id", "entityId", "brep"}
+
+
+def _inherit_metadata(value: Value, source) -> Value:
+    """Give a boolean/fillet result the first operand's metadata.
+
+    Solid booleans build a fresh solid, which dropped ``@meta`` material,
+    colour, tags and assembly datums carried by the operand the user thinks
+    of as "the part". Keys the result already sets are kept; identity keys
+    are never copied.
+    """
+    source = getattr(source, "data", source)
+    result = value.data
+    if (
+        isinstance(source, list) and source and source[0] == "solid"
+        and len(source) > 4 and isinstance(source[4], dict) and source[4]
+        and isinstance(result, list) and result and result[0] == "solid"
+    ):
+        while len(result) < 5:
+            result.append({} if len(result) == 4 else [])
+        if not isinstance(result[4], dict):
+            result[4] = {}
+        for key, item in source[4].items():
+            if key in _IDENTITY_METADATA_KEYS:
+                continue
+            current = result[4].get(key)
+            if current in (None, "", [], {}) or (key == "layer" and current == "default"):
+                result[4][key] = copy.deepcopy(item)
+    return value
 
 @dataclass
 class BuiltinFunction:
@@ -2696,11 +2729,11 @@ class BuiltinRegistry:
                 raise ValueError("union requires at least one solid")
             fused = _sdf_fold(operands, 'union')
             if fused is not None:
-                return solid_val(fused)
+                return _inherit_metadata(solid_val(fused), operands[0])
             result = operands[0]
             for i in range(1, len(operands)):
                 result = solid_boolean(result, operands[i], 'union')
-            return solid_val(result)
+            return _inherit_metadata(solid_val(result), operands[0])
 
         def _difference(a: Value, *rest: Value) -> Value:
             """Difference: subtract rest from a."""
@@ -2711,12 +2744,12 @@ class BuiltinRegistry:
                 tools = [r.data for r in rest]
             fused = _sdf_fold([a.data] + list(tools), 'difference')
             if fused is not None:
-                return solid_val(fused)
+                return _inherit_metadata(solid_val(fused), a.data)
             # Perform pairwise differences
             result = a.data
             for tool in tools:
                 result = solid_boolean(result, tool, 'difference')
-            return solid_val(result)
+            return _inherit_metadata(solid_val(result), a.data)
 
         def _intersection(*args: Value) -> Value:
             """Intersection of solids."""
@@ -2730,11 +2763,11 @@ class BuiltinRegistry:
                 raise ValueError("intersection requires at least one solid")
             fused = _sdf_fold(operands, 'intersection')
             if fused is not None:
-                return solid_val(fused)
+                return _inherit_metadata(solid_val(fused), operands[0])
             result = operands[0]
             for i in range(1, len(operands)):
                 result = solid_boolean(result, operands[i], 'intersection')
-            return solid_val(result)
+            return _inherit_metadata(solid_val(result), operands[0])
 
         def _compound(*args: Value) -> Value:
             """Create a compound of multiple solids without boolean operations.
@@ -2846,7 +2879,7 @@ class BuiltinRegistry:
             for tool in tools.data:
                 tool_data = tool.data if hasattr(tool, 'data') else tool
                 result = solid_boolean(result, tool_data, 'difference')
-            return solid_val(result)
+            return _inherit_metadata(solid_val(result), base.data)
 
         def _intersection_all(solids: Value) -> Value:
             """Intersect all solids in a list."""
@@ -3292,7 +3325,7 @@ class BuiltinRegistry:
 
             if is_sdf_solid(s.data):
                 from yapcad.sdf.fillet import fillet_solid
-                return solid_val(fillet_solid(s.data, float(radius.data)))
+                return _inherit_metadata(solid_val(fillet_solid(s.data, float(radius.data))), s.data)
             if not occ_available():
                 raise RuntimeError(
                     "fillet needs an SDF-authored solid, or a BREP solid "
@@ -3317,7 +3350,7 @@ class BuiltinRegistry:
             new_solid = solid([surface], [], ['procedure', 'fillet'])
             attach_brep_to_solid(new_solid, filleted_brep)
 
-            return solid_val(new_solid)
+            return _inherit_metadata(solid_val(new_solid), s.data)
 
         def _chamfer(s: Value, distance: Value) -> Value:
             """Apply chamfer (beveled edge) to all edges of a solid.
@@ -3358,7 +3391,7 @@ class BuiltinRegistry:
             new_solid = solid([surface], [], ['procedure', 'chamfer'])
             attach_brep_to_solid(new_solid, chamfered_brep)
 
-            return solid_val(new_solid)
+            return _inherit_metadata(solid_val(new_solid), s.data)
 
         self.register(BuiltinFunction(
             "fillet",
