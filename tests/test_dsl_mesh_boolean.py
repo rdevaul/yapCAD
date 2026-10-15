@@ -28,6 +28,31 @@ def run(body, result_type="solid"):
 
 
 class RuntimeTests(unittest.TestCase):
+    def setUp(self):
+        # These tests exercise the mesh path even when OCC is installed.
+        engine = patch.dict(os.environ, {"YAPCAD_BOOLEAN_ENGINE": "manifold"})
+        engine.start()
+        self.addCleanup(engine.stop)
+
+    def test_brep_inputs_keep_auto_dispatch(self):
+        from yapcad.brep import occ_available, has_brep_data
+
+        if not occ_available():
+            self.skipTest("requires OCC")
+        with patch.dict(os.environ):
+            os.environ.pop("YAPCAD_BOOLEAN_ENGINE", None)
+            a = run("    emit box(2.0, 2.0, 2.0)\n")
+            self.assertTrue(has_brep_data(a))
+            self.assertIsNone(try_boolean([a, a], "union"))
+            result = (
+                get_builtin_registry()
+                .get_function("union")
+                .implementation(solid_val(a), solid_val(a))
+                .data
+            )
+            self.assertNotIsInstance(result, ManifoldSolid)
+            self.assertTrue(has_brep_data(result))
+
     def test_retained_and_eager_booleans_agree(self):
         a = run("    emit box(10.0, 10.0, 4.0)\n")
         tools = [
