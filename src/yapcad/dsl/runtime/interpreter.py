@@ -775,7 +775,7 @@ class Interpreter:
 
             # Return the emitted value
             if cmd_ctx.emit_result is not None:
-                return cmd_ctx.emit_result
+                return cmd_ctx.emit_result.value
             else:
                 raise RuntimeError(f"Command '{command.name}' did not emit a value")
         finally:

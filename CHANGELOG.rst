@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ==========
 
+- DSL helper commands return runtime Values rather than nested EmitResult
+  wrappers, fixing boolean helpers used in expressions.
+  
 - DSL emit statements exit their command immediately, including inside nested
   conditionals and loops.
   
