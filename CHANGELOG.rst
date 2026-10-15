@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ==========
 
+- The DSL text_solid(text, height, depth) builtin uses the default spacing
+  accepted by the checker instead of requiring a fourth runtime argument.
+
 - ``dsl run -o out.dxf`` now refuses a solid up front, naming STEP and STL
   and suggesting a planar section, instead of passing it to the 2D exporter
   and reporting ``bad argument to Drawable.draw(): solid``. Exporting 2D

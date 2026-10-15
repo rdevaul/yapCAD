@@ -2413,12 +2413,13 @@ class BuiltinRegistry:
     def _register_phase3_text_functions(self) -> None:
         """Register Phase 3 text support functions."""
 
-        def _text_solid(text: Value, height: Value, depth: Value, spacing: Value) -> Value:
+        def _text_solid(text: Value, height: Value, depth: Value,
+                        spacing: Value = None) -> Value:
             """Create extruded 3D text solid using block font."""
             from yapcad.text3d import text_solid
             return solid_val(text_solid(
                 text.data, height=height.data, depth=depth.data,
-                spacing=spacing.data, font="block"
+                spacing=spacing.data if spacing is not None else 1.0, font="block"
             ))
 
         def _engrave_text(target: Value, text: Value, position: Value,
@@ -2441,7 +2442,7 @@ class BuiltinRegistry:
 
         self.register(BuiltinFunction(
             "text_solid",
-            _make_sig("text_solid", [STRING, FLOAT, FLOAT, FLOAT], SOLID),
+            _make_sig("text_solid", [STRING, FLOAT, FLOAT], SOLID),
             _text_solid,
         ))
         self.register(BuiltinFunction(
