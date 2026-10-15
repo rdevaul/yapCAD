@@ -31,9 +31,60 @@ class ManifoldSolid(list):
         return super().__getitem__(key)
 
     def __setitem__(self, key, value):
-        if isinstance(key, slice) or key in (1, -4):
+        if isinstance(key, slice) or key in (0, 1, -5, -4):
             self.materialize()
         return super().__setitem__(key, value)
+
+    def __repr__(self):
+        self.materialize()
+        return super().__repr__()
+
+    def __ne__(self, other):
+        return not self == other
+
+    def __delitem__(self, key):
+        self.materialize()
+        return super().__delitem__(key)
+
+    def pop(self, index=-1):
+        self.materialize()
+        return super().pop(index)
+
+    def insert(self, index, value):
+        self.materialize()
+        return super().insert(index, value)
+
+    def append(self, value):
+        self.materialize()
+        return super().append(value)
+
+    def extend(self, values):
+        self.materialize()
+        return super().extend(values)
+
+    def clear(self):
+        self.materialize()
+        return super().clear()
+
+    def remove(self, value):
+        self.materialize()
+        return super().remove(value)
+
+    def reverse(self):
+        self.materialize()
+        return super().reverse()
+
+    def sort(self, *args, **kwargs):
+        self.materialize()
+        return super().sort(*args, **kwargs)
+
+    def __iadd__(self, values):
+        self.materialize()
+        return super().__iadd__(values)
+
+    def __imul__(self, count):
+        self.materialize()
+        return super().__imul__(count)
 
     def copy(self):
         self.materialize()

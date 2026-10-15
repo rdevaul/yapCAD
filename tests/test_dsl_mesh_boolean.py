@@ -133,6 +133,15 @@ class RuntimeTests(unittest.TestCase):
         self.assertTrue(encoded[1])
         self.assertAlmostEqual(native(encoded).volume(), 8.0)
 
+    def test_structural_list_mutation_materializes_first(self):
+        result = run("    emit box(2.0, 2.0, 2.0)\n")
+        retained = try_boolean([result], "union")
+        surfaces = retained.pop(1)
+        self.assertTrue(surfaces)
+        self.assertIsNone(retained.body)
+        retained.insert(1, surfaces)
+        self.assertAlmostEqual(native(retained).volume(), 8.0)
+
     def test_native_transforms_match_mesh_transforms(self):
         result = run(
             (
