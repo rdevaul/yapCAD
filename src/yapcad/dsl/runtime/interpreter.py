@@ -214,6 +214,9 @@ class Interpreter:
                 provenance=provenance,
             )
 
+        from .mesh_boolean import materialize
+        ctx.emit_result.value.data = materialize(ctx.emit_result.value.data)
+
         return ExecutionResult(
             success=True,
             emit_result=ctx.emit_result,

@@ -27,6 +27,8 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import copy
 import math
 
+from .mesh_boolean import try_boolean, try_transform
+
 from .values import (
     Value, int_val, float_val, bool_val, string_val, list_val,
     point_val, vector_val, transform_val, solid_val, region2d_val,
@@ -380,6 +382,10 @@ class BuiltinRegistry:
 
         def _translate(s: Value, x: Value, y: Value, z: Value) -> Value:
             """Translate a solid by (x, y, z)."""
+            retained = try_transform(
+                s.data, "translate", (x.data, y.data, z.data))
+            if retained is not None:
+                return _inherit_metadata(solid_val(retained), s.data)
             from yapcad.geom3d import translatesolid
             from yapcad.geom import point
             delta = point(x.data, y.data, z.data)
@@ -387,6 +393,9 @@ class BuiltinRegistry:
 
         def _rotate(s: Value, x: Value, y: Value, z: Value) -> Value:
             """Rotate a solid by angles (x, y, z) in degrees around respective axes."""
+            retained = try_transform(s.data, "rotate", (x.data, y.data, z.data))
+            if retained is not None:
+                return _inherit_metadata(solid_val(retained), s.data)
             from yapcad.geom3d import rotatesolid
             from yapcad.geom import point
             result = s.data
@@ -405,6 +414,9 @@ class BuiltinRegistry:
 
         def _scale(s: Value, x: Value, y: Value, z: Value) -> Value:
             """Scale a solid by factors (x, y, z)."""
+            retained = try_transform(s.data, "scale", (x.data, y.data, z.data))
+            if retained is not None:
+                return _inherit_metadata(solid_val(retained), s.data)
             from yapcad.geom3d import scalesolid
             return solid_val(scalesolid(s.data, x.data, y.data, z.data))
 
@@ -2724,12 +2736,16 @@ class BuiltinRegistry:
                 operands = args[0].data
             else:
                 operands = [a.data for a in args]
+            operands = [v.data if isinstance(v, Value) else v for v in operands]
             # Perform pairwise unions
             if len(operands) == 0:
                 raise ValueError("union requires at least one solid")
             fused = _sdf_fold(operands, 'union')
             if fused is not None:
                 return _inherit_metadata(solid_val(fused), operands[0])
+            retained = try_boolean(operands, 'union')
+            if retained is not None:
+                return _inherit_metadata(solid_val(retained), operands[0])
             result = operands[0]
             for i in range(1, len(operands)):
                 result = solid_boolean(result, operands[i], 'union')
@@ -2742,9 +2758,13 @@ class BuiltinRegistry:
                 tools = rest[0].data
             else:
                 tools = [r.data for r in rest]
+            tools = [v.data if isinstance(v, Value) else v for v in tools]
             fused = _sdf_fold([a.data] + list(tools), 'difference')
             if fused is not None:
                 return _inherit_metadata(solid_val(fused), a.data)
+            retained = try_boolean([a.data] + list(tools), 'difference')
+            if retained is not None:
+                return _inherit_metadata(solid_val(retained), a.data)
             # Perform pairwise differences
             result = a.data
             for tool in tools:
@@ -2758,12 +2778,16 @@ class BuiltinRegistry:
                 operands = args[0].data
             else:
                 operands = [a.data for a in args]
+            operands = [v.data if isinstance(v, Value) else v for v in operands]
             # Perform pairwise intersections
             if len(operands) == 0:
                 raise ValueError("intersection requires at least one solid")
             fused = _sdf_fold(operands, 'intersection')
             if fused is not None:
                 return _inherit_metadata(solid_val(fused), operands[0])
+            retained = try_boolean(operands, 'intersection')
+            if retained is not None:
+                return _inherit_metadata(solid_val(retained), operands[0])
             result = operands[0]
             for i in range(1, len(operands)):
                 result = solid_boolean(result, operands[i], 'intersection')
@@ -2873,13 +2897,8 @@ class BuiltinRegistry:
             return _union(solids)
 
         def _difference_all(base: Value, tools: Value) -> Value:
-            """Subtract all solids in tools list from base."""
-            from yapcad.geom3d import solid_boolean
-            result = base.data
-            for tool in tools.data:
-                tool_data = tool.data if hasattr(tool, 'data') else tool
-                result = solid_boolean(result, tool_data, 'difference')
-            return _inherit_metadata(solid_val(result), base.data)
+            """Subtract all tools in one native operation where supported."""
+            return _difference(base, tools)
 
         def _intersection_all(solids: Value) -> Value:
             """Intersect all solids in a list."""

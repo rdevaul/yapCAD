@@ -5,6 +5,11 @@ Changelog
 Unreleased
 ==========
 
+- DSL mesh booleans use native Manifold batches and retain intermediate bodies
+  across operations and transforms, materializing ordinary mesh lists at
+  public execution boundaries. Explicit engine selection, BREP/SDF dispatch,
+  and invalid-input fallback are preserved.
+
 - ``dsl run -o out.dxf`` now refuses a solid up front, naming STEP and STL
   and suggesting a planar section, instead of passing it to the 2D exporter
   and reporting ``bad argument to Drawable.draw(): solid``. Exporting 2D
