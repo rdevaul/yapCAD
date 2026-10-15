@@ -2844,6 +2844,14 @@ class BuiltinRegistry:
 
             return solid_val(result)
 
+        def _empty_solid() -> Value:
+            from yapcad.geom3d import solid
+            return solid_val(solid([]))
+
+        self.register(BuiltinFunction(
+            "empty_solid", _make_sig("empty_solid", [], SOLID), _empty_solid,
+        ))
+
         # Boolean operations
         self.register(BuiltinFunction(
             "union",

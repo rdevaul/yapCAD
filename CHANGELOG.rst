@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ==========
 
+- Register the checker-advertised empty_solid() builtin at runtime so empty
+  solids can seed union accumulators.
+  
 - DSL helper commands return runtime Values rather than nested EmitResult
   wrappers, fixing boolean helpers used in expressions.
   
