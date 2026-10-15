@@ -44,14 +44,19 @@ def to_vector(vec: Sequence[float]) -> Tuple[float, float, float, float]:
     return float(vec[0]), float(vec[1]), float(vec[2]), 0.0
 
 
-def triangle_normal(v0: Vec3, v1: Vec3, v2: Vec3) -> Vec3 | None:
-    """Return the unit normal of a triangle or ``None`` if degenerate."""
+def triangle_normal(v0: Vec3, v1: Vec3, v2: Vec3, *,
+                    tol: float = epsilon) -> Vec3 | None:
+    """Return a unit normal, or None when doubled area is <= ``tol``.
+
+    Mesh transport uses tol=0 to preserve small faces of closed meshes;
+    geometric predicates retain the historical tolerance by default.
+    """
 
     ax, ay, az = v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2]
     bx, by, bz = v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2]
     n = cross([ax, ay, az, 1.0], [bx, by, bz, 1.0])
     length = mag(n)
-    if length <= epsilon:
+    if length <= tol:
         return None
     return (n[0] / length, n[1] / length, n[2] / length)
 
