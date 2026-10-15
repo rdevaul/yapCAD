@@ -182,3 +182,27 @@ class RuntimeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_helper_mesh_materialization_preserves_return_structure(monkeypatch):
+    from yapcad.dsl.runtime.values import EmitResult, Value
+
+    monkeypatch.setenv("YAPCAD_BOOLEAN_ENGINE", "manifold")
+    result = compile_and_run(
+        "module helper_mesh\n"
+        "command inner() -> solid:\n"
+        "    emit union(box(2.0, 2.0, 2.0), box(1.0, 1.0, 1.0))\n"
+        "command middle() -> solid:\n"
+        "    emit inner()\n"
+        "command TEST() -> solid:\n"
+        "    emit middle()\n",
+        "TEST", {},
+    )
+    assert result.success, result.error_message
+    value = result.emit_result.value
+    # Accept both current nested wrappers and the separate helper-value fix.
+    while isinstance(value, EmitResult):
+        value = value.value
+    assert isinstance(value, Value)
+    assert type(value.data) is list
+    assert native(value.data).volume() == pytest.approx(8.0)

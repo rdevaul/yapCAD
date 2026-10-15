@@ -215,7 +215,12 @@ class Interpreter:
             )
 
         from .mesh_boolean import materialize
-        ctx.emit_result.value.data = materialize(ctx.emit_result.value.data)
+        # Helper commands currently may nest EmitResult wrappers. Preserve
+        # that public structure while materializing the innermost Value.
+        emitted_value = ctx.emit_result.value
+        while isinstance(emitted_value, EmitResult):
+            emitted_value = emitted_value.value
+        emitted_value.data = materialize(emitted_value.data)
 
         return ExecutionResult(
             success=True,
