@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ==========
 
+- DSL emit statements exit their command immediately, including inside nested
+  conditionals and loops.
+
 - ``dsl run -o out.dxf`` now refuses a solid up front, naming STEP and STL
   and suggesting a planar section, instead of passing it to the 2D exporter
   and reporting ``bad argument to Drawable.draw(): solid``. Exporting 2D
