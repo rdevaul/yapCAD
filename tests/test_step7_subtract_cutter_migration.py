@@ -66,13 +66,11 @@ def _execute_cutter(module, cmd_name):
     """
     result = execute(module, cmd_name, {})
     assert result.success, f"{cmd_name} failed: {result.error_message}"
-    # Drill down to the solid Value
-    er_outer = result.emit_result
-    er_inner = er_outer.value       # EmitResult from RADIAL_BOX_CUTTER
-    solid_val = er_inner.value      # Value(type='solid', data=[...])
+    # Public geometry no longer depends on nested EmitResult wrappers.
+    solid_data = result.geometry
     # Meta dict is the last dict element in data
     meta_dict = {}
-    for item in reversed(solid_val.data):
+    for item in reversed(solid_data):
         if isinstance(item, dict):
             meta_dict = item
             break

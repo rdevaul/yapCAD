@@ -7,6 +7,20 @@ Unreleased
 
 - Register the checker-advertised empty_solid() builtin at runtime so empty
   solids can seed union accumulators.
+  
+- DSL helper commands return runtime Values rather than nested EmitResult
+  wrappers, fixing boolean helpers used in expressions.
+  
+- DSL emit statements exit their command immediately, including inside nested
+  conditionals and loops.
+  
+- Repeated untyped DSL assignments update existing bindings in the same or
+  enclosing scope. Assignment type checks and typed local shadowing remain
+  intact.
+  
+- Mesh views and STL exports preserve small nonzero-area triangles instead of
+  discarding them using the global geometry epsilon. Only exactly degenerate
+  faces are skipped; default geometric-predicate tolerances are unchanged.
 
 - ``dsl run -o out.dxf`` now refuses a solid up front, naming STEP and STL
   and suggesting a planar section, instead of passing it to the 2D exporter

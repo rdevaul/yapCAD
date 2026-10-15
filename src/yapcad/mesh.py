@@ -15,7 +15,8 @@ def mesh_view(obj: Sequence) -> Iterator[TriTuple]:
     """Yield triangles for a surface or solid as ``(normal, v0, v1, v2)``.
 
     Normals are unit vectors. Vertices are returned as ``(x, y, z)`` tuples.
-    Faces with degenerate geometry (zero area) are skipped silently.
+    Faces with zero area are skipped. Small nonzero-area faces are preserved:
+    deleting them would open holes in an otherwise closed mesh.
 
     For BREP-only solids (those with empty surfaces list), tessellation is
     performed via pythonocc-core if available.
@@ -45,7 +46,7 @@ def mesh_view(obj: Sequence) -> Iterator[TriTuple]:
             v1 = to_vec3(verts[idx1])
             v2 = to_vec3(verts[idx2])
 
-            calc_normal = triangle_normal(v0, v1, v2)
+            calc_normal = triangle_normal(v0, v1, v2, tol=0.0)
             if calc_normal is None:
                 continue
 
@@ -73,7 +74,7 @@ def _mesh_view_brep(solid: Sequence) -> Iterator[TriTuple]:
             v0 = to_vec3(verts[idx0])
             v1 = to_vec3(verts[idx1])
             v2 = to_vec3(verts[idx2])
-            calc_normal = triangle_normal(v0, v1, v2)
+            calc_normal = triangle_normal(v0, v1, v2, tol=0.0)
             if calc_normal is None:
                 continue
             yield calc_normal, v0, v1, v2
