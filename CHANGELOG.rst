@@ -5,6 +5,11 @@ Changelog
 Unreleased
 ==========
 
+- DSL mesh booleans use native Manifold batches and retain intermediate bodies
+  across operations and transforms, materializing ordinary mesh lists at
+  public execution boundaries. Explicit engine selection, BREP/SDF dispatch,
+  and invalid-input fallback are preserved.
+  
 - Register the checker-advertised empty_solid() builtin at runtime so empty
   solids can seed union accumulators.
   
