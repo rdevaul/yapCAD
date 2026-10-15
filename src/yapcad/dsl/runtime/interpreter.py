@@ -326,16 +326,14 @@ class Interpreter:
         inside a ``for``/``if`` block it would bind a new block-local ``x``
         and the enclosing ``x`` would never change (``total = total + 1.0``
         in a loop silently did nothing). An untyped declaration of a name
-        already bound in an enclosing scope therefore updates that binding.
+        already bound in this or an enclosing scope updates that binding.
         A typed declaration (``x: float = ...``) still declares a new local.
         """
         value = self._evaluate(stmt.initializer, ctx)
         scope = ctx.current_scope
         if (
             stmt.type_annotation is None
-            and stmt.name not in scope.variables
-            and scope.parent is not None
-            and scope.parent.update(stmt.name, value)
+            and scope.update(stmt.name, value)
         ):
             return
         ctx.set_variable(stmt.name, value)
@@ -376,6 +374,7 @@ class Interpreter:
                 for key, expr in stmt.metadata.items():
                     metadata[key] = self._evaluate(expr, ctx).data
         ctx.set_emit(value, metadata)
+        ctx.signal_return(value)
 
     def _execute_for(self, stmt: ForStatement, ctx: ExecutionContext) -> None:
         """Execute a for loop."""
