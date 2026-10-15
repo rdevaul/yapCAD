@@ -5,24 +5,33 @@ Changelog
 Unreleased
 ==========
 
+- Field-checked simplification no longer emits slivers. A collapse was
+  accepted on any non-zero area, so it could leave a face with three
+  distinct but collinear vertices -- about 1e-13 in doubled area -- which
+  costs nothing in field error and so passed every other check. Such a face
+  has no normal at ``triangle_normal``'s default tolerance and is dropped or
+  rejected by mesh tools, slicers and STL importers. The orientation test now
+  needs a cross product clear of ``epsilon``. Closed meshes cost 1 to 5 per
+  cent more triangles: a field-built M8 hex nut goes from 4,456 faces to
+  4,680, still down from 96,988 (#78).
+
 - DSL mesh booleans use native Manifold batches and retain intermediate bodies
   across operations and transforms, materializing ordinary mesh lists at
   public execution boundaries. Explicit engine selection, BREP/SDF dispatch,
   and invalid-input fallback are preserved.
-  
+
 - Register the checker-advertised empty_solid() builtin at runtime so empty
   solids can seed union accumulators.
-  
+
 - DSL helper commands return runtime Values rather than nested EmitResult
   wrappers, fixing boolean helpers used in expressions.
-  
+
 - DSL emit statements exit their command immediately, including inside nested
   conditionals and loops.
-  
 - Repeated untyped DSL assignments update existing bindings in the same or
   enclosing scope. Assignment type checks and typed local shadowing remain
   intact.
-  
+
 - Mesh views and STL exports preserve small nonzero-area triangles instead of
   discarding them using the global geometry epsilon. Only exactly degenerate
   faces are skipped; default geometric-predicate tolerances are unchanged.
@@ -779,6 +788,5 @@ Known problems
 - Incomplete functionality around 3D modeling
 
 - Inconsistent inclusion of licensing boilerplate
-  
 
 .. _yapCAD readthedocs: https://yapcad.readthedocs.io/en/latest/index.html

@@ -12,8 +12,11 @@ round scores every edge at once, picks greedily, cheapest first, a set of
 edges whose neighbourhoods do not overlap, and tests all of them together:
 
 * **topology** -- the link condition, so the mesh stays a closed manifold;
-* **orientation** -- no triangle around the merged vertex flips or
-  collapses;
+* **orientation** -- no triangle around the merged vertex flips, and none
+  is left so thin that yapCAD's own predicates call it degenerate.  A
+  non-zero area is not enough: a collapse can leave a sliver of order
+  1e-13, which ``triangle_normal`` reports as having no normal at the
+  default tolerance even though mesh transport now carries it;
 * **fidelity** -- the merged vertex is first moved onto the surface (Newton
   steps along the gradient), then the field is evaluated at it and at
   sample points across every triangle that changes.  A collapse is kept
@@ -40,6 +43,7 @@ import math
 
 import numpy as np
 
+from yapcad.geom import epsilon
 from yapcad.sdf.evaluate import evaluate, gradient
 from yapcad.sdf.node import SdfError
 
@@ -89,6 +93,21 @@ def _max_error(node, tris, spacing):
 
 #: A changed triangle's normal must stay within ~78 degrees of its old one.
 _MIN_NORMAL_DOT = 0.2
+
+#: Smallest cross product a collapse may leave on a triangle.  Testing only
+#: for a non-zero area let slivers of order 1e-13 through: a face with three
+#: distinct but collinear vertices, which costs nothing in field error and so
+#: passed every other test here.  Such a face is degenerate to yapCAD's own
+#: predicates -- :func:`yapcad.geometry_utils.triangle_normal` has no normal
+#: for it at the default tolerance -- and to the mesh tools, slicers and STL
+#: importers downstream, which drop or choke on zero-area facets.  Mesh
+#: transport carries it since the small-face fix, so this is no longer what
+#: opens a hole, but the simplifier should not manufacture geometry the rest
+#: of the library disagrees about.  The floor sits clear of ``epsilon`` so a
+#: last-bit difference cannot straddle it, and far below any triangle a real
+#: part carries at mesh scale: the tightest honest one on a perforated plate
+#: measures 1.5e-2, thirty times this.
+_MIN_CROSS = 100.0 * epsilon
 
 
 def _face_normals(V, F):
@@ -244,7 +263,7 @@ def _round(node, V, F, tolerance, rejected, spacing, face_err):
     old_len = np.linalg.norm(old_n, axis=1)
     with np.errstate(invalid="ignore", divide="ignore"):
         dot = np.einsum("ij,ij->i", old_n, new_n) / (old_len * new_len)
-    bad_face = survives & ~((new_len > 0.0) & (dot > _MIN_NORMAL_DOT))
+    bad_face = survives & ~((new_len > _MIN_CROSS) & (dot > _MIN_NORMAL_DOT))
 
     # Fidelity: the new triangles' worst sampled error must be within the
     # tolerance -- or, where dual contouring already left more error than
