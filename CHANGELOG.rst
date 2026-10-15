@@ -5,6 +5,10 @@ Changelog
 Unreleased
 ==========
 
+- Repeated untyped DSL assignments update existing bindings in the same or
+  enclosing scope. Assignment type checks and typed local shadowing remain
+  intact.
+
 - ``dsl run -o out.dxf`` now refuses a solid up front, naming STEP and STL
   and suggesting a planar section, instead of passing it to the 2D exporter
   and reporting ``bad argument to Drawable.draw(): solid``. Exporting 2D
