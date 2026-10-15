@@ -374,6 +374,7 @@ class Interpreter:
                 for key, expr in stmt.metadata.items():
                     metadata[key] = self._evaluate(expr, ctx).data
         ctx.set_emit(value, metadata)
+        ctx.signal_return(value)
 
     def _execute_for(self, stmt: ForStatement, ctx: ExecutionContext) -> None:
         """Execute a for loop."""

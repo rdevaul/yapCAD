@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ==========
 
+- DSL emit statements exit their command immediately, including inside nested
+  conditionals and loops.
+  
 - Repeated untyped DSL assignments update existing bindings in the same or
   enclosing scope. Assignment type checks and typed local shadowing remain
   intact.
