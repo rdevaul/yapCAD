@@ -280,6 +280,9 @@ Online **yapCAD** documentation is available at https://yapcad.readthedocs.io/en
 * ``docs/metadata_namespace.rst`` - standard metadata blocks for materials, manufacturing, and analysis annotations.
 * Module references for ``yapcad.geom``, ``yapcad.geom3d``, ``yapcad.geom3d_util``, ``yapcad.brep``, and ``yapcad.dsl``.
 * Mesh validation workflow (``docs/mesh_validation.md``, ``tools/validate_mesh.py``).
+* ``docs/sdf-meshing-and-simplifier-performance.md`` - where field meshing and
+  simplification spend their time, and the adaptive-meshing design that would
+  remove most of it.
 
 **DSL Quick Start** (``examples/quickstart.dsl``)::
 
