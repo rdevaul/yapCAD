@@ -5,6 +5,28 @@ Changelog
 Unreleased
 ==========
 
+- Simplification samples a whole round's triangles in one field evaluation.
+  It grouped them by subdivision count and evaluated each group separately,
+  two dozen calls to a round, and the field costs far less per point on a
+  large batch than a small one. Values are unchanged. Simplifying an engraved
+  line goes from 6.2 s to 5.1 s, and the three-line plate from 193 s to 142 s.
+
+- Unions skip children that cannot change the result. Evaluating every child
+  at every point cost a great deal on unions with many operands -- engraved
+  lettering reaches a couple of hundred -- while any one point is near only a
+  few of them. A child whose bounds lie farther from the sample points than
+  the smallest value found so far cannot win the ``min``, and a batch spread
+  across a whole part is split until its parts are local enough for that test
+  to bite. Values are unchanged bit for bit, since ``min`` is exact and
+  order-independent. Meshing and simplifying a 70 x 30 mm plate with three
+  engraved lines goes from 674 s to 198 s, and simplifying one engraved line
+  from 20 s to 6.4 s.
+
+- ``docs/sdf-meshing-and-simplifier-performance.md`` records where field
+  meshing and simplification spend their time, and sketches the
+  feature-size responsive dual contouring that would remove most of what
+  remains.
+
 - Field-checked simplification no longer emits slivers. A collapse was
   accepted on any non-zero area, so it could leave a face with three
   distinct but collinear vertices -- about 1e-13 in doubled area -- which

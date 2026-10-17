@@ -70,11 +70,46 @@ def _lattice(n):
 _LATTICES = {n: _lattice(n) for n in range(1, _MAX_DIVISIONS + 1)}
 
 
+def _sample_max(node, tris, divisions):
+    """Worst ``|f|`` per triangle, sampling every triangle in one batch.
+
+    Grouping the triangles by division count and evaluating each group
+    separately costs a call per distinct count -- two dozen in a round -- and
+    the field is far cheaper per point on a large batch than a small one. So
+    the groups are laid out back to back and evaluated together, then reduced
+    per triangle.
+    """
+    if len(tris) == 0:
+        return np.zeros(0)
+    order = np.argsort(divisions, kind="stable")
+    ordered = divisions[order]
+    tables = [_LATTICES[int(n)] for n in np.unique(ordered).tolist()]
+    sizes = {int(n): len(t) for n, t in zip(np.unique(ordered).tolist(), tables)}
+    counts = np.array([sizes[int(n)] for n in ordered], dtype=np.int64)
+    offsets = np.zeros(len(tris) + 1, dtype=np.int64)
+    np.cumsum(counts, out=offsets[1:])
+    pts = np.empty((int(offsets[-1]), 3))
+    at = 0
+    for n, table in zip(np.unique(ordered).tolist(), tables):
+        rows = order[ordered == n]
+        block = np.einsum("sk,fkd->fsd", table, tris[rows])
+        span = block.size // 3
+        pts[at:at + span] = block.reshape(-1, 3)
+        at += span
+    err = np.abs(evaluate(node, pts))
+    worst = np.maximum.reduceat(err, offsets[:-1])
+    out = np.empty(len(tris))
+    out[order] = worst
+    return out
+
+
 def _max_error(node, tris, spacing):
     """Worst ``|f|`` sampled across each triangle of ``tris`` ``(T, 3, 3)``
     on a grid no coarser than ``spacing`` -- the original mesh's edge
     length -- so a large merged triangle is checked as densely as the many
     small ones it replaces."""
+    if len(tris) == 0:
+        return np.zeros(0)
     longest = np.max(np.linalg.norm(tris - np.roll(tris, 1, axis=1), axis=2),
                      axis=1)
     # Two samples per original edge length, and at least four divisions:
@@ -82,13 +117,7 @@ def _max_error(node, tris, spacing):
     # samples, and two divisions once read 0.095 where the truth was 0.142.
     divisions = np.clip(np.ceil(2.0 * longest / spacing), 4,
                         _MAX_DIVISIONS).astype(int)
-    out = np.zeros(len(tris))
-    for n in np.unique(divisions).tolist():
-        rows = np.nonzero(divisions == n)[0]
-        pts = np.einsum("sk,fkd->fsd", _LATTICES[n], tris[rows])
-        err = np.abs(evaluate(node, pts.reshape(-1, 3)))
-        out[rows] = err.reshape(len(rows), -1).max(axis=1)
-    return out
+    return _sample_max(node, tris, divisions)
 
 
 #: A changed triangle's normal must stay within ~78 degrees of its old one.
