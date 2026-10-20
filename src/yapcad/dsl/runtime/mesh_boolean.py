@@ -6,7 +6,6 @@ through the public yapCAD list representation cannot leave a stale cache.
 
 from __future__ import annotations
 import copy
-import os
 
 
 class ManifoldSolid(list):
@@ -121,14 +120,28 @@ def native(solid):
 
 
 def eligible(operands):
+    """True when the batched manifold3d path is the right thing to run.
+
+    The engine decision belongs to yapcad.boolean.selection rather than
+    being repeated here: this path is an optimisation of whatever
+    solid_boolean would have done, so it must not run when solid_boolean
+    would have chosen a different engine.
+    """
+    from yapcad.boolean.selection import forced_engine, preferred_mesh_engine
     from yapcad.brep import has_brep_data
     from yapcad.sdf.booleans import is_sdf_solid
 
-    engine = os.environ.get("YAPCAD_BOOLEAN_ENGINE")
-    if engine:
-        return engine == "manifold"
-    if os.environ.get("YAPCAD_MESH_BOOLEAN_ENGINE", "manifold") != "manifold":
+    # An outright override bypasses the SDF and OCC paths in solid_boolean,
+    # so it bypasses the deference to them here too.
+    forced = forced_engine()
+    if forced:
+        return forced == "manifold"
+
+    engine, _named = preferred_mesh_engine()
+    if engine != "manifold":
         return False
+    # Otherwise solid_boolean would hand these operands to the field or OCC
+    # engine before any mesh engine saw them.
     return not any(is_sdf_solid(s) or has_brep_data(s) for s in operands)
 
 

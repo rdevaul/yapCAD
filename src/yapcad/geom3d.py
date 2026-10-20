@@ -567,20 +567,26 @@ def solid_boolean(a, b, operation, tol=_DEFAULT_RAY_TOL, *, stitch=False, engine
         except Exception:
             pass  # Fall through to mesh engine
 
-    # Fallback to a mesh engine: the env var if set, else manifold3d when it
-    # is installed, else native.
-    mesh_engine = os.environ.get('YAPCAD_MESH_BOOLEAN_ENGINE')
-    if mesh_engine:
+    # Fallback to a mesh engine. yapcad.boolean.selection owns the policy, so
+    # that the DSL's batched fast path resolves it the same way.
+    from yapcad.boolean.selection import preferred_mesh_engine
+    mesh_engine, named = preferred_mesh_engine()
+
+    # A named engine fails loudly; only the default falls back.
+    if named:
         return _dispatch_boolean_engine(mesh_engine, a, b, operation, tol, stitch)
-    from yapcad.boolean import manifold_engine
-    if manifold_engine.is_available():
+
+    if mesh_engine == 'manifold':
+        from yapcad.boolean import manifold_engine
         try:
             return manifold_engine.solid_boolean(a, b, operation)
         except manifold_engine.NotManifoldError as exc:
             import warnings
             warnings.warn(f"{exc}; falling back to the native mesh engine",
                           RuntimeWarning, stacklevel=2)
-    return _dispatch_boolean_engine('native', a, b, operation, tol, stitch)
+        return _dispatch_boolean_engine('native', a, b, operation, tol, stitch)
+
+    return _dispatch_boolean_engine(mesh_engine, a, b, operation, tol, stitch)
 
 
 def _dispatch_boolean_engine(engine_spec, a, b, operation, tol, stitch):
