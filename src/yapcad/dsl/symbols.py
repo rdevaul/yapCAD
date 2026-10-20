@@ -518,13 +518,12 @@ class SymbolTable:
             ("twist_angle", FLOAT, None),
         ], SOLID)
 
-        # Phase 3 text support
-        self._register_builtin("text_solid", [
-            ("text", STRING, None),
-            ("height", FLOAT, None),
-            ("depth", FLOAT, None),
-            ("spacing", FLOAT, None),
-        ], SOLID)
+        # Phase 3 text support. text_solid is registered further down with
+        # three parameters; registering it here as well had no effect, because
+        # _register_builtin assigns into self._builtins and so the later
+        # registration silently won. The runtime implemented four parameters
+        # against this dead signature, which left text_solid unusable at
+        # every arity until #91.
 
         self._register_builtin("engrave_text", [
             ("target", SOLID, None),
