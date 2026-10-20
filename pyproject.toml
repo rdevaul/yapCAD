@@ -46,7 +46,11 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-      "ezdxf>=1.4.4",
+      # 1.4.2 is the newest ezdxf on conda-forge, and the floor is set to it
+      # so that a conda package can be built. The previous 1.4.4 floor came
+      # from a routine dependency refresh, not from anything yapCAD needs;
+      # the suite is green on 1.4.2.
+      "ezdxf>=1.4.2",
       "mpmath>=1.2",
       "numpy>=1.22",
       "mapbox-earcut>=1.0.3",
