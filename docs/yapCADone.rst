@@ -188,6 +188,61 @@ Completed:
 - ✅ DSL static verifiability (``while`` removed, recursion/comprehension limits)
 - ✅ 627 tests passing
 
+**Phase 7 - Dependency independence and native-engine performance [PLANNED, post-1.2]**
+
+Both items below are about what ``pip install yapCAD`` alone can do.
+
+*BREP without conda.*
+
+Exact BREP solids, analytic STEP export, STEP import and BREP fillets all
+require ``pythonocc-core``, which is published through conda-forge and is not
+reliably pip-installable across platforms. That makes conda the only route to
+a full-featured yapCAD, even though many uses need only to *interchange* BREP
+rather than model with it. Two halves, worth separating because they differ
+enormously in difficulty:
+
+- **Interchange** -- reading and writing STEP (and possibly IGES). This needs
+  a file-format implementation, not a geometry kernel, and covers the larger
+  share of real use: getting geometry in and out of other CAD systems. This
+  is the half to settle first.
+- **Modelling** -- exact booleans, fillets of BREPs, analytic surfaces. This
+  needs a kernel, and is the harder and less urgent half.
+
+Candidates to evaluate, in rough order of effort: a pip-installable
+OpenCASCADE wheel, should one become dependable on all three platforms; a
+NumPy STEP reader/writer for interchange only; a Rust or C++ kernel with
+maintained Python wheels. yapCAD already degrades gracefully when OCC is
+absent (``has_brep()``, guarded imports throughout ``yapcad.brep``), so any
+of these is additive rather than a migration.
+
+*Native mesh boolean performance.*
+
+The rewritten native engine (``yapcad.boolean.csg``) is as **correct** as
+manifold3d. Measured across 14 analytic cases, 21 hard shapes and 750
+randomised operations, both engines returned closed, manifold results, with
+no volume disagreement above 1e-6 relative and no volume-identity failures on
+either side.
+
+Its deficit is triangle economy, and that is what makes it slow. On identical
+inputs it emits 1.15x the triangles in aggregate -- median 1.00x, but up to 8x
+on individual results -- and in a boolean *chain* those extra triangles
+compound into the next operation. On the ``examples/performance`` perforated
+plate without OCC, 18 holes cost the native engine 16.6 s and 20,758
+triangles against manifold3d's 0.07 s and 4,620; at 60 holes it exceeded a
+180 s cap where manifold3d took 0.24 s.
+
+So the work is, in order:
+
+- retriangulation economy: merge coplanar fragments and stop introducing
+  vertices that the result does not need;
+- a batched entry point equivalent to ``Manifold.batch_boolean``, so that
+  accumulating DSL booleans stop re-walking a mesh that grows with every
+  operation.
+
+``yapcad.boolean.selection.DEFAULT_PREFERENCE`` is the one place the default
+engine is chosen. Closing the gap is a one-line change there, plus the
+benchmark to justify it.
+
 Dependencies & Tooling
 ----------------------
 

@@ -194,6 +194,21 @@ Field meshing performance
 Mesh booleans
 -------------
 
+- The mesh boolean engine is chosen in one place,
+  ``yapcad.boolean.selection``. ``geom3d.solid_boolean`` and the DSL's
+  batched fast path each encoded the default separately -- the DSL repeating
+  it inline as ``os.environ.get(..., "manifold")`` -- so the default took two
+  edits to change, and the DSL path could take the manifold3d batch route
+  for operands whose engine a caller had chosen otherwise.
+  ``preferred_mesh_engine()`` now answers that question for both, and
+  ``DEFAULT_PREFERENCE`` is the single knob. Selection behaviour is
+  unchanged: manifold3d still leads when installed,
+  ``YAPCAD_MESH_BOOLEAN_ENGINE`` still names the mesh engine,
+  ``YAPCAD_BOOLEAN_ENGINE`` still overrides the field and OCC paths as well,
+  and a named engine still fails loudly where the default falls back with a
+  warning. ``YAPCAD_MESH_BOOLEAN_ENGINE=native`` now reaches DSL booleans,
+  which it did not before.
+
 - The native mesh boolean engine is rewritten (``yapcad.boolean.csg``) and
   now returns closed, volume-correct solids: 24 of 24 benchmark cases (was
   8) and 1,800 randomised boxes/spheres/cylinders/icosahedra cases against a
