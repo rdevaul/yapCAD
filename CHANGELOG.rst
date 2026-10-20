@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ==========
 
+- The DSL text_solid(text, height, depth) builtin uses the default spacing
+  accepted by the checker instead of requiring a fourth runtime argument.
+
 - Simplification samples a whole round's triangles in one field evaluation.
   It grouped them by subdivision count and evaluated each group separately,
   two dozen calls to a round, and the field costs far less per point on a
