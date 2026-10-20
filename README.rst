@@ -44,11 +44,12 @@ systems. Starting with the 0.5 release, the emphasis has shifted toward
 simulation, while retaining support for DXF generation and computational
 geometry experiments.
 
-software status (version 1.1.0, July 2026)
+software status (version 1.2.0, October 2026)
 ------------------------------------------------------
 
 **yapCAD** is in **active development** and already powers production design
-pipelines. New since 1.1.0 (see ``CHANGELOG.rst``):
+pipelines. New in 1.2.0 (see ``CHANGELOG.rst``, which has an *Upgrading*
+section: eight changes alter existing behaviour, one of them silently):
 
 * **Signed distance fields**: ``yapcad.sdf`` authors solids as fields --
   exact booleans, fillets, smooth blends, offsets, shells and lattices that
@@ -59,7 +60,15 @@ pipelines. New since 1.1.0 (see ``CHANGELOG.rst``):
   versions, and a whole DSL design builds as fields with
   ``representation="sdf"``. See ``docs/sdf_guide.rst``.
 * **Robust mesh booleans**: a rewritten native engine and a direct
-  manifold3d engine both return closed, volume-correct solids.
+  manifold3d engine both return closed, volume-correct solids. manifold3d
+  is the default when installed; it is far more economical with triangles,
+  which compounds through a chain of booleans.
+* **Faster field meshing**: unions skip children that cannot change the
+  result and simplification samples a whole round in one field evaluation,
+  bit-for-bit identical output. Meshing and simplifying an engraved plate
+  went from 674 s to 147 s.
+* **Geometry JSON v0.3**: carries SDF trees as an authoritative
+  representation, and solid construction provenance.
 
 Highlights from the 1.0 release cycle include:
 
@@ -146,7 +155,21 @@ Optional extras::
 
    pip install "yapcad[manifold]"    # manifold3d: fast, robust mesh booleans
    pip install "yapcad[meshcheck]"   # trimesh + pymeshfix mesh repair
+   pip install "yapcad[viewer]"      # pyglet: the interactive OpenGL viewer
    pip install -e ".[tests]"         # from a checkout: pytest and friends
+
+``manifold3d`` is worth installing if you do much boolean work: it becomes
+the default mesh boolean engine and is markedly more economical with
+triangles than the native engine, which compounds through a chain of
+booleans.
+
+.. note::
+
+   **Changed in 1.2.0:** pyglet moved to the ``viewer`` extra, so a plain
+   ``pip install yapcad`` no longer pulls a GL windowing toolkit into a
+   headless install. Nothing in the core imports it. Install
+   ``yapcad[viewer]`` for ``view_package()`` and ``pygletDraw``; the
+   ``tests`` and ``full`` extras include it.
 
 The ``brep`` and ``full`` extras name ``pythonocc-core``, which is not
 published on PyPI, so pip cannot install them; get OCC from conda-forge (Tier
