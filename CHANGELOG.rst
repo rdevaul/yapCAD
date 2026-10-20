@@ -2,95 +2,65 @@
 Changelog
 =========
 
-Unreleased
-==========
+Version 1.2.0 (2026-10-19)
+==========================
 
-- The DSL text_solid(text, height, depth) builtin uses the default spacing
-  accepted by the checker instead of requiring a fourth runtime argument.
+This release makes **signed distance functions** a first-class solid
+representation. Fields are an immutable, serialisable node DAG that meshes
+into ordinary yapCAD solids with sharp edges preserved, replays into
+OpenCASCADE for exact BREP where the tree allows it, and gives yapCAD a
+complete solid modeller that needs no OCC at all: fields combine exactly,
+``fillet`` rounds field primitives, fasteners and gears have field versions,
+and an existing DSL design builds as fields with ``representation="sdf"``.
 
-- Simplification samples a whole round's triangles in one field evaluation.
-  It grouped them by subdivision count and evaluated each group separately,
-  two dozen calls to a round, and the field costs far less per point on a
-  large batch than a small one. Values are unchanged. Simplifying an engraved
-  line goes from 6.2 s to 5.1 s, and the three-line plate from 193 s to 142 s.
+The mesh boolean engine is rewritten and now returns closed, volume-correct
+solids, with a new manifold3d-backed engine that becomes the default when it
+is installed. Geometry JSON moves to v0.3 to carry fields and construction
+provenance. Field meshing and simplification are several times faster than
+when they landed.
 
-- Unions skip children that cannot change the result. Evaluating every child
-  at every point cost a great deal on unions with many operands -- engraved
-  lettering reaches a couple of hundred -- while any one point is near only a
-  few of them. A child whose bounds lie farther from the sample points than
-  the smallest value found so far cannot win the ``min``, and a batch spread
-  across a whole part is split until its parts are local enough for that test
-  to bite. Values are unchanged bit for bit, since ``min`` is exact and
-  order-independent. Meshing and simplifying a 70 x 30 mm plate with three
-  engraved lines goes from 674 s to 198 s, and simplifying one engraved line
-  from 20 s to 6.4 s.
+Upgrading
+---------
 
-- ``docs/sdf-meshing-and-simplifier-performance.md`` records where field
-  meshing and simplification spend their time, and sketches the
-  feature-size responsive dual contouring that would remove most of what
-  remains.
+Eight changes alter existing behaviour. Only the first changes geometry
+silently.
 
-- Field-checked simplification no longer emits slivers. A collapse was
-  accepted on any non-zero area, so it could leave a face with three
-  distinct but collinear vertices -- about 1e-13 in doubled area -- which
-  costs nothing in field error and so passed every other check. Such a face
-  has no normal at ``triangle_normal``'s default tolerance and is dropped or
-  rejected by mesh tools, slicers and STL importers. The orientation test now
-  needs a cross product clear of ``epsilon``. Closed meshes cost 1 to 5 per
-  cent more triangles: a field-built M8 hex nut goes from 4,456 faces to
-  4,680, still down from 96,988 (#78).
+1. **The DSL's ``sphere(radius)`` now produces a sphere twice the size it
+   did.** It was passing its argument to ``geom3d_util.sphere``, which takes
+   a diameter, so it had been making spheres of half the documented radius.
+   Halve the argument to keep the old geometry. No DSL source in this
+   repository or in yapRover calls it. The Python API's
+   ``geom3d_util.sphere`` is unchanged and still takes a diameter.
 
-- DSL mesh booleans use native Manifold batches and retain intermediate bodies
-  across operations and transforms, materializing ordinary mesh lists at
-  public execution boundaries. Explicit engine selection, BREP/SDF dispatch,
-  and invalid-input fallback are preserved.
+2. **``dsl run -o FILE`` exits non-zero whenever it writes no file.** Three
+   cases warned and exited ``0`` before, so a script could believe an export
+   had succeeded when nothing was written. Runs that produce a file are
+   unaffected, as is every run without ``-o``.
 
-- Register the checker-advertised empty_solid() builtin at runtime so empty
-  solids can seed union accumulators.
+3. **manifold3d is the default mesh boolean engine when installed**, ahead of
+   ``native``. ``YAPCAD_MESH_BOOLEAN_ENGINE=native`` restores the old
+   default. Note that manifold3d is not available on conda-forge, so a conda
+   environment gets ``native`` unless it is pip-installed.
 
-- DSL helper commands return runtime Values rather than nested EmitResult
-  wrappers, fixing boolean helpers used in expressions.
+4. **Finished SDF parts are simplified against their fields by default.** It
+   costs about twenty times the meshing and typically keeps a few per cent of
+   the triangles. Turn it off with ``simplify=False`` / ``sdf_simplify=False``,
+   ``--no-simplify``, or ``YAPCAD_SDF_SIMPLIFY=0``.
 
-- DSL emit statements exit their command immediately, including inside nested
-  conditionals and loops.
-- Repeated untyped DSL assignments update existing bindings in the same or
-  enclosing scope. Assignment type checks and typed local shadowing remain
-  intact.
+5. **Writers emit ``yapcad-geometry-json-v0.3``.** v0.1 and v0.2 documents
+   still read, but a reader that checks the schema ID strictly must be
+   updated to accept v0.3.
 
-- Mesh views and STL exports preserve small nonzero-area triangles instead of
-  discarding them using the global geometry epsilon. Only exactly degenerate
-  faces are skipped; default geometric-predicate tolerances are unchanged.
+6. **Python 3.10 is retired**; yapCAD requires 3.11 or newer, ahead of 3.10's
+   October 2026 end-of-life.
 
-- ``dsl run -o out.dxf`` now refuses a solid up front, naming STEP and STL
-  and suggesting a planar section, instead of passing it to the 2D exporter
-  and reporting ``bad argument to Drawable.draw(): solid``. Exporting 2D
-  geometry to DXF is unchanged (#79).
+7. **A centred scale gives different, correct results.** ``geom.scale`` and
+   ``geom3d.scalesurface`` scaled about ``-cent`` rather than ``cent``. Code
+   that passed a non-origin ``cent`` changes.
 
-- **Behaviour change:** ``dsl run -o FILE`` now exits non-zero whenever it
-  writes no file. Asking for DXF from geometry that is not 2D, for STEP or
-  STL without a solid, and for an extension nothing handles each warned and
-  exited ``0`` before, so a script could believe an export had succeeded
-  when nothing had been written. They are errors now, and the unknown-format
-  message lists the extensions that are understood. Runs that produce a file
-  are unaffected, as is every run without ``-o``.
+8. **pyglet is no longer installed by ``pip install yapCAD``.** It moved to
+   the ``viewer`` extra; see Packaging below.
 
-- Finished SDF parts are simplified against their fields by default: the
-  field fastener and gear builders, the solids a field-mode DSL call
-  returns, and the parts of a packaged field-mode assembly. The default
-  tolerance is a twentieth of the cell the part was meshed at. A threaded
-  M8 nut drops from about 97,000 triangles to 3,500 and the field-built
-  yapRover chassis from 757,000 to 8,000, each closed and no less accurate
-  than its uniform mesh. It costs about twenty times the meshing, so
-  intermediate booleans are left alone. Turn it off with
-  ``simplify=False`` / ``sdf_simplify=False``, ``--no-simplify`` on the DSL
-  command line, or ``YAPCAD_SDF_SIMPLIFY=0``. Simplification now keeps a
-  solid's metadata, and ``sdf.simplify_solid``'s tolerance is optional.
-- Fix the DSL's ``sphere(radius)`` making a sphere of half the documented
-  radius: it passed its argument to ``geom3d_util.sphere``, which takes a
-  diameter. **Designs that call ``sphere`` in the DSL now get spheres twice
-  the size they did**; halve the argument to keep the old geometry. No DSL
-  source in this repository or in yapRover calls it. The Python API's
-  ``geom3d_util.sphere`` is unchanged and still takes a diameter.
 Signed distance functions
 -------------------------
 
@@ -105,6 +75,7 @@ Signed distance functions
   through OpenCASCADE for an exact BREP and analytic STEP export. The package
   needs only numpy; OCC replay is optional. ``examples/sdf_demo.py`` meshes a
   gallery of models to STL, PNG and (with ``--step``) STEP.
+
 - Booleans between two SDF-authored solids now combine their fields instead
   of their meshes: ``geom3d.solid_boolean`` -- and so the DSL's ``union``,
   ``difference`` and ``intersection`` -- returns an exact, closed,
@@ -113,6 +84,7 @@ Signed distance functions
   meshed no coarser than either operand. An explicit ``engine=`` or
   ``YAPCAD_BOOLEAN_ENGINE`` still takes precedence, and ``engine="sdf"``
   selects the field path. Mixed SDF/mesh or SDF/BREP operands are unchanged.
+
 - ``fillet`` works on SDF-authored solids without OCC. ``sdf.fillet``
   rounds every edge exactly for the analytic primitives -- a box becomes a
   ``rounded_box``, a cylinder the new exact ``rounded_cylinder`` -- through
@@ -121,10 +93,12 @@ Signed distance functions
   SDF-authored solid. Fillets of combined fields, through non-uniform
   scales, and of mesh-only solids are refused with an explanation; the plan
   for them is in ``docs/SDF-DESIGN.md`` §10.5.
+
 - ``compound`` keeps the fields of SDF-authored operands, as a new
   ``sdf.compound`` node: a union for booleans, separate bodies for meshing
   and OCC replay. Booleans against a compound no longer fall back to the
   mesh engine.
+
 - Straight bevel and miter gears build without OCC. The new
   ``straight_bevel_gear`` field stores the gear spec and evaluates as the
   BREP generator's own construction, the outer tooth section carried to
@@ -133,22 +107,27 @@ Signed distance functions
   ``gears.make_straight_bevel_gear_sdf`` exposes it directly. New planar
   field kinds back it: ``polygon`` (exact, with a symmetry fold),
   ``extrude`` and ``apex_extrude``.
+
 - Spur, helical and herringbone gears as fields: ``sdf.spur_gear`` (the
   ``figgear`` profile, extruded, and twisted by the new ``sdf.twist``
   operator) and ``gears.make_involute_gear_sdf``. The DSL's
   ``herringbone_gear`` uses it when OCC is absent.
+
 - ``metric_hex_nut`` and ``unified_hex_nut`` take ``representation="sdf"``
   for a closed, SDF-authoritative nut with a helical ``thread`` field whose
   profile is ``threadgen``'s own. The swept mesh, which is not closed,
   remains the default.
+
 - ``metric_hex_bolt`` and ``unified_hex_bolt`` take ``representation="sdf"``
   for a closed bolt with an external ``thread`` field (``sdf.hex_bolt``).
+
 - DSL designs can be built as SDF fields: ``compile_and_run`` and
   ``package_from_dsl`` take ``representation="sdf"`` (also
   ``yapcad.dsl run --representation sdf`` and
   ``YAPCAD_DSL_REPRESENTATION=sdf``). The solid primitives, fasteners and
   gears then produce SDF-authored solids placed as their mesh versions are,
   so an existing design builds as fields, without OCC, unchanged.
+
 - ``sdf.simplify_solid`` simplifies a meshed field by quadric edge collapse,
   checking every collapse against the field: a closed manifold result, no
   flipped triangles, and the field's value on every changed triangle within
@@ -156,15 +135,61 @@ Signed distance functions
   a threaded M8 nut keeps 4% of its triangles and a miter gear 6%, both
   with lower 99th-percentile error than the uniform mesh. The tolerance is
   recorded with the meshing parameters.
+
+- Finished SDF parts are simplified against their fields by default: the
+  field fastener and gear builders, the solids a field-mode DSL call
+  returns, and the parts of a packaged field-mode assembly. The default
+  tolerance is a twentieth of the cell the part was meshed at. A threaded
+  M8 nut drops from about 97,000 triangles to 3,500 and the field-built
+  yapRover chassis from 757,000 to 8,000, each closed and no less accurate
+  than its uniform mesh. It costs about twenty times the meshing, so
+  intermediate booleans are left alone. Turn it off with
+  ``simplify=False`` / ``sdf_simplify=False``, ``--no-simplify`` on the DSL
+  command line, or ``YAPCAD_SDF_SIMPLIFY=0``. Simplification now keeps a
+  solid's metadata, and ``sdf.simplify_solid``'s tolerance is optional.
+
 - Dual contouring places one vertex per surface component of a cell
   (Manifold Dual Contouring), so acute edges -- helical gear tips, lattice
   walls -- no longer mesh non-manifold. Ordinary meshes are unchanged.
-- Symmetric ``polygon`` fields evaluate three times faster.
+
+- ``sdf.to_solid`` raises ``sdf.NonManifoldMeshError`` (an ``SdfError``
+  subclass) when it refuses a mesh, so callers can catch that case alone.
+
 - ``geom3d`` solid transforms now carry an SDF-authored solid's tree along
   with its mesh; previously ``translatesolid`` and friends moved the mesh and
   left the defining tree where it was.
-- ``sdf.to_solid`` raises ``sdf.NonManifoldMeshError`` (an ``SdfError``
-  subclass) when it refuses a mesh, so callers can catch that case alone.
+
+- Field-checked simplification no longer emits slivers. A collapse was
+  accepted on any non-zero area, so it could leave a face with three
+  distinct but collinear vertices -- about 1e-13 in doubled area -- which
+  costs nothing in field error and so passed every other check. Such a face
+  has no normal at ``triangle_normal``'s default tolerance and is dropped or
+  rejected by mesh tools, slicers and STL importers. The orientation test now
+  needs a cross product clear of ``epsilon``. Closed meshes cost 1 to 5 per
+  cent more triangles: a field-built M8 hex nut goes from 4,456 faces to
+  4,680, still down from 96,988 (#78).
+
+Field meshing performance
+-------------------------
+
+- Unions skip children that cannot change the result. Evaluating every child
+  at every point cost a great deal on unions with many operands -- engraved
+  lettering reaches a couple of hundred -- while any one point is near only a
+  few of them. A child whose bounds lie farther from the sample points than
+  the smallest value found so far cannot win the ``min``, and a batch spread
+  across a whole part is split until its parts are local enough for that test
+  to bite. Values are unchanged bit for bit, since ``min`` is exact and
+  order-independent. Meshing and simplifying a 70 x 30 mm plate with three
+  engraved lines goes from 674 s to 198 s, and simplifying one engraved line
+  from 20 s to 6.4 s.
+
+- Simplification samples a whole round's triangles in one field evaluation.
+  It grouped them by subdivision count and evaluated each group separately,
+  two dozen calls to a round, and the field costs far less per point on a
+  large batch than a small one. Values are unchanged. Simplifying an engraved
+  line goes from 6.2 s to 5.1 s, and the three-line plate from 193 s to 142 s.
+
+- Symmetric ``polygon`` fields evaluate three times faster.
 
 Mesh booleans
 -------------
@@ -180,6 +205,7 @@ Mesh booleans
   conforming mesh. It is pure numpy and deterministic; a 10k-triangle sphere
   union takes about two seconds. ``native.solid_boolean`` keeps its
   signature; ``tol`` and ``stitch`` are accepted and ignored.
+
 - The native engine no longer shatters triangles. Cuts now require a real
   triangle-triangle overlap (the Moller interval test), are confined to the
   pieces the intersection segment touches, and pass-through vertices on a
@@ -187,6 +213,7 @@ Mesh booleans
   coaxial ~800-triangle cylinders unioned into 32,608 triangles in 20 s;
   they now give 3,904 in about a second, and a full yapRover build with
   the native engine completes.
+
 - New ``manifold`` boolean engine (``yapcad.boolean.manifold_engine``) that
   calls manifold3d directly, without trimesh, in float64. Install it with
   ``pip install 'yapCAD[manifold]'``. When manifold3d is installed it is now
@@ -198,6 +225,47 @@ Mesh booleans
   ``NotManifoldError`` when the engine is named explicitly, and falls back
   to ``native`` with a warning otherwise.
 
+- DSL mesh booleans use native Manifold batches and retain intermediate bodies
+  across operations and transforms, materializing ordinary mesh lists at
+  public execution boundaries. Explicit engine selection, BREP/SDF dispatch,
+  and invalid-input fallback are preserved.
+
+The DSL
+-------
+
+- The DSL text_solid(text, height, depth) builtin uses the default spacing
+  accepted by the checker instead of requiring a fourth runtime argument. The
+  duplicate four-parameter registration in ``dsl/symbols.py`` that caused
+  this -- ``_register_builtin`` assigns into a dict, so the later
+  three-parameter registration silently won while the runtime implemented
+  four -- is removed, and ``spacing`` is left at its default (#91).
+
+- Register the checker-advertised empty_solid() builtin at runtime so empty
+  solids can seed union accumulators.
+
+- DSL helper commands return runtime Values rather than nested EmitResult
+  wrappers, fixing boolean helpers used in expressions.
+
+- DSL emit statements exit their command immediately, including inside nested
+  conditionals and loops.
+
+- Repeated untyped DSL assignments update existing bindings in the same or
+  enclosing scope. Assignment type checks and typed local shadowing remain
+  intact.
+
+- ``dsl run -o out.dxf`` now refuses a solid up front, naming STEP and STL
+  and suggesting a planar section, instead of passing it to the 2D exporter
+  and reporting ``bad argument to Drawable.draw(): solid``. Exporting 2D
+  geometry to DXF is unchanged (#79).
+
+- **Behaviour change:** ``dsl run -o FILE`` now exits non-zero whenever it
+  writes no file. Asking for DXF from geometry that is not 2D, for STEP or
+  STL without a solid, and for an extension nothing handles each warned and
+  exited ``0`` before, so a script could believe an export had succeeded
+  when nothing had been written. They are errors now, and the unknown-format
+  message lists the extensions that are understood. Runs that produce a file
+  are unaffected, as is every run without ``-o``.
+
 Geometry, provenance and serialisation
 --------------------------------------
 
@@ -206,11 +274,13 @@ Geometry, provenance and serialisation
   ``representations.sdf`` and an optional BREP marked ``role: "derived"``.
   v0.1 and v0.2 documents still read; writers emit v0.3, so a reader that
   checks the schema ID strictly must be updated to accept it.
+
 - Solid construction provenance (``['procedure', call]``,
   ``['boolean', operation]``, ``['sdf', tree]``) now survives geometry
   JSON as an optional ``construction`` field. The new ``yapcad.construction``
   module defines the record format and provides accessors, normalisation and
   the JSON round-trip.
+
 - New ``yapcad.geom3d.solid_shells``
   groups a solid's surfaces into connected shells by shared edges and
   classifies each as outer or void by the sign of its volume. yapCAD mesh
@@ -219,8 +289,21 @@ Geometry, provenance and serialisation
   on demand rather than stored in a slot that could drift out of sync with the
   geometry.
 
+- Mesh views and STL exports preserve small nonzero-area triangles instead of
+  discarding them using the global geometry epsilon. Only exactly degenerate
+  faces are skipped; default geometric-predicate tolerances are unchanged.
+
 Fixes
 -----
+
+- Fix ``xform.Rotation`` raising ``AttributeError`` for any rotation axis
+  that is not already unit length. The normalising branch called
+  ``geom.geom.scale3``, a name that does not exist, so
+  ``rotatesolid(s, 30, axis=point(1, 1, 0))`` -- an ordinary thing to write
+  -- failed outright, while ``axis=point(0, 0, 1)`` worked. Every axis in
+  the test suite happened to be unit length, which is why nothing caught
+  it. Rotation about a non-unit axis now matches rotation about the same
+  axis normalised by hand.
 
 - Fix the DSL's ``sphere(radius)`` making a sphere of half the documented
   radius: it passed its argument to ``geom3d_util.sphere``, which takes a
@@ -228,27 +311,32 @@ Fixes
   the size they did**; halve the argument to keep the old geometry. No DSL
   source in this repository or in yapRover calls it. The Python API's
   ``geom3d_util.sphere`` is unchanged and still takes a diameter.
+
 - Fix ``geom3d.solid()`` filing the construction record in the material
   slot. It assigned its list arguments by an emptiness test rather than by
   position, so the near-universal ``solid(surfaces, [], construction)``
   idiom stored the record as material and left construction empty; every
   ``geom3d_util`` procedure record and boolean engine record was affected,
   and serialised solids gained a spurious ``"voids": [[], []]``.
+
 - Fix ``geometry_from_json`` writing a document's void surfaces into the
   solid's material slot (``yapcad.geometry._retessellate_brep_solid`` and
   ``service/core/tessellator`` shared the misreading). Void surfaces now
   rejoin the shell list, where mesh solids keep cavities, and the
   interchange-level ``voids`` field is computed from ``solid_shells`` on
   write.
+
 - Fix scaling about a centre point. ``geom.scale`` and ``geom3d.scalesurface``
   composed the transform in the wrong order and scaled about ``-cent`` rather
   than ``cent``; both BREP representations already scaled about ``cent``, so a
   centred scale of a BREP solid left its mesh and BREP disagreeing. Code that
   passed a non-origin ``cent`` gets different (correct) results.
+
 - ``geom3d.scalesolid`` now drops a solid's BREP after a non-uniform scale,
   which the BREP cannot follow. It previously stayed attached and unscaled,
   and was then written out and exported as the solid's authoritative
   geometry.
+
 - ``Geometry.mirror`` and ``Geometry.scale`` on solids now delegate to
   ``geom3d.mirrorsolid`` / ``scalesolid``, as ``translate`` and ``rotate``
   already did. ``mirror`` previously did nothing to a mesh-only solid,
@@ -261,12 +349,26 @@ Packaging, testing and documentation
 - Test the pure-Python package on Python 3.11 and 3.14, the supported-version
   endpoints, and require Python 3.11 or newer. Python 3.10 support is retired
   ahead of its October 2026 end-of-life.
+
 - ``jsonschema`` joins the ``tests`` extra, so schema validation runs by
   default, and the conda environment files request the ``tests`` extra by
   its correct name.
+
 - Add ``docs/SDF-DESIGN.md``, planning native signed-distance-function support:
   node-DAG representation, Lipschitz-bound tracking, dual-contouring meshing,
   CSG-tree replay into OCC for exact BREP, and mixed-authority booleans.
+
+- ``docs/sdf-meshing-and-simplifier-performance.md`` records where field
+  meshing and simplification spend their time, and sketches the
+  feature-size responsive dual contouring that would remove most of what
+  remains.
+
+- pyglet moved from a hard requirement to the new ``viewer`` extra.
+  ``yapcad.pyglet_drawable`` and ``yapcad.package.viewer`` are the only
+  modules that import it and both are loaded on demand, so a headless
+  install no longer pulls in a GL windowing toolkit or a pin below
+  pyglet 2. Install ``'yapCAD[viewer]'`` for ``view_package()`` and
+  ``pygletDraw``; the ``tests`` and ``full`` extras include it.
 
 Version 1.1.0 (2026-07-05)
 ==========================

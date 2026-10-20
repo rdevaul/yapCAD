@@ -8,7 +8,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "yapCAD"
-version = "1.1.0"
+version = "1.2.0"
 authors = [
   { name="Richard DeVaul", email="richard.devaul@gmail.com" },
 ]
@@ -46,8 +46,11 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-      "ezdxf>=1.4.4",
-      "pyglet>=1.5,<2",
+      # 1.4.2 is the newest ezdxf on conda-forge, and the floor is set to it
+      # so that a conda package can be built. The previous 1.4.4 floor came
+      # from a routine dependency refresh, not from anything yapCAD needs;
+      # the suite is green on 1.4.2.
+      "ezdxf>=1.4.2",
       "mpmath>=1.2",
       "numpy>=1.22",
       "mapbox-earcut>=1.0.3",
@@ -73,10 +76,19 @@ tests = [
   "pytest-cov",
   # Validates emitted documents against docs/schemas/*.schema.json
   "jsonschema",
+  # The VISUALTEST=true suite draws through yapcad.pyglet_drawable.
+  "pyglet>=1.5,<2",
 ]
 meshcheck = [
   "trimesh>=4.0",
   "pymeshfix>=0.16",
+]
+# The interactive pyglet viewer: yapcad.pyglet_drawable and
+# yapcad.package.viewer. Both are imported lazily -- nothing in the core
+# imports pyglet -- so it is an extra rather than a hard dependency. Needed
+# for view_package(), pygletDraw and the VISUALTEST test suite.
+viewer = [
+  "pyglet>=1.5,<2",
 ]
 # Solid-modeling (BREP) support. pythonocc-core is normally installed from
 # conda-forge, not pip; this extra documents the requirement and version floor.
@@ -96,6 +108,7 @@ full = [
   "trimesh>=4.0",
   "pymeshfix>=0.16",
   "manifold3d>=3.0",
+  "pyglet>=1.5,<2",
 ]
 [project.urls]
 "Homepage" = "https://github.com/rdevaul/yapCAD/"

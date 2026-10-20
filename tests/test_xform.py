@@ -39,4 +39,24 @@ class TestXform:
     
     
 
+    def test_rotation_about_a_non_unit_axis(self):
+        """Rotation normalises its axis, and the normalising branch used to
+        reach for a name that does not exist (geom.geom.scale3), so any axis
+        that was not already unit length raised AttributeError. Every axis in
+        the suite happened to be unit length, so nothing caught it."""
+        import math
+
+        axis = geom.point(1, 1, 0)
+        assert not geom.close(geom.mag(axis), 1.0)
+
+        R = Rotation(axis, 45.0)
+        unit = geom.point(1 / math.sqrt(2), 1 / math.sqrt(2), 0)
+        Runit = Rotation(unit, 45.0)
+        for i in range(4):
+            for j in range(4):
+                assert R.m[i][j] == pytest.approx(Runit.m[i][j], abs=1e-12)
+
+    def test_rotation_rejects_a_zero_length_axis(self):
+        with pytest.raises(ValueError):
+            Rotation(geom.point(0, 0, 0), 30.0)
 
