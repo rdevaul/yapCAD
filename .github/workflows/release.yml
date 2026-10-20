@@ -1,0 +1,138 @@
+# Build and publish to PyPI when a version tag is pushed.
+#
+# Publishing uses PyPI Trusted Publishing (OIDC), so there is no API token in
+# this repository. It requires a one-time setup on PyPI: in the yapCAD project
+# settings, add a trusted publisher for owner ``rdevaul``, repository
+# ``yapCAD``, workflow ``release.yml``, environment ``pypi``.
+#
+# The tag is the single source of truth for what gets released, and the first
+# job refuses to go further if it disagrees with the version in pyproject.toml.
+# Releases 0.6.2, 0.6.3, 1.0.0rc1 and 1.0.0rc2 were tagged but never reached
+# PyPI; that is the failure this workflow exists to prevent.
+
+name: Release
+
+on:
+  push:
+    tags: [ "v*" ]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Tag to build (dry run; does not publish)"
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build and check distributions
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.inputs.ref || github.ref }}
+
+    - name: Set up Python 3.14
+      uses: actions/setup-python@v6
+      with:
+        python-version: "3.14"
+        cache: pip
+        cache-dependency-path: pyproject.toml
+
+    - name: Check that the tag matches pyproject.toml
+      id: version
+      run: |
+        python - <<'PY'
+        import os, pathlib, re, sys, tomllib
+
+        version = tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"]
+        ref = os.environ["GITHUB_REF"]
+        print(f"pyproject version: {version}")
+
+        if ref.startswith("refs/tags/"):
+            tag = ref.removeprefix("refs/tags/")
+            print(f"tag:               {tag}")
+            if tag != f"v{version}":
+                sys.exit(
+                    f"Tag {tag} does not match pyproject.toml version {version}. "
+                    f"Expected tag v{version}."
+                )
+
+        if not re.fullmatch(r"\d+\.\d+\.\d+(rc\d+|a\d+|b\d+|\.post\d+)?", version):
+            sys.exit(f"Version {version!r} is not a release version.")
+
+        with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+            fh.write(f"version={version}\n")
+        PY
+
+    - name: Build sdist and wheel
+      run: |
+        python -m pip install --upgrade pip build twine
+        python -m build
+
+    - name: Check distribution metadata
+      run: python -m twine check --strict dist/*
+
+    - name: Verify bundled fastener catalogs
+      run: |
+        python - <<'PY'
+        from pathlib import Path
+        from zipfile import ZipFile
+
+        wheel = next(Path("dist").glob("*.whl"))
+        with ZipFile(wheel) as archive:
+            names = set(archive.namelist())
+        expected = {
+            "yapcad/fasteners/data/metric_coarse.yaml",
+            "yapcad/fasteners/data/unified_coarse.yaml",
+        }
+        missing = expected - names
+        if missing:
+            raise SystemExit(f"Wheel is missing package data: {sorted(missing)}")
+        print(f"{wheel.name}: package data present")
+        PY
+
+    - name: Smoke-test the wheel in a clean environment
+      run: |
+        python -m venv /tmp/smoke
+        /tmp/smoke/bin/pip install --quiet "$(ls dist/*.whl)"
+        /tmp/smoke/bin/python - <<'PY'
+        import sys
+        import yapcad, yapcad.geom3d, yapcad.sdf, yapcad.dsl, yapcad.package
+        print("yapCAD", yapcad.__version__)
+        # The core must import without the optional viewer stack.
+        assert "pyglet" not in sys.modules, "core import pulled in pyglet"
+        PY
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: distributions
+        path: dist/
+
+  publish:
+    name: Publish to PyPI
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/yapCAD
+    permissions:
+      id-token: write
+
+    steps:
+    - uses: actions/download-artifact@v4
+      with:
+        name: distributions
+        path: dist/
+
+    - name: Publish
+      uses: pypa/gh-action-pypi-publish@release/v1
