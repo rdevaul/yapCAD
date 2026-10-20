@@ -18,11 +18,22 @@ You want                                   Install
 Meshes, SDF parts, the DSL, STL export     ``pip install yapCAD``
 Fast, robust mesh booleans                 ``pip install 'yapCAD[manifold]'``
 Strict watertightness checks and repair    ``pip install 'yapCAD[meshcheck]'``
+The interactive pyglet viewer              ``pip install 'yapCAD[viewer]'``
 BREP solids, fillets of BREPs, STEP        the conda environment below
 Development and tests                      ``pip install -e '.[tests]'`` from a checkout
 =========================================  =======================================================
 
 Extras combine: ``pip install 'yapCAD[manifold,meshcheck]'``.
+
+.. note::
+
+   **Changed in 1.2.0:** pyglet moved from a hard requirement to the
+   ``viewer`` extra, so ``pip install yapCAD`` no longer pulls a GL
+   windowing toolkit into a headless install. Nothing in the core imports
+   pyglet -- ``yapcad.pyglet_drawable`` and ``yapcad.package.viewer`` are
+   loaded on demand -- so only code that draws through them needs the
+   extra. If you use ``view_package()`` or ``pygletDraw``, install
+   ``'yapCAD[viewer]'``. The ``tests`` and ``full`` extras include it.
 
 Without OpenCASCADE, yapCAD is still a complete solid modeller for
 SDF-authored parts: fields combine exactly, ``fillet`` rounds field
