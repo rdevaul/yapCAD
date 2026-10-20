@@ -296,6 +296,15 @@ Geometry, provenance and serialisation
 Fixes
 -----
 
+- Fix ``xform.Rotation`` raising ``AttributeError`` for any rotation axis
+  that is not already unit length. The normalising branch called
+  ``geom.geom.scale3``, a name that does not exist, so
+  ``rotatesolid(s, 30, axis=point(1, 1, 0))`` -- an ordinary thing to write
+  -- failed outright, while ``axis=point(0, 0, 1)`` worked. Every axis in
+  the test suite happened to be unit length, which is why nothing caught
+  it. Rotation about a non-unit axis now matches rotation about the same
+  axis normalised by hand.
+
 - Fix the DSL's ``sphere(radius)`` making a sphere of half the documented
   radius: it passed its argument to ``geom3d_util.sphere``, which takes a
   diameter. **Designs that call ``sphere`` in the DSL now get spheres twice
