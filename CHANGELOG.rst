@@ -2,6 +2,29 @@
 Changelog
 =========
 
+Unreleased
+==========
+
+- Cross-file ``use`` imports work. The statement parsed and reached
+  ``module.uses``, and nothing ever read it, so a design could not be split
+  across files. ``use shapes`` merges that module's commands;
+  ``use shapes as s`` puts them behind ``s.CUBE(...)`` instead, and calls
+  between an imported module's own commands are rewritten to match, so a
+  library whose commands call each other can be aliased. Importing a name
+  that is already taken is an error naming both modules rather than a silent
+  first-wins -- which bound a module's own call to another module's command
+  of the same name and returned the wrong solid with no diagnostic. The same
+  module arriving twice by different routes is still fine, since a command's
+  defining file decides, not the import that reached it. Imports resolve as
+  files relative to the importing one and may not escape that directory,
+  cycles and unreadable modules are reported by ``dsl check`` as well as
+  ``dsl run``, and ``package_from_dsl`` takes ``source_path`` so that a
+  design with imports can be packaged. Resolution lives in
+  ``yapcad.dsl.modules``, which both the checker and the interpreter use;
+  the per-file cache reloads a module when it changes on disk, where before
+  a long-lived process kept rebuilding from the first version it saw.
+  ``export use`` is still unimplemented and now says so.
+
 Version 1.2.0 (2026-10-19)
 ==========================
 

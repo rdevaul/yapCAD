@@ -10,7 +10,6 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Callable, Union
 
 # Module cache for 'use' resolution
-_module_cache: Dict[str, 'Module'] = {}
 
 # Default recursion limit for command-to-command calls
 DEFAULT_RECURSION_LIMIT = 100
@@ -25,6 +24,7 @@ from .values import (
     wrap_value, unwrap_value, coerce_numeric,
 )
 from ..meta_apply import apply_meta_hint
+from ..modules import UseMergeResult, resolve_uses
 from .context import ExecutionContext, create_context
 from .builtins import call_builtin, call_method, get_builtin_registry
 from .provenance import Provenance, create_provenance
@@ -73,14 +73,6 @@ class ExecutionResult:
         return {}
 
 
-@dataclass
-class UseMergeResult:
-    """Result of processing 'use' statements and merging modules."""
-    success: bool
-    merged_module: Optional['Module'] = None
-    error_message: Optional[str] = None
-
-
 class Interpreter:
     """
     Tree-walking interpreter for DSL execution.
@@ -107,8 +99,6 @@ class Interpreter:
         self.native_functions: Dict[str, Callable] = {}  # Functions from native blocks
         self.current_module: Optional[Module] = None  # Current module being executed
         self.source_path = source_path
-        # Track which modules have been loaded to prevent cycles
-        self._loaded_modules: set = set()
 
         # Set recursion limit: CLI arg > env var > default
         if recursion_limit is not None:
@@ -305,131 +295,13 @@ class Interpreter:
     def _process_uses(
         self, module: Module, source_dir: Optional[str]
     ) -> UseMergeResult:
-        """Process ``use`` statements: load referenced modules and merge
-        their commands into the current module's scope.
+        """Merge ``module``'s ``use`` statements.
 
-        Module paths are resolved relative to the source file's directory.
-        ``use foo.bar`` loads ``foo/bar.dsl`` from the same directory.
+        Resolution itself lives in :mod:`yapcad.dsl.modules`, which the type
+        checker uses too, so that the two cannot disagree about what an
+        import brings into scope.
         """
-        from ..ast import UseStatement, Command as Cmd
-
-        merged_commands: List[Cmd] = list(module.commands)
-        merged_native_blocks = list(module.native_blocks)
-
-        for use_stmt in module.uses:
-            if not isinstance(use_stmt, UseStatement):
-                continue
-
-            module_path = use_stmt.module_path
-            alias = use_stmt.alias
-
-            rel_path = "/".join(module_path) + ".dsl"
-            dsl_path: Optional[str] = None
-            if source_dir:
-                candidate = os.path.join(source_dir, rel_path)
-                if os.path.isfile(candidate):
-                    dsl_path = candidate
-
-            if dsl_path is None:
-                return UseMergeResult(
-                    success=False,
-                    error_message=(
-                        f"Cannot resolve 'use {'.'.join(module_path)}': "
-                        f"file '{rel_path}' not found in "
-                        f"'{source_dir or '(no source dir)'}'"
-                    ),
-                )
-
-            real_path = os.path.realpath(dsl_path)
-
-            # If already loaded and cached, skip without error
-            # (allows diamond dependencies like both leg and torso using servo)
-            if real_path in _module_cache:
-                used_module = _module_cache[real_path]
-            elif real_path in self._loaded_modules:
-                return UseMergeResult(
-                    success=False,
-                    error_message=f"Circular import detected: '{rel_path}'",
-                )
-            else:
-                self._loaded_modules.add(real_path)
-                try:
-                    used_module = self._load_dsl_module(dsl_path)
-                except Exception as exc:
-                return UseMergeResult(
-                    success=False,
-                    error_message=(
-                        f"Failed to load module '{'.'.join(module_path)}' "
-                        f"from {dsl_path}: {exc}"
-                    ),
-                )
-
-            prefix = alias + "_" if alias else ""
-            existing_names = {c.name for c in merged_commands}
-            for cmd in used_module.commands:
-                n = prefix + cmd.name
-                if n in existing_names:
-                    continue  # skip duplicate (diamond dep)
-                existing_names.add(n)
-                new_cmd = Cmd(
-                    span=cmd.span,
-                    name=n,
-                    parameters=cmd.parameters,
-                    return_type=cmd.return_type,
-                    body=cmd.body,
-                    meta_hint=cmd.meta_hint,
-                )
-                merged_commands.append(new_cmd)
-
-            merged_native_blocks.extend(used_module.native_blocks)
-
-        from ..ast import Module as AstModule
-        merged = AstModule(
-            span=module.span,
-            name=module.name,
-            uses=[],
-            functions=merged_commands,
-            native_blocks=merged_native_blocks,
-            native_functions=list(module.native_functions),
-            exports=list(module.exports),
-        )
-        return UseMergeResult(success=True, merged_module=merged)
-
-    def _load_dsl_module(self, dsl_path: str) -> Module:
-        """Load, parse, and type-check a DSL module from a file."""
-        from ..ast import Module as AstModule
-        from ..lexer import tokenize
-        from ..parser import parse
-        from ..checker import check
-
-        real_path = os.path.realpath(dsl_path)
-        if real_path in _module_cache:
-            return _module_cache[real_path]
-
-        source_text = pathlib.Path(dsl_path).read_text()
-        tokens = tokenize(source_text)
-        mod = parse(tokens, source=source_text)
-
-        src_dir = str(pathlib.Path(dsl_path).parent)
-        if mod.uses:
-            merge = self._process_uses(mod, src_dir)
-            if not merge.success:
-                raise RuntimeError(merge.error_message)
-            mod = merge.merged_module
-
-        check_result = check(mod, source_dir=src_dir)
-        if check_result.has_errors:
-            msgs = [
-                str(d)
-                for d in check_result.diagnostics
-                if d.severity.name == "ERROR"
-            ]
-            raise RuntimeError(
-                f"Type errors in {dsl_path}: {'; '.join(msgs)}"
-            )
-
-        _module_cache[real_path] = mod
-        return mod
+        return resolve_uses(module, source_dir)
 
     def _execute_command(self, command: Command, ctx: ExecutionContext) -> None:
         """Execute a command's body statements."""
@@ -995,7 +867,16 @@ class Interpreter:
             return wrap_value(result, SOLID)
 
     def _eval_method_call(self, call: MethodCall, ctx: ExecutionContext) -> Value:
-        """Evaluate a method call."""
+        """Evaluate a method call.
+
+        ``lib.PART(...)`` parses as a method call on a variable named
+        ``lib``; when there is no such variable but an import is aliased to
+        that name, it is a namespaced command call instead.
+        """
+        qualified = self._namespaced_command(call, ctx)
+        if qualified is not None:
+            return self._eval_function_call(qualified, ctx)
+
         receiver = self._evaluate(call.object, ctx)
         args = [self._evaluate(arg, ctx) for arg in call.arguments]
 
@@ -1003,6 +884,29 @@ class Interpreter:
         type_name = receiver.type.name if hasattr(receiver.type, 'name') else str(receiver.type)
 
         return call_method(type_name, call.method, receiver, args)
+
+    def _namespaced_command(
+        self, call: MethodCall, ctx: ExecutionContext
+    ) -> Optional[FunctionCall]:
+        """``call`` rewritten as a call to ``namespace.command``, or None.
+
+        A real variable takes precedence, so that an ordinary method call on
+        a value is never mistaken for an import namespace.
+        """
+        if not isinstance(call.object, Identifier):
+            return None
+        if ctx.get_variable(call.object.name) is not None:
+            return None
+        name = f"{call.object.name}.{call.method}"
+        module = self.current_module
+        if module is None or not any(c.name == name for c in module.commands):
+            return None
+        return FunctionCall(
+            span=call.span,
+            callee=Identifier(span=call.object.span, name=name),
+            arguments=call.arguments,
+            named_arguments=call.named_arguments,
+        )
 
     def _eval_member_access(self, access: MemberAccess, ctx: ExecutionContext) -> Value:
         """Evaluate member access (e.g., point.x)."""
@@ -1329,19 +1233,21 @@ def compile_and_run(
             error_message=f"Parser error: {e}",
         )
 
-    # Type check
-    from ..ast import UseStatement
-    if module.uses and source_path:
-        # Resolve 'use' statements before type-checking so the checker
-        # can see imported commands and functions.
-        interpreter = Interpreter(source_path=source_path)
-        merge = interpreter._process_uses(
-            module, str(pathlib.Path(source_path).parent)
+    # Resolve 'use' statements before type-checking so that the checker
+    # sees imported commands. A failure is reported here: letting it through
+    # would make the checker complain about an unknown function instead of
+    # the import that could not be loaded.
+    if module.uses:
+        source_dir = (
+            str(pathlib.Path(source_path).parent) if source_path else None
         )
-        if merge.success:
-            module = merge.merged_module
-        # If merge fails we still try the checker; the interpreter
-        # will report the error at run time.
+        merge = resolve_uses(module, source_dir)
+        if not merge.success:
+            return ExecutionResult(
+                success=False,
+                error_message=merge.error_message,
+            )
+        module = merge.merged_module
 
     check_result = check(module)
     if check_result.has_errors:

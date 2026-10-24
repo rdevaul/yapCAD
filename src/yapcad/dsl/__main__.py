@@ -211,6 +211,7 @@ def cmd_run(args):
             representation=args.representation,
             sdf_cell_mm=args.sdf_cell,
             sdf_simplify=False if args.no_simplify else None,
+            source_path=str(source_path),
         )
 
         if not result.success:

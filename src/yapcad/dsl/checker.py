@@ -995,8 +995,43 @@ class TypeChecker:
                     "W302"
                 )
 
+    def _as_namespaced_call(self, expr: MethodCall):
+        """``expr`` rewritten as a ``namespace.command`` call, or None.
+
+        A variable of the same name wins, so that an ordinary method call on
+        a value is never mistaken for an import namespace.
+        """
+        if not isinstance(expr.object, Identifier):
+            return None
+        existing = self.symbols.lookup(expr.object.name)
+        if existing is not None and existing.kind in (
+            SymbolKind.VARIABLE, SymbolKind.PARAMETER
+        ):
+            return None
+        name = f"{expr.object.name}.{expr.method}"
+        symbol = self.symbols.lookup(name)
+        if symbol is None or symbol.kind not in (
+            SymbolKind.COMMAND, SymbolKind.FUNCTION
+        ):
+            return None
+        return FunctionCall(
+            span=expr.span,
+            callee=Identifier(span=expr.object.span, name=name),
+            arguments=expr.arguments,
+            named_arguments=expr.named_arguments,
+        )
+
     def _check_method_call(self, expr: MethodCall) -> Type:
-        """Check a method call."""
+        """Check a method call.
+
+        ``lib.PART(...)`` parses as a method call on a variable named
+        ``lib``; when there is no such variable but an import is aliased to
+        that name, it is a namespaced command call instead.
+        """
+        namespaced = self._as_namespaced_call(expr)
+        if namespaced is not None:
+            return self._check_function_call(namespaced)
+
         obj_type = self._check_expression(expr.object)
 
         # Get method signature
@@ -1362,7 +1397,8 @@ class TypeChecker:
         ))
 
 
-def check(module: Module, max_errors: int = 20, source_dir: Optional[str] = None) -> CheckResult:
+def check(module: Module, max_errors: int = 20,
+          source_dir: Optional[str] = None) -> CheckResult:
     """
     Convenience function to type check a module.
 
@@ -1370,27 +1406,33 @@ def check(module: Module, max_errors: int = 20, source_dir: Optional[str] = None
         module: The parsed module AST
         max_errors: Maximum errors before stopping (default 20)
         source_dir: Directory containing the source file, used to resolve
-                    ``use`` statements before type-checking.
+                    ``use`` statements before type-checking. Without it, a
+                    module with imports cannot be checked, and says so.
 
     Returns:
         CheckResult with diagnostics
     """
-    from .runtime.interpreter import _module_cache
+    from .modules import resolve_uses
 
-    # Resolve 'use' statements so type-checker can see imported commands
-    if module.uses and source_dir:
-        from .runtime.interpreter import Interpreter
-        interp = Interpreter()
-        merge = interp._process_uses(module, source_dir)
-        if merge.success:
-            module = merge.merged_module
+    if module.uses:
+        merge = resolve_uses(module, source_dir)
+        if not merge.success:
+            # Report the import failure itself. Checking the unresolved
+            # module instead would bury it under a list of unknown-function
+            # errors, and -- worse -- a module whose only fault is a bad
+            # import would check clean.
+            return CheckResult(
+                diagnostics=[Diagnostic(
+                    code="E290",
+                    message=merge.error_message,
+                    severity=ErrorSeverity.ERROR,
+                    span=module.span,
+                )],
+                has_errors=True,
+                has_warnings=False,
+                has_python_blocks=bool(module.native_blocks),
+            )
+        module = merge.merged_module
 
     checker = TypeChecker(max_errors=max_errors)
-    result = checker.check(module)
-
-    # If we resolved uses above but the check still has errors, try without
-    # merging so the errors reference the original unresolved module
-    if result.has_errors and module.uses and source_dir:
-        pass  # Keep the merged-module errors for now
-
-    return result
+    return checker.check(module)
