@@ -5,8 +5,12 @@ Evaluates AST nodes to produce geometry and other values.
 """
 
 import os
+import pathlib
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Callable, Union
+
+# Module cache for 'use' resolution
+_module_cache: Dict[str, 'Module'] = {}
 
 # Default recursion limit for command-to-command calls
 DEFAULT_RECURSION_LIMIT = 100
@@ -69,6 +73,14 @@ class ExecutionResult:
         return {}
 
 
+@dataclass
+class UseMergeResult:
+    """Result of processing 'use' statements and merging modules."""
+    success: bool
+    merged_module: Optional['Module'] = None
+    error_message: Optional[str] = None
+
+
 class Interpreter:
     """
     Tree-walking interpreter for DSL execution.
@@ -80,6 +92,7 @@ class Interpreter:
         self,
         transforms: List[Callable[[Module], Module]] = None,
         recursion_limit: Optional[int] = None,
+        source_path: Optional[str] = None,
     ):
         """
         Initialize the interpreter.
@@ -88,10 +101,14 @@ class Interpreter:
             transforms: Optional list of AST transformations to apply before execution
             recursion_limit: Maximum depth for command-to-command calls (default 100).
                              Can also be set via YAPCAD_DSL_RECURSION_LIMIT env var.
+            source_path: Path to the source file (for resolving 'use' statements).
         """
         self.transforms = transforms or []
         self.native_functions: Dict[str, Callable] = {}  # Functions from native blocks
         self.current_module: Optional[Module] = None  # Current module being executed
+        self.source_path = source_path
+        # Track which modules have been loaded to prevent cycles
+        self._loaded_modules: set = set()
 
         # Set recursion limit: CLI arg > env var > default
         if recursion_limit is not None:
@@ -114,6 +131,7 @@ class Interpreter:
         command_name: str,
         parameters: Dict[str, Any],
         source: str = "",
+        source_path: Optional[str] = None,
     ) -> ExecutionResult:
         """
         Execute a command from a module.
@@ -123,12 +141,31 @@ class Interpreter:
             command_name: Name of the command to execute
             parameters: Parameter values (raw Python values, not wrapped)
             source: Original source code for error messages
+            source_path: Path to the source file (for resolving 'use' statements).
 
         Returns:
             ExecutionResult with geometry and provenance
         """
+        # Resolve source directory for 'use' statement resolution
+        src_dir: Optional[str] = None
+        eff_source_path = source_path or self.source_path
+        if eff_source_path:
+            src_dir = str(pathlib.Path(eff_source_path).parent)
+
+        # Process 'use' statements before transforms
+        if module.uses:
+            merge_result = self._process_uses(module, src_dir)
+            if not merge_result.success:
+                return ExecutionResult(
+                    success=False,
+                    error_message=merge_result.error_message,
+                )
+            working_module = merge_result.merged_module
+        else:
+            working_module = module
+
         # Apply optional AST transforms
-        transformed_module = module
+        transformed_module = working_module
         for transform in self.transforms:
             transformed_module = transform(transformed_module)
 
@@ -260,6 +297,129 @@ class Interpreter:
                 default_val = self._evaluate(param.default_value, temp_ctx)
                 wrapped[param.name] = default_val
         return wrapped
+
+    # ------------------------------------------------------------------
+    # 'use' statement resolution
+    # ------------------------------------------------------------------
+
+    def _process_uses(
+        self, module: Module, source_dir: Optional[str]
+    ) -> UseMergeResult:
+        """Process ``use`` statements: load referenced modules and merge
+        their commands into the current module's scope.
+
+        Module paths are resolved relative to the source file's directory.
+        ``use foo.bar`` loads ``foo/bar.dsl`` from the same directory.
+        """
+        from ..ast import UseStatement, Command as Cmd
+
+        merged_commands: List[Cmd] = list(module.commands)
+        merged_native_blocks = list(module.native_blocks)
+
+        for use_stmt in module.uses:
+            if not isinstance(use_stmt, UseStatement):
+                continue
+
+            module_path = use_stmt.module_path
+            alias = use_stmt.alias
+
+            rel_path = "/".join(module_path) + ".dsl"
+            dsl_path: Optional[str] = None
+            if source_dir:
+                candidate = os.path.join(source_dir, rel_path)
+                if os.path.isfile(candidate):
+                    dsl_path = candidate
+
+            if dsl_path is None:
+                return UseMergeResult(
+                    success=False,
+                    error_message=(
+                        f"Cannot resolve 'use {'.'.join(module_path)}': "
+                        f"file '{rel_path}' not found in "
+                        f"'{source_dir or '(no source dir)'}'"
+                    ),
+                )
+
+            real_path = os.path.realpath(dsl_path)
+            if real_path in self._loaded_modules:
+                return UseMergeResult(
+                    success=False,
+                    error_message=f"Circular import detected: '{rel_path}'",
+                )
+            self._loaded_modules.add(real_path)
+
+            try:
+                used_module = self._load_dsl_module(dsl_path)
+            except Exception as exc:
+                return UseMergeResult(
+                    success=False,
+                    error_message=(
+                        f"Failed to load module '{'.'.join(module_path)}' "
+                        f"from {dsl_path}: {exc}"
+                    ),
+                )
+
+            prefix = alias + "_" if alias else ""
+            for cmd in used_module.commands:
+                new_cmd = Cmd(
+                    span=cmd.span,
+                    name=prefix + cmd.name,
+                    parameters=cmd.parameters,
+                    return_type=cmd.return_type,
+                    body=cmd.body,
+                    meta_hint=cmd.meta_hint,
+                )
+                merged_commands.append(new_cmd)
+
+            merged_native_blocks.extend(used_module.native_blocks)
+
+        from ..ast import Module as AstModule
+        merged = AstModule(
+            span=module.span,
+            name=module.name,
+            uses=[],
+            functions=merged_commands,
+            native_blocks=merged_native_blocks,
+            native_functions=list(module.native_functions),
+            exports=list(module.exports),
+        )
+        return UseMergeResult(success=True, merged_module=merged)
+
+    def _load_dsl_module(self, dsl_path: str) -> Module:
+        """Load, parse, and type-check a DSL module from a file."""
+        from ..ast import Module as AstModule
+        from ..lexer import tokenize
+        from ..parser import parse
+        from ..checker import check
+
+        real_path = os.path.realpath(dsl_path)
+        if real_path in _module_cache:
+            return _module_cache[real_path]
+
+        source_text = pathlib.Path(dsl_path).read_text()
+        tokens = tokenize(source_text)
+        mod = parse(tokens, source=source_text)
+
+        src_dir = str(pathlib.Path(dsl_path).parent)
+        if mod.uses:
+            merge = self._process_uses(mod, src_dir)
+            if not merge.success:
+                raise RuntimeError(merge.error_message)
+            mod = merge.merged_module
+
+        check_result = check(mod, source_dir=src_dir)
+        if check_result.has_errors:
+            msgs = [
+                str(d)
+                for d in check_result.diagnostics
+                if d.severity.name == "ERROR"
+            ]
+            raise RuntimeError(
+                f"Type errors in {dsl_path}: {'; '.join(msgs)}"
+            )
+
+        _module_cache[real_path] = mod
+        return mod
 
     def _execute_command(self, command: Command, ctx: ExecutionContext) -> None:
         """Execute a command's body statements."""
@@ -1079,14 +1239,15 @@ def execute(
     command_name: str,
     parameters: Dict[str, Any],
     source: str = "",
+    source_path: Optional[str] = None,
 ) -> ExecutionResult:
     """
     Execute a command from a module.
 
     This is a convenience wrapper around Interpreter.execute().
     """
-    interpreter = Interpreter()
-    return interpreter.execute(module, command_name, parameters, source)
+    interpreter = Interpreter(source_path=source_path)
+    return interpreter.execute(module, command_name, parameters, source, source_path)
 
 
 def compile_and_run(
@@ -1097,6 +1258,7 @@ def compile_and_run(
     representation: Optional[str] = None,
     sdf_cell_mm: Optional[float] = None,
     sdf_simplify: Optional[bool] = None,
+    source_path: Optional[str] = None,
 ) -> ExecutionResult:
     """
     High-level API to compile and run DSL source code in one call.
@@ -1158,6 +1320,19 @@ def compile_and_run(
         )
 
     # Type check
+    from ..ast import UseStatement
+    if module.uses and source_path:
+        # Resolve 'use' statements before type-checking so the checker
+        # can see imported commands and functions.
+        interpreter = Interpreter(source_path=source_path)
+        merge = interpreter._process_uses(
+            module, str(pathlib.Path(source_path).parent)
+        )
+        if merge.success:
+            module = merge.merged_module
+        # If merge fails we still try the checker; the interpreter
+        # will report the error at run time.
+
     check_result = check(module)
     if check_result.has_errors:
         error_msgs = [str(d) for d in check_result.diagnostics if d.severity.name == 'ERROR']
@@ -1168,11 +1343,11 @@ def compile_and_run(
 
     # Execute
     from .representation import is_sdf, simplify_result, using
-    interpreter = Interpreter(recursion_limit=recursion_limit)
+    interpreter = Interpreter(recursion_limit=recursion_limit, source_path=source_path)
     try:
         with using(representation, sdf_cell_mm):
             result = interpreter.execute(module, command_name, parameters,
-                                         source)
+                                         source, source_path)
             if result.success and is_sdf():
                 simplify_result(result, sdf_simplify)
             return result

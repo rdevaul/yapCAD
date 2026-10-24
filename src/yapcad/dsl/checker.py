@@ -1362,16 +1362,35 @@ class TypeChecker:
         ))
 
 
-def check(module: Module, max_errors: int = 20) -> CheckResult:
+def check(module: Module, max_errors: int = 20, source_dir: Optional[str] = None) -> CheckResult:
     """
     Convenience function to type check a module.
 
     Args:
         module: The parsed module AST
         max_errors: Maximum errors before stopping (default 20)
+        source_dir: Directory containing the source file, used to resolve
+                    ``use`` statements before type-checking.
 
     Returns:
         CheckResult with diagnostics
     """
+    from .runtime.interpreter import _module_cache
+
+    # Resolve 'use' statements so type-checker can see imported commands
+    if module.uses and source_dir:
+        from .runtime.interpreter import Interpreter
+        interp = Interpreter()
+        merge = interp._process_uses(module, source_dir)
+        if merge.success:
+            module = merge.merged_module
+
     checker = TypeChecker(max_errors=max_errors)
-    return checker.check(module)
+    result = checker.check(module)
+
+    # If we resolved uses above but the check still has errors, try without
+    # merging so the errors reference the original unresolved module
+    if result.has_errors and module.uses and source_dir:
+        pass  # Keep the merged-module errors for now
+
+    return result
