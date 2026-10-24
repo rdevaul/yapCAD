@@ -4,15 +4,21 @@ Both the type checker and the interpreter need to know what a module's
 ``use`` statements bring into scope, so resolution lives here rather than in
 either of them.
 
-Imported commands are reached through the importing module's own namespace:
+Every imported command keeps a namespace of its own, taken from the alias
+when there is one and otherwise from the last component of the module path:
+``use shapes`` and ``use parts.shapes as shapes`` both offer
+``shapes.CUBE(...)``. Calls *between* an imported module's own commands are
+rewritten to match, so a library whose commands call each other keeps working
+however it is imported, and never reaches a same-named command somewhere else.
 
-- ``use shapes`` merges ``shapes``'s commands under their own names. A name
-  that is already taken is an error rather than a silent first-wins, because
-  silently binding a call to another module's command of the same name
-  produces wrong geometry with no diagnostic.
-- ``use shapes as s`` puts them behind a dot instead: ``s.CUBE(...)``. Calls
-  *between* the imported module's own commands are rewritten to match, so a
-  library whose commands call each other keeps working when it is aliased.
+An unaliased ``use`` additionally offers each of its commands under the bare
+name, which is what makes ``use shapes`` followed by ``CUBE(...)`` work. A
+bare name that two imports both offer is left unbound rather than being
+resolved first-come or rejected outright: an ambiguity is reported where the
+name is *called*, so importing two modules that happen to share one command
+name costs nothing until you call that name without saying which you mean. A
+name the importing module defines itself always wins, and the import remains
+reachable through its namespace.
 
 A command's defining file, not the file that imported it, decides whether two
 imports of the same name are a conflict or the same command arriving twice by
@@ -31,6 +37,7 @@ from .ast import (
     ExportUseStatement,
     FunctionCall,
     Identifier,
+    ImportScope,
     Module,
     UseStatement,
 )
@@ -62,6 +69,8 @@ _Stamp = Tuple[int, int]
 _Origins = Dict[str, Optional[str]]
 _CACHE: Dict[str, Tuple[_Stamp, Module, _Origins]] = {}
 
+_MISSING = object()
+
 
 def clear_module_cache() -> None:
     """Forget every cached module.
@@ -90,16 +99,6 @@ def _cached(real_path: str):
         _CACHE.pop(real_path, None)
         return None
     return module, origins
-
-
-def _qualify(name: str, namespace: str) -> str:
-    """Put ``name`` behind ``namespace``.
-
-    A name that is already qualified is left alone: a module's own aliases
-    are its business, and re-qualifying them would produce ``a.b.NAME``,
-    which the call syntax cannot express.
-    """
-    return name if "." in name else f"{namespace}.{name}"
 
 
 def _rewrite_calls(node, mapping: Dict[str, str]) -> None:
@@ -217,12 +216,40 @@ def _resolve(
     if not module.uses:
         return module, {cmd.name: None for cmd in module.commands}
 
-    commands = list(module.commands)
-    origins: Dict[str, Optional[str]] = {cmd.name: None for cmd in commands}
+    # Name -> command, in the order the names were bound. A name that two
+    # different modules both define is unbound again and recorded in
+    # ``conflicts`` instead; whether that matters is up to the call sites.
+    bound: Dict[str, object] = {}
+    origins: _Origins = {}
+    for command in module.commands:
+        bound[command.name] = command
+        origins[command.name] = None
+
     native_blocks = list(module.native_blocks)
     native_functions = list(module.native_functions)
     exports = list(module.exports)
     aliases: Dict[str, str] = {}
+    conflicts: Dict[str, Tuple[Tuple[str, str], ...]] = {}
+    # Bare name -> [(qualified name, defining file)], collected across the
+    # use statements and bound afterwards, once it is known how many
+    # modules offer each name.
+    offered: Dict[str, List[Tuple[str, str]]] = {}
+
+    def bind(name: str, command, defined_in: str) -> None:
+        previous = origins.get(name, _MISSING)
+        if previous is _MISSING and name not in conflicts:
+            bound[name] = command
+            origins[name] = defined_in
+            return
+        if previous == defined_in:
+            return  # the same command reached by two routes
+        bound.pop(name, None)
+        origins.pop(name, None)
+        providers = list(conflicts.get(name, ()))
+        if isinstance(previous, str):
+            _append_provider(providers, (name, previous))
+        _append_provider(providers, (name, defined_in))
+        conflicts[name] = tuple(providers)
 
     for statement in module.uses:
         if isinstance(statement, ExportUseStatement):
@@ -265,8 +292,13 @@ def _resolve(
                 # import of it look like a cycle.
                 loading.discard(real_path)
 
-        namespace = statement.alias
-        if namespace:
+        namespace = statement.alias or statement.module_path[-1]
+        if statement.alias:
+            # An alias is something the author chose and can change, so
+            # pointing two of them at different modules is a mistake worth
+            # refusing. Two module paths that merely end in the same
+            # component are not: their namespaces share, and only a command
+            # name they both define becomes ambiguous.
             if aliases.get(namespace, real_path) != real_path:
                 raise UseError(
                     f"Import alias '{namespace}' is already used for a "
@@ -274,55 +306,72 @@ def _resolve(
                     f"'use {path_text}' a different alias."
                 )
             aliases[namespace] = real_path
-            incoming = _namespaced_commands(used, namespace)
-        else:
-            incoming = list(used.commands)
 
-        for command in incoming:
-            original = (
-                _unqualify(command.name, namespace)
-                if namespace else command.name
-            )
-            defined_in = used_origins.get(original) or real_path
-
-            if command.name not in origins:
-                origins[command.name] = defined_in
-                commands.append(command)
-                continue
-            if origins[command.name] == defined_in:
-                continue  # the same command reached by two routes
-
-            previous = origins[command.name]
-            where = (
-                "defined in this module"
-                if previous is None
-                else f"already imported from {previous}"
-            )
-            raise UseError(
-                f"'use {path_text}' would redefine command "
-                f"'{command.name}', which is {where}. Alias one of the "
-                f"imports ('use {path_text} as name') so that its commands "
-                "sit behind their own namespace."
-            )
+        incoming = _namespaced_commands(used, namespace)
+        for command, original in zip(incoming, used.commands):
+            # The file that defines the command, which may be neither this
+            # module nor the one being imported.
+            defined_in = used_origins.get(original.name) or real_path
+            bind(command.name, command, defined_in)
+            if statement.alias is None and used_origins.get(
+                original.name
+            ) is None:
+                _append_provider(
+                    offered.setdefault(original.name, []),
+                    (command.name, defined_in),
+                )
 
         native_blocks.extend(used.native_blocks)
         native_functions.extend(used.native_functions)
+
+    local_names = {command.name for command in module.commands}
+    bindings: Dict[str, str] = {}
+    shadowed: Dict[str, Tuple[str, ...]] = {}
+    for bare, providers in offered.items():
+        if bare in local_names:
+            shadowed[bare] = tuple(
+                qualified for qualified, _path in providers
+            )
+        elif len(providers) > 1:
+            conflicts[bare] = tuple(providers)
+        elif providers[0][0] in bound:
+            bindings[bare] = providers[0][0]
+        else:
+            # The one module offering the bare name lost its namespace to a
+            # conflict, so there is nothing to bind it to.
+            conflicts[bare] = (
+                conflicts.get(providers[0][0]) or tuple(providers)
+            )
+
+    # Point this module's own calls at the namespaced commands. Resolving
+    # them here, while it is known which module each name came from, is what
+    # lets the merged module be one flat namespace: a command imported from
+    # here on carries calls that already say what they mean.
+    if bindings:
+        for command in module.commands:
+            _rewrite_calls(command, bindings)
 
     merged = Module(
         span=module.span,
         name=module.name,
         uses=[],
-        functions=commands,
+        functions=list(bound.values()),
         native_blocks=native_blocks,
         native_functions=native_functions,
         exports=exports,
+        imports=ImportScope(
+            bindings=bindings, conflicts=conflicts, shadowed=shadowed
+        ),
     )
     return merged, origins
 
 
-def _unqualify(name: str, namespace: str) -> str:
-    prefix = namespace + "."
-    return name[len(prefix):] if name.startswith(prefix) else name
+def _append_provider(
+    providers: List[Tuple[str, str]], provider: Tuple[str, str]
+) -> None:
+    """Add ``provider`` unless that file is already accounted for."""
+    if all(path != provider[1] for _qualified, path in providers):
+        providers.append(provider)
 
 
 def resolve_uses(

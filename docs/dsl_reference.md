@@ -83,13 +83,25 @@ Module paths resolve as files relative to the importing file's directory, so
 outside that directory.
 
 ```python
-use shapes              # shapes.dsl, commands merged under their own names
-use pkg.inner           # pkg/inner.dsl
-use shapes as s         # commands reached as s.CUBE(...)
+use shapes              # shapes.dsl, as CUBE(...) and shapes.CUBE(...)
+use pkg.inner           # pkg/inner.dsl, as inner.INNER(...)
+use shapes as s         # shapes.dsl, as s.CUBE(...) only
 ```
 
-**Without an alias**, the imported commands are merged under their own
-names:
+Every import has a **namespace**: the alias when there is one, otherwise the
+last component of the module path. The imported commands are always reachable
+through it with a dot:
+
+```python
+use shapes
+use pkg.inner as parts
+
+command PART() -> solid:
+    emit union(shapes.CUBE(3.0), parts.INNER(1.0))
+```
+
+**Without an alias**, each imported command is *also* offered under its bare
+name, which is the usual way to call it:
 
 ```python
 use shapes
@@ -98,38 +110,52 @@ command PART() -> solid:
     emit CUBE(3.0)
 ```
 
-**With an alias**, they sit behind it, reached with a dot:
+**With an alias**, only the namespace is offered: after `use shapes as s`,
+`CUBE(...)` is not defined, only `s.CUBE(...)`. An alias is a request for a
+namespace, so it is taken as one.
 
-```python
-use shapes as s
+Calls *between* an imported module's own commands are resolved inside that
+module, so a library whose commands call each other keeps working however it
+is imported, and never reaches a same-named command somewhere else.
 
-command PART() -> solid:
-    emit s.CUBE(3.0)
-```
+A local variable takes precedence over a namespace, so an ordinary method
+call on a value is never captured by an import of the same name.
 
-An alias replaces the bare name rather than adding to it: after
-`use shapes as s`, `CUBE(...)` is not defined, only `s.CUBE(...)`. Calls
-*between* an imported module's own commands keep working, so a library whose
-commands call each other can be aliased freely.
-
-A local variable takes precedence over an alias, so an ordinary method call
-on a value is never captured by an import of the same name.
+An unaliased import's bare names can also be asked for on the command line:
+`dsl run main.dsl CUBE` runs an imported `CUBE` as the entry point.
 
 ### Name conflicts
 
-Importing a command whose name is already taken is an error, whether the
-clash is with a command defined locally or with one from an earlier import:
+A bare name that two imports both offer is left unbound, and calling it is
+an error that names the alternatives:
 
 ```
-'use mod_b' would redefine command 'BOLT', which is already imported
-from .../mod_a.dsl. Alias one of the imports ('use mod_b as name') so
-that its commands sit behind their own namespace.
+Ambiguous command 'BOLT': imported from more than one module, which offer
+'mod_a.BOLT', 'mod_b.BOLT'. Call one of those by its qualified name to say
+which you mean.
 ```
 
-Aliasing either import resolves it. The same module arriving twice by
-different routes is *not* a conflict — two modules that both `use base` can
-be imported together, since what matters is where a command is defined, not
-which import reached it first.
+Nothing else about those imports is affected: every other command of both
+modules is still callable by its bare name, and `mod_a.BOLT(...)` and
+`mod_b.BOLT(...)` both work. So importing two libraries that happen to share
+one command name costs nothing until that name is called unqualified.
+
+Two module paths ending in the same component — `use a.shapes` and
+`use b.shapes` — share one namespace. A command they both define cannot be
+qualified apart, and the error says so; alias one of the imports.
+
+A command the importing module **defines itself** wins over an imported one
+of the same name. That is how a design overrides one command of a library,
+but doing it by accident would quietly change geometry, so `dsl check`
+reports it as a warning (`W290`) and names the import that lost. The
+import's own version remains reachable through its namespace.
+
+The same module arriving twice by different routes is *not* a conflict — two
+modules that both `use base` can be imported together, since what matters is
+where a command is defined, not which import reached it first.
+
+A module's imports are not re-exported: `use mid` offers what `mid` itself
+defines, not what `mid` imported.
 
 ### Errors
 

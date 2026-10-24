@@ -129,8 +129,15 @@ def cmd_check(args):
             return 1
 
         print(f"OK: {source_path.name} - {len(module.commands)} command(s), no errors")
-        if result.has_warnings:
-            print(f"  {sum(1 for d in result.diagnostics if d.severity.value == 'warning')} warning(s)")
+        warnings = [d for d in result.diagnostics
+                    if d.severity.value == 'warning']
+        if warnings:
+            # Printing only the count left the reason invisible, which for
+            # a warning -- the whole point of which is to be read -- made
+            # it useless from the command line.
+            print(f"  {len(warnings)} warning(s):")
+            for diag in warnings:
+                print(f"    Line {diag.span.start.line}: {diag.message}")
 
         return 0
 

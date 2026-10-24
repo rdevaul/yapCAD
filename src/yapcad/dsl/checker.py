@@ -22,7 +22,7 @@ from .ast import (
     MatchArm, Pattern, LiteralPattern, IdentifierPattern, WildcardPattern,
     LambdaExpr, PythonExpr, DictLiteral,
     TypeNode, SimpleType, GenericType, OptionalType as AstOptionalType,
-    UseStatement, ExportUseStatement,
+    UseStatement, ExportUseStatement, ImportScope,
 )
 from .tokens import TokenType, SourceSpan
 from .types import (
@@ -83,6 +83,8 @@ class TypeChecker:
         self._call_graph: Dict[str, set] = {}
         # Set of command names (to distinguish from builtins/native functions)
         self._command_names: set = set()
+        # What the module's 'use' statements bound, once they are resolved.
+        self._imports: Optional[ImportScope] = None
 
     def check(self, module: Module) -> CheckResult:
         """Type check a complete module."""
@@ -101,6 +103,9 @@ class TypeChecker:
 
     def _check_module(self, module: Module) -> None:
         """Check a complete module."""
+        self._imports = module.imports
+        self._check_import_scope(module)
+
         # First pass: register native block exports (they provide functions to commands)
         for native_block in module.native_blocks:
             self._register_native_block(native_block)
@@ -121,6 +126,26 @@ class TypeChecker:
 
         # Fourth pass: detect recursive call cycles and warn
         self._check_recursion(module)
+
+    def _check_import_scope(self, module: Module) -> None:
+        """Warn about imported names this module defines itself.
+
+        The local definition wins, which is useful on purpose -- it is how a
+        design overrides one command of a library -- but doing it by
+        accident is how a call quietly reaches the wrong geometry, so say so.
+        """
+        scope = module.imports
+        if scope is None:
+            return
+        spans = {command.name: command.span for command in module.commands}
+        for name, qualified in scope.shadowed.items():
+            offered = ", ".join(f"'{candidate}'" for candidate in qualified)
+            self._warning(
+                f"Command '{name}' is also imported ({offered}); this "
+                "module's own definition is the one that will be called.",
+                spans.get(name, module.span),
+                "W290",
+            )
 
     def _register_native_block(self, native_block: NativeBlock) -> None:
         """Register exported functions from a native block."""
@@ -815,6 +840,14 @@ class TypeChecker:
                 return func_type.return_type
             return UNKNOWN
 
+        ambiguous = (
+            self._imports.conflict_message(callee_name)
+            if self._imports is not None else None
+        )
+        if ambiguous is not None:
+            self._error(ambiguous, expr.callee.span, "E291")
+            return ERROR
+
         self._error(
             f"Unknown function '{callee_name}'",
             expr.callee.span,
@@ -1021,6 +1054,14 @@ class TypeChecker:
             named_arguments=expr.named_arguments,
         )
 
+    def _ambiguous_namespaced_call(self, expr: MethodCall) -> Optional[str]:
+        """Why ``ns.NAME(...)`` names no command, when that is an ambiguity."""
+        if self._imports is None or not isinstance(expr.object, Identifier):
+            return None
+        return self._imports.conflict_message(
+            f"{expr.object.name}.{expr.method}"
+        )
+
     def _check_method_call(self, expr: MethodCall) -> Type:
         """Check a method call.
 
@@ -1031,6 +1072,11 @@ class TypeChecker:
         namespaced = self._as_namespaced_call(expr)
         if namespaced is not None:
             return self._check_function_call(namespaced)
+
+        ambiguous = self._ambiguous_namespaced_call(expr)
+        if ambiguous is not None:
+            self._error(ambiguous, expr.span, "E291")
+            return ERROR
 
         obj_type = self._check_expression(expr.object)
 

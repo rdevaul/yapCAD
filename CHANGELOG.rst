@@ -7,19 +7,25 @@ Unreleased
 
 - Cross-file ``use`` imports work. The statement parsed and reached
   ``module.uses``, and nothing ever read it, so a design could not be split
-  across files. ``use shapes`` merges that module's commands;
-  ``use shapes as s`` puts them behind ``s.CUBE(...)`` instead, and calls
-  between an imported module's own commands are rewritten to match, so a
-  library whose commands call each other can be aliased. Importing a name
-  that is already taken is an error naming both modules rather than a silent
-  first-wins -- which bound a module's own call to another module's command
-  of the same name and returned the wrong solid with no diagnostic. The same
-  module arriving twice by different routes is still fine, since a command's
-  defining file decides, not the import that reached it. Imports resolve as
-  files relative to the importing one and may not escape that directory,
-  cycles and unreadable modules are reported by ``dsl check`` as well as
-  ``dsl run``, and ``package_from_dsl`` takes ``source_path`` so that a
-  design with imports can be packaged. Resolution lives in
+  across files. Every import now has a namespace -- the alias, or the last
+  component of the module path -- so ``use shapes`` offers that module's
+  commands as both ``CUBE(...)`` and ``shapes.CUBE(...)``, while
+  ``use shapes as s`` offers only ``s.CUBE(...)``. Calls between an imported
+  module's own commands resolve inside that module, so a library whose
+  commands call each other keeps working however it is imported and never
+  reaches a same-named command somewhere else -- silently binding it to one
+  was returning the wrong solid with no diagnostic at all. A bare name two
+  imports both offer is left unbound, and calling *that name* is an error
+  naming the qualified alternatives; every other command of both modules
+  stays callable, so importing two libraries that share one command name
+  costs nothing until the name is used ambiguously. A command the importing
+  module defines itself wins over an imported one, with a ``W290`` warning.
+  The same module arriving twice by different routes is still fine, since a
+  command's defining file decides, not the import that reached it. Imports
+  resolve as files relative to the importing one and may not escape that
+  directory, cycles and unreadable modules are reported by ``dsl check`` as
+  well as ``dsl run``, and ``package_from_dsl`` takes ``source_path`` so
+  that a design with imports can be packaged. Resolution lives in
   ``yapcad.dsl.modules``, which both the checker and the interpreter use;
   the per-file cache reloads a module when it changes on disk, where before
   a long-lived process kept rebuilding from the first version it saw.

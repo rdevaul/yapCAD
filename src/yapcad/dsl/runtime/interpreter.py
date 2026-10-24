@@ -175,16 +175,20 @@ class Interpreter:
                 )
 
         # Find the command
-        command = None
-        for cmd in transformed_module.commands:
-            if cmd.name == command_name:
-                command = cmd
-                break
+        command = self._lookup_command(transformed_module, command_name)
 
         if command is None:
+            imports = transformed_module.imports
+            ambiguous = (
+                imports.conflict_message(command_name)
+                if imports is not None else None
+            )
             return ExecutionResult(
                 success=False,
-                error_message=f"Command '{command_name}' not found in module '{module.name}'"
+                error_message=ambiguous or (
+                    f"Command '{command_name}' not found in module "
+                    f"'{module.name}'"
+                )
             )
 
         # Wrap parameters as Values
@@ -769,8 +773,32 @@ class Interpreter:
                         args = resolved
                     return self._call_command(cmd, args, ctx)
 
+        # A built-in of the same name still wins, as it does in the
+        # checker: an ambiguity between imports is not a reason for the two
+        # layers to disagree about what a call means.
+        if get_builtin_registry().get_function(func_name) is None:
+            self._reject_if_ambiguous(func_name)
+
         # Call the built-in function
         return call_builtin(func_name, args, named_args)
+
+    def _lookup_command(self, module, name: str):
+        """The command ``name`` refers to in ``module``, or None.
+
+        An unaliased import offers its commands under the bare name as well
+        as the namespaced one, which is how a command imported into a design
+        can be the one asked for on the command line.
+        """
+        for cmd in module.commands:
+            if cmd.name == name:
+                return cmd
+        imports = getattr(module, "imports", None)
+        qualified = imports.bindings.get(name) if imports else None
+        if qualified is not None:
+            for cmd in module.commands:
+                if cmd.name == qualified:
+                    return cmd
+        return None
 
     def _call_command(self, command: Command, args: List[Value], parent_ctx: ExecutionContext) -> Value:
         """Call a command as a function from within another command."""
@@ -900,6 +928,7 @@ class Interpreter:
         name = f"{call.object.name}.{call.method}"
         module = self.current_module
         if module is None or not any(c.name == name for c in module.commands):
+            self._reject_if_ambiguous(name)
             return None
         return FunctionCall(
             span=call.span,
@@ -907,6 +936,18 @@ class Interpreter:
             arguments=call.arguments,
             named_arguments=call.named_arguments,
         )
+
+    def _reject_if_ambiguous(self, name: str) -> None:
+        """Raise if ``name`` is a command more than one import offers.
+
+        The checker reports this first, so this is for a module executed
+        without being checked -- and so that the failure names the cause
+        rather than an unknown function.
+        """
+        imports = getattr(self.current_module, "imports", None)
+        message = imports.conflict_message(name) if imports else None
+        if message is not None:
+            raise RuntimeError(message)
 
     def _eval_member_access(self, access: MemberAccess, ctx: ExecutionContext) -> Value:
         """Evaluate member access (e.g., point.x)."""
