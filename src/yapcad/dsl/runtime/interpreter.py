@@ -341,16 +341,21 @@ class Interpreter:
                 )
 
             real_path = os.path.realpath(dsl_path)
-            if real_path in self._loaded_modules:
+
+            # If already loaded and cached, skip without error
+            # (allows diamond dependencies like both leg and torso using servo)
+            if real_path in _module_cache:
+                used_module = _module_cache[real_path]
+            elif real_path in self._loaded_modules:
                 return UseMergeResult(
                     success=False,
                     error_message=f"Circular import detected: '{rel_path}'",
                 )
-            self._loaded_modules.add(real_path)
-
-            try:
-                used_module = self._load_dsl_module(dsl_path)
-            except Exception as exc:
+            else:
+                self._loaded_modules.add(real_path)
+                try:
+                    used_module = self._load_dsl_module(dsl_path)
+                except Exception as exc:
                 return UseMergeResult(
                     success=False,
                     error_message=(
@@ -360,10 +365,15 @@ class Interpreter:
                 )
 
             prefix = alias + "_" if alias else ""
+            existing_names = {c.name for c in merged_commands}
             for cmd in used_module.commands:
+                n = prefix + cmd.name
+                if n in existing_names:
+                    continue  # skip duplicate (diamond dep)
+                existing_names.add(n)
                 new_cmd = Cmd(
                     span=cmd.span,
-                    name=prefix + cmd.name,
+                    name=n,
                     parameters=cmd.parameters,
                     return_type=cmd.return_type,
                     body=cmd.body,
