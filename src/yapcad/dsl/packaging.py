@@ -34,6 +34,7 @@ def package_from_dsl(
     representation: Optional[str] = None,
     sdf_cell_mm: Optional[float] = None,
     sdf_simplify: Optional[bool] = None,
+    source_path: Optional[str] = None,
 ) -> "PackageResult":
     """Compile DSL source, execute a command, and package the result.
 
@@ -43,6 +44,8 @@ def package_from_dsl(
 
     Args:
         source: DSL source code containing the module and command definitions.
+        source_path: Path the source was read from. Required for a design
+            with ``use`` statements, since imports resolve relative to it.
         command_name: Name of the command to execute (e.g., "MAKE_GEAR").
         parameters: Dictionary of parameter values for the command.
         target_dir: Directory where the package will be created.
@@ -101,7 +104,8 @@ def package_from_dsl(
     exec_result = compile_and_run(source, command_name, parameters,
                                   representation=representation,
                                   sdf_cell_mm=sdf_cell_mm,
-                                  sdf_simplify=sdf_simplify)
+                                  sdf_simplify=sdf_simplify,
+                                  source_path=source_path)
 
     if not exec_result.success:
         return PackageResult(

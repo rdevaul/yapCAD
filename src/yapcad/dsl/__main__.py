@@ -120,7 +120,7 @@ def cmd_check(args):
     try:
         tokens = tokenize(source)
         module = parse(tokens, source=source)  # Pass source for native block extraction
-        result = check(module)
+        result = check(module, source_dir=str(source_path.parent))
 
         if result.has_errors:
             print(f"Type checking failed with {len(result.diagnostics)} error(s):")
@@ -211,6 +211,7 @@ def cmd_run(args):
             representation=args.representation,
             sdf_cell_mm=args.sdf_cell,
             sdf_simplify=False if args.no_simplify else None,
+            source_path=str(source_path),
         )
 
         if not result.success:
@@ -225,7 +226,8 @@ def cmd_run(args):
     result = compile_and_run(source, args.command, parameters, recursion_limit=recursion_limit,
                              representation=args.representation,
                              sdf_cell_mm=args.sdf_cell,
-                             sdf_simplify=False if args.no_simplify else None)
+                             sdf_simplify=False if args.no_simplify else None,
+                             source_path=str(source_path))
 
     if not result.success:
         print(f"Error: {result.error_message}", file=sys.stderr)

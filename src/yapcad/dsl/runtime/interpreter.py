@@ -5,8 +5,11 @@ Evaluates AST nodes to produce geometry and other values.
 """
 
 import os
+import pathlib
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Callable, Union
+
+# Module cache for 'use' resolution
 
 # Default recursion limit for command-to-command calls
 DEFAULT_RECURSION_LIMIT = 100
@@ -21,6 +24,7 @@ from .values import (
     wrap_value, unwrap_value, coerce_numeric,
 )
 from ..meta_apply import apply_meta_hint
+from ..modules import UseMergeResult, resolve_uses
 from .context import ExecutionContext, create_context
 from .builtins import call_builtin, call_method, get_builtin_registry
 from .provenance import Provenance, create_provenance
@@ -80,6 +84,7 @@ class Interpreter:
         self,
         transforms: List[Callable[[Module], Module]] = None,
         recursion_limit: Optional[int] = None,
+        source_path: Optional[str] = None,
     ):
         """
         Initialize the interpreter.
@@ -88,10 +93,12 @@ class Interpreter:
             transforms: Optional list of AST transformations to apply before execution
             recursion_limit: Maximum depth for command-to-command calls (default 100).
                              Can also be set via YAPCAD_DSL_RECURSION_LIMIT env var.
+            source_path: Path to the source file (for resolving 'use' statements).
         """
         self.transforms = transforms or []
         self.native_functions: Dict[str, Callable] = {}  # Functions from native blocks
         self.current_module: Optional[Module] = None  # Current module being executed
+        self.source_path = source_path
 
         # Set recursion limit: CLI arg > env var > default
         if recursion_limit is not None:
@@ -114,6 +121,7 @@ class Interpreter:
         command_name: str,
         parameters: Dict[str, Any],
         source: str = "",
+        source_path: Optional[str] = None,
     ) -> ExecutionResult:
         """
         Execute a command from a module.
@@ -123,12 +131,31 @@ class Interpreter:
             command_name: Name of the command to execute
             parameters: Parameter values (raw Python values, not wrapped)
             source: Original source code for error messages
+            source_path: Path to the source file (for resolving 'use' statements).
 
         Returns:
             ExecutionResult with geometry and provenance
         """
+        # Resolve source directory for 'use' statement resolution
+        src_dir: Optional[str] = None
+        eff_source_path = source_path or self.source_path
+        if eff_source_path:
+            src_dir = str(pathlib.Path(eff_source_path).parent)
+
+        # Process 'use' statements before transforms
+        if module.uses:
+            merge_result = self._process_uses(module, src_dir)
+            if not merge_result.success:
+                return ExecutionResult(
+                    success=False,
+                    error_message=merge_result.error_message,
+                )
+            working_module = merge_result.merged_module
+        else:
+            working_module = module
+
         # Apply optional AST transforms
-        transformed_module = module
+        transformed_module = working_module
         for transform in self.transforms:
             transformed_module = transform(transformed_module)
 
@@ -260,6 +287,21 @@ class Interpreter:
                 default_val = self._evaluate(param.default_value, temp_ctx)
                 wrapped[param.name] = default_val
         return wrapped
+
+    # ------------------------------------------------------------------
+    # 'use' statement resolution
+    # ------------------------------------------------------------------
+
+    def _process_uses(
+        self, module: Module, source_dir: Optional[str]
+    ) -> UseMergeResult:
+        """Merge ``module``'s ``use`` statements.
+
+        Resolution itself lives in :mod:`yapcad.dsl.modules`, which the type
+        checker uses too, so that the two cannot disagree about what an
+        import brings into scope.
+        """
+        return resolve_uses(module, source_dir)
 
     def _execute_command(self, command: Command, ctx: ExecutionContext) -> None:
         """Execute a command's body statements."""
@@ -825,7 +867,16 @@ class Interpreter:
             return wrap_value(result, SOLID)
 
     def _eval_method_call(self, call: MethodCall, ctx: ExecutionContext) -> Value:
-        """Evaluate a method call."""
+        """Evaluate a method call.
+
+        ``lib.PART(...)`` parses as a method call on a variable named
+        ``lib``; when there is no such variable but an import is aliased to
+        that name, it is a namespaced command call instead.
+        """
+        qualified = self._namespaced_command(call, ctx)
+        if qualified is not None:
+            return self._eval_function_call(qualified, ctx)
+
         receiver = self._evaluate(call.object, ctx)
         args = [self._evaluate(arg, ctx) for arg in call.arguments]
 
@@ -833,6 +884,29 @@ class Interpreter:
         type_name = receiver.type.name if hasattr(receiver.type, 'name') else str(receiver.type)
 
         return call_method(type_name, call.method, receiver, args)
+
+    def _namespaced_command(
+        self, call: MethodCall, ctx: ExecutionContext
+    ) -> Optional[FunctionCall]:
+        """``call`` rewritten as a call to ``namespace.command``, or None.
+
+        A real variable takes precedence, so that an ordinary method call on
+        a value is never mistaken for an import namespace.
+        """
+        if not isinstance(call.object, Identifier):
+            return None
+        if ctx.get_variable(call.object.name) is not None:
+            return None
+        name = f"{call.object.name}.{call.method}"
+        module = self.current_module
+        if module is None or not any(c.name == name for c in module.commands):
+            return None
+        return FunctionCall(
+            span=call.span,
+            callee=Identifier(span=call.object.span, name=name),
+            arguments=call.arguments,
+            named_arguments=call.named_arguments,
+        )
 
     def _eval_member_access(self, access: MemberAccess, ctx: ExecutionContext) -> Value:
         """Evaluate member access (e.g., point.x)."""
@@ -1079,14 +1153,15 @@ def execute(
     command_name: str,
     parameters: Dict[str, Any],
     source: str = "",
+    source_path: Optional[str] = None,
 ) -> ExecutionResult:
     """
     Execute a command from a module.
 
     This is a convenience wrapper around Interpreter.execute().
     """
-    interpreter = Interpreter()
-    return interpreter.execute(module, command_name, parameters, source)
+    interpreter = Interpreter(source_path=source_path)
+    return interpreter.execute(module, command_name, parameters, source, source_path)
 
 
 def compile_and_run(
@@ -1097,6 +1172,7 @@ def compile_and_run(
     representation: Optional[str] = None,
     sdf_cell_mm: Optional[float] = None,
     sdf_simplify: Optional[bool] = None,
+    source_path: Optional[str] = None,
 ) -> ExecutionResult:
     """
     High-level API to compile and run DSL source code in one call.
@@ -1157,7 +1233,22 @@ def compile_and_run(
             error_message=f"Parser error: {e}",
         )
 
-    # Type check
+    # Resolve 'use' statements before type-checking so that the checker
+    # sees imported commands. A failure is reported here: letting it through
+    # would make the checker complain about an unknown function instead of
+    # the import that could not be loaded.
+    if module.uses:
+        source_dir = (
+            str(pathlib.Path(source_path).parent) if source_path else None
+        )
+        merge = resolve_uses(module, source_dir)
+        if not merge.success:
+            return ExecutionResult(
+                success=False,
+                error_message=merge.error_message,
+            )
+        module = merge.merged_module
+
     check_result = check(module)
     if check_result.has_errors:
         error_msgs = [str(d) for d in check_result.diagnostics if d.severity.name == 'ERROR']
@@ -1168,11 +1259,11 @@ def compile_and_run(
 
     # Execute
     from .representation import is_sdf, simplify_result, using
-    interpreter = Interpreter(recursion_limit=recursion_limit)
+    interpreter = Interpreter(recursion_limit=recursion_limit, source_path=source_path)
     try:
         with using(representation, sdf_cell_mm):
             result = interpreter.execute(module, command_name, parameters,
-                                         source)
+                                         source, source_path)
             if result.success and is_sdf():
                 simplify_result(result, sdf_simplify)
             return result
