@@ -58,7 +58,7 @@ yapCAD DSL uses Python-like syntax:
 ```python
 module module_name
 
-# Optional imports (future feature)
+# Imports: see Cross-module imports below
 use other_module
 use package.submodule as alias
 
@@ -74,6 +74,106 @@ command MAKE_PART(param: float, param2: float = 10.0) -> solid:
 ```
 
 **Note:** Commands with UPPERCASE names are exported and visible to `dsl list`. Commands with lowercase names are helpers usable within the module but not directly callable from CLI.
+
+## Cross-module imports
+
+A `use` statement brings another module's commands into the current one.
+Module paths resolve as files relative to the importing file's directory, so
+`use pkg.inner` loads `pkg/inner.dsl` beside it. An import may not resolve
+outside that directory.
+
+```python
+use shapes              # shapes.dsl, as CUBE(...) and shapes.CUBE(...)
+use pkg.inner           # pkg/inner.dsl, as inner.INNER(...)
+use shapes as s         # shapes.dsl, as s.CUBE(...) only
+```
+
+Every import has a **namespace**: the alias when there is one, otherwise the
+last component of the module path. The imported commands are always reachable
+through it with a dot:
+
+```python
+use shapes
+use pkg.inner as parts
+
+command PART() -> solid:
+    emit union(shapes.CUBE(3.0), parts.INNER(1.0))
+```
+
+**Without an alias**, each imported command is *also* offered under its bare
+name, which is the usual way to call it:
+
+```python
+use shapes
+
+command PART() -> solid:
+    emit CUBE(3.0)
+```
+
+**With an alias**, only the namespace is offered: after `use shapes as s`,
+`CUBE(...)` is not defined, only `s.CUBE(...)`. An alias is a request for a
+namespace, so it is taken as one.
+
+Calls *between* an imported module's own commands are resolved inside that
+module, so a library whose commands call each other keeps working however it
+is imported, and never reaches a same-named command somewhere else.
+
+A local variable takes precedence over a namespace, so an ordinary method
+call on a value is never captured by an import of the same name.
+
+An unaliased import's bare names can also be asked for on the command line:
+`dsl run main.dsl CUBE` runs an imported `CUBE` as the entry point.
+
+### Name conflicts
+
+A bare name that two imports both offer is left unbound, and calling it is
+an error that names the alternatives:
+
+```
+Ambiguous command 'BOLT': imported from more than one module, which offer
+'mod_a.BOLT', 'mod_b.BOLT'. Call one of those by its qualified name to say
+which you mean.
+```
+
+Nothing else about those imports is affected: every other command of both
+modules is still callable by its bare name, and `mod_a.BOLT(...)` and
+`mod_b.BOLT(...)` both work. So importing two libraries that happen to share
+one command name costs nothing until that name is called unqualified.
+
+Two module paths ending in the same component — `use a.shapes` and
+`use b.shapes` — share one namespace. A command they both define cannot be
+qualified apart, and the error says so; alias one of the imports.
+
+A command the importing module **defines itself** wins over an imported one
+of the same name. That is how a design overrides one command of a library,
+but doing it by accident would quietly change geometry, so `dsl check`
+reports it as a warning (`W290`) and names the import that lost. The
+import's own version remains reachable through its namespace.
+
+The same module arriving twice by different routes is *not* a conflict — two
+modules that both `use base` can be imported together, since what matters is
+where a command is defined, not which import reached it first.
+
+A module's imports are not re-exported: `use mid` offers what `mid` itself
+defines, not what `mid` imported.
+
+### Errors
+
+A `use` that cannot be honoured is reported by `dsl check` as well as
+`dsl run`:
+
+- the file does not exist, or resolves outside the source directory;
+- the import is circular;
+- the imported module itself fails to parse or type-check;
+- two imports share an alias;
+- `export use`, which has no implementation.
+
+Imports need to know where the importing file lives. The CLI passes this
+automatically; a direct call to `compile_and_run()` or `package_from_dsl()`
+must pass `source_path=` for a design that uses imports.
+
+Imported modules are cached per file and reloaded when the file changes on
+disk. `yapcad.dsl.modules.clear_module_cache()` forces a reload.
 
 (parameter-decorators)=
 ## Parameter Decorators

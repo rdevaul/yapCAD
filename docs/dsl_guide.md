@@ -302,9 +302,12 @@ These are the DSL-specific habits that separate "fighting the language" from
 - **Lowercase helpers, UPPERCASE entry points.** (See §3.) Keep the public
   surface small.
 
-- **`use` imports are reserved for the future.** You may see `use other_module`
-  in examples; cross-module imports are a forthcoming feature — for now keep a
-  design within one module.
+- **`use` imports split a design across files.** `use shapes` offers that
+  module's commands as both `CUBE(...)` and `shapes.CUBE(...)`;
+  `use shapes as s` offers only `s.CUBE(...)`. A bare name two imports both
+  offer is ambiguous, and calling it is an error that names the qualified
+  alternatives — their other commands are unaffected. See Reference →
+  Cross-module imports.
 
 - **Method vs. function form.** Many operations are available both as functions
   and as methods (`translate(s, ...)` ≡ `s.translate(...)`). Pick one style per

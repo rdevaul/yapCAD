@@ -13,7 +13,7 @@ Changes from v1:
 """
 
 from dataclasses import dataclass, field
-from typing import Optional, List, Union, Any
+from typing import Dict, Optional, List, Tuple, Union, Any
 from abc import ABC, abstractmethod
 from .tokens import SourceSpan, TokenType
 
@@ -565,6 +565,56 @@ class ExportUseStatement(AstNode):
 
 
 @dataclass
+class ImportScope:
+    """What a module's ``use`` statements brought into its namespace.
+
+    Imported commands always keep a namespace of their own
+    (``shapes.CUBE``); an unaliased ``use`` additionally offers the bare
+    name when nothing else claims it. These tables record what that came to,
+    so that the names an import did *not* bind can be reported where they
+    are called rather than at the import:
+
+    - ``bindings``: bare name -> the qualified command it reaches.
+    - ``conflicts``: a name two imports both offer, mapped to the
+      ``(qualified name, defining file)`` of each. Nothing is bound, and a
+      call to it is an error.
+    - ``shadowed``: a name this module defines itself and an import also
+      offers. The local definition wins; the qualified names remain.
+    """
+    bindings: Dict[str, str] = field(default_factory=dict)
+    conflicts: Dict[str, Tuple[Tuple[str, str], ...]] = field(
+        default_factory=dict
+    )
+    shadowed: Dict[str, Tuple[str, ...]] = field(default_factory=dict)
+
+    def conflict_message(self, name: str) -> Optional[str]:
+        """Why ``name`` is unbound, phrased for a call site."""
+        providers = self.conflicts.get(name)
+        if not providers:
+            return None
+        qualified: List[str] = []
+        for candidate, _path in providers:
+            if candidate not in qualified:
+                qualified.append(candidate)
+        if len(qualified) < 2:
+            # One qualified name, two definitions behind it: the imports
+            # share a namespace, so there is nothing to qualify with.
+            namespace = (qualified[0] if qualified else name).rsplit(".", 1)[0]
+            files = ", ".join(sorted({path for _q, path in providers}))
+            return (
+                f"Ambiguous command '{name}': more than one import shares "
+                f"the namespace '{namespace}' ({files}). Give one of those "
+                "imports an alias ('use ... as other_name')."
+            )
+        offered = ", ".join(f"'{candidate}'" for candidate in qualified)
+        return (
+            f"Ambiguous command '{name}': imported from more than one "
+            f"module, which offer {offered}. Call one of those by its "
+            "qualified name to say which you mean."
+        )
+
+
+@dataclass
 class Module(AstNode):
     """A complete DSL module.
 
@@ -586,6 +636,9 @@ class Module(AstNode):
     native_functions: List[NativeFunction] = field(default_factory=list)  # New style
     functions: List[FunctionDef] = field(default_factory=list)  # All non-native functions
     exports: List[ExportStatement] = field(default_factory=list)
+    # Set when 'use' statements have been resolved into this module;
+    # None for a module that was never merged.
+    imports: Optional[ImportScope] = None
 
     @property
     def commands(self) -> List[FunctionDef]:
