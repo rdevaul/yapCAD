@@ -98,7 +98,13 @@ _ROOT_FIELDS = {"layer", "tags", "material"}
 # All known namespace prefixes
 _KNOWN_NAMESPACES = {
     "assembly", "operation", "component", "manufacturing",
-    "procurement", "pmi",
+    "procurement", "pmi", "kinematic",
+}
+
+# Kinematic sub-fields
+_KINEMATIC_FIELDS = {
+    "joint_kind", "parent", "parent_frame", "axis", "limits",
+    "zero_pose", "description", "printable",
 }
 
 # Assembly scalar fields (forwarded to set_assembly)
@@ -305,6 +311,95 @@ def _validate_operation_field(
     return value
 
 
+def _validate_kinematic_field(
+    hint: Dict[str, Any],
+    field: str,
+    value: Any,
+    diags: List[MetaDiagnostic],
+    cmd_name: str,
+    span: Optional[Span],
+) -> Any:
+    """Validate and normalise one ``kinematic.<field>`` entry."""
+    fqn = f"kinematic.{field}"
+
+    if field == "joint_kind":
+        err = _check_enum(value, {"fixed", "revolute", "prismatic"}, fqn)
+        if err:
+            diags.append(MetaDiagnostic("error", cmd_name, fqn, err, span))
+        return value
+
+    if field == "axis":
+        if not isinstance(value, (list, tuple)):
+            diags.append(MetaDiagnostic(
+                "error", cmd_name, fqn,
+                f"kinematic.axis must be a 3-element list/tuple, got {type(value).__name__}",
+                span,
+            ))
+            return value
+        if len(value) != 3:
+            diags.append(MetaDiagnostic(
+                "error", cmd_name, fqn,
+                f"kinematic.axis must have exactly 3 elements, got {len(value)}",
+                span,
+            ))
+            return value
+        return [float(v) for v in value]
+
+    if field == "limits":
+        if not isinstance(value, (list, tuple)):
+            diags.append(MetaDiagnostic(
+                "error", cmd_name, fqn,
+                f"kinematic.limits must be a 2-element list [min, max], got {type(value).__name__}",
+                span,
+            ))
+            return value
+        if len(value) != 2:
+            diags.append(MetaDiagnostic(
+                "error", cmd_name, fqn,
+                f"kinematic.limits must have exactly 2 elements [min, max], got {len(value)}",
+                span,
+            ))
+            return value
+        lo, hi = float(value[0]), float(value[1])
+        if hi < lo:
+            diags.append(MetaDiagnostic(
+                "warning", cmd_name, fqn,
+                f"kinematic.limits has min ({lo}) > max ({hi}); swapping",
+                span,
+            ))
+            return [hi, lo]
+        return [lo, hi]
+
+    if field == "zero_pose":
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            diags.append(MetaDiagnostic(
+                "error", cmd_name, fqn,
+                f"kinematic.zero_pose must be numeric, got {type(value).__name__}",
+                span,
+            ))
+            return 0.0
+
+    if field == "printable":
+        coerced, err = _coerce_bool(value, fqn)
+        if err:
+            diags.append(MetaDiagnostic("warning", cmd_name, fqn, err, span))
+        return coerced
+
+    if field in ("parent", "parent_frame", "description"):
+        return str(value)
+
+    # Unknown kinematic field — forward-compat: warn but don't block
+    diags.append(MetaDiagnostic(
+        "warning", cmd_name, fqn,
+        f"Unknown kinematic field {field!r}; stored verbatim (forward-compat). "
+        f"Valid fields: {sorted(_KINEMATIC_FIELDS)}",
+        span,
+    ))
+    return value
+
+
 # ---------------------------------------------------------------------------
 # Cross-field consistency checks
 # ---------------------------------------------------------------------------
@@ -320,6 +415,24 @@ def _cross_check(
     # --- Collect which namespaces are present ---
     has_operation = any(k.startswith("operation.") for k in hint)
     has_assembly = any(k.startswith("assembly.") for k in hint)
+    has_kinematic = any(k.startswith("kinematic.") for k in hint)
+
+    # kinematic.axis is required for revolute/prismatic joints
+    if has_kinematic:
+        jk = hint.get("kinematic.joint_kind", "fixed")
+        if jk in ("revolute", "prismatic") and "kinematic.axis" not in hint:
+            diags.append(MetaDiagnostic(
+                "warning", cmd_name, "kinematic.axis",
+                f"kinematic.axis is required for {jk} joint but not provided; defaulting to Z axis",
+                span,
+            ))
+        if jk in ("revolute", "prismatic") and "kinematic.limits" not in hint:
+            diags.append(MetaDiagnostic(
+                "warning", cmd_name, "kinematic.limits",
+                f"kinematic.limits is required for {jk} joint but not provided; defaulting to [-180, 180]",
+                span,
+            ))
+
 
     # operation.kind is required when any operation.* key appears
     if has_operation and "operation.kind" not in hint:
@@ -410,6 +523,10 @@ class MetadataTransform(AstTransform):
                         )
                     elif namespace in {"component", "manufacturing", "procurement", "pmi"}:
                         normalised[key] = value
+                    elif namespace == "kinematic":
+                        normalised[key] = _validate_kinematic_field(
+                            hint, field, value, cmd_diags, cmd.name, cmd.span
+                        )
                     else:
                         # Unknown namespace — warn and store verbatim
                         cmd_diags.append(MetaDiagnostic(
