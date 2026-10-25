@@ -31,6 +31,31 @@ Unreleased
   a long-lived process kept rebuilding from the first version it saw.
   ``export use`` is still unimplemented and now says so.
 
+- Range-of-motion sweeps: ``yapcad.rom`` drives an assembly's joints
+  through their declared limits and measures how close the parts come to
+  each other at every pose, on their signed distance fields -- no meshing,
+  no boolean kernel. The kinematics are the design's own: joints, limits
+  and placement come from ``@meta(assembly.datums=...)``,
+  ``add_named_mate``, ``set_mate_limits`` and ``solve_assembly``, and poses
+  come from the assembly solver, so a sweep cannot disagree with the
+  design it was built from. ``RomModel.from_result(result)`` reads the
+  assembly a command retained with ``emit assembly_compound(...)``, which
+  is the same object the package builder uses; parts must be authored as
+  fields, so the design is built with ``representation="sdf"``.
+  ``sweep_rom`` measures, by default, every pair of parts the swept joints
+  move relative to one another -- including pairs that share no mate,
+  which is where interference usually is, and excluding pairs a rigid mate
+  holds still. Clearance is measured by sampling one part at a stated
+  pitch and evaluating the other's field, so each result carries the bound
+  on its own sampling error; a result whose fields are not exact distances
+  -- any hard CSG combination -- is flagged conservative, meaning the
+  magnitude is closer to zero than the truth and a gap is never
+  overstated. Pairs whose bounding boxes are far enough apart are resolved
+  from the bounds instead of sampled. A pair that cannot be
+  measured is an error rather than a silent omission, joint values outside
+  the declared limits are refused rather than clamped, and a sweep that
+  measured nothing says so.
+
 Version 1.2.0 (2026-10-19)
 ==========================
 

@@ -1419,6 +1419,10 @@ Joint values are absolute radians, not accumulated deltas.
 Revolute limits also use radians and include both boundary values. Limits on
 dependent joints are checked after coupling expressions have been evaluated.
 
+Once a design carries datums, named mates and limits, it can be swept for
+clearance without meshing: build it with `representation="sdf"` and hand the
+result to `yapcad.rom`. See the [ROM sweep guide](rom_guide.rst).
+
 Joint couplings currently operate on revolute mate coordinates. Each coupling
 names its dependent joint explicitly, making chained dependencies deterministic
 and independent of declaration order. Driver and coefficient lists must have
