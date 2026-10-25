@@ -14,10 +14,19 @@ A negative result means B is inside A by that much.
 Accuracy
 ========
 Samples are kept within half a cell of B's surface -- inside it, or just
-outside by less than that -- so the reported distance is the true distance
-to within half the cell diagonal, which every :class:`Clearance` carries
-as ``tolerance_mm``. Nothing else biases it: a sampling margin wider than
-the cell, as this code once had, subtracts itself from every answer.
+outside by less than that -- so the sampling contributes an error of at
+most half the cell diagonal, which every :class:`Clearance` carries as
+``tolerance_mm``. Nothing else biases it: a sampling margin wider than the
+cell, as this code once had, subtracts itself from every answer.
+
+The fields themselves are the other half of the story. yapCAD marks a
+node ``exact`` when its magnitude is the true distance; hard CSG does not
+preserve that, so a part built by ``union``/``intersect``/``subtract`` --
+which is most parts -- carries a Lipschitz-1 *lower bound* instead. Where
+either field is inexact the result is flagged ``conservative``, and then
+the number is closer to zero than the truth: the gap between separated
+parts is never overstated, and penetration depth may be understated. The
+sign is right either way, so interference is never missed.
 
 Set the pitch against the clearance you care about. At the default 1 mm
 pitch a 0.5 mm interference is resolved; looking for a 0.1 mm one needs a
@@ -59,13 +68,17 @@ class Clearance:
         samples: Points actually evaluated.
         pitch_mm: Sampling pitch used, which may be coarser than asked
             for if the part needed more samples than were allowed.
-        tolerance_mm: Bound on the error in ``min_distance``: the true
-            distance is within this much of it. Zero for a ``"bounds"``
-            result, whose error is one-sided -- the parts are at least
-            ``min_distance`` apart, possibly more.
+        tolerance_mm: Bound on the sampling error in ``min_distance``.
+            Zero for a ``"bounds"`` result, whose error is one-sided.
         method: ``"field"`` when sampled, ``"bounds"`` when the parts'
             bounding boxes were far enough apart to answer without
             sampling -- then ``min_distance`` is a lower bound.
+        conservative: True when a field involved is not an exact distance
+            (any hard CSG combination, and every ``"bounds"`` result). The
+            magnitude is then closer to zero than the truth -- a separated
+            gap is never overstated, a penetration may be understated --
+            while the sign still holds. False when both fields are exact,
+            and then the true distance is within ``tolerance_mm``.
     """
 
     min_distance: float
@@ -76,6 +89,7 @@ class Clearance:
     pitch_mm: float
     tolerance_mm: float
     method: str = "field"
+    conservative: bool = True
 
     @property
     def interferes(self) -> bool:
@@ -87,7 +101,8 @@ class Clearance:
         return abs(self.min_distance) > self.tolerance_mm
 
     def describe(self) -> str:
-        return (f"{self.min_distance:+.3f} mm "
+        bound = "at least " if self.conservative else ""
+        return (f"{bound}{self.min_distance:+.3f} mm "
                 f"(+/- {self.tolerance_mm:.3f}, {self.method})")
 
 
@@ -235,6 +250,8 @@ def clearance_sdf(
 
     distances = evaluate(field_a, local_a)
     minimum = float(distances.min())
+    exact = bool(getattr(field_a, "exact", False)
+                 and getattr(field_b, "exact", False))
     return Clearance(
         min_distance=minimum,
         penetration=-minimum if minimum < 0.0 else 0.0,
@@ -244,4 +261,5 @@ def clearance_sdf(
         pitch_mm=float(pitch),
         tolerance_mm=float(tolerance),
         method="field",
+        conservative=not exact,
     )

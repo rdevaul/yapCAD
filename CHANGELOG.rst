@@ -47,8 +47,11 @@ Unreleased
   which is where interference usually is, and excluding pairs a rigid mate
   holds still. Clearance is measured by sampling one part at a stated
   pitch and evaluating the other's field, so each result carries the bound
-  on its own error, and pairs whose bounding boxes are far enough apart
-  are resolved from the bounds instead of sampled. A pair that cannot be
+  on its own sampling error; a result whose fields are not exact distances
+  -- any hard CSG combination -- is flagged conservative, meaning the
+  magnitude is closer to zero than the truth and a gap is never
+  overstated. Pairs whose bounding boxes are far enough apart are resolved
+  from the bounds instead of sampled. A pair that cannot be
   measured is an error rather than a silent omission, joint values outside
   the declared limits are refused rather than clamped, and a sweep that
   measured nothing says so.

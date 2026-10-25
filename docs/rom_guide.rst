@@ -191,6 +191,23 @@ one needs a finer pitch, and ``Clearance.resolved`` is False whenever a
 result is smaller than its own tolerance.  The summary counts those
 measurements and says to refine the pitch.
 
+There is a second source of error, in the fields themselves.  yapCAD marks
+a node ``exact`` when its magnitude is the true distance, and hard CSG does
+not preserve that: a part built with ``union``, ``intersect`` or
+``subtract`` — which is most parts — carries a Lipschitz-1 *lower bound*
+instead.  Where either field is inexact the result is flagged
+``conservative`` and prints as ``at least``::
+
+    elbow=45.0 deg | arm - chassis: at least +1.740 mm (+/- 0.433, field)
+
+Read that as: the parts are at least this far apart.  The magnitude is
+closer to zero than the truth — a gap is never overstated, a penetration
+may be understated — while the sign is right either way, so a sweep never
+misses an interference.  Only when both fields are exact (single
+primitives, rounded primitives, transforms of them) is the true distance
+within ``tolerance_mm`` of the number.  A ``"bounds"`` result is
+conservative by construction.
+
 Nothing else biases the number.  (An earlier version of this code grew
 the sampled region by a 2 mm margin and kept the points in it, so every
 clearance came back 2 mm short at every resolution, and parts 1 mm apart

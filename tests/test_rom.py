@@ -33,7 +33,7 @@ from yapcad.rom import (
     sweep_rom,
     world_bounds,
 )
-from yapcad.sdf import box, half_space, sphere
+from yapcad.sdf import box, half_space, sphere, subtract
 
 
 def tf(x: float = 0.0, y: float = 0.0, z: float = 0.0) -> np.ndarray:
@@ -165,6 +165,37 @@ class TestClearanceAccuracy:
         assert result.min_distance == pytest.approx(
             2.0, abs=result.tolerance_mm
         )
+
+
+class TestFieldExactness:
+    """Hard CSG does not preserve distance, and the result says so."""
+
+    def test_two_exact_primitives_are_not_conservative(self):
+        result = clearance_sdf(box((10, 10, 10)), box((10, 10, 10)),
+                               tf(), tf(12.0), pitch_mm=0.5)
+        assert not result.conservative
+        assert "at least" not in result.describe()
+
+    def test_a_csg_part_is_flagged_conservative(self):
+        """A box with a hole through it is a lower-bound field, so the
+        number is closer to zero than the truth -- never further."""
+        drilled = subtract(box((10, 10, 10)), sphere(3.0))
+        assert not drilled.exact
+        result = clearance_sdf(drilled, box((10, 10, 10)),
+                               tf(), tf(12.0), pitch_mm=0.5)
+        assert result.conservative
+        assert "at least" in result.describe()
+        # the outer faces are untouched, so the truth is still 2 mm
+        assert result.min_distance <= 2.0 + result.tolerance_mm
+        assert result.min_distance > 0.0
+
+    def test_a_bounds_result_is_conservative_too(self, model):
+        sweep = sweep_rom(model, {"elbow": [0.0]},
+                          config=SweepConfig(clearance_threshold=5.0))
+        bounds = [s for s in sweep.samples
+                  if s.clearance.method == "bounds"]
+        assert bounds
+        assert all(s.clearance.conservative for s in bounds)
 
 
 class TestClearanceLimits:

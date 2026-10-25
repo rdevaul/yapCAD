@@ -71,16 +71,30 @@ def interference_summary(result: SweepResult) -> str:
     minima = result.pair_minima()
     lines.append("  --- Worst configuration per pair ---")
     lines.append(
-        f"  {'pair':44s} {'min (mm)':>10s} {'+/-':>7s} {'how':>7s}"
+        f"  {'pair':40s} {'min (mm)':>10s} {'+/-':>7s} {'how':>10s}"
     )
     lines.append("  " + "-" * 70)
+    conservative = False
     for pair, sample in sorted(minima.items(),
                                key=lambda item: item[1].min_distance):
         label = f"{pair[0]} - {pair[1]}"
         clearance = sample.clearance
+        how = clearance.method
+        if clearance.conservative:
+            how += " >="
+            conservative = True
         lines.append(
-            f"  {label:44s} {clearance.min_distance:10.3f} "
-            f"{clearance.tolerance_mm:7.3f} {clearance.method:>7s}"
+            f"  {label:40s} {clearance.min_distance:10.3f} "
+            f"{clearance.tolerance_mm:7.3f} {how:>10s}"
+        )
+    if conservative:
+        lines.append(
+            "  >= : the fields are not exact distances (hard CSG), so the "
+            "magnitude"
+        )
+        lines.append(
+            "       is closer to zero than the truth -- a gap is never "
+            "overstated."
         )
     lines.append("")
 
