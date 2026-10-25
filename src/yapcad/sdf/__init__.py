@@ -68,6 +68,8 @@ from yapcad.sdf.node import (
 from yapcad.sdf.primitives import (
     box,
     capsule,
+    chamfered_box,
+    chamfered_cylinder,
     cone,
     cylinder,
     gyroid,
@@ -109,6 +111,7 @@ from yapcad.sdf.simplify import (
 from yapcad.sdf.planar import apex_extrude, extrude, polygon, twist
 from yapcad.sdf.gears import spur_gear, straight_bevel_gear
 from yapcad.sdf.threads import hex_bolt, hex_nut, thread, thread_profile
+from yapcad.sdf.chamfer import chamfer, chamfer_solid
 from yapcad.sdf.fillet import fillet, fillet_solid
 from yapcad.sdf.occ import (
     csg_blockers,
@@ -154,8 +157,10 @@ __all__ = [
     "sphere",
     "box",
     "rounded_box",
+    "chamfered_box",
     "cylinder",
     "rounded_cylinder",
+    "chamfered_cylinder",
     "capsule",
     "torus",
     "cone",
@@ -181,6 +186,8 @@ __all__ = [
     # operators
     "union",
     "compound",
+    "chamfer",
+    "chamfer_solid",
     "fillet",
     "fillet_solid",
     "intersect",

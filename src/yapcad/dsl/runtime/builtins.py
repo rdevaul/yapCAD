@@ -3383,8 +3383,10 @@ class BuiltinRegistry:
         def _chamfer(s: Value, distance: Value) -> Value:
             """Apply chamfer (beveled edge) to all edges of a solid.
 
-            Requires pythonocc-core/OCC. Uses the BREP representation
-            attached to the solid for precise edge operations.
+            An SDF-authored solid is chamfered on its field, without OCC
+            (:func:`yapcad.sdf.chamfer_solid`).  Otherwise this needs
+            pythonocc-core and the BREP attached to the solid.  Mesh-only
+            solids are not supported yet.
 
             Args:
                 s: A solid to chamfer
@@ -3398,9 +3400,19 @@ class BuiltinRegistry:
                 chamfer_all_edges, occ_available, BrepSolid
             )
             from yapcad.geom3d import solid
+            from yapcad.sdf.booleans import is_sdf_solid
 
+            if is_sdf_solid(s.data):
+                from yapcad.sdf.chamfer import chamfer_solid
+                return _inherit_metadata(
+                    solid_val(chamfer_solid(s.data, float(distance.data))),
+                    s.data)
             if not occ_available():
-                raise RuntimeError("chamfer requires pythonocc-core (OCC)")
+                raise RuntimeError(
+                    "chamfer needs an SDF-authored solid, or a BREP solid "
+                    "with pythonocc-core (OCC) installed; chamfering a "
+                    "mesh-only solid is not implemented yet"
+                )
 
             # Get BREP representation from solid
             brep = brep_from_solid(s.data)

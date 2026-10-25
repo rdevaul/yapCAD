@@ -874,6 +874,76 @@ including a BREP replayed from the tree, which depends only on the tree.
 `YAPCAD_SDF_SIMPLIFY=0` keep the uniform meshes; the test suite does that
 except where it tests the default.
 
+### 10.8 Chamfers
+
+Supportless FDM wants bevels where other processes want rounds -- a 45
+degree chamfer prints over thin air, a fillet's tangent does not -- so a
+design like yapRover uses `chamfer` nearly everywhere §10.5 would use
+`fillet`. Until now `chamfer` needed a BREP, and a field-mode build of such
+a design stopped at the first call with *"chamfer requires a solid with
+BREP data"*. `sdf.chamfer(node, d)` closes that gap on the same terms as
+`sdf.fillet`, with two new primitives behind it.
+
+**`chamfered_box` is a box grown by an octahedron**, the way a
+`rounded_box` is a box grown by a sphere -- and that is exactly the solid
+OCC's chamfer-all-edges makes of a box, which is not obvious from the
+constraint form:
+
+```
+|x| <= hx, |y| <= hy, |z| <= hz             the six faces
+|x| + |y| <= hx + hy - d,  and cyclic       the twelve bevels
+|x| + |y| + |z| <= hx + hy + hz - 2 d       the eight corners
+```
+
+The corner clause is the part worth pinning. The three bevel planes that
+meet at a box vertex already intersect in a point, so stopping there gives
+a closed solid -- but OCC puts a triangular face across each corner,
+leaving `d**3 / 12` less material at each of the eight. The two solids
+differ by 0.039% of the volume of a 60 x 40 x 20 box chamfered 3 mm, which
+is small enough to read as meshing error and wrong enough to matter to a
+fit. With the corner clause the field's closed-form volume,
+`a b c - 2 d**2 (a + b + c) + 16 d**3 / 3`, matches OCC's measured volume
+to 1e-16 relative over the whole range of valid chamfers, flat plates and
+near-degenerate bevels included.
+
+Each clause is met by an exact field -- a chamfered rectangle swept along
+the third axis, and Quilez's exact octahedron -- but their intersection is
+a hard `max`, so `chamfered_box` is `exact: false`: Lipschitz-1 and equal
+to the distance inside and on the surface, a lower bound outside. Measured
+against OCC's own point-to-solid distance, over six boxes from a 300 x 176
+x 10 plate to an 8 x 8 x 80 post, the worst under-report is just under 7%
+of the true distance -- it is a vertex-region deficit, and about that
+whatever the proportions -- and the mean is well under 1%. That is why the
+primitive is worth having even where exactness is wanted: a clearance read
+off it is conservative, never optimistic, and the ROM sweep reports it as
+`>=`.
+
+**`chamfered_cylinder` is exact**, and the reason generalises. A solid of
+revolution is the one place where an exact 2D field buys an exact 3D field
+outright: the nearest point of the solid to a query lies in the query's own
+meridian half plane, because rotating any other candidate into that half
+plane only shortens the distance. So the distance to a chamfered cylinder
+*is* the distance from `(hypot(x, y), z)` to its profile -- the same
+chamfered rectangle, with its corners cut -- and it agrees with OCC's
+measured distance to 7e-15 inside and out. Folding the profile in rho as
+well as z is what keeps the axis from counting as a boundary. A general
+`revolve(profile)` node over §10.3's exact `polygon` would make every
+turned part exact on the same argument, and is the natural next primitive.
+
+**The substitution is `fillet`'s.** `sdf.chamfer` passes through similarity
+transforms, whose uniform scale divides the distance, and through each body
+of a `compound`; spheres, tori, capsules and already-rounded primitives
+have no sharp edge for a bevel to sit on and are returned unchanged. Both
+chamfered primitives replay through OCC as chamfered primitives, so a
+chamfered part still exports analytic STEP, and the classifier declines a
+distance of half the smallest edge, where the bevel has no face left to run
+along, exactly as for `rounded_box`. Combined fields, non-uniform scales
+and cones are refused for §10.5's reasons -- the general case waits on the
+same `sampled` re-distancing, with an octahedral structuring element in
+place of a spherical one. `sdf.chamfer_solid` re-meshes no coarser than its
+input, and the DSL's `chamfer` takes this path for any SDF-authored solid,
+with no OCC needed.
+
 ## 11. Open questions
 
 - Should `sampled` grid sidecars use `.npy`, or a raw f32 blob with a JSON

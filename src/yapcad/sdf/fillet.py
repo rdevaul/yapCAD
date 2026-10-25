@@ -36,14 +36,19 @@ __all__ = ["fillet", "fillet_solid"]
 _SMOOTH = {"sphere", "capsule", "torus", "rounded_box", "rounded_cylinder"}
 
 
-def _uniform_scale(matrix, kind):
-    """The uniform scale of a similarity transform, or raise."""
+def _uniform_scale(matrix, kind, op="fillet", verb="round",
+                   consequence="rounds would not be circular"):
+    """The uniform scale of a similarity transform, or raise.
+
+    :mod:`yapcad.sdf.chamfer` needs the same test and reports it in its own
+    words, which is what the last three arguments are for.
+    """
     linear = np.asarray([row[:3] for row in matrix[:3]], dtype=float)
     sv = np.linalg.svd(linear, compute_uv=False)
     if float(sv.max() - sv.min()) > 1e-9 * max(1.0, float(sv.max())):
         raise SdfError(
-            f"fillet: cannot round edges through a non-uniform scale (in a "
-            f"{kind}); the rounds would not be circular"
+            f"{op}: cannot {verb} edges through a non-uniform scale (in a "
+            f"{kind}); the {consequence}"
         )
     return float(sv.max())
 
