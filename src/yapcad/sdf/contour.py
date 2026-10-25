@@ -66,11 +66,13 @@ _QUAD_CELL_OFFSETS = (
 )
 
 
-def _resolve_region(node, bounds, resolution, padding):
+def _resolve_region(node, bounds, resolution, padding, cell_mm=None):
     """Return ``(origin, spacing, counts)`` for a lattice of cubic cells.
 
-    Cells are kept cubic because the QEF solve weights all three axes
-    equally; anisotropic cells would bias vertex placement.
+    The cell comes either from ``resolution`` -- cells across the longest
+    axis -- or straight from ``cell_mm``, which takes precedence.  Cells are
+    kept cubic because the QEF solve weights all three axes equally;
+    anisotropic cells would bias vertex placement.
     """
     region = node.bounds if bounds is None else bounds
     if bounds_is_empty(region):
@@ -88,14 +90,20 @@ def _resolve_region(node, bounds, resolution, padding):
     if not np.all(extent >= 0.0):
         raise SdfError("dual_contour: bounds are inverted")
 
-    resolution = int(resolution)
-    if resolution < 2:
-        raise SdfError("dual_contour: resolution must be at least 2")
-
     longest = float(np.max(extent))
     if longest <= 0.0:
         raise SdfError("dual_contour: the region to mesh has no extent")
-    spacing = longest / resolution
+    if cell_mm is None:
+        resolution = int(resolution)
+        if resolution < 2:
+            raise SdfError("dual_contour: resolution must be at least 2")
+        spacing = longest / resolution
+    else:
+        spacing = float(cell_mm)
+        if not math.isfinite(spacing) or spacing <= 0.0:
+            raise SdfError(
+                "dual_contour: cell_mm must be positive and finite"
+            )
 
     # Pad outward so the surface never sits exactly on the lattice boundary,
     # where a cell would be clipped and the mesh left open.
@@ -354,8 +362,38 @@ def _local_edge(axis, offset):
     return axis * 4 + u * 2 + v
 
 
+def proves_empty(node, resolution=64, bounds=None, padding=None, chunk=32,
+                 backend=DEFAULT_BACKEND, cell_mm=None):
+    """True when this lattice *proves* that nothing in the region is inside
+    ``node``, so an empty mesh of it is the right answer and not a miss.
+
+    It is the chunk-pruning argument applied to the whole lattice: a field
+    that never changes faster than its Lipschitz constant ``L`` cannot fall
+    to zero within ``r`` of a sample whose value exceeds ``L * r``, so if
+    every corner sample does, with ``r`` the half-diagonal of a cell, there
+    is no interior anywhere between the samples either.
+
+    ``False`` means *not proved*, not *occupied*: the surface may be there
+    and too thin to show on this lattice, which is exactly the case
+    :func:`yapcad.sdf.to_solid` responds to by meshing finer.
+
+    Pruning is off here on purpose.  A pruned chunk is filled with its
+    centre value, which can read higher than the values it stands for, and
+    this proof needs a true minimum.
+    """
+    lipschitz = node.lipschitz
+    if not math.isfinite(lipschitz) or lipschitz <= 0.0:
+        return False
+    origin, spacing, counts = _resolve_region(node, bounds, resolution,
+                                              padding, cell_mm)
+    values = sample_corners(node, origin, spacing, counts, chunk=chunk,
+                            prune=False, backend=backend)
+    return float(values.min()) > lipschitz * 0.5 * math.sqrt(3.0) * spacing
+
+
 def dual_contour(node, resolution=64, bounds=None, padding=None,
-                 chunk=32, prune=True, backend=DEFAULT_BACKEND):
+                 chunk=32, prune=True, backend=DEFAULT_BACKEND,
+                 cell_mm=None):
     """Mesh the surface of ``node`` by dual contouring.
 
     :param resolution: cells across the longest axis of the region.
@@ -365,12 +403,19 @@ def dual_contour(node, resolution=64, bounds=None, padding=None,
         never lands on the lattice boundary.
     :param chunk: corner-lattice chunk edge, trading memory for call count.
     :param prune: use the Lipschitz bound to skip empty chunks.
+    :param cell_mm: the cell size to mesh at, in model units, instead of
+        deriving one from ``resolution``.
     :returns: a :class:`Mesh`.
+
+    An empty :class:`Mesh` means the lattice found no surface, which is
+    either empty space or a part thinner than a cell; :func:`proves_empty`
+    is the test that tells those apart, and
+    :func:`yapcad.sdf.to_solid` uses it to decide whether to mesh finer.
 
     The result is deterministic: identical arguments give identical arrays.
     """
     origin, spacing, counts = _resolve_region(node, bounds, resolution,
-                                              padding)
+                                              padding, cell_mm)
     values = sample_corners(node, origin, spacing, counts, chunk=chunk,
                             prune=prune, backend=backend)
 

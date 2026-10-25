@@ -9,6 +9,7 @@ included, so these tests pin that SDF pairs no longer go near it.
 
 import json
 import math
+import warnings
 
 import pytest
 
@@ -194,33 +195,38 @@ class TestResolution:
         assert first[1][0][1] == second[1][0][1]
         assert first[1][0][3] == second[1][0][3]
 
-    def test_a_non_manifold_result_is_retried_once_at_double(self,
-                                                             monkeypatch):
-        calls = []
-        real = booleans.to_solid
+    #: A lid that leaves a 0.5-unit slab of ``A``: thinner than the 0.625
+    #: cell either operand was meshed at, so the operand rule cannot see it
+    #: coming.
+    LID = sdf.translate(sdf.box(20.0), (0.0, 0.0, 5.5))
 
-        def flaky(node, resolution, **kwargs):
-            calls.append(resolution)
-            if len(calls) == 1:
-                raise booleans.NonManifoldMeshError("thin wall")
-            return real(node, resolution=resolution, **kwargs)
+    def test_a_result_thinner_than_its_operands_still_closes(self):
+        """Refinement in to_solid is what carries it, and the meshing record
+        says what it cost, so a later boolean starts from the finer cell."""
+        with pytest.warns(RuntimeWarning, match="found no surface"):
+            result = solid_boolean(mesh(A, 16), mesh(self.LID, 16),
+                                   "difference")
+        assert issolidclosed(result)
+        assert volumeof(result) == pytest.approx(50.0, rel=1e-3)
+        assert meshing_of(result)["resolution"] == 32
 
-        monkeypatch.setattr(booleans, "to_solid", flaky)
-        solid_boolean(mesh(A, 16), mesh(C, 16), "union")
-        # The first attempt is whatever the resolution rule chose (the box's
-        # 0.625 cell over the sphere's 12-unit span: 20); the retry doubles it.
-        assert len(calls) == 2
-        assert calls[1] == 2 * calls[0]
+    def test_a_cell_hint_is_honoured_and_skips_the_refinement(self):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")       # no refinement may happen
+            result = booleans.combine_all(
+                [mesh(A, 16), mesh(self.LID, 16)], "difference",
+                cell_mm=0.25)
+        assert issolidclosed(result)
+        assert volumeof(result) == pytest.approx(50.0, rel=1e-3)
+        assert self._cell(result) <= 0.25 + 1e-12
 
-    def test_at_the_cap_the_refusal_stands(self, monkeypatch):
-        monkeypatch.setattr(booleans, "MAX_RESOLUTION", 16)
-
-        def always(*args, **kwargs):
-            raise booleans.NonManifoldMeshError("thin wall")
-
-        monkeypatch.setattr(booleans, "to_solid", always)
-        with pytest.raises(booleans.NonManifoldMeshError):
-            solid_boolean(mesh(A, 16), mesh(C, 16), "union")
+    def test_an_explicit_cell_hint_is_not_capped(self, monkeypatch):
+        """The cap guards the *derived* resolution; a cell the caller asked
+        for is the caller's business."""
+        monkeypatch.setattr(booleans, "MAX_RESOLUTION", 8)
+        result = booleans.combine_all([mesh(A, 16), mesh(C, 16)], "union",
+                                      cell_mm=0.5)
+        assert meshing_of(result)["resolution"] > 8
 
 
 class TestEdgeCases:

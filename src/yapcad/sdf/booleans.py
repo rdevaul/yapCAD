@@ -17,9 +17,16 @@ The one real decision is the resolution the result is meshed at.  The rule
 is: *never coarser than either operand*.  Each operand's cell size is
 recovered from the meshing parameters it records, or estimated from its mesh
 when it has none (a transformed solid drops them), and the smaller cell is
-carried over the result's extent.  :data:`MAX_RESOLUTION` caps it, because
-unioning a finely meshed small part with a large one would otherwise ask for
-an unbounded lattice.
+carried over the result's extent.  :data:`MAX_RESOLUTION`, which comes from
+:mod:`yapcad.sdf.convert`, caps it, because unioning a finely meshed small
+part with a large one would otherwise ask for an unbounded lattice.
+
+That rule reads the operands, and a boolean can make a feature thinner than
+anything either operand had -- two surfaces brought nearly together, or a
+cut that leaves a sliver.  Nothing here can know that in advance, so the
+cell is a starting point: :func:`yapcad.sdf.to_solid` refines it when the
+surface does not show up at it, and says so.  ``cell_mm`` is the way to
+skip that extra pass once the right cell is known.
 
 Mixed operands -- one field, one BREP or mesh -- are not handled here yet;
 they still go to the existing engines.  That is the rest of Phase 4.
@@ -30,7 +37,7 @@ import math
 import numpy as np
 
 from yapcad.construction import get_construction
-from yapcad.sdf.convert import NonManifoldMeshError, to_solid
+from yapcad.sdf.convert import MAX_RESOLUTION, to_solid
 from yapcad.sdf.node import (
     INF,
     SdfError,
@@ -59,10 +66,6 @@ OPERATIONS = {
 
 #: Used only when neither operand's cell size can be recovered.
 DEFAULT_RESOLUTION = 64
-
-#: Cells across the result's longest axis, at most.  The corner lattice is
-#: (n+1)^3 float64 values, so 256 is ~135 MB; 512 would be over a gigabyte.
-MAX_RESOLUTION = 256
 
 
 def is_sdf_solid(solid):
@@ -160,13 +163,16 @@ def _derived_from(solid, tree):
     return marker == tree.digest
 
 
-def combine_all(solids, operation):
+def combine_all(solids, operation, cell_mm=None):
     """Combine any number of SDF-authored solids in one field operation.
 
     :param solids: two or more SDF-authored solids.
     :param operation: ``"union"``, ``"intersection"`` or ``"difference"``
         (the first solid minus all the rest), matching
         :func:`yapcad.geom3d.solid_boolean`.
+    :param cell_mm: mesh the result at this cell size instead of the
+        operand-derived one -- what a previous run's refinement warning
+        reported, when the result is known to be finer than its operands.
     :returns: a new SDF-authoritative solid whose tree is the combination.
 
     Fields combine n-ary for free, so this meshes once, where folding
@@ -194,6 +200,14 @@ def combine_all(solids, operation):
         from yapcad.geom3d import solid
         return solid([], [], to_construction(node))
 
+    exact = all(_derived_from(s, t) for s, t in zip(solids, trees))
+    brep = "auto" if exact else False
+    bounds = region if explicit else None
+    if cell_mm is not None:
+        # An explicit cell is the caller's call, and is not capped: the cap
+        # is there to stop a *derived* resolution running away.
+        return to_solid(node, cell_mm=cell_mm, bounds=bounds, brep=brep)
+
     cells = [c for c in (_cell_size(s, t) for s, t in zip(solids, trees))
              if c is not None and c > 0.0]
     longest = _longest(region)
@@ -202,23 +216,9 @@ def combine_all(solids, operation):
     else:
         resolution = DEFAULT_RESOLUTION
     resolution = int(min(max(resolution, 2), MAX_RESOLUTION))
-
-    exact = all(_derived_from(s, t) for s, t in zip(solids, trees))
-    brep = "auto" if exact else False
-    bounds = region if explicit else None
-    try:
-        return to_solid(node, resolution=resolution, bounds=bounds, brep=brep)
-    except NonManifoldMeshError:
-        # The combination can create a wall or gap thinner than any operand
-        # had -- two surfaces brought nearly together.  More resolution is
-        # the documented cure; try once more, then let the refusal stand
-        # rather than hand back a broken solid.
-        retry = min(2 * resolution, MAX_RESOLUTION)
-        if retry == resolution:
-            raise
-        return to_solid(node, resolution=retry, bounds=bounds, brep=brep)
+    return to_solid(node, resolution=resolution, bounds=bounds, brep=brep)
 
 
-def combine_solids(a, b, operation):
+def combine_solids(a, b, operation, cell_mm=None):
     """Combine two SDF-authored solids; see :func:`combine_all`."""
-    return combine_all([a, b], operation)
+    return combine_all([a, b], operation, cell_mm=cell_mm)

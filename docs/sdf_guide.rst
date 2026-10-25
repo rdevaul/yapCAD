@@ -150,9 +150,46 @@ choose it:
 
 Where the surface does cross a cell twice -- the thin wedge at an acute
 edge, a lattice wall -- the cell gets one vertex per piece of surface
-(Manifold Dual Contouring), so the mesh stays manifold. ``to_solid`` checks
-the result and raises ``sdf.NonManifoldMeshError`` rather than return a
-broken solid. Raise the resolution if it does.
+(Manifold Dual Contouring), so the mesh stays manifold.
+
+When the cell turns out to be too coarse for the part -- the mesh comes back
+empty, or dual contouring cannot close it -- ``to_solid`` halves the cell and
+meshes again, up to 256 cells across, and says so:
+
+.. code-block:: text
+
+    RuntimeWarning: to_solid: dual contouring found no surface at cell 2 mm
+    (resolution 48), so it refined to cell 1 mm (resolution 96), where the
+    mesh came out closed with 992 vertices. Pass cell_mm=1 to mesh it in one
+    pass.
+
+That matters most for booleans, which can leave a feature thinner than
+anything either operand had -- a cut that leaves a 2 mm remnant of a 12 mm
+gusset -- where no rule reading the operands could have known. The cell the
+warning reports is the coarsest one that *found* the surface, not one that
+measures it well: a remnant a cell and a bit thick meshes, and its volume is
+still rough. Pass it back as ``cell_mm`` to skip the extra pass, or pass
+something finer if the dimension matters:
+
+.. code-block:: python
+
+    part = sdf.to_solid(tree, cell_mm=1.0)       # no refinement pass
+    exact = sdf.to_solid(tree, cell_mm=0.25)     # and resolved, not just found
+
+``cell_mm`` is the cell size in model units, rounded down to a whole number
+of cells across the longest axis, so the cell is never coarser than asked.
+``sdf.combine_all(solids, op, cell_mm=...)`` passes one to a boolean, and
+the cell a part was meshed at rides in its meshing record, so a later
+boolean on a refined part starts from the cell that worked.
+
+A field that holds nothing is not refined for: when the Lipschitz bound
+proves the region is empty -- ``sdf.proves_empty`` is the test --
+the result is the empty solid yapCAD allows for an empty CSG result, and it
+still carries its tree. Only a region that cannot be proved empty is
+refined, which is why an empty boolean costs one pass rather than an
+escalation. ``refine=False`` restores the old behaviour: ``to_solid`` then
+raises ``sdf.NonManifoldMeshError``, or an ``SdfError`` naming the cell it
+tried, rather than mesh again.
 
 Meshing uniformly makes more triangles than a part needs: an M8 nut fine
 enough for its threads is just as fine across its flat faces.
@@ -327,7 +364,14 @@ Limits
   now; both wait on sampled fields.
 * **Meshing is uniform.** A part with fine detail is meshed finely
   everywhere, which simplification then undoes; adaptive meshing would
-  avoid building the large mesh at all.
+  avoid building the large mesh at all. Refinement is uniform for the same
+  reason: a thin feature anywhere takes the whole part, or the whole
+  compound, to a finer cell.
+* **Refinement finds a feature; it does not resolve it.** It stops at the
+  first cell that meshes, which can still measure a thin remnant roughly.
+  A dropped *part* of a mesh -- some other feature missed while the rest
+  came out fine -- is not detected at all; only a wholly empty or unclosed
+  mesh is.
 * **Meshing intermediate results**: every boolean meshes its result, even
   when the next step discards it.
 

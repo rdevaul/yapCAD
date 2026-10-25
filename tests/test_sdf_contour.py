@@ -299,11 +299,21 @@ class TestManifoldGuard:
         assert sdf.manifold_defects(mesh)["nonmanifold"] > 0
 
     def test_to_solid_refuses_with_an_actionable_message(self):
+        """With refinement off, which is what this guard is on its own."""
         with pytest.raises(sdf.SdfError) as excinfo:
-            sdf.to_solid(self.UNDER_RESOLVED, resolution=32)
+            sdf.to_solid(self.UNDER_RESOLVED, resolution=32, refine=False)
         message = str(excinfo.value)
         assert "non-manifold" in message
         assert "Raise the resolution" in message
+
+    def test_to_solid_refines_past_it_by_default(self):
+        """Raising the resolution is what the message asks for, so to_solid
+        does it, and says that it did."""
+        with pytest.warns(RuntimeWarning, match="could not close the mesh"):
+            result = sdf.to_solid(self.UNDER_RESOLVED, resolution=32)
+        assert issolid(result, fast=False)
+        assert sdf.meshing_from_construction(
+            get_construction(result))["resolution"] == 64
 
     def test_more_resolution_resolves_it(self):
         result = sdf.to_solid(self.UNDER_RESOLVED, resolution=48)
