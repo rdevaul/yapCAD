@@ -222,7 +222,6 @@ numerics, and lists of the above.  Non-literals are stringified.
 |--------|-----------|-------------|
 | `assembly.*` | Assembly metadata | `get_assembly_metadata()`, `set_assembly()` |
 | `operation.*` | Operation/machining | `get_operation_metadata()`, `set_operation()` |
-| `kinematic.*` | Kinematic / ROM | Consumed by ``yapcad.rom`` for range-of-motion sweeps |
 | *(none)* | Free-form | Stored as-is |
 
 **v1.1 enum vocabularies** (values outside these sets raise `ValueError` at apply time):
@@ -233,12 +232,6 @@ numerics, and lists of the above.  Non-literals are stringified.
 | `operation.kind` | `subtract`, `intersect`, `union` |
 | `operation.policy` | `strict`, `warn`, `ignore` |
 | `operation.feature_kind` | `access_panel`, `vent`, `parachute_door`, `fastener_through`, `wire_pass`, `channel`, `pocket`, `other` |
-| `kinematic.joint_kind` | `fixed`, `revolute`, `prismatic` |
-
-**Kinematic metadata:** The ``kinematic`` namespace (``@meta(kinematic.*)``)
-is used by the ``yapcad.rom`` package to describe joint types,
-parent-child relationships, axis, limits, and zero poses for
-range-of-motion sweeps.  See :ref:`rom-guide` for details.
 
 #### Surfaced through the service API
 
@@ -1425,6 +1418,10 @@ have one placement parent. Rooted solving currently supports `rigid` and
 Joint values are absolute radians, not accumulated deltas.
 Revolute limits also use radians and include both boundary values. Limits on
 dependent joints are checked after coupling expressions have been evaluated.
+
+Once a design carries datums, named mates and limits, it can be swept for
+clearance without meshing: build it with `representation="sdf"` and hand the
+result to `yapcad.rom`. See the [ROM sweep guide](rom_guide.rst).
 
 Joint couplings currently operate on revolute mate coordinates. Each coupling
 names its dependent joint explicitly, making chained dependencies deterministic

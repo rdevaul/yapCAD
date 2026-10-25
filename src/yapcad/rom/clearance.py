@@ -1,299 +1,247 @@
-"""SDF-based pairwise clearance between adjacent kinematic links.
+"""Clearance between two parts, measured on their fields.
 
-Given two adjacent solids ``A`` (parent) and ``B`` (child), each with a
-compiled SDF node, evaluates the *minimum signed distance* between them
-at a given configuration by:
+The measurement is one line of geometry: *sample the second part, ask the
+first part's field how far away those samples are*. Both parts are SDF
+nodes, so there is no mesh, no boolean, and no tessellation tolerance --
+only the sampling pitch, which the caller sets and the result reports.
 
-1. Sampling a coarse grid of points in link B's bounding box.
-2. Transforming those points into link A's local frame via the kinematic
-   chain's world transforms.
-3. Evaluating A's SDF at those points — a negative value means B penetrates
-   A; the minimum across all points is the *bottleneck clearance*.
+    for each grid point p inside part B (B's own frame)
+        d = SDF_A( A_world^-1 @ B_world @ p )
+    clearance = min d
 
-No meshing is needed because the SDF is an analytic field that can be
-evaluated at any query point.
+A negative result means B is inside A by that much.
 
-Usage::
+Accuracy
+========
+Samples are kept within half a cell of B's surface -- inside it, or just
+outside by less than that -- so the reported distance is the true distance
+to within half the cell diagonal, which every :class:`Clearance` carries
+as ``tolerance_mm``. Nothing else biases it: a sampling margin wider than
+the cell, as this code once had, subtracts itself from every answer.
 
-    from yapcad.rom import clearance_sdf
-
-    node_a = tree.get_sdf_node("THIGH_LINK")
-    node_b = tree.get_sdf_node("SHIN_LINK")
-    tf_a = tree.get_world_transform("THIGH_LINK")
-    tf_b = tree.get_world_transform("SHIN_LINK")
-
-    # Minimum clearance across the interface (negative = interference)
-    clr = clearance_sdf(node_a, node_b, tf_a, tf_b)
-    print(f"Min distance: {clr['min_distance']:.2f} mm")
-
-For parts without SDF representations (imported meshes, legacy STL
-imports), :func:`clearance_mesh` provides a KD-tree-based surface-distance
-fallback using trimesh.
+Set the pitch against the clearance you care about. At the default 1 mm
+pitch a 0.5 mm interference is resolved; looking for a 0.1 mm one needs a
+finer pitch, and the result will say so through ``tolerance_mm``.
 """
 
 from __future__ import annotations
 
-import logging
-from typing import Any, Dict, List, Optional, Tuple
+import math
+from dataclasses import dataclass
+from typing import Tuple
 
 import numpy as np
 
-from yapcad.kinematics import Transform
+from .model import RomError
 
-logger = logging.getLogger(__name__)
+__all__ = [
+    "Clearance",
+    "clearance_sdf",
+    "bounds_clearance",
+    "world_bounds",
+]
 
-# Default grid resolution for SDF clearance check
-_DEFAULT_GRID_RESOLUTION = 32  # points per axis → 32k total per pair
+# A pair this far apart (mm, after the bounds test) is not worth sampling.
+DEFAULT_PITCH_MM = 1.0
+DEFAULT_MAX_SAMPLES = 2_000_000
+
+
+@dataclass(frozen=True)
+class Clearance:
+    """What one pair measured at one configuration.
+
+    Attributes:
+        min_distance: Smallest signed distance found, in mm. Negative
+            means the parts overlap by that much.
+        penetration: ``-min_distance`` when negative, else 0.0.
+        mean_distance: Mean signed distance over the sampled points.
+        fraction_inside: Share of sampled points inside the other part.
+        samples: Points actually evaluated.
+        pitch_mm: Sampling pitch used, which may be coarser than asked
+            for if the part needed more samples than were allowed.
+        tolerance_mm: Bound on the error in ``min_distance``: the true
+            distance is within this much of it. Zero for a ``"bounds"``
+            result, whose error is one-sided -- the parts are at least
+            ``min_distance`` apart, possibly more.
+        method: ``"field"`` when sampled, ``"bounds"`` when the parts'
+            bounding boxes were far enough apart to answer without
+            sampling -- then ``min_distance`` is a lower bound.
+    """
+
+    min_distance: float
+    penetration: float
+    mean_distance: float
+    fraction_inside: float
+    samples: int
+    pitch_mm: float
+    tolerance_mm: float
+    method: str = "field"
+
+    @property
+    def interferes(self) -> bool:
+        return self.min_distance < 0.0
+
+    @property
+    def resolved(self) -> bool:
+        """False when the result is smaller than its own error bound."""
+        return abs(self.min_distance) > self.tolerance_mm
+
+    def describe(self) -> str:
+        return (f"{self.min_distance:+.3f} mm "
+                f"(+/- {self.tolerance_mm:.3f}, {self.method})")
+
+
+def _matrix(transform) -> np.ndarray:
+    """A 4x4 matrix from a matrix, a nested list, or a ``Transform``."""
+    if transform is None:
+        return np.eye(4)
+    candidate = getattr(transform, "matrix", transform)
+    matrix = np.asarray(candidate, dtype=float)
+    if matrix.shape != (4, 4):
+        raise RomError(
+            f"A pose must be a 4x4 transform, got shape {matrix.shape}."
+        )
+    return matrix
+
+
+def _finite_bounds(field, role: str) -> Tuple[Tuple[float, ...], ...]:
+    bounds = getattr(field, "bounds", None)
+    if bounds is None:
+        raise RomError(f"The {role} field has no bounds.")
+    lo, hi = bounds
+    for value in (*lo, *hi):
+        if not math.isfinite(value):
+            raise RomError(
+                f"The {role} field is unbounded ({bounds}), so it cannot be "
+                "sampled. Intersect it with a finite region first."
+            )
+    if any(high < low for low, high in zip(lo, hi)):
+        raise RomError(f"The {role} field is empty ({bounds}).")
+    return (tuple(float(v) for v in lo), tuple(float(v) for v in hi))
+
+
+def world_bounds(field, transform) -> Tuple[Tuple[float, ...], ...]:
+    """Axis-aligned world bounds of ``field`` placed by ``transform``."""
+    lo, hi = _finite_bounds(field, "placed")
+    corners = np.array([[x, y, z, 1.0]
+                        for x in (lo[0], hi[0])
+                        for y in (lo[1], hi[1])
+                        for z in (lo[2], hi[2])])
+    placed = (_matrix(transform) @ corners.T).T[:, :3]
+    return (tuple(placed.min(axis=0)), tuple(placed.max(axis=0)))
+
+
+def bounds_clearance(field_a, field_b, tf_a, tf_b) -> float:
+    """A lower bound on the distance between two placed fields.
+
+    Cheap, and exact enough to dismiss a pair: if the bounding boxes are
+    8 mm apart the parts are at least 8 mm apart. Returns 0.0 when the
+    boxes overlap, which says nothing about the parts themselves.
+    """
+    lo_a, hi_a = world_bounds(field_a, tf_a)
+    lo_b, hi_b = world_bounds(field_b, tf_b)
+    gaps = [max(0.0, lo_b[i] - hi_a[i], lo_a[i] - hi_b[i])
+            for i in range(3)]
+    return float(math.sqrt(sum(g * g for g in gaps)))
+
+
+def _grid(lo, hi, pitch: float, max_samples: int):
+    """Sample counts per axis, and the pitch actually achievable."""
+    extents = [max(hi[i] - lo[i], 0.0) for i in range(3)]
+    used = float(pitch)
+    for _ in range(32):
+        counts = [max(2, int(math.ceil(e / used)) + 1) for e in extents]
+        total = counts[0] * counts[1] * counts[2]
+        if total <= max_samples:
+            return counts, used
+        # Coarsen by the cube root of the overshoot; the result records
+        # the pitch it ended up with, so this cannot pass unnoticed.
+        used *= (total / max_samples) ** (1.0 / 3.0)
+    raise RomError(
+        f"Sampling this part needs more than {max_samples} points even at "
+        f"a {used:.3f} mm pitch; raise max_samples or coarsen the pitch."
+    )
 
 
 def clearance_sdf(
-    node_a,
-    node_b,
-    tf_a: Transform,
-    tf_b: Transform,
-    resolution: int = _DEFAULT_GRID_RESOLUTION,
-    padding: float = 2.0,
-) -> Dict[str, Any]:
-    """Compute pairwise clearance between two adjacent SDF solids.
-
-    Evaluates B's geometry (sampled point grid) against A's field:
-    negative values indicate penetration of B into A.
+    field_a,
+    field_b,
+    tf_a=None,
+    tf_b=None,
+    *,
+    pitch_mm: float = DEFAULT_PITCH_MM,
+    max_samples: int = DEFAULT_MAX_SAMPLES,
+) -> Clearance:
+    """Measure the clearance of ``field_b`` against ``field_a``.
 
     Args:
-        node_a: SDF ``Node`` for the parent link (or fixed part).
-        node_b: SDF ``Node`` for the child link.
-        tf_a: World transform of A.
-        tf_b: World transform of B.
-        resolution: Samples per axis for B's bounding-box grid.
-        padding: Extra padding (mm) around B's bounding box.
+        field_a: SDF node whose field is evaluated.
+        field_b: SDF node that is sampled.
+        tf_a: World pose of A (4x4 matrix or ``Transform``; identity if
+            None).
+        tf_b: World pose of B.
+        pitch_mm: Target spacing between samples, in mm. The tolerance of
+            the answer follows from it.
+        max_samples: Ceiling on points sampled for one measurement.
 
     Returns:
-        ``dict`` with keys:
-        - ``min_distance``: Minimum signed distance (mm). Negative = interference.
-        - ``penetration_depth``: How deeply B penetrates A (mm), 0 if no penetration.
-        - ``mean_distance``: Mean signed distance across all grid points.
-        - ``within_5mm``: Fraction of points within 5 mm of A's surface.
-        - ``within_2mm``: Fraction within 2 mm.
-        - ``fraction_negative``: Fraction of B grid points inside A.
-        - ``grid_points``: Total grid points evaluated.
-        - ``full_results``: ``(values, axes)`` tuple from ``sdf.sample_grid``.
+        A :class:`Clearance`. ``min_distance`` is negative when B reaches
+        inside A.
     """
     from yapcad.sdf import evaluate, sample_grid
 
-    # Get B's bounds in world space, add padding
-    bounds_b = node_b.bounds
-    if not bounds_b or _is_empty(bounds_b):
-        return {
-            "min_distance": float("inf"),
-            "penetration_depth": 0.0,
-            "mean_distance": float("inf"),
-            "within_5mm": 0.0,
-            "within_2mm": 0.0,
-            "fraction_negative": 0.0,
-            "grid_points": 0,
-            "full_results": None,
-        }
+    if pitch_mm <= 0.0:
+        raise RomError(f"pitch_mm must be positive, got {pitch_mm}.")
 
-    lo_b, hi_b = bounds_b
-    # Apply padding
-    padded_lo = tuple(v - padding for v in lo_b)
-    padded_hi = tuple(v + padding for v in hi_b)
-    padded_bounds = (padded_lo, padded_hi)
+    lo, hi = _finite_bounds(field_b, "sampled")
+    counts, pitch = _grid(lo, hi, pitch_mm, max_samples)
 
-    # NB: The bounds above are in B's *local* coordinate system.
-    # We need to sample *in world space* because the SDF node_b is
-    # defined in B's local frame (it was compiled from the DSL without
-    # any world transform applied).  Since the SDF is not aware of the
-    # kinematic world transform, we must transform the query points.
-
-    # Strategy: sample a grid in B-local space, transform those points
-    # to world space, then transform from world to A's local frame
-    # to evaluate node_a.
-
-    # Build local grid for B
-    if _is_infinite_bounds(padded_bounds):
-        # Fallback: use B's finite sub-regions
-        logger.warning("Node B has infinite bounds; using fallback bounds")
-        for axis in range(3):
-            if abs(padded_lo[axis]) > 1e6 or abs(padded_hi[axis]) > 1e6:
-                padded_lo = list(padded_lo)
-                padded_hi = list(padded_hi)
-                padded_lo[axis] = -200.0
-                padded_hi[axis] = 200.0
-                padded_bounds = (tuple(padded_lo), tuple(padded_hi))
-                break
+    # A part thinner than one cell on some axis still needs two planes of
+    # samples either side of its surface.
+    region_lo, region_hi = list(lo), list(hi)
+    for axis in range(3):
+        if region_hi[axis] - region_lo[axis] < pitch:
+            middle = 0.5 * (region_lo[axis] + region_hi[axis])
+            region_lo[axis] = middle - 0.5 * pitch
+            region_hi[axis] = middle + 0.5 * pitch
 
     values, axes = sample_grid(
-        node_b,
-        bounds=padded_bounds,
-        resolution=resolution,
+        field_b, bounds=(tuple(region_lo), tuple(region_hi)),
+        resolution=counts,
     )
 
-    grid_points = values.size
-    if grid_points == 0:
-        return {
-            "min_distance": float("inf"),
-            "penetration_depth": 0.0,
-            "mean_distance": float("inf"),
-            "within_5mm": 0.0,
-            "within_2mm": 0.0,
-            "fraction_negative": 0.0,
-            "grid_points": 0,
-            "full_results": None,
-        }
+    steps = [(region_hi[i] - region_lo[i]) / max(counts[i] - 1, 1)
+             for i in range(3)]
+    tolerance = 0.5 * math.sqrt(sum(s * s for s in steps))
 
-    # Build world-frame grid of B's surface region
-    mask = np.abs(values) < 10.0  # Only consider points near B's surface
-    if not mask.any():
-        mask = np.ones_like(values, dtype=bool)  # Fallback: use all
+    # Keep the samples that sit at or inside B's surface, within half a
+    # cell of it. Points further out belong to no part and would drag the
+    # minimum down with them.
+    keep = (values <= tolerance).ravel()
+    if not keep.any():
+        raise RomError(
+            "The sampled part has no interior at this pitch "
+            f"({pitch:.3f} mm); use a finer pitch."
+        )
 
-    # Get the surface-adjacent points in B's local frame
-    xs, ys, zs = axes
-    X, Y, Z = np.meshgrid(xs, ys, zs, indexing="ij")
-    local_b_points = np.stack([X.ravel(), Y.ravel(), Z.ravel()], axis=1)
-    surface_b = local_b_points[mask.ravel()]
+    mesh = np.meshgrid(*axes, indexing="ij")
+    points = np.stack([m.ravel() for m in mesh], axis=1)[keep]
 
-    if len(surface_b) == 0:
-        surface_b = local_b_points
+    homogeneous = np.ones((len(points), 4))
+    homogeneous[:, :3] = points
+    world = (_matrix(tf_b) @ homogeneous.T).T
+    world[:, 3] = 1.0
+    local_a = (np.linalg.inv(_matrix(tf_a)) @ world.T).T[:, :3]
 
-    # Convert to homogeneous coordinates for transform
-    n_pts = len(surface_b)
-    homo_b = np.ones((n_pts, 4), dtype=float)
-    homo_b[:, :3] = surface_b
-
-    # B-local → world
-    tf_b_mat = tf_b.matrix
-    world_pts = (tf_b_mat @ homo_b.T).T[:, :3]
-
-    # World → A-local
-    tf_a_inv = tf_a.inverse()
-    tf_a_inv_mat = tf_a_inv.matrix
-    homo_world = np.ones((n_pts, 4), dtype=float)
-    homo_world[:, :3] = world_pts
-    local_a_pts = (tf_a_inv_mat @ homo_world.T).T[:, :3]
-
-    # Evaluate A's SDF at the transformed points
-    from yapcad.sdf import evaluate as sdf_eval
-    distances = sdf_eval(node_a, local_a_pts)
-
-    # Statistics
-    min_dist = float(distances.min()) if len(distances) > 0 else float("inf")
-    mean_dist = float(distances.mean()) if len(distances) > 0 else float("inf")
-    frac_neg = float((distances < 0).mean()) if len(distances) > 0 else 0.0
-    frac_5mm = float((distances < 5.0).mean()) if len(distances) > 0 else 0.0
-    frac_2mm = float((distances < 2.0).mean()) if len(distances) > 0 else 0.0
-
-    penetration = -min_dist if min_dist < 0 else 0.0
-
-    return {
-        "min_distance": min_dist,
-        "penetration_depth": penetration,
-        "mean_distance": mean_dist,
-        "within_5mm": frac_5mm,
-        "within_2mm": frac_2mm,
-        "fraction_negative": frac_neg,
-        "grid_points": n_pts,
-        "full_results": (distances, surface_b),
-    }
-
-
-def clearance_mesh(
-    mesh_a,
-    mesh_b,
-    tf_a: Transform,
-    tf_b: Transform,
-    n_samples: int = 5000,
-) -> Dict[str, Any]:
-    """Mesh-based clearance when SDF nodes are unavailable.
-
-    Falls back to sampling surface points from mesh B and checking
-    containment in mesh A (through trimesh).
-
-    Args:
-        mesh_a: trimesh.Trimesh or path to STL for parent link.
-        mesh_b: trimesh.Trimesh or path to STL for child link.
-        tf_a: World transform of A.
-        tf_b: World transform of B.
-        n_samples: Number of surface sample points per mesh.
-
-    Returns:
-        ``dict`` with same key shape as :func:`clearance_sdf`.
-    """
-    import trimesh
-    from scipy.spatial import cKDTree
-
-    # Load meshes
-    if isinstance(mesh_a, str):
-        mesh_a = trimesh.load(mesh_a, force="mesh")
-    if isinstance(mesh_b, str):
-        mesh_b = trimesh.load(mesh_b, force="mesh")
-
-    ma = mesh_a.copy()
-    mb = mesh_b.copy()
-    ma.apply_transform(tf_a.matrix)
-    mb.apply_transform(tf_b.matrix)
-
-    # Sample surface points
-    pts_a, _ = trimesh.sample.sample_surface(ma, n_samples)
-    pts_b, _ = trimesh.sample.sample_surface(mb, n_samples)
-
-    # Build KD-trees
-    tree_a = cKDTree(pts_a)
-    tree_b = cKDTree(pts_b)
-
-    da, _ = tree_b.query(pts_a)
-    db, _ = tree_a.query(pts_b)
-
-    min_dist = min(float(da.min()), float(db.min()))
-    mean_dist = float(np.mean(np.concatenate([da, db])))
-    frac_5mm = float((da < 5.0).mean() + (db < 5.0).mean()) / 2.0
-    frac_2mm = float((da < 2.0).mean() + (db < 2.0).mean()) / 2.0
-
-    penetration = -min_dist if min_dist < 0 else 0.0
-
-    return {
-        "min_distance": min_dist,
-        "penetration_depth": penetration,
-        "mean_distance": mean_dist,
-        "within_5mm": frac_5mm,
-        "within_2mm": frac_2mm,
-        "fraction_negative": float((da < 0).mean()) if min_dist < 0 else 0.0,
-        "grid_points": 2 * n_samples,
-        "full_results": None,
-    }
-
-
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
-
-def _is_empty(bounds) -> bool:
-    lo, hi = bounds
-    for a, b in zip(lo, hi):
-        if b <= a:
-            return True
-    return False
-
-
-def _is_infinite_bounds(bounds) -> bool:
-    lo, hi = bounds
-    for v in list(lo) + list(hi):
-        if abs(v) > 1e6:
-            return True
-    return False
-
-
-def _repair_bounds(bounds) -> Tuple[Tuple, Tuple]:
-    """Replace infinite/unbounded axes with a finite fallback."""
-    lo, hi = list(bounds[0]), list(bounds[1])
-    for i in range(3):
-        if abs(lo[i]) > 1e6 or abs(hi[i]) > 1e6:
-            lo[i] = -200.0
-            hi[i] = 200.0
-    return (tuple(lo), tuple(hi))
-
-
-__all__ = [
-    "clearance_sdf",
-    "clearance_mesh",
-]
+    distances = evaluate(field_a, local_a)
+    minimum = float(distances.min())
+    return Clearance(
+        min_distance=minimum,
+        penetration=-minimum if minimum < 0.0 else 0.0,
+        mean_distance=float(distances.mean()),
+        fraction_inside=float((distances < 0.0).mean()),
+        samples=int(distances.size),
+        pitch_mm=float(pitch),
+        tolerance_mm=float(tolerance),
+        method="field",
+    )

@@ -1,428 +1,537 @@
-"""Range-of-Motion sweep: iterate DOF space and detect interferences.
+"""Sweep an assembly's joints and measure clearance at every pose.
 
-Orchestrates a kinematic sweep across one or more joint DOFs, computing
-pairwise clearance for each configuration and recording any interference
-events.  The sweep can be:
+One sweep is: a set of joint values per configuration, the assembly's own
+solver for the poses, and :func:`~yapcad.rom.clearance.clearance_sdf` for
+each pair of parts that is worth measuring. Nothing is meshed.
 
-- **Single-DOF**: Sweep one joint through its range while holding others at
-  zero pose.
-- **Multi-DOF product space**: Sweep combinations (use with small step counts
-  for higher dimensions to avoid combinatorial explosion).
-- **Specific configurations**: Pass an explicit list of angle dicts.
+    model = RomModel.from_result(result)
+    schedule = schedule_from_model(model, step_deg=5.0)
+    sweep = sweep_rom(model, schedule)
+    print(sweep.summary())
 
-The clearance for each configuration is computed via the SDF field (no
-meshing), so even a 4-DOF sweep at coarse resolution completes in seconds.
+What the sweep will not do is look clean when it measured nothing. A pair
+it cannot measure is an error unless ``skip_unmeasurable`` is set, in
+which case it is counted, named with its reason, and reported in every
+summary. Joint values outside the design's own limits are refused rather
+than clamped, and an unknown joint name is refused rather than ignored.
 """
 
 from __future__ import annotations
 
-import itertools
 import logging
-from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+import math
+from dataclasses import dataclass, field as dataclass_field
+from typing import (
+    Dict, Iterable, List, Mapping, Optional, Sequence, Tuple, Union,
+)
 
-import numpy as np
-
-from .tree import RomTree
-from .clearance import clearance_sdf, clearance_mesh
+from .clearance import (
+    Clearance, DEFAULT_MAX_SAMPLES, DEFAULT_PITCH_MM, bounds_clearance,
+    clearance_sdf,
+)
+from .model import RomError, RomModel
 
 logger = logging.getLogger(__name__)
 
+__all__ = [
+    "SweepConfig",
+    "PairSample",
+    "SweepResult",
+    "sweep_rom",
+    "schedule_from_model",
+    "radian_range",
+]
 
-@dataclass
-class InterferenceEvent:
-    """Record of one clearance violation at a specific configuration.
-
-    Attributes:
-        config: Joint angle dict for this configuration.
-        pair: ``(parent_name, child_name)`` adjacent pair.
-        min_distance: Minimum signed distance (mm).  Negative = interference.
-        penetration_depth: Magnitude of penetration (mm).
-        pairwise_results: Full dict from the clearance function.
-    """
-
-    config: Dict[str, float]
-    pair: Tuple[str, str]
-    min_distance: float
-    penetration_depth: float
-    pairwise_results: Dict[str, Any] = field(default_factory=dict)
+Pair = Tuple[str, str]
+Schedule = Mapping[str, Sequence[float]]
 
 
-@dataclass
+@dataclass(frozen=True)
 class SweepConfig:
-    """Configuration for a kinematic ROM sweep.
+    """How a sweep measures, and what it calls interference.
 
     Attributes:
-        step_deg: Default step size in degrees for revolute joints.
-        step_mm: Default step size in mm for prismatic joints.
-        clearance_threshold: Distance below which is flagged as ``near`` (mm).
-        interference_threshold: Distance below which is flagged as
-            interference (mm).  Usually zero or slightly negative to
-            account for numerical tolerance.
-        sdf_resolution: Grid resolution per axis for clearance evaluation.
-        sdf_padding: Padding around the child bounding box (mm).
-        max_pairs: Maximum number of adjacent pairs to check per config.
-            Set to 0 for "no limit".
-        progress: Log progress every N configurations (0 = no logging).
-        early_stop: Stop after this many interference events (0 = no limit).
+        pitch_mm: Sampling pitch handed to the clearance measurement. The
+            tolerance of every result follows from it.
+        clearance_threshold: Distances below this (mm) are reported as
+            near misses. Pairs whose bounding boxes are further apart
+            than this are resolved from the bounds alone.
+        interference_threshold: Distances below this (mm) are reported as
+            interference. 0.0 means "touching or overlapping".
+        max_samples: Ceiling on sample points for one measurement.
+        skip_unmeasurable: Carry on when a pair has no field on one side,
+            recording the reason, instead of raising.
+        progress: Log progress every N configurations (0 = never).
+        early_stop: Stop after this many interference events (0 = never).
     """
 
-    step_deg: float = 5.0
-    step_mm: float = 2.0
+    pitch_mm: float = DEFAULT_PITCH_MM
     clearance_threshold: float = 5.0
     interference_threshold: float = 0.0
-    sdf_resolution: int = 32
-    sdf_padding: float = 2.0
-    max_pairs: int = 0
-    progress: int = 50
+    max_samples: int = DEFAULT_MAX_SAMPLES
+    skip_unmeasurable: bool = False
+    progress: int = 0
     early_stop: int = 0
+
+
+@dataclass(frozen=True)
+class PairSample:
+    """One pair of parts, measured at one configuration."""
+
+    pair: Pair
+    config: Mapping[str, float]
+    clearance: Clearance
+
+    @property
+    def min_distance(self) -> float:
+        return self.clearance.min_distance
+
+    def describe(self) -> str:
+        return (f"{_config_text(self.config)} | {self.pair[0]} - "
+                f"{self.pair[1]}: {self.clearance.describe()}")
 
 
 @dataclass
 class SweepResult:
-    """Aggregated results from a kinematic sweep.
+    """Everything one sweep measured.
 
-    Attributes:
-        tree: The :class:`RomTree` used for the sweep.
-        config: The :class:`SweepConfig` used.
-        events: List of :class:`InterferenceEvent` (clearance violations).
-        near_misses: Configurations where clearance was below threshold.
-        pair_trace: Full clearance trace per pair::
-            ``{(parent, child): [(config_name, min_dist, mean_dist), ...]}``
-        n_configurations: Total configurations evaluated.
-        clearance_summary: Per-dof-name or per-configuration summary.
+    ``samples`` holds one :class:`PairSample` per pair per configuration;
+    ``events`` and ``near_misses`` are views over it, so the thresholds
+    can be reconsidered without sweeping again.
     """
 
-    tree: RomTree
-    config: SweepConfig = field(default_factory=SweepConfig)
-    events: List[InterferenceEvent] = field(default_factory=list)
-    near_misses: List[InterferenceEvent] = field(default_factory=list)
-    pair_trace: Dict[Tuple[str, str], list] = field(default_factory=dict)
-    n_configurations: int = 0
-    clearance_summary: Dict[str, Any] = field(default_factory=dict)
+    model: RomModel
+    config: SweepConfig
+    schedule: Dict[str, List[float]] = dataclass_field(default_factory=dict)
+    pairs: Tuple[Pair, ...] = ()
+    samples: List[PairSample] = dataclass_field(default_factory=list)
+    skipped: Dict[Pair, str] = dataclass_field(default_factory=dict)
+    configurations: int = 0
+    stopped_early: bool = False
+
+    # -- views -----------------------------------------------------------
+
+    @property
+    def events(self) -> List[PairSample]:
+        limit = self.config.interference_threshold
+        return [s for s in self.samples if s.min_distance < limit]
+
+    @property
+    def near_misses(self) -> List[PairSample]:
+        low = self.config.interference_threshold
+        high = self.config.clearance_threshold
+        return [s for s in self.samples if low <= s.min_distance < high]
+
+    @property
+    def measured(self) -> int:
+        return sum(1 for s in self.samples
+                   if s.clearance.method == "field")
+
+    @property
+    def from_bounds(self) -> int:
+        return sum(1 for s in self.samples
+                   if s.clearance.method == "bounds")
+
+    def trace(self, part_a: str, part_b: str) -> List[PairSample]:
+        """Every measurement of one pair, in sweep order."""
+        want = {(part_a, part_b), (part_b, part_a)}
+        return [s for s in self.samples if s.pair in want]
+
+    def worst(self) -> Optional[PairSample]:
+        """The smallest clearance measured, or None if nothing was."""
+        if not self.samples:
+            return None
+        return min(self.samples, key=lambda s: s.min_distance)
+
+    def pair_minima(self) -> Dict[Pair, PairSample]:
+        """The worst configuration for each pair."""
+        minima: Dict[Pair, PairSample] = {}
+        for sample in self.samples:
+            current = minima.get(sample.pair)
+            if current is None or sample.min_distance < current.min_distance:
+                minima[sample.pair] = sample
+        return minima
+
+    # -- reporting -------------------------------------------------------
 
     def summary(self) -> str:
-        """Human-readable summary of the sweep results."""
-        if self.n_configurations == 0:
-            return "No configurations were evaluated."
-
+        """A short report that cannot be mistaken for a clean result."""
         lines = [
-            f"Sweep: {self.tree.name}",
-            f"  Configurations evaluated: {self.n_configurations}",
-            f"  Interference events:      {len(self.events)}",
-            f"  Near misses (< {self.config.clearance_threshold} mm): {len(self.near_misses)}",
+            f"Sweep of '{getattr(self.model.assembly, 'name', '?')}': "
+            f"{self.configurations} configuration(s), "
+            f"{len(self.pairs)} pair(s)",
         ]
+        if self.schedule:
+            for name, values in self.schedule.items():
+                lines.append(f"  {name}: {_range_text(values)}")
 
-        if self.events:
-            lines.append("\n  Worst interferences:")
-            for ev in sorted(
-                self.events, key=lambda e: e.min_distance
-            )[:5]:
-                config_str = _format_config(ev.config)
-                lines.append(
-                    f"    {config_str} | "
-                    f"{ev.pair[0]} ↔ {ev.pair[1]}: "
-                    f"{ev.min_distance:.2f} mm "
-                    f"(penetration {ev.penetration_depth:.2f} mm)"
-                )
-
-        if self.pair_trace:
-            lines.append("\n  Pair clearance minima:")
-            for pair, trace in self.pair_trace.items():
-                valid = [t[1] for t in trace if t[1] != float('inf')]
-                if not valid:
-                    continue
-                minima = min(valid)
-                maxima = max(valid)
-                lines.append(
-                    f"    {pair[0]} ↔ {pair[1]}: "
-                    f"[{minima:.2f}, {maxima:.2f}] mm"
-                )
-
-        return "\n".join(lines)
-
-    def worst_interference(self) -> Optional[InterferenceEvent]:
-        """Return the event with the most negative clearance."""
-        if not self.events:
-            return None
-        return min(self.events, key=lambda e: e.min_distance)
-
-    def clearance_at(self, part_a: str, part_b: str) -> list:
-        """Get the clearance trace for a specific pair.
-
-        Returns:
-            List of ``(config_key, min_distance, mean_distance)`` tuples.
-        """
-        return self.pair_trace.get((part_a, part_b), [])
-
-
-# ---------------------------------------------------------------------------
-# Sweep orchestration
-# ---------------------------------------------------------------------------
-
-def dof_schedule_from_tree(
-    tree: RomTree,
-    step_deg: float = 5.0,
-) -> Dict[str, Tuple[float, float, float]]:
-    """Build a default DOF sweep schedule from the tree's joint limits.
-
-    For each link with a revolute or prismatic joint, produces
-    ``(min, max + step, step)``, suitable for ``numpy.arange`` or
-    the sweep runner.
-
-    Args:
-        tree: The kinematic tree.
-        step_deg: Angular step size in degrees.
-
-    Returns:
-        ``{link_name: (start, stop, step)}`` dict.
-    """
-    schedule = {}
-    for name, link in tree.links.items():
-        lo, hi = link.limits
-        jk = link.joint_kind
-        if jk == "revolute":
-            step = step_deg
-        elif jk == "prismatic":
-            step = step_deg  # Could use a separate step_mm
+        if not self.samples:
+            lines.append("  NOTHING WAS MEASURED -- this is not a clean "
+                         "result.")
         else:
-            continue  # Fixed — no sweep
-        schedule[name] = (float(lo), float(hi + step), step)
-    return schedule
-
-
-def _config_key(angles: Dict[str, float]) -> str:
-    """Compact string key for a configuration dict."""
-    parts = []
-    for name, val in sorted(angles.items()):
-        if abs(round(val, 1)) == round(val, 1):
-            parts.append(f"{name}={val:.0f}")
-        else:
-            parts.append(f"{name}={val:.1f}")
-    return ", ".join(parts)
-
-
-def _format_config(config: Dict[str, float]) -> str:
-    short = {}
-    for k, v in config.items():
-        short[k] = f"{v:.1f}°" if abs(v) < 1000 else f"{v:.0f}mm"
-    return ", ".join(f"{k}={v}" for k, v in short.items())
-
-
-def sweep_kinematics(
-    tree: RomTree,
-    *sweep_schedules: Dict[str, Tuple[float, float, float]],
-    config: Optional[SweepConfig] = None,
-    extra_pairs: Optional[List[Tuple[str, str]]] = None,
-    fixed_angles: Optional[Dict[str, float]] = None,
-) -> SweepResult:
-    """Run a ROM sweep across one or more DOFs.
-
-    Args:
-        tree: The kinematic tree with link metadata.
-        *sweep_schedules: One or more ``{link_name: (start, stop, step)}``
-            dicts.  Multiple schedules produce a product space (use with
-            caution beyond 3 dimensions).
-        config: Sweep config (step sizes, thresholds, resolution).
-            Uses defaults if ``None``.
-        extra_pairs: Additional part pairs to check beyond the tree's
-            adjacent pairs.  ``[(name_a, name_b), ...]``.
-        fixed_angles: Joint angles to hold at fixed values across all
-            configurations.  These are applied *after* the sweep
-            DOF values.
-
-    Returns:
-        :class:`SweepResult` with all events and pair traces.
-
-    Example::
-
-        result = sweep_kinematics(
-            tree,
-            {"HIP_ROLL": (-45, 46, 5)},
-            {"KNEE_PITCH": (0, 136, 5)},
-            fixed_angles={"HIP_YAW": 0.0},
-        )
-        print(result.summary())
-    """
-    cfg = config or SweepConfig()
-    result = SweepResult(tree=tree, config=cfg)
-    fixed = fixed_angles or {}
-
-    # Build configuration list
-    # Convert each schedule to a list of values
-    dof_values: Dict[str, List[float]] = {}
-    for schedule in sweep_schedules:
-        for name, (start, stop, step) in schedule.items():
-            # Determine if degrees or mm based on joint kind
-            dof_values[name] = np.arange(start, stop, step).tolist()
-
-    if not dof_values:
-        # If no schedules provided, use the tree's default schedule
-        dof_values = dof_schedule_from_tree(tree, cfg.step_deg)
-
-    # Generate all configurations (product space if multiple DOFs)
-    dof_names = list(dof_values.keys())
-    value_lists = [dof_values[n] for n in dof_names]
-
-    all_configs = []
-    for combo in itertools.product(*value_lists):
-        angles = dict(zip(dof_names, combo))
-        angles.update(fixed)
-        all_configs.append(angles)
-
-    # Identify adjacent pairs to check
-    pairs_to_check: List[Tuple[str, str]] = list(tree.adjacent_pairs())
-    if extra_pairs:
-        # Only add pairs where both parts exist in the tree
-        link_names = set(tree.links.keys())
-        for a, b in extra_pairs:
-            if a in link_names and b in link_names:
-                pairs_to_check.append((a, b))
-
-    # Limit pair count if configured
-    if cfg.max_pairs > 0:
-        pairs_to_check = pairs_to_check[:cfg.max_pairs]
-
-    if not pairs_to_check:
-        logger.warning("No adjacent pairs to check; sweep is a no-op.")
-
-    # Initialize pair traces
-    for pair in pairs_to_check:
-        result.pair_trace[pair] = []
-
-    # Sweep loop
-    n_configs = len(all_configs)
-    result.n_configurations = n_configs
-
-    for idx, angles in enumerate(all_configs):
-        tree.set_joints(angles)
-
-        config_key = _config_key(angles)
-
-        if cfg.progress and idx > 0 and idx % cfg.progress == 0:
-            logger.info(
-                "Sweep %s: %d / %d (%.0f%%) ...",
-                tree.name,
-                idx,
-                n_configs,
-                100.0 * idx / n_configs,
+            lines.append(
+                f"  measurements: {self.measured} sampled, "
+                f"{self.from_bounds} resolved from bounding boxes"
+            )
+            worst = self.worst()
+            lines.append(
+                f"  closest approach: {worst.describe()}"
+            )
+            lines.append(
+                f"  interference (< {self.config.interference_threshold} "
+                f"mm): {len(self.events)}"
+            )
+            lines.append(
+                f"  near misses (< {self.config.clearance_threshold} mm): "
+                f"{len(self.near_misses)}"
             )
 
-        for pair in pairs_to_check:
-            p, c = pair
-            node_p = tree.get_sdf_node(p)
-            node_c = tree.get_sdf_node(c)
-            tf_p = tree.get_world_transform(p)
-            tf_c = tree.get_world_transform(c)
+        if self.skipped:
+            lines.append(f"  pairs NOT measured: {len(self.skipped)}")
+            for pair, reason in sorted(self.skipped.items()):
+                lines.append(f"    {pair[0]} - {pair[1]}: {reason}")
 
-            has_sdf = node_p is not None and node_c is not None
+        if self.stopped_early:
+            lines.append("  stopped early; the sweep is incomplete.")
 
-            if has_sdf:
-                clr = clearance_sdf(
-                    node_p, node_c,
-                    tf_p, tf_c,
-                    resolution=cfg.sdf_resolution,
-                    padding=cfg.sdf_padding,
+        events = self.events
+        if events:
+            lines.append("  worst interferences:")
+            for sample in sorted(events, key=lambda s: s.min_distance)[:5]:
+                lines.append(f"    {sample.describe()}")
+
+        unresolved = [s for s in self.samples
+                      if s.clearance.method == "field"
+                      and not s.clearance.resolved]
+        if unresolved:
+            lines.append(
+                f"  {len(unresolved)} measurement(s) smaller than the "
+                f"sampling tolerance; refine pitch_mm to resolve them."
+            )
+        return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Schedules
+# ---------------------------------------------------------------------------
+
+def radian_range(
+    start_deg: float, stop_deg: float, step_deg: float
+) -> List[float]:
+    """Degrees in, radians out, with ``stop_deg`` included.
+
+    Joint values are radians everywhere in this package, matching
+    ``set_mate_limits``; this is the convenience that keeps the degrees
+    a designer thinks in out of the sweep itself.
+    """
+    if step_deg <= 0.0:
+        raise RomError(f"step_deg must be positive, got {step_deg}.")
+    if stop_deg < start_deg:
+        raise RomError(
+            f"stop_deg ({stop_deg}) is below start_deg ({start_deg})."
+        )
+    steps = int(math.floor((stop_deg - start_deg) / step_deg + 1e-9))
+    values = [start_deg + i * step_deg for i in range(steps + 1)]
+    if values[-1] < stop_deg - 1e-9:
+        values.append(stop_deg)
+    return [math.radians(v) for v in values]
+
+
+def schedule_from_model(
+    model: RomModel,
+    step_deg: float = 5.0,
+    joints: Optional[Iterable[str]] = None,
+) -> Dict[str, List[float]]:
+    """Sweep every movable joint across its declared limits.
+
+    Args:
+        model: The model to read joints and limits from.
+        step_deg: Step between configurations, in degrees.
+        joints: Only these joints (default: every movable joint).
+
+    Raises:
+        RomError: If a joint has no limits. A default range would be a
+            guess about the machine, and the sweep would report whatever
+            that guess allowed.
+    """
+    if joints is None:
+        chosen = [j for j in model.movable_joints()]
+    else:
+        chosen = [model.joint(name) for name in joints]
+        fixed = [j.name for j in chosen if not j.movable]
+        if fixed:
+            raise RomError(
+                "These joints cannot be driven: " + ", ".join(fixed)
+            )
+    if not chosen:
+        raise RomError(
+            "This assembly has no movable joints, so there is nothing to "
+            "sweep. Revolute mates are added with add_named_mate(..., "
+            "'revolute', ...)."
+        )
+    unbounded = [j.name for j in chosen if not j.bounded]
+    if unbounded:
+        raise RomError(
+            "No limits declared for: " + ", ".join(unbounded) +
+            ". Declare them in the DSL with set_mate_limits(...), or pass "
+            "an explicit schedule."
+        )
+    return {
+        joint.name: radian_range(
+            math.degrees(joint.lower), math.degrees(joint.upper), step_deg
+        )
+        for joint in chosen
+    }
+
+
+# ---------------------------------------------------------------------------
+# The sweep
+# ---------------------------------------------------------------------------
+
+def _config_text(config: Mapping[str, float]) -> str:
+    if not config:
+        return "(no joints)"
+    return ", ".join(
+        f"{name}={math.degrees(value):.1f} deg"
+        for name, value in sorted(config.items())
+    )
+
+
+def _range_text(values: Sequence[float]) -> str:
+    if not values:
+        return "no values"
+    low = math.degrees(min(values))
+    high = math.degrees(max(values))
+    return f"{low:.1f} deg to {high:.1f} deg in {len(values)} step(s)"
+
+
+def _volume(field) -> float:
+    lo, hi = field.bounds
+    return abs((hi[0] - lo[0]) * (hi[1] - lo[1]) * (hi[2] - lo[2]))
+
+
+def _normalise_pairs(
+    model: RomModel,
+    pairs: Union[None, str, Iterable[Pair]],
+    extra_pairs: Optional[Iterable[Pair]],
+    driven: Iterable[str],
+) -> List[Pair]:
+    if pairs is None or pairs == "moving":
+        chosen = list(model.moving_pairs(driven))
+    elif isinstance(pairs, str):
+        if pairs == "mates":
+            chosen = list(model.mate_pairs())
+        elif pairs == "all":
+            chosen = list(model.all_pairs())
+        else:
+            raise RomError(
+                f"pairs must be 'moving', 'mates', 'all' or a list of "
+                f"pairs, got {pairs!r}."
+            )
+    else:
+        chosen = [tuple(pair) for pair in pairs]
+    chosen.extend(tuple(pair) for pair in (extra_pairs or ()))
+
+    seen: List[Pair] = []
+    for pair in chosen:
+        if len(pair) != 2:
+            raise RomError(f"A pair needs two part names, got {pair!r}.")
+        for name in pair:
+            if name not in model.links:
+                raise RomError(
+                    f"No part named '{name}' in this assembly. "
+                    f"Parts: {', '.join(sorted(model.links))}."
                 )
-            else:
-                # Fallback: we don't have an SDF pair — skip or warn
-                logger.debug("No SDF for pair %s ↔ %s; skipping", p, c)
-                continue
+        if pair[0] == pair[1]:
+            raise RomError(f"A part cannot be paired with itself: {pair}.")
+        if pair not in seen and pair[::-1] not in seen:
+            seen.append(pair)
+    return seen
 
-            min_dist = clr.get("min_distance", float("inf"))
-            mean_dist = clr.get("mean_distance", float("inf"))
 
-            # Record trace
-            result.pair_trace[pair].append((config_key, min_dist, mean_dist))
+def _configurations(
+    schedule: Schedule, fixed: Mapping[str, float]
+) -> List[Dict[str, float]]:
+    import itertools
 
-            # Check for interference
-            if min_dist < cfg.interference_threshold:
-                event = InterferenceEvent(
-                    config=angles.copy(),
-                    pair=pair,
-                    min_distance=min_dist,
-                    penetration_depth=clr.get("penetration_depth", 0.0),
-                    pairwise_results=clr,
-                )
-                result.events.append(event)
+    names = list(schedule)
+    overlap = sorted(set(names) & set(fixed))
+    if overlap:
+        raise RomError(
+            "These joints are both swept and fixed: " + ", ".join(overlap) +
+            ". One of the two would silently win."
+        )
+    value_lists = [list(schedule[name]) for name in names]
+    for name, values in zip(names, value_lists):
+        if not values:
+            raise RomError(f"The schedule for '{name}' is empty.")
+    configs = []
+    for combination in itertools.product(*value_lists):
+        config = dict(zip(names, (float(v) for v in combination)))
+        config.update({k: float(v) for k, v in fixed.items()})
+        configs.append(config)
+    return configs or [dict(fixed)]
 
-            # Check near miss
-            if (
-                min_dist < cfg.clearance_threshold
-                and min_dist >= cfg.interference_threshold
-            ):
-                near = InterferenceEvent(
-                    config=angles.copy(),
-                    pair=pair,
-                    min_distance=min_dist,
-                    penetration_depth=0.0,
-                    pairwise_results=clr,
-                )
-                result.near_misses.append(near)
 
-            # Early stop
-            if cfg.early_stop and len(result.events) >= cfg.early_stop:
-                logger.info(
-                    "Early stop at %d interference events (config %d / %d)",
-                    len(result.events),
-                    idx,
-                    n_configs,
-                )
-                break
+def sweep_rom(
+    model: RomModel,
+    schedule: Optional[Schedule] = None,
+    *,
+    config: Optional[SweepConfig] = None,
+    pairs: Union[None, str, Iterable[Pair]] = None,
+    extra_pairs: Optional[Iterable[Pair]] = None,
+    fixed: Optional[Mapping[str, float]] = None,
+) -> SweepResult:
+    """Measure clearance across a joint schedule.
 
-        if cfg.early_stop and len(result.events) >= cfg.early_stop:
-            break
+    Args:
+        model: The :class:`~yapcad.rom.model.RomModel` to sweep.
+        schedule: ``{joint_name: [value, ...]}`` in radians. Build one
+            with :func:`schedule_from_model` or :func:`radian_range`.
+            Defaults to every movable joint across its limits at 5
+            degrees.
+        config: Measurement settings and thresholds.
+        pairs: ``"moving"`` (default) for every pair the swept joints
+            move relative to one another -- including pairs that share no
+            mate, which is usually where interference is. ``"mates"`` for
+            pairs that share a joint, ``"all"`` for every pair, or an
+            explicit list.
+        extra_pairs: Pairs to add to the chosen set -- a part against its
+            grandparent, say, or a bumper it should never touch.
+        fixed: Joint values held constant across the sweep.
 
-    # Build summary dict
-    tree.clear_joints()
-    _build_summary(result)
+    Returns:
+        A :class:`SweepResult`.
 
+    Raises:
+        RomError: For an unknown joint or part, a value outside the
+            design's limits, or a pair that cannot be measured (unless
+            ``config.skip_unmeasurable``).
+    """
+    cfg = config or SweepConfig()
+    held = {str(k): float(v) for k, v in (fixed or {}).items()}
+    if schedule is None:
+        schedule = schedule_from_model(model)
+    plan = {str(name): [float(v) for v in values]
+            for name, values in schedule.items()}
+    if not plan:
+        raise RomError(
+            "The schedule names no joints, so nothing would move. Omit "
+            "the schedule to sweep every movable joint across its limits, "
+            "or name the joints to drive."
+        )
+
+    for name in list(plan) + list(held):
+        joint = model.joint(name)
+        if not joint.movable:
+            raise RomError(
+                f"Joint '{name}' is {joint.kind}, not revolute, so it "
+                "cannot be swept."
+            )
+    configs = _configurations(plan, held)
+    for values in configs:
+        model.check_joint_values(values)
+
+    chosen_pairs = _normalise_pairs(
+        model, pairs, extra_pairs, driven=list(plan),
+    )
+    result = SweepResult(
+        model=model, config=cfg, schedule=plan,
+        configurations=len(configs),
+    )
+
+    measurable: List[Pair] = []
+    for pair in chosen_pairs:
+        missing = [name for name in pair if not model.links[name].has_field]
+        if not missing:
+            measurable.append(pair)
+            continue
+        reason = "; ".join(
+            f"{name}: {model.links[name].reason}" for name in missing
+        )
+        if not cfg.skip_unmeasurable:
+            raise RomError(
+                f"Cannot measure {pair[0]} against {pair[1]} -- {reason}. "
+                "Build the design with representation='sdf', drop the pair, "
+                "or set skip_unmeasurable=True to sweep the rest."
+            )
+        result.skipped[pair] = reason
+    result.pairs = tuple(measurable)
+
+    if not measurable:
+        logger.warning(
+            "No measurable pairs: %s", result.skipped or "nothing selected"
+        )
+        return result
+
+    # Posing re-solves the assembly, so leave it where it was found.
+    incoming = model.joint_values()
+    try:
+        _run(model, cfg, configs, measurable, result)
+    finally:
+        try:
+            model.pose(incoming)
+        except RomError:  # pragma: no cover - the pose came from the model
+            logger.warning(
+                "Could not restore the assembly's incoming pose %s",
+                incoming,
+            )
     return result
 
 
-# ---------------------------------------------------------------------------
-# Summary helpers
-# ---------------------------------------------------------------------------
+def _run(
+    model: RomModel,
+    cfg: SweepConfig,
+    configs: List[Dict[str, float]],
+    measurable: List[Pair],
+    result: SweepResult,
+) -> None:
+    """Measure every pair at every configuration, in place."""
+    # Sample whichever part of each pair is smaller and evaluate the
+    # other's field: the measurement is the same either way to within its
+    # tolerance, but a 20 mm part beside a 400 mm one needs four orders of
+    # magnitude fewer points, so the pitch asked for is the pitch used.
+    # Bounds are fixed, so the choice is made once rather than per pose.
+    ordered = []
+    for pair in measurable:
+        evaluated, sampled = pair
+        if _volume(model.field(evaluated)) < _volume(model.field(sampled)):
+            evaluated, sampled = sampled, evaluated
+        ordered.append((pair, evaluated, sampled))
 
-def _build_summary(result: SweepResult) -> None:
-    """Populate the clearance_summary dict in place."""
-    summary = {}
+    for index, values in enumerate(configs):
+        transforms = model.pose(values)
+        if cfg.progress and index and index % cfg.progress == 0:
+            logger.info("Sweep %d / %d", index, len(configs))
 
-    # Per-pair minimums
-    pair_minima = {}
-    for pair, trace in result.pair_trace.items():
-        if trace:
-            min_min = min(t[1] for t in trace)
-            mean_vals = [t[2] for t in trace if t[2] != float("inf")]
-            mean_mean = sum(mean_vals) / len(mean_vals) if mean_vals else 0.0
-            pair_minima[pair] = {
-                "min_distance_mm": min_min,
-                "mean_distance_mm": mean_mean,
-                "n_configs": len(trace),
-            }
+        for pair, evaluated, sampled in ordered:
+            field_a = model.field(evaluated)
+            field_b = model.field(sampled)
+            tf_a = transforms[evaluated]
+            tf_b = transforms[sampled]
 
-    summary["pair_minima"] = pair_minima
-    summary["n_interferences"] = len(result.events)
-    summary["n_near_misses"] = len(result.near_misses)
+            gap = bounds_clearance(field_a, field_b, tf_a, tf_b)
+            if gap > cfg.clearance_threshold:
+                # The bounding boxes alone prove the parts are further
+                # apart than anything this sweep cares about.
+                clearance = Clearance(
+                    min_distance=gap, penetration=0.0, mean_distance=gap,
+                    fraction_inside=0.0, samples=0, pitch_mm=cfg.pitch_mm,
+                    tolerance_mm=0.0, method="bounds",
+                )
+            else:
+                clearance = clearance_sdf(
+                    field_a, field_b, tf_a, tf_b,
+                    pitch_mm=cfg.pitch_mm, max_samples=cfg.max_samples,
+                )
+            result.samples.append(PairSample(
+                pair=pair, config=dict(values), clearance=clearance,
+            ))
 
-    if result.events:
-        worst = result.worst_interference()
-        summary["worst_interference"] = {
-            "pair": list(worst.pair),
-            "min_distance_mm": worst.min_distance,
-            "penetration_depth_mm": worst.penetration_depth,
-            "config": worst.config,
-        }
-    else:
-        summary["worst_interference"] = None
-
-    result.clearance_summary = summary
-
-
-__all__ = [
-    "sweep_kinematics",
-    "SweepResult",
-    "SweepConfig",
-    "InterferenceEvent",
-    "dof_schedule_from_tree",
-]
+        if cfg.early_stop and len(result.events) >= cfg.early_stop:
+            result.stopped_early = True
+            logger.info(
+                "Stopping after %d interference event(s) at configuration "
+                "%d / %d", len(result.events), index + 1, len(configs),
+            )
+            return

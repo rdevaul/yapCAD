@@ -4,229 +4,303 @@
 Range-of-Motion Sweep (ROM) Guide
 =================================
 
-The ``yapcad.rom`` package extends the DSL with a **range-of-motion (ROM)
-sweep** system that can detect self-collisions and tight clearances in
-kinematic assemblies — all without generating meshes.  Clearance checks use
-**SDF field evaluation** on sampled grids, so a multi-DOF sweep completes
-in seconds rather than minutes.
+A range-of-motion sweep drives an assembly's joints through their declared
+limits and measures, at every pose, how close its parts come to each
+other.  The measurement is made on each part's **signed distance field**,
+so nothing is meshed, no boolean kernel runs, and the only accuracy knob
+is the sampling pitch — which every result reports alongside its number.
 
-Core concepts
-=============
+``yapcad.rom`` adds no kinematics of its own.  The joints, their limits
+and their placement all come from the DSL assembly, so a sweep cannot
+disagree with the design it came from.
 
-1. **Kinematic annotations** — Annotate DSL commands with
-   ``@meta(kinematic.*)`` to describe joint type, parent, axis, and motion
-   limits.
-2. **RomTree** — Builds a ``KinematicChain`` from the annotations and
-   exposes adjacent part pairs.
-3. **Clearance evaluation** — Samples a grid on one link's bounding box,
-   transforms it into the adjacent link's local frame, and evaluates the
-   SDF field.  No meshing needed.
-4. **ROM sweep** — Iterates over a product space of DOF values, computing
-   pairwise clearance at each configuration.
+What the design has to say
+==========================
 
-Getting started
-===============
+Everything a sweep needs is already expressible in the DSL (see
+:doc:`dsl_reference` → *Assembly Solving and Posing*):
 
-Annotate a DSL module
----------------------
+``@meta(assembly.datums=[...])``
+    Places the joint.  A revolute mate turns about the datum axis, so the
+    datum's ``origin_mm`` and ``direction`` *are* the joint.
 
-.. code-block:: dsl
+``add_named_mate(a, name, "revolute", parent, datum, child, datum)``
+    Names the degree of freedom.  That name is what a sweep drives.
 
-    module phonebot_leg
+``set_mate_limits(a, name, lo, hi)``
+    Bounds it, in radians.  A sweep refuses to leave the declared range
+    rather than guessing one.
 
-    @meta(kinematic.joint_kind="revolute")
-    @meta(kinematic.parent="PELVIS")
-    @meta(kinematic.axis=[0, 0, 1])
-    @meta(kinematic.limits=[-90, 90])
-    @meta(kinematic.zero_pose=0.0)
-    command HIP_YAW_JOINT() -> solid:
-        srv = translate(servo.XL430_ENVELOPE(), 0, 40, 0)
-        emit srv
+``solve_assembly(a, root)`` and ``emit assembly_compound(a)``
+    Solve the placement tree and retain the assembly on the result, which
+    is the same object the ``.ycpkg`` builder reads.
 
-    @meta(kinematic.joint_kind="revolute")
-    @meta(kinematic.parent="HIP_YAW_JOINT")
-    @meta(kinematic.axis=[1, 0, 0])
-    @meta(kinematic.limits=[-45, 45])
-    command HIP_ROLL_JOINT() -> solid:
-        ...
+Here is a complete two-joint design: an arm on a pivot, and a stop block
+bolted to the base beside it.
 
-The supported ``kinematic.*`` fields are:
+.. code-block:: python
 
-.. list-table::
-   :header-rows: 1
+    module rom_arm
 
-   * - Field
-     - Type
-     - Description
-   * - ``joint_kind``
-     - ``"fixed"`` | ``"revolute"`` | ``"prismatic"``
-     - Type of joint
-   * - ``parent``
-     - string
-     - Name of the parent command/link
-   * - ``parent_frame``
-     - string
-     - Optional; name of the frame on the parent to attach to
-       (default ``"ORIGIN"``)
-   * - ``axis``
-     - ``[x, y, z]``
-     - Motion axis for revolute/prismatic joints
-   * - ``limits``
-     - ``[min, max]``
-     - Motion range in degrees (revolute) or mm (prismatic)
-   * - ``zero_pose``
-     - float
-     - Default joint value
-   * - ``printable``
-     - bool
-     - Whether this is a 3D-printable part
-   * - ``description``
-     - string
-     - Human-readable label
+    @meta(assembly.datums=[
+        {"id": "pivot", "kind": "axis",
+         "origin_mm": [0.0, 0.0, 10.0], "direction": [0.0, 0.0, 1.0]},
+        {"id": "stop_mount", "kind": "axis",
+         "origin_mm": [0.0, 25.0, 15.0], "direction": [0.0, 0.0, 1.0]}
+    ])
+    command BASE() -> solid:
+        emit box(40.0, 40.0, 20.0)
 
-Building a tree and running a sweep
-------------------------------------
+    @meta(assembly.datums=[
+        {"id": "hub", "kind": "axis",
+         "origin_mm": [0.0, 0.0, 0.0], "direction": [0.0, 0.0, 1.0]}
+    ])
+    command ARM() -> solid:
+        emit translate(box(60.0, 10.0, 10.0), 30.0, 0.0, 15.0)
 
-From the DSL interpreter context (auto-detects ``@meta(kinematic.*)``)::
+    @meta(assembly.datums=[
+        {"id": "mount", "kind": "axis",
+         "origin_mm": [0.0, 0.0, 0.0], "direction": [0.0, 0.0, 1.0]}
+    ])
+    command STOP() -> solid:
+        emit box(10.0, 20.0, 30.0)
 
-    from yapcad.rom import RomTree, sweep_kinematics, SweepConfig
-    from yapcad.dsl import compile_to_ast, interpret_module
+    command BUILD() -> solid:
+        let a: assembly = assembly("rom_arm")
+        add_part(a, BASE(), "base")
+        add_part(a, ARM(), "arm")
+        add_part(a, STOP(), "stop")
+        add_named_mate(a, "elbow", "revolute",
+                       "base", "pivot", "arm", "hub")
+        add_named_mate(a, "stop_mount", "rigid",
+                       "base", "stop_mount", "stop", "mount")
+        set_mate_limits(a, "elbow", radians(-90.0), radians(90.0))
+        solve_assembly(a, "base")
+        emit assembly_compound(a)
 
-    ast = compile_to_ast(source)
-    ctx = interpret_module(ast)
+Build it as fields and sweep it
+===============================
 
-    tree = RomTree.from_interpreter_context("phonebot_leg", ctx)
-    tree.clear_joints()
+The parts have to be **authored as fields**, which means building with
+``representation="sdf"``.  A sweep will not substitute a bounding box for
+a part it cannot measure.
 
-    # Single-DOF sweep
-    result = sweep_kinematics(
-        tree,
-        {"HIP_YAW": (-90, 91, 5)},
-        config=SweepConfig(sdf_resolution=24, interference_threshold=0.0),
-    )
+.. code-block:: python
 
-    print(result.summary())
+    from yapcad.dsl import compile_and_run
+    from yapcad.rom import RomModel, radian_range, sweep_rom, SweepConfig
 
-Building from explicit links (testing or manual construction)::
+    result = compile_and_run(source, "BUILD", {},
+                             representation="sdf", source_path=path)
+    model = RomModel.from_result(result)
+    print(model.describe())
 
-    from yapcad.rom import RomTree, RomLink
+::
 
-    tree = RomTree("phonebot_leg")
-    tree.add_link(RomLink(
-        name="PELVIS", parent=None,
-        joint_kind="fixed",
-    ))
-    tree.add_link(RomLink(
-        name="HIP_YAW", parent="PELVIS",
-        joint_kind="revolute", axis=(0, 0, 1),
-        limits=(-90, 90), zero_pose=0.0,
-    ))
-    tree.clear_joints()
+    Assembly 'rom_arm' rooted at 'base'
+      parts: 3
+      joints: 2 (1 movable)
+        elbow: revolute, -90.0 deg to 90.0 deg (base - arm)
+        stop_mount: rigid (base - stop)
 
-    result = sweep_kinematics(
-        tree,
-        {"HIP_YAW": (-90, 91, 5)},
-        config=SweepConfig(sdf_resolution=24, interference_threshold=0.0),
-    )
+``describe()`` is worth printing before every sweep: it names the joints a
+sweep can drive, their limits, and any part that has no field.
 
-The sweep runner produces:
+.. code-block:: python
 
-- ``result.events`` — list of :class:`InterferenceEvent` where clearance
-  was below threshold
-- ``result.near_misses`` — configurations within the clearance threshold
-- ``result.pair_trace`` — full per-pair clearance trace
-- ``result.summary()`` — human-readable report
+    sweep = sweep_rom(model, {"elbow": radian_range(0.0, 90.0, 15.0)},
+                      config=SweepConfig(pitch_mm=0.5))
+    print(sweep.summary())
 
-Multi-DOF sweeps
-----------------
+::
 
-Pass multiple schedules to sweep the product space::
+    Sweep of 'rom_arm': 7 configuration(s), 2 pair(s)
+      elbow: 0.0 deg to 90.0 deg in 7 step(s)
+      measurements: 6 sampled, 8 resolved from bounding boxes
+      closest approach: elbow=90.0 deg | arm - stop: -5.000 mm (+/- 0.433, field)
+      interference (< 0.0 mm): 3
+      near misses (< 5.0 mm): 1
+      worst interferences:
+        elbow=90.0 deg | arm - stop: -5.000 mm (+/- 0.433, field)
+        elbow=75.0 deg | arm - stop: -4.981 mm (+/- 0.433, field)
+        elbow=60.0 deg | arm - stop: -1.830 mm (+/- 0.433, field)
 
-    result = sweep_kinematics(
-        tree,
-        {"HIP_YAW": (-45, 46, 5)},
-        {"KNEE_PITCH": (0, 136, 5)},
-        fixed_angles={"HIP_ROLL": 0.0},
-    )
+Omit the schedule and every movable joint is swept across its limits at
+5 degrees::
 
-Use small step counts for dimensions above 3 to avoid combinatorial
-explosion (25 × 25 = 625 configs is fine; 25 × 25 × 25 = 15,625 is still
-manageable; 25 × 25 × 25 × 25 = 390,625 is not).
+    sweep = sweep_rom(model)
 
-To check non-adjacent pairs (e.g., a part against its grandparent),
-pass the ``extra_pairs`` argument::
+Units
+=====
 
-    result = sweep_kinematics(
-        tree,
-        {"HIP_YAW": (-45, 46, 5)},
-        extra_pairs=[("PELVIS", "KNEE_PITCH")],
-    )
+Joint values are **radians** everywhere in the API, the same unit as
+``set_mate_limits`` and ``set_joint_position``.  Use
+:func:`~yapcad.rom.sweep.radian_range` or
+:func:`~yapcad.rom.sweep.schedule_from_model` to build a schedule from the
+degrees you are thinking in; every report prints degrees.
+
+Distances are millimetres.
+
+Which pairs get measured
+========================
+
+By default, a sweep measures **every pair of parts the swept joints move
+relative to one another** — including pairs that share no mate, which is
+usually where interference is.  In the example above that is
+``base - arm`` and ``arm - stop``: the arm swings towards a stop block it
+is not jointed to at all.  ``base - stop`` is left out, because a rigid
+mate holds those two still however the assembly is posed, so measuring it
+at every configuration would report the same design fact seven times (and
+rigidly mated parts routinely interpenetrate on purpose — a boss sunk
+into a plate, a screw in its hole).
+
+Ask for something else when you need it::
+
+    sweep_rom(model, schedule, pairs="all")      # every pair
+    sweep_rom(model, schedule, pairs="mates")    # pairs sharing a joint
+    sweep_rom(model, schedule, pairs=[("arm", "stop")])
+    sweep_rom(model, schedule, extra_pairs=[("base", "stop")])
+
+Hold a joint still across the sweep with ``fixed={"other": 0.0}``.  A
+joint that appears in both the schedule and ``fixed`` is an error, not a
+silent precedence rule.
+
+What the numbers mean
+=====================
+
+:func:`~yapcad.rom.clearance.clearance_sdf` samples the second part on a
+regular grid, keeps the points at or inside its surface, transforms them
+into the first part's frame, and evaluates that part's field:
+
+.. code-block:: text
+
+    for each grid point p at or inside part B
+        d = SDF_A( A_world^-1 @ B_world @ p )
+    clearance = min d
+
+A negative result means the parts overlap by that much.  Samples are kept
+within half a cell of B's surface -- inside it, or just outside by less
+than that -- so the error is bounded by half a cell diagonal, which every
+result carries as ``tolerance_mm``::
+
+    elbow=45.0 deg | arm - stop: +2.071 mm (+/- 0.433, field)
+
+So choose ``pitch_mm`` against the clearance you care about.  At the
+default 1 mm pitch a 0.5 mm interference is resolved; chasing a 0.1 mm
+one needs a finer pitch, and ``Clearance.resolved`` is False whenever a
+result is smaller than its own tolerance.  The summary counts those
+measurements and says to refine the pitch.
+
+Nothing else biases the number.  (An earlier version of this code grew
+the sampled region by a 2 mm margin and kept the points in it, so every
+clearance came back 2 mm short at every resolution, and parts 1 mm apart
+were reported as interfering.  The test suite now checks measured
+distances against analytic ones for exactly this reason.)
+
+Of the two parts, the **smaller** is the one sampled and the larger is the
+one whose field is evaluated.  The measurement is the same either way to
+within its tolerance, but a 20 mm part beside a 400 mm one needs four
+orders of magnitude fewer sample points, so the pitch you ask for is the
+pitch you get.
+
+Pairs whose **bounding boxes** are further apart than
+``clearance_threshold`` are resolved from the boxes alone — the box gap is
+a valid lower bound on the distance between the parts — and reported with
+``method="bounds"`` rather than sampled.  That is what makes
+``pairs="all"`` affordable on a large assembly, and it is why a pair
+reported as ``10.000 mm (bounds)`` means "at least 10 mm", while
+``+2.071 mm (field)`` means "2.071 mm, give or take the tolerance".
+
+A sweep cannot look clean when it measured nothing
+==================================================
+
+Every way a measurement can fail to happen is either an error or
+reported:
+
+- a part with no field (anything not built with ``representation="sdf"``,
+  an imported mesh) makes the pair an **error**, naming the part and what
+  to do about it;
+- ``SweepConfig(skip_unmeasurable=True)`` continues instead, but the pair
+  and its reason appear in ``result.skipped``, in every ``summary()`` and
+  in every report;
+- a sweep that measured nothing at all says so in capitals;
+- an unknown joint or part name, a value outside the declared limits, an
+  empty schedule, or a joint both swept and held are all errors — joint
+  values are never clamped, and names are never quietly ignored;
+- ``early_stop`` marks the result incomplete.
 
 Reading results
 ===============
 
-::
+.. code-block:: python
 
-    # Basic summary
-    print(result.summary())
+    sweep.worst()            # the closest approach found, or None
+    sweep.events             # samples below interference_threshold
+    sweep.near_misses        # samples below clearance_threshold
+    sweep.pair_minima()      # worst configuration per pair
+    sweep.trace("arm", "stop")   # every measurement of one pair
+    sweep.skipped            # pairs that were not measured, and why
 
-    # Worst clearance violation
-    ev = result.worst_interference()
-    print(f"{ev.pair[0]} vs {ev.pair[1]} at {ev.config}: {ev.min_distance:.2f} mm")
+``events`` and ``near_misses`` are views over ``samples``, so thresholds
+can be reconsidered without sweeping again.  A trace reads as the motion
+does::
 
-    # Full trace for one pair
-    trace = result.clearance_at("PELVIS", "HIP_YAW_JOINT")
-    for config_key, min_dist, mean_dist in trace[:5]:
-        print(f"  {config_key}: min={min_dist:.2f} mm")
+    elbow=0.0 deg  | arm - stop: +10.000 mm (+/- 0.000, bounds)
+    elbow=15.0 deg | arm - stop:  +8.195 mm (+/- 0.433, field)
+    elbow=30.0 deg | arm - stop:  +5.490 mm (+/- 0.433, field)
+    elbow=45.0 deg | arm - stop:  +2.071 mm (+/- 0.433, field)
+    elbow=60.0 deg | arm - stop:  -1.830 mm (+/- 0.433, field)
+    elbow=75.0 deg | arm - stop:  -4.981 mm (+/- 0.433, field)
+    elbow=90.0 deg | arm - stop:  -5.000 mm (+/- 0.433, field)
 
-    # Detailed report
-    from yapcad.rom import interference_summary
-    print(interference_summary(result))
+:func:`~yapcad.rom.report.interference_summary` prints the long form: the
+model it swept, the settings it used, the worst configuration for every
+pair, each interference with its sample statistics, and whatever could
+not be measured.
 
-Clearance mechanics
-===================
+Cost
+====
 
-``clearance_sdf`` evaluates the signed distance of *link B*'s surface
-against *link A*'s field:
+One measurement is one grid of field evaluations, so cost scales with
+``(part size / pitch)^3`` for the sampled part, bounded by
+``SweepConfig.max_samples`` (which coarsens the pitch rather than
+overrunning, and reports the pitch it used).  The bounds test dismisses
+distant pairs for the price of eight matrix-vector products, so the
+measured set is normally much smaller than the selected set — six of the
+fourteen pair-configurations above.
 
-1. Sample a grid in B's bounding box (padded by ``sdf_padding`` mm).
-2. Keep only surface-adjacent points (where ``|SDF| < 10``).
-3. Transform those points from B's local frame → world → A's local frame.
-4. Evaluate A's SDF at the transformed points.
+Relationship to the package format
+==================================
 
-A negative value means B penetrates A.  The minimum across all points is
-the bottleneck clearance.  The entire operation is pure arithmetic on
-numpy arrays — no mesh generation, no OCC, no boolean engines.
-
-::
-
-    from yapcad.rom import clearance_sdf
-    from yapcad.sdf import box
-    from yapcad.kinematics import Transform
-
-    node_a = box((20, 20, 20))
-    node_b = box((10, 10, 10))
-    tf_a = Transform.identity()
-    tf_b = Transform.from_translation(15.0, 0.0, 0.0)
-
-    clr = clearance_sdf(node_a, node_b, tf_a, tf_b, resolution=24)
-    print(f"min_distance: {clr['min_distance']:.2f} mm")
-
-If SDF nodes are unavailable (imported STL meshes, parts without field
-representations), :func:`yapcad.rom.clearance_mesh` provides a
-KD-tree-based surface-distance fallback using trimesh.
+A ``.ycpkg`` built from the same command records the mate graph with its
+limits (``yapcad-assembly-v0.1``: parts, transforms, datums, mates, joint
+values and couplings) and, at geometry JSON v0.3, each component's SDF
+construction.  Sweeps today run from the DSL result, which is the same
+assembly object the package is built from; driving one from a package on
+disk is a natural extension and not yet implemented.
 
 Reference
 =========
 
-.. autoclass:: yapcad.rom.RomTree
+.. autoclass:: yapcad.rom.RomModel
+   :members:
+.. autoclass:: yapcad.rom.RomJoint
+   :members:
 .. autoclass:: yapcad.rom.RomLink
+   :members:
+.. autoclass:: yapcad.rom.Clearance
+   :members:
 .. autoclass:: yapcad.rom.SweepConfig
 .. autoclass:: yapcad.rom.SweepResult
-.. autoclass:: yapcad.rom.InterferenceEvent
+   :members:
+.. autoclass:: yapcad.rom.PairSample
+   :members:
 
-.. autofunction:: yapcad.rom.sweep_kinematics
+.. autofunction:: yapcad.rom.sweep_rom
+.. autofunction:: yapcad.rom.schedule_from_model
+.. autofunction:: yapcad.rom.radian_range
 .. autofunction:: yapcad.rom.clearance_sdf
-.. autofunction:: yapcad.rom.clearance_mesh
-.. autofunction:: yapcad.rom.dof_schedule_from_tree
+.. autofunction:: yapcad.rom.bounds_clearance
+.. autofunction:: yapcad.rom.world_bounds
 .. autofunction:: yapcad.rom.interference_summary
+.. autofunction:: yapcad.rom.assembly_from_result

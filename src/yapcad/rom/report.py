@@ -1,110 +1,124 @@
-"""Report generation for ROM sweep results.
+"""Plain-text reports for a range-of-motion sweep.
 
-Produces human-readable summary tables and, in future, HTML/JSON exports.
+:meth:`~yapcad.rom.sweep.SweepResult.summary` is the short form for a log
+or a terminal; :func:`interference_summary` is the long form, with the
+model it swept, the settings it used, every pair's worst configuration,
+and -- just as prominently -- whatever it could not measure.
 """
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Tuple
+import math
 
-from .sweep import SweepResult, InterferenceEvent
+from .sweep import SweepResult
+
+__all__ = ["interference_summary"]
+
+_RULE = "=" * 70
+
+
+def _degrees(config) -> str:
+    if not config:
+        return "(no joints)"
+    return ", ".join(
+        f"{name}={math.degrees(value):.1f} deg"
+        for name, value in sorted(config.items())
+    )
 
 
 def interference_summary(result: SweepResult) -> str:
-    """Generate a detailed plain-text report of all interferences.
-
-    Args:
-        result: The :class:`SweepResult` from a sweep run.
-
-    Returns:
-        Multi-line string suitable for printing or export.
-    """
+    """A full report of one sweep, as text."""
     cfg = result.config
-    tree = result.tree
+    name = getattr(result.model.assembly, "name", "?")
 
     lines = [
-        f"{'=' * 60}",
-        f"  ROM Sweep Report: {tree.name}",
-        f"{'=' * 60}",
+        _RULE,
+        f"  Range-of-motion sweep: {name}",
+        _RULE,
         "",
-        f"  Configurations evaluated:  {result.n_configurations}",
-        f"  Adjacent pairs checked:    {len(result.pair_trace)}",
-        f"  SDF grid resolution:        {cfg.sdf_resolution}^3",
+        result.model.describe(),
         "",
-        f"  Interference events:        {len(result.events)}",
-        f"  Near misses (< {cfg.clearance_threshold} mm): {len(result.near_misses)}",
+        f"  configurations:         {result.configurations}",
+        f"  pairs measured:         {len(result.pairs)}",
+        f"  sampling pitch:         {cfg.pitch_mm:.3f} mm",
+        f"  interference below:     {cfg.interference_threshold:.3f} mm",
+        f"  near miss below:        {cfg.clearance_threshold:.3f} mm",
         "",
     ]
 
-    if result.events:
-        lines.append("  --- Interference Details ---")
+    if result.skipped:
+        lines.append(f"  NOT MEASURED ({len(result.skipped)} pair(s)):")
+        for pair, reason in sorted(result.skipped.items()):
+            lines.append(f"    {pair[0]} - {pair[1]}: {reason}")
         lines.append("")
 
-        sorted_events = sorted(
-            result.events,
-            key=lambda e: e.min_distance,
-        )
-
-        for i, ev in enumerate(sorted_events, 1):
-            config_str = ", ".join(
-                f"{k}={v:.1f}" for k, v in sorted(ev.config.items())
-            )
-            lines.append(
-                f"  #{i}: {config_str}"
-            )
-            lines.append(
-                f"       {ev.pair[0]} ↔ {ev.pair[1]}: "
-                f"{ev.min_distance:.3f} mm "
-                f"(penetration {ev.penetration_depth:.2f} mm)"
-            )
-
-            pr = ev.pairwise_results
-            lines.append(
-                f"       mean distance: {pr.get('mean_distance', 'N/A'):.2f} mm, "
-                f"within 5 mm: {pr.get('within_5mm', 0)*100:.0f}%, "
-                f"points: {pr.get('grid_points', 0)}"
-            )
-            lines.append("")
-
-    if result.near_misses:
-        lines.append("  --- Near Misses (worst 5) ---")
-        sorted_near = sorted(
-            result.near_misses,
-            key=lambda e: e.min_distance,
-        )
-        for ev in sorted_near[:5]:
-            lines.append(
-                f"    {', '.join(f'{k}={v:.1f}' for k,v in sorted(ev.config.items()))}"
-                f" | {ev.pair[0]} ↔ {ev.pair[1]}: "
-                f"{ev.min_distance:.2f} mm"
-            )
-
-    # Pair minima summary table
-    if result.pair_trace:
-        lines.append("")
-        lines.append("  --- Pair Clearance Minima ---")
-        lines.append(
-            f"  {'Pair':40s} {'Min (mm)':>10s} {'Mean (mm)':>10s} {'Configs':>8s}"
-        )
-        lines.append("  " + "-" * 68)
-        for pair, trace in result.pair_trace.items():
-            if not trace:
-                continue
-            min_min = min(t[1] for t in trace)
-            mean_vals = [t[2] for t in trace if t[2] != float("inf")]
-            mean_mean = sum(mean_vals) / len(mean_vals) if mean_vals else 0.0
-            pair_label = f"{pair[0]} ↔ {pair[1]}"
-            lines.append(
-                f"  {pair_label:40s} {min_min:10.2f} {mean_mean:10.2f} {len(trace):8d}"
-            )
-
-    lines.extend(
-        [
+    if not result.samples:
+        lines.extend([
+            "  Nothing was measured, so this sweep says nothing about the",
+            "  assembly. It is not a clean result.",
             "",
-            "=" * 60,
-        ]
+            _RULE,
+        ])
+        return "\n".join(lines)
+
+    if result.stopped_early:
+        lines.extend([
+            "  The sweep stopped early, so the remaining configurations",
+            "  were never measured.",
+            "",
+        ])
+
+    minima = result.pair_minima()
+    lines.append("  --- Worst configuration per pair ---")
+    lines.append(
+        f"  {'pair':44s} {'min (mm)':>10s} {'+/-':>7s} {'how':>7s}"
     )
+    lines.append("  " + "-" * 70)
+    for pair, sample in sorted(minima.items(),
+                               key=lambda item: item[1].min_distance):
+        label = f"{pair[0]} - {pair[1]}"
+        clearance = sample.clearance
+        lines.append(
+            f"  {label:44s} {clearance.min_distance:10.3f} "
+            f"{clearance.tolerance_mm:7.3f} {clearance.method:>7s}"
+        )
+    lines.append("")
+
+    events = result.events
+    if events:
+        lines.append(f"  --- Interference ({len(events)}) ---")
+        lines.append("")
+        for index, sample in enumerate(
+            sorted(events, key=lambda s: s.min_distance), 1
+        ):
+            clearance = sample.clearance
+            lines.append(f"  #{index}: {_degrees(sample.config)}")
+            lines.append(
+                f"       {sample.pair[0]} - {sample.pair[1]}: "
+                f"{clearance.min_distance:.3f} mm "
+                f"(penetration {clearance.penetration:.3f} mm, "
+                f"+/- {clearance.tolerance_mm:.3f})"
+            )
+            if clearance.method == "field":
+                lines.append(
+                    f"       {clearance.samples} sample(s), "
+                    f"{clearance.fraction_inside * 100:.1f}% inside, "
+                    f"mean {clearance.mean_distance:.3f} mm"
+                )
+            lines.append("")
+    else:
+        lines.append("  No interference found.")
+        lines.append("")
+
+    near = result.near_misses
+    if near:
+        lines.append(f"  --- Near misses ({len(near)}, worst 5) ---")
+        for sample in sorted(near, key=lambda s: s.min_distance)[:5]:
+            lines.append(
+                f"    {_degrees(sample.config)} | {sample.pair[0]} - "
+                f"{sample.pair[1]}: {sample.min_distance:.3f} mm"
+            )
+        lines.append("")
+
+    lines.append(_RULE)
     return "\n".join(lines)
-
-
-__all__ = ["interference_summary"]
