@@ -664,6 +664,58 @@ children. Mixed operands keep the pairwise path unchanged.
 intersection returns `['solid', [], [], ['sdf', tree]]`, which yapCAD
 already allows for empty CSG results and which serialises and reads back.
 
+### 10.4.1 Meshing finer when the cell cannot find the part
+
+§10.4's rule for the resolution a boolean's result is meshed at -- *never
+coarser than either operand* -- reads the operands, and a boolean can make a
+feature thinner than anything either operand had. The yapRover differential
+cradle does exactly that: it cuts a 12 mm gusset flat 2 mm above the base it
+stands on, and the 2 mm remnant is real material that the 2 mm cell its
+operands were meshed at steps straight over. Dual contouring returned an
+empty mesh, `mesh_to_surface` handed the empty vertex list to
+`geom3d.surface`, and the build died four frames down with
+`ValueError: bad arguments to surface`: a part silently lost, reported as a
+type error, 20 minutes into a field-mode build.
+
+**Refinement is `to_solid`'s job, not each caller's.** The old code had
+`combine_all` catch `NonManifoldMeshError` and retry once at double
+resolution -- the right instinct in the wrong place, and only for one of the
+two ways a cell can be too coarse. `to_solid` now owns both: an empty mesh
+and an unclosed one both halve the cell and mesh again, up to
+`MAX_RESOLUTION` cells across, and the boolean's special case is gone. Every
+caller benefits, `fillet_solid` and `chamfer_solid` and the DSL's
+`mesh_field` included, and the resolution recorded in the construction
+record is the one the mesh was *made* at, so `_cell_size` hands the cell
+that worked to the next boolean in the chain.
+
+**An empty lattice is not an empty part, and the Lipschitz bound tells them
+apart.** `contour.proves_empty` applies the chunk-pruning argument to the
+whole lattice: a field that never changes faster than `L` cannot reach zero
+within `r` of a sample whose value exceeds `L * r`, so if every corner
+sample does, with `r` the half-diagonal of a cell, there is no interior
+between the samples either. A `subtract` that removes everything is proved
+empty at the coarsest lattice, costing one pass, and meshes to the empty
+solid §10.4 already defines for an empty CSG result -- tree included.
+Anything that cannot be proved empty is refined. Pruning is off for that
+sampling pass on purpose: a pruned chunk holds its centre value, which can
+read higher than the values it stands for, and this proof needs a true
+minimum.
+
+**The cell is reported, and taken back.** The warning names the cell that
+worked and the `cell_mm=` to pass, and `to_solid`, `dual_contour` and
+`combine_all` all take `cell_mm` -- so the pass refinement costs is paid
+once and then designed away. An explicit `cell_mm` is not capped by
+`MAX_RESOLUTION`: the cap is there to stop a *derived* resolution running
+away, not to overrule a caller.
+
+Two limits are worth stating plainly. Refinement stops at the first cell
+that *meshes*, which is not necessarily one that measures the feature well:
+a remnant a cell and a bit thick comes out with a rough volume, and the
+warning names the cell so that anyone who needs better can ask for better.
+And only a wholly empty or unclosed mesh is detected -- a mesh that came out
+fine except for one feature thinner than the cell is still silently wrong,
+which needs a minimum-feature-size analysis rather than a retry.
+
 ### 10.5 Fillets and compounds
 
 Building the yapRover release design without OCC (field primitives in

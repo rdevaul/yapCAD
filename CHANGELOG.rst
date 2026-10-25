@@ -5,6 +5,27 @@ Changelog
 Unreleased
 ==========
 
+- A field whose surface the cell cannot find is meshed finer instead of
+  lost. A boolean can leave a feature thinner than anything either operand
+  had -- a cut that leaves a 2 mm remnant of a 12 mm gusset -- and the rule
+  for the result's cell reads the operands, so it cannot know. Dual
+  contouring then returned an empty mesh, and the empty mesh reached
+  ``geom3d.surface`` as an empty vertex list, where it raised
+  ``ValueError: bad arguments to surface``: a part silently lost, reported
+  as a type error. ``to_solid`` now halves the cell and meshes again, up to
+  256 cells across, and warns with the cell that worked and the ``cell_mm``
+  to pass to skip the extra pass next time; the resolution it records is the
+  one it meshed at, so a later boolean starts from that cell. An unclosed
+  mesh refines the same way, which replaces the retry ``combine_all`` used
+  to do for itself. A region the Lipschitz bound proves holds nothing is not
+  refined: it meshes to the empty solid yapCAD already allows for an empty
+  CSG result, so an empty boolean still costs one pass.
+  ``yapcad.sdf.contour.proves_empty`` is that test. ``to_solid``,
+  ``dual_contour`` and ``combine_all`` take a ``cell_mm`` hint, in model
+  units, rounded down to a whole number of cells across the longest axis;
+  an explicit one is not capped, since the cap exists to stop a derived
+  resolution running away. ``refine=False`` restores the old refusal.
+  
 - ``chamfer`` works on SDF-authored solids, so a design finished with
   bevels rather than rounds -- which is every supportless FDM design, since
   a 45 degree chamfer prints over thin air and a fillet's tangent does not

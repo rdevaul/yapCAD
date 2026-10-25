@@ -100,6 +100,7 @@ from yapcad.sdf.contour import (
     dual_contour,
     is_manifold,
     manifold_defects,
+    proves_empty,
 )
 from yapcad.sdf.convert import NonManifoldMeshError, mesh_to_surface, to_solid
 from yapcad.sdf.booleans import combine_all, is_sdf_solid
@@ -212,6 +213,7 @@ __all__ = [
     "dual_contour",
     "is_manifold",
     "manifold_defects",
+    "proves_empty",
     "mesh_to_surface",
     "to_solid",
     "NonManifoldMeshError",
