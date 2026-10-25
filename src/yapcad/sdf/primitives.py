@@ -10,9 +10,11 @@ that :func:`yapcad.sdf.node.tree_to_json` depends on.
 The exceptions are :func:`capsule`, which is naturally defined by its two end
 points, and :func:`half_space`, which is defined by its plane.
 
-All of these are exact distance fields with a Lipschitz constant of 1, except
-:func:`gyroid` and :func:`schwarz_p`, whose constants are derived at their
-definitions.  Each evaluator takes points of shape ``(N, 3)`` and returns
+All of these are exact distance fields with a Lipschitz constant of 1,
+except :func:`gyroid` and :func:`schwarz_p`, whose constants are derived at
+their definitions, and :func:`chamfered_box`, which is an intersection of
+four exact fields and so bounds the distance from below outside the part;
+see its notes.  Each evaluator takes points of shape ``(N, 3)`` and returns
 values of shape ``(N,)``, per the vectorisation requirement in design
 document §3.1.
 """
@@ -208,6 +210,154 @@ def rounded_box(size, radius):
 
 
 # ---------------------------------------------------------------------------
+# chamfered box
+# ---------------------------------------------------------------------------
+#
+# A box with every edge bevelled at 45 degrees is a convex polytope, and it
+# is exactly what OCC makes of a box when every edge is chamfered: the six
+# faces, a bevel face along each of the twelve edges, and a triangle across
+# each of the eight corners where three bevels meet.  Equivalently it is a
+# box shrunk by ``2 * distance`` on every axis and grown back by an
+# octahedron of that radius -- the chamfer counterpart of ``rounded_box``,
+# which is a box grown by a sphere, with the octahedron's eight faces
+# accounting for the corner triangles.  In constraint form, with half
+# extents ``hx, hy, hz`` and bevel ``d``:
+#
+#     |x| <= hx, |y| <= hy, |z| <= hz             the six faces
+#     |x| + |y| <= hx + hy - d,  and cyclic       the twelve bevels
+#     |x| + |y| + |z| <= hx + hy + hz - 2 d       the eight corners
+#
+# Each line of that is met below by an exact field -- a chamfered rectangle
+# swept along the remaining axis, and an octahedron -- but their
+# intersection is a hard max, so the result is exact inside and on the
+# surface and a Lipschitz-1 lower bound outside, as everywhere else that
+# this package intersects fields.  Dropping the corner line would describe
+# a different solid from OCC's, fuller by ``d ** 3 / 12`` at each corner.
+
+
+#: 1 / sqrt(2) and 1 / sqrt(3): the normalisers for the bevel and corner
+#: planes, whose normals are (1, 1, 0) and (1, 1, 1) before scaling.
+_SQRT_HALF = math.sqrt(0.5)
+_SQRT_THIRD = math.sqrt(1.0 / 3.0)
+
+
+def _segment_distance(px, py, ax, ay, bx, by):
+    """Distance from each point to the segment ``(ax, ay) - (bx, by)``."""
+    ex, ey = bx - ax, by - ay
+    ee = ex * ex + ey * ey
+    wx, wy = px - ax, py - ay
+    if ee > 0.0:
+        t = np.clip((wx * ex + wy * ey) / ee, 0.0, 1.0)
+    else:   # a degenerate segment: both ends of a bevel that is not there
+        t = 0.0
+    return np.hypot(wx - t * ex, wy - t * ey)
+
+
+def _chamfered_rect(u, v, a, b, d):
+    """The exact signed distance to a rectangle of half extents ``(a, b)``
+    with each corner cut back ``d`` along both sides, for points already
+    folded into the first quadrant (``u >= 0`` and ``v >= 0``).
+
+    The shape has both mirror symmetries, so a folded query's nearest
+    boundary point can be taken in its own quadrant: the three segments
+    there are the whole boundary as far as it can tell.  Inside a convex
+    region the distance to the boundary is the distance to the nearest
+    supporting line, which is what the first branch computes.
+    """
+    inside = np.maximum(
+        np.maximum(u - a, v - b),
+        (u + v - (a + b - d)) * _SQRT_HALF,
+    )
+    outside = np.minimum(
+        np.minimum(
+            _segment_distance(u, v, a, 0.0, a, b - d),
+            _segment_distance(u, v, a, b - d, a - d, b),
+        ),
+        _segment_distance(u, v, a - d, b, 0.0, b),
+    )
+    return np.where(inside <= 0.0, inside, outside)
+
+
+def _octahedron(x, y, z, s):
+    """The exact signed distance to ``|x| + |y| + |z| <= s``, for points
+    already folded into the positive octant.
+
+    Outside, the nearest feature is a face wherever no component reaches
+    past ``m / 3``, and otherwise an edge, found by rotating that component
+    to the front and clamping the projection onto the edge.  Inside, every
+    component is below ``m / 3`` (``m`` itself is negative), so the face
+    branch answers, and the distance to the nearest of the eight planes is
+    the distance to the boundary.
+    """
+    m = x + y + z - s
+    pick_x = 3.0 * x < m
+    pick_y = ~pick_x & (3.0 * y < m)
+    pick_z = ~pick_x & ~pick_y & (3.0 * z < m)
+    qx = np.where(pick_x, x, np.where(pick_y, y, z))
+    qy = np.where(pick_x, y, np.where(pick_y, z, x))
+    qz = np.where(pick_x, z, np.where(pick_y, x, y))
+    k = np.clip(0.5 * (qz - qy + s), 0.0, s)
+    edge = np.sqrt(qx * qx + (qy - s + k) ** 2 + (qz - k) ** 2)
+    return np.where(pick_x | pick_y | pick_z, edge, m * _SQRT_THIRD)
+
+
+def _analyze_chamfered_box(params, _children):
+    hx, hy, hz = (v * 0.5 for v in params["size"])
+    bounds = ((-hx, -hy, -hz), (hx, hy, hz))
+    # The four clauses are intersected with a hard max, which bounds the
+    # distance from below outside the part rather than equalling it.
+    exact = False
+    # Replayed as a box with every edge chamfered -- except when the bevel
+    # consumes the whole of the smallest edge and has no face left to run
+    # along, which OCC refuses, so the classifier must not promise it.
+    csg = params["distance"] < 0.5 * min(params["size"])
+    return FieldProps(exact=exact, lipschitz=1.0, bounds=bounds,
+                      csg_exact=csg)
+
+
+def _eval_chamfered_box(params, p, _children, _ev):
+    hx, hy, hz = (v * 0.5 for v in params["size"])
+    d = params["distance"]
+    x = np.abs(p[:, 0])
+    y = np.abs(p[:, 1])
+    z = np.abs(p[:, 2])
+    f = _chamfered_rect(x, y, hx, hy, d)
+    f = np.maximum(f, _chamfered_rect(y, z, hy, hz, d))
+    f = np.maximum(f, _chamfered_rect(x, z, hx, hz, d))
+    return np.maximum(f, _octahedron(x, y, z, hx + hy + hz - 2.0 * d))
+
+
+register(NodeSpec(
+    kind="chamfered_box",
+    min_children=0,
+    max_children=0,
+    analyze=_analyze_chamfered_box,
+    backends={"numpy": _eval_chamfered_box},
+))
+
+
+def chamfered_box(size, distance):
+    """A box with every edge bevelled at 45 degrees, ``distance`` back along
+    each face the edge joins, and a triangle across each corner.
+
+    Like :func:`rounded_box`, the bevel is taken out of the box rather than
+    added to it, so a chamfered box and a box of the same ``size`` occupy
+    the same bounding volume.  This is the shape OCC's chamfer-all-edges
+    gives a box, to the last decimal of its volume.
+    """
+    dims = _size3("chamfered_box", size)
+    d = _nonnegative("chamfered_box", "distance", distance)
+    if d > 0.5 * min(dims):
+        raise SdfError(
+            f"chamfered_box: distance {d} exceeds half the smallest edge "
+            f"{0.5 * min(dims)}"
+        )
+    if d == 0.0:
+        return box(dims)
+    return make_node("chamfered_box", {"size": dims, "distance": d})
+
+
+# ---------------------------------------------------------------------------
 # cylinder
 # ---------------------------------------------------------------------------
 
@@ -306,6 +456,72 @@ def rounded_cylinder(radius, height, edge_radius):
         return cylinder(r, h)
     return make_node("rounded_cylinder",
                      {"radius": r, "height": h, "edge_radius": e})
+
+
+# ---------------------------------------------------------------------------
+# chamfered cylinder
+# ---------------------------------------------------------------------------
+#
+# Both circular edges bevelled at 45 degrees, which OCC makes of a cylinder
+# as two cones.  A solid of revolution is the one place where an exact 2D
+# field buys an exact 3D field outright: the nearest point of the solid to
+# a query lies in the query's own meridian half plane, since rotating any
+# other candidate into that half plane only shortens the distance.  So the
+# distance to this part *is* the distance from ``(hypot(x, y), z)`` to its
+# profile -- a rectangle with its two outer corners cut, the same chamfered
+# rectangle the box above is built from.  Folding the profile in rho as
+# well as in z is what keeps the axis from counting as a boundary: a point
+# on the axis is half a diameter from the wall, not nothing from the axis.
+
+
+def _analyze_chamfered_cylinder(params, _children):
+    r = params["radius"]
+    h = params["height"] * 0.5
+    props = _exact(((-r, -r, -h), (r, r, h)))
+    # As with rounded_cylinder, a bevel that leaves no flat cap or no
+    # straight side has no face to run along, and OCC refuses it.
+    d = params["distance"]
+    if d >= r or 2.0 * d >= params["height"]:
+        props = FieldProps(exact=props.exact, lipschitz=props.lipschitz,
+                           bounds=props.bounds, csg_exact=False)
+    return props
+
+
+def _eval_chamfered_cylinder(params, p, _children, _ev):
+    rho = np.hypot(p[:, 0], p[:, 1])
+    return _chamfered_rect(rho, np.abs(p[:, 2]), params["radius"],
+                           0.5 * params["height"], params["distance"])
+
+
+register(NodeSpec(
+    kind="chamfered_cylinder",
+    min_children=0,
+    max_children=0,
+    analyze=_analyze_chamfered_cylinder,
+    backends={"numpy": _eval_chamfered_cylinder},
+))
+
+
+def chamfered_cylinder(radius, height, distance):
+    """A capped cylinder on the z axis, centred on the origin, with both
+    circular edges bevelled at 45 degrees, ``distance`` back along the side
+    and the cap.
+
+    Like :func:`rounded_cylinder`, the bevel is taken out of the cylinder,
+    so the overall extent is still ``radius`` by ``height``.
+    """
+    r = _positive("chamfered_cylinder", "radius", radius)
+    h = _positive("chamfered_cylinder", "height", height)
+    d = _nonnegative("chamfered_cylinder", "distance", distance)
+    if d > r or 2.0 * d > h:
+        raise SdfError(
+            f"chamfered_cylinder: distance {d} exceeds the radius {r} or "
+            f"half the height {0.5 * h}"
+        )
+    if d == 0.0:
+        return cylinder(r, h)
+    return make_node("chamfered_cylinder",
+                     {"radius": r, "height": h, "distance": d})
 
 
 # ---------------------------------------------------------------------------

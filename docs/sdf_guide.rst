@@ -10,10 +10,10 @@ numpy.
 
 Fields are worth having because the operations that are fragile on meshes
 and BREPs are arithmetic on fields. A union is a ``min``, a difference a
-``max``, a fillet a rounded primitive or a smooth blend. They cannot fail,
-have no coplanar-face or sliver cases, and stay exact. A part authored as a
-field is meshed when it has to be, at whatever resolution the job needs,
-and the field travels with the mesh so it can be meshed again.
+``max``, a fillet or chamfer a finished primitive or a smooth blend. They
+cannot fail, have no coplanar-face or sliver cases, and stay exact. A part
+authored as a field is meshed when it has to be, at whatever resolution the
+job needs, and the field travels with the mesh so it can be meshed again.
 
 This guide covers authoring fields in Python and in the DSL, turning them
 into solids, and getting them out as STL, STEP and packages. The design
@@ -73,8 +73,10 @@ Building fields
 ``sphere(radius)``                     sphere
 ``box(size)``                          box; ``size`` is a scalar or ``(x, y, z)``
 ``rounded_box(size, radius)``          box with every edge rounded, same outer extent
+``chamfered_box(size, distance)``      box with every edge bevelled 45 degrees
 ``cylinder(radius, height)``           capped cylinder on the z axis
 ``rounded_cylinder(r, height, edge)``  cylinder with both circular edges rounded
+``chamfered_cylinder(r, height, d)``   cylinder with both circular edges bevelled
 ``cone(r_bottom, r_top, height)``      frustum or cone on the z axis
 ``capsule(start, end, radius)``        a segment swept by a sphere
 ``torus(major, minor)``                torus in the xy plane
@@ -241,8 +243,8 @@ An operand that is a mesh or a BREP sends the boolean to the mesh engines
 instead (see :doc:`representations`); the result is then a mesh.
 
 
-Fillets and compounds
-=====================
+Fillets, chamfers and compounds
+===============================
 
 ``sdf.fillet(node, radius)`` rounds every edge, as OCC's fillet-all-edges
 does, and is exact for the analytic primitives: a box becomes a
@@ -255,9 +257,26 @@ through OCC, so a filleted part keeps its analytic STEP export. The DSL's
     rounded = sdf.fillet(sdf.box((40.0, 16.0, 28.0)), 7.0)
     assert rounded == sdf.rounded_box((40.0, 16.0, 28.0), 7.0)
 
-Fillet primitives before combining them. A fillet of a combined field is
-refused, because rounding each operand would also round edges the boolean
-removes; a correct general fillet waits on sampled fields.
+``sdf.chamfer(node, distance)`` is the same thing with a 45 degree bevel in
+place of the round, as OCC's chamfer-all-edges does -- the finish a
+supportless FDM part wants, since a bevel prints over thin air and a
+fillet's tangent does not. A box becomes a ``chamfered_box``, a cylinder a
+``chamfered_cylinder``, and both replay through OCC as well.
+
+.. code-block:: python
+
+    bevelled = sdf.chamfer(sdf.cylinder(18.0, 20.0), 1.5)
+    assert bevelled == sdf.chamfered_cylinder(18.0, 20.0, 1.5)
+
+A ``chamfered_cylinder`` is an exact field; a ``chamfered_box`` is the
+intersection of four exact fields, so like any hard CSG it is exact inside
+and on the surface and a Lipschitz-1 *lower bound* outside -- within 7% of
+the true distance at worst, which makes a clearance measured from it
+conservative rather than optimistic.
+
+Fillet or chamfer primitives before combining them. Either one applied to a
+combined field is refused, because finishing each operand would also finish
+edges the boolean removes; the general case waits on sampled fields.
 
 ``sdf.compound`` keeps several bodies separate, as the DSL's ``compound``
 does: they combine as a union in booleans but mesh as distinct bodies.
@@ -310,7 +329,7 @@ An existing DSL design builds as fields with one setting:
 In ``"sdf"`` mode ``box``, ``cylinder``, ``sphere``, ``cone``, ``tube`` and
 ``spherical_shell`` produce fields placed exactly as their mesh versions
 are; the fasteners and gears produce their field versions; and booleans,
-``fillet`` and ``compound`` keep fields. Other primitives -- region
+``fillet``, ``chamfer`` and ``compound`` keep fields. Other primitives -- region
 extrusions, sweeps, lofts -- still produce meshes. Set it with:
 
 * ``compile_and_run(..., representation="sdf", sdf_cell_mm=0.5)``

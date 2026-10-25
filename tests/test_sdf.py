@@ -41,8 +41,10 @@ SAMPLES = {
     "sphere": sdf.sphere(7.0),
     "box": sdf.box((8.0, 12.0, 5.0)),
     "rounded_box": sdf.rounded_box((8.0, 12.0, 5.0), 1.5),
+    "chamfered_box": sdf.chamfered_box((8.0, 12.0, 5.0), 1.5),
     "cylinder": sdf.cylinder(4.0, 11.0),
     "rounded_cylinder": sdf.rounded_cylinder(4.0, 11.0, 1.5),
+    "chamfered_cylinder": sdf.chamfered_cylinder(4.0, 11.0, 1.5),
     "capsule": sdf.capsule((-3.0, 0.0, -2.0), (4.0, 1.0, 3.0), 2.5),
     "torus": sdf.torus(9.0, 2.5),
     "cone": sdf.cone(6.0, 2.0, 10.0),
@@ -168,10 +170,12 @@ class TestAnalyticDistances:
 
     def test_exactness_flags_match_the_claim(self):
         for kind in ("sphere", "box", "rounded_box", "cylinder", "capsule",
-                     "torus", "cone", "half_space"):
+                     "torus", "cone", "half_space",
+                     "chamfered_cylinder"):
             assert SAMPLES[kind].exact, f"{kind} should be exact"
         for kind in ("gyroid", "schwarz_p", "union", "intersect", "subtract",
-                     "smooth_union", "smooth_intersect", "smooth_subtract"):
+                     "smooth_union", "smooth_intersect", "smooth_subtract",
+                     "chamfered_box"):
             assert not SAMPLES[kind].exact, f"{kind} should not be exact"
 
 
@@ -403,7 +407,8 @@ class TestBounds:
 
     def test_surface_stays_within_reported_bounds(self):
         for kind in ("sphere", "box", "rounded_box", "cylinder", "capsule",
-                     "torus", "cone", "union", "intersect", "smooth_union"):
+                     "torus", "cone", "union", "intersect", "smooth_union",
+                     "chamfered_box", "chamfered_cylinder"):
             node = SAMPLES[kind]
             lo, hi = node.bounds
             pts = random_points(2000, extent=40.0)
@@ -509,7 +514,8 @@ class TestCsgExactness:
 
     def test_analytic_primitives_are_csg_exact(self):
         for kind in ("sphere", "box", "rounded_box", "cylinder", "capsule",
-                     "torus", "cone", "half_space"):
+                     "torus", "cone", "half_space", "chamfered_box",
+                     "chamfered_cylinder"):
             assert SAMPLES[kind].csg_exact, kind
 
     def test_hard_booleans_of_primitives_stay_csg_exact(self):

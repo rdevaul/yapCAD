@@ -25,6 +25,29 @@ Unreleased
   units, rounded down to a whole number of cells across the longest axis;
   an explicit one is not capped, since the cap exists to stop a derived
   resolution running away. ``refine=False`` restores the old refusal.
+  
+- ``chamfer`` works on SDF-authored solids, so a design finished with
+  bevels rather than rounds -- which is every supportless FDM design, since
+  a 45 degree chamfer prints over thin air and a fillet's tangent does not
+  -- now builds in field mode. It used to stop at the first call with
+  "chamfer requires a solid with BREP data". ``sdf.chamfer(node, d)``
+  bevels every edge, the meaning of OCC's chamfer-all-edges, by
+  substituting two new exact-CSG primitives: ``chamfered_box``, which is a
+  box grown by an octahedron, including the triangular face OCC puts across
+  each corner, and ``chamfered_cylinder``, which is its profile revolved.
+  Both replay through OCC, so a chamfered part still exports analytic STEP,
+  and both match OCC's own measured volume to 1e-16 relative over the whole
+  range of valid bevels. ``chamfered_cylinder`` is an exact distance field,
+  because the distance to a solid of revolution is the distance to its
+  profile; ``chamfered_box`` is an intersection of four exact fields, so
+  like all hard CSG it is exact inside and on the surface and a Lipschitz-1
+  lower bound outside, within 7% of the true distance at worst against
+  OCC's own point-to-solid measurement. ``sdf.chamfer`` passes through
+  similarity transforms and compounds and leaves edgeless primitives alone,
+  as ``sdf.fillet`` does, and refuses combined fields, non-uniform scales
+  and cones rather than approximating them. ``sdf.chamfer_solid`` re-meshes
+  no coarser than its input, and the DSL's ``chamfer`` takes this path for
+  any SDF-authored solid, with no OCC needed.
 
 - Cross-file ``use`` imports work. The statement parsed and reached
   ``module.uses``, and nothing ever read it, so a design could not be split
@@ -51,6 +74,31 @@ Unreleased
   the per-file cache reloads a module when it changes on disk, where before
   a long-lived process kept rebuilding from the first version it saw.
   ``export use`` is still unimplemented and now says so.
+
+- Range-of-motion sweeps: ``yapcad.rom`` drives an assembly's joints
+  through their declared limits and measures how close the parts come to
+  each other at every pose, on their signed distance fields -- no meshing,
+  no boolean kernel. The kinematics are the design's own: joints, limits
+  and placement come from ``@meta(assembly.datums=...)``,
+  ``add_named_mate``, ``set_mate_limits`` and ``solve_assembly``, and poses
+  come from the assembly solver, so a sweep cannot disagree with the
+  design it was built from. ``RomModel.from_result(result)`` reads the
+  assembly a command retained with ``emit assembly_compound(...)``, which
+  is the same object the package builder uses; parts must be authored as
+  fields, so the design is built with ``representation="sdf"``.
+  ``sweep_rom`` measures, by default, every pair of parts the swept joints
+  move relative to one another -- including pairs that share no mate,
+  which is where interference usually is, and excluding pairs a rigid mate
+  holds still. Clearance is measured by sampling one part at a stated
+  pitch and evaluating the other's field, so each result carries the bound
+  on its own sampling error; a result whose fields are not exact distances
+  -- any hard CSG combination -- is flagged conservative, meaning the
+  magnitude is closer to zero than the truth and a gap is never
+  overstated. Pairs whose bounding boxes are far enough apart are resolved
+  from the bounds instead of sampled. A pair that cannot be
+  measured is an error rather than a silent omission, joint values outside
+  the declared limits are refused rather than clamped, and a sweep that
+  measured nothing says so.
 
 Version 1.2.0 (2026-10-19)
 ==========================

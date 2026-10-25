@@ -713,6 +713,11 @@ intersection_all(solids: list<solid>) -> solid  # Intersect all solids in list
 Edge selection functions operate on BREP/OCC solids and return edge handles that
 can be combined before applying selective fillets or chamfers.
 
+The whole-solid `fillet` and `chamfer` also work on SDF-authored solids,
+where they substitute the finished field primitive and need no OCC at all;
+see the [SDF guide](sdf_guide.rst). Everything else in this section is
+BREP-only.
+
 ```python
 # Whole-solid finishing
 fillet(s: solid, radius: float) -> solid
@@ -1418,6 +1423,10 @@ have one placement parent. Rooted solving currently supports `rigid` and
 Joint values are absolute radians, not accumulated deltas.
 Revolute limits also use radians and include both boundary values. Limits on
 dependent joints are checked after coupling expressions have been evaluated.
+
+Once a design carries datums, named mates and limits, it can be swept for
+clearance without meshing: build it with `representation="sdf"` and hand the
+result to `yapcad.rom`. See the [ROM sweep guide](rom_guide.rst).
 
 Joint couplings currently operate on revolute mate coordinates. Each coupling
 names its dependent joint explicitly, making chained dependencies deterministic
