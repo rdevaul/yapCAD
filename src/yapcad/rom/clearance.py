@@ -23,7 +23,12 @@ Usage::
     tf_b = tree.get_world_transform("SHIN_LINK")
 
     # Minimum clearance across the interface (negative = interference)
-    min_dist, grid = clearance_sdf(node_a, node_b, tf_a, tf_b)
+    clr = clearance_sdf(node_a, node_b, tf_a, tf_b)
+    print(f"Min distance: {clr['min_distance']:.2f} mm")
+
+For parts without SDF representations (imported meshes, legacy STL
+imports), :func:`clearance_mesh` provides a KD-tree-based surface-distance
+fallback using trimesh.
 """
 
 from __future__ import annotations

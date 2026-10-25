@@ -6,25 +6,43 @@ that the RomTree builder can consume.
 
 Supported kinematic fields
 ==========================
-==============================  ===============================================
-Field                           Description
-==============================  ===============================================
-``joint_kind``                  ``"fixed"`` | ``"revolute"`` | ``"prismatic"``
-``parent``                      Parent part name (string)
-``parent_frame``                Frame on parent (string)
-``axis``                        Motion axis as ``(x, y, z)`` tuple
-``limits``                      ``[min, max]`` angle/translation range
-``zero_pose``                   Default joint value
-``description``                 Human-readable part label
-``printable``                   ``true`` | ``false`` — is 3D-printable part
-==============================  ===============================================
+.. list-table::
+   :header-rows: 1
+
+   * - Field
+     - Type
+     - Description
+   * - ``joint_kind``
+     - ``"fixed"`` | ``"revolute"`` | ``"prismatic"``
+     - Type of joint
+   * - ``parent``
+     - string
+     - Parent part name
+   * - ``parent_frame``
+     - string
+     - Frame on parent (optional, default "ORIGIN")
+   * - ``axis``
+     - ``[x, y, z]``
+     - Motion axis (list of 3 floats)
+   * - ``limits``
+     - ``[min, max]``
+     - Angle/translation range
+   * - ``zero_pose``
+     - float
+     - Default joint value
+   * - ``description``
+     - string
+     - Human-readable part label
+   * - ``printable``
+     - bool
+     - Is a 3D-printable part
 
 Example::
 
     @meta(kinematic.joint_kind="revolute")
     @meta(kinematic.parent="PELVIS")
     @meta(kinematic.parent_frame="HIP_YAW_MOUNT")
-    @meta(kinematic.axis=(0, 0, 1))
+    @meta(kinematic.axis=[0, 0, 1])
     @meta(kinematic.limits=[-90, 90])
     command HIP_YAW_JOINT() -> solid:
         emit translate(srv, 0, ho*s, 0)

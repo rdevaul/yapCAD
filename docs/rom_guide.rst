@@ -87,23 +87,18 @@ The supported ``kinematic.*`` fields are:
 Building a tree and running a sweep
 ------------------------------------
 
-From Python::
+From the DSL interpreter context (auto-detects ``@meta(kinematic.*)``)::
 
     from yapcad.rom import RomTree, sweep_kinematics, SweepConfig
-    from yapcad.dsl import compile_and_run
+    from yapcad.dsl import compile_to_ast, interpret_module
 
-    # Each command can be compiled independently
-    res_hip = compile_and_run(source, "HIP_YAW_JOINT", {})
+    ast = compile_to_ast(source)
+    ctx = interpret_module(ast)
 
-    # Build a tree from explicit RomLink objects
-    tree = RomTree("phonebot_leg")
-    tree.add_link(RomLink(
-        name="HIP_YAW", parent="PELVIS",
-        joint_kind="revolute", axis=(0, 0, 1),
-        limits=(-90, 90), zero_pose=0.0,
-    ))
+    tree = RomTree.from_interpreter_context("phonebot_leg", ctx)
+    tree.clear_joints()
 
-    # Run a single-DOF sweep
+    # Single-DOF sweep
     result = sweep_kinematics(
         tree,
         {"HIP_YAW": (-90, 91, 5)},
@@ -111,6 +106,28 @@ From Python::
     )
 
     print(result.summary())
+
+Building from explicit links (testing or manual construction)::
+
+    from yapcad.rom import RomTree, RomLink
+
+    tree = RomTree("phonebot_leg")
+    tree.add_link(RomLink(
+        name="PELVIS", parent=None,
+        joint_kind="fixed",
+    ))
+    tree.add_link(RomLink(
+        name="HIP_YAW", parent="PELVIS",
+        joint_kind="revolute", axis=(0, 0, 1),
+        limits=(-90, 90), zero_pose=0.0,
+    ))
+    tree.clear_joints()
+
+    result = sweep_kinematics(
+        tree,
+        {"HIP_YAW": (-90, 91, 5)},
+        config=SweepConfig(sdf_resolution=24, interference_threshold=0.0),
+    )
 
 The sweep runner produces:
 
@@ -135,6 +152,15 @@ Pass multiple schedules to sweep the product space::
 Use small step counts for dimensions above 3 to avoid combinatorial
 explosion (25 × 25 = 625 configs is fine; 25 × 25 × 25 = 15,625 is still
 manageable; 25 × 25 × 25 × 25 = 390,625 is not).
+
+To check non-adjacent pairs (e.g., a part against its grandparent),
+pass the ``extra_pairs`` argument::
+
+    result = sweep_kinematics(
+        tree,
+        {"HIP_YAW": (-45, 46, 5)},
+        extra_pairs=[("PELVIS", "KNEE_PITCH")],
+    )
 
 Reading results
 ===============
@@ -186,6 +212,10 @@ numpy arrays — no mesh generation, no OCC, no boolean engines.
     clr = clearance_sdf(node_a, node_b, tf_a, tf_b, resolution=24)
     print(f"min_distance: {clr['min_distance']:.2f} mm")
 
+If SDF nodes are unavailable (imported STL meshes, parts without field
+representations), :func:`yapcad.rom.clearance_mesh` provides a
+KD-tree-based surface-distance fallback using trimesh.
+
 Reference
 =========
 
@@ -197,5 +227,6 @@ Reference
 
 .. autofunction:: yapcad.rom.sweep_kinematics
 .. autofunction:: yapcad.rom.clearance_sdf
+.. autofunction:: yapcad.rom.clearance_mesh
 .. autofunction:: yapcad.rom.dof_schedule_from_tree
 .. autofunction:: yapcad.rom.interference_summary

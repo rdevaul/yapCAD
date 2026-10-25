@@ -13,7 +13,7 @@ Quick start
 In your .dsl file::
 
     @meta(kinematic.joint_kind="revolute")
-    @meta(kinematic.axis=(0, 0, 1))
+    @meta(kinematic.axis=[0, 0, 1])
     @meta(kinematic.limits=[-90, 90])
     @meta(kinematic.parent="PELVIS")
     @meta(kinematic.parent_frame="HIP_YAW_MOUNT")
