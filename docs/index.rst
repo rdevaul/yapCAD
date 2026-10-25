@@ -64,6 +64,7 @@ Contents
    DSL tutorial <dsl_tutorial>
    DSL guide <dsl_guide>
    DSL reference <dsl_reference>
+   ROM sweep guide <rom_guide>
 
 .. toctree::
    :maxdepth: 2

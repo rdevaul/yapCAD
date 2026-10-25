@@ -185,7 +185,45 @@ Captures analysis intent, solver information, and result references for the enti
 
 
 
-7. Custom Extensions
+7. Kinematic Namespace (`kinematic`)
+-------------------------------------
+
+Describes the kinematic properties of a part for range-of-motion (ROM) sweeps
+and assembly analysis.
+
+.. list-table::
+   :header-rows: 1
+
+   * - key
+     - type
+     - notes
+   * - ``joint_kind``
+     - string
+     - ``"fixed"``, ``"revolute"``, or ``"prismatic"``.
+   * - ``parent``
+     - string
+     - Name of the parent part or command.
+   * - ``parent_frame``
+     - string
+     - Optional; frame on the parent this part attaches to (default ``"ORIGIN"``).
+   * - ``axis``
+     - float[]
+     - Motion axis as a 3-element list, e.g. ``[1.0, 0.0, 0.0]``.
+   * - ``limits``
+     - float[]
+     - Motion range as a 2-element list: ``[min, max]``.
+   * - ``zero_pose``
+     - float
+     - Default joint value.
+   * - ``printable``
+     - bool
+     - Whether the part is a 3D-printable body.
+   * - ``description``
+     - string
+     - Human-readable label for the link.
+
+
+8. Custom Extensions
 --------------------
 
 
@@ -194,7 +232,7 @@ Captures analysis intent, solver information, and result references for the enti
 
 
 
-8. Usage Guidelines
+9. Usage Guidelines
 -------------------
 
 
@@ -205,7 +243,7 @@ Captures analysis intent, solver information, and result references for the enti
 
 
 
-9. Future Work
+10. Future Work
 --------------
 
 
