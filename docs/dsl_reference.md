@@ -713,6 +713,11 @@ intersection_all(solids: list<solid>) -> solid  # Intersect all solids in list
 Edge selection functions operate on BREP/OCC solids and return edge handles that
 can be combined before applying selective fillets or chamfers.
 
+The whole-solid `fillet` and `chamfer` also work on SDF-authored solids,
+where they substitute the finished field primitive and need no OCC at all;
+see the [SDF guide](sdf_guide.rst). Everything else in this section is
+BREP-only.
+
 ```python
 # Whole-solid finishing
 fillet(s: solid, radius: float) -> solid

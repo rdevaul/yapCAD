@@ -16,11 +16,12 @@ requires pythonocc-core; importing :mod:`yapcad.sdf` does not.
 
 Two parts of the replay are not a one-to-one call and are worth knowing:
 
-``rounded_box``
-    Built as a box with every edge filleted to the same radius, which is
-    exactly the Minkowski rounding the field describes.  The classifier
-    declines a radius equal to half the smallest edge, where the fillet has
-    no face left to run along.
+``rounded_box`` and ``chamfered_box``
+    Built as a box with every edge filleted, or chamfered, to the same
+    size, which is exactly the Minkowski rounding -- by a sphere, or by an
+    octahedron -- that each field describes.  The classifier declines a
+    radius or distance equal to half the smallest edge, where the fillet or
+    bevel has no face left to run along.
 
 ``half_space``
     OCC booleans want finite operands, so a half space is replayed as a box
@@ -60,7 +61,10 @@ try:  # pragma: no cover - exercised only where OCC is installed
     from OCC.Core.BRep import BRep_Builder
     from OCC.Core.BRepAdaptor import BRepAdaptor_Curve
     from OCC.Core.BRepCheck import BRepCheck_Analyzer
-    from OCC.Core.BRepFilletAPI import BRepFilletAPI_MakeFillet
+    from OCC.Core.BRepFilletAPI import (
+        BRepFilletAPI_MakeChamfer,
+        BRepFilletAPI_MakeFillet,
+    )
     from OCC.Core.BRepGProp import brepgprop
     from OCC.Core.BRepPrimAPI import (
         BRepPrimAPI_MakeBox,
@@ -242,6 +246,26 @@ def _occ_rounded_box(params, children, build, region):
     return fillet.Shape()
 
 
+def _occ_chamfered_box(params, children, build, region):
+    shape = _occ_box(params, children, build, region)
+    distance = params["distance"]
+    if distance == 0.0:
+        return shape
+    chamfer = BRepFilletAPI_MakeChamfer(shape)
+    explorer = TopExp_Explorer(shape, TopAbs_EDGE)
+    while explorer.More():
+        # Every edge, as for rounded_box: a box with one edge left sharp is
+        # a different part, not an approximation of this one.
+        chamfer.Add(distance, topods.Edge(explorer.Current()))
+        explorer.Next()
+    chamfer.Build()
+    if not chamfer.IsDone():
+        raise SdfError(
+            f"OCC could not chamfer a chamfered_box of distance {distance}"
+        )
+    return chamfer.Shape()
+
+
 def _occ_cylinder(params, _children, _build, _region):
     h = params["height"]
     axis = gp_Ax2(gp_Pnt(0.0, 0.0, -0.5 * h), gp_Dir(0.0, 0.0, 1.0))
@@ -267,6 +291,28 @@ def _occ_rounded_cylinder(params, children, build, region):
             f"OCC could not fillet a rounded_cylinder of edge radius {radius}"
         )
     return fillet.Shape()
+
+
+def _occ_chamfered_cylinder(params, children, build, region):
+    shape = _occ_cylinder(params, children, build, region)
+    distance = params["distance"]
+    chamfer = BRepFilletAPI_MakeChamfer(shape)
+    edges = TopTools_IndexedMapOfShape()
+    topexp.MapShapes(shape, TopAbs_EDGE, edges)
+    count = 0
+    for k in range(1, edges.Size() + 1):
+        edge = topods.Edge(edges.FindKey(k))
+        # The two cap circles; the seam line is not an edge of the part.
+        if BRepAdaptor_Curve(edge).GetType() == GeomAbs_Circle:
+            chamfer.Add(distance, edge)
+            count += 1
+    chamfer.Build()
+    if count != 2 or not chamfer.IsDone():
+        raise SdfError(
+            f"OCC could not chamfer a chamfered_cylinder of distance "
+            f"{distance}"
+        )
+    return chamfer.Shape()
 
 
 def _occ_compound(_params, children, build, region):
@@ -377,6 +423,8 @@ _BACKENDS = {
     "box": _occ_box,
     "rounded_box": _occ_rounded_box,
     "rounded_cylinder": _occ_rounded_cylinder,
+    "chamfered_box": _occ_chamfered_box,
+    "chamfered_cylinder": _occ_chamfered_cylinder,
     "compound": _occ_compound,
     "cylinder": _occ_cylinder,
     "cone": _occ_cone,

@@ -5,6 +5,29 @@ Changelog
 Unreleased
 ==========
 
+- ``chamfer`` works on SDF-authored solids, so a design finished with
+  bevels rather than rounds -- which is every supportless FDM design, since
+  a 45 degree chamfer prints over thin air and a fillet's tangent does not
+  -- now builds in field mode. It used to stop at the first call with
+  "chamfer requires a solid with BREP data". ``sdf.chamfer(node, d)``
+  bevels every edge, the meaning of OCC's chamfer-all-edges, by
+  substituting two new exact-CSG primitives: ``chamfered_box``, which is a
+  box grown by an octahedron, including the triangular face OCC puts across
+  each corner, and ``chamfered_cylinder``, which is its profile revolved.
+  Both replay through OCC, so a chamfered part still exports analytic STEP,
+  and both match OCC's own measured volume to 1e-16 relative over the whole
+  range of valid bevels. ``chamfered_cylinder`` is an exact distance field,
+  because the distance to a solid of revolution is the distance to its
+  profile; ``chamfered_box`` is an intersection of four exact fields, so
+  like all hard CSG it is exact inside and on the surface and a Lipschitz-1
+  lower bound outside, within 7% of the true distance at worst against
+  OCC's own point-to-solid measurement. ``sdf.chamfer`` passes through
+  similarity transforms and compounds and leaves edgeless primitives alone,
+  as ``sdf.fillet`` does, and refuses combined fields, non-uniform scales
+  and cones rather than approximating them. ``sdf.chamfer_solid`` re-meshes
+  no coarser than its input, and the DSL's ``chamfer`` takes this path for
+  any SDF-authored solid, with no OCC needed.
+
 - Cross-file ``use`` imports work. The statement parsed and reached
   ``module.uses``, and nothing ever read it, so a design could not be split
   across files. Every import now has a namespace -- the alias, or the last

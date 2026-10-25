@@ -26,8 +26,8 @@ It needs ``pythonocc-core`` (see :doc:`installation`).
 
 **Signed distance field** (SDF). A tree of primitives and operations that
 gives the distance to the surface at any point (see :doc:`sdf_guide`).
-Booleans, offsets, smooth blends, lattices and fillets of primitives are
-exact and cannot fail. Fields need only numpy, and a field made of
+Booleans, offsets, smooth blends, lattices, and fillets and chamfers of
+primitives are exact and cannot fail. Fields need only numpy, and a field made of
 primitives and hard booleans replays through OCC into an exact BREP.
 
 
