@@ -198,6 +198,21 @@ states its limits up front is more useful than one that degrades silently.
   `service/core/tessellator.py` paths. Interactive-ish at 64³–128³. Cheap, and
   it unblocks the entire pipeline without any new rendering infrastructure.
 
+- **Tier 0.5 — headless numpy sphere tracing.** *(implemented:
+  `yapcad.render`)* March the same numpy evaluator the mesher uses and write
+  a PNG: no window, no GPU, no mesh, no new dependency. This tier exists for
+  a reader that is a *program* rather than a person, which is the case Tier 0
+  and Tier 1 both skip — an agent building a part needs a file it can look at
+  in the same turn, not a canvas to orbit. It is also the one tier that
+  cannot diverge from the numpy backend, because it *is* the numpy backend.
+  Cheap enough to be routine: about 0.1 s for a five-node part at 512², 2.8 s
+  for a hundred-node one, and 0.4 s for a planar section, which is a single
+  `evaluate` call over a plane and is not marched at all. Parts are traced
+  individually and composited by nearest depth, so the cost of a scene grows
+  with its part count rather than with the size of one combined tree — and
+  that compositing seam is where a triangle rasteriser for tessellated BREP
+  or imported mesh parts joins later, without reworking shading or line work.
+
 - **Tier 1 — GPU sphere tracing.** Emit GLSL from the same tree and render a
   full-screen quad. Note that `pyproject.toml` pins `pyglet>=1.5,<2`, and
   pyglet 1.5's shader support is weak enough to effectively block this on the

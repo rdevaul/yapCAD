@@ -373,6 +373,19 @@ its tree as the authoritative representation
 (``yapcad-geometry-json-v0.3``), its mesh as a preview, and any replayed
 BREP marked as derived. Reading it back restores the field.
 
+**A picture**: :mod:`yapcad.render` sphere-traces the field straight to a
+PNG, so looking at a part needs neither a mesh nor an external viewer:
+
+.. code-block:: python
+
+    from yapcad import render
+
+    render.four_up(plate, path="plate.png")
+
+A planar section is one ``evaluate`` call over a plane -- no marching, no
+mesh -- and shows clearance outside the material and wall thickness inside
+it. See :doc:`render_guide`.
+
 
 Limits
 ======

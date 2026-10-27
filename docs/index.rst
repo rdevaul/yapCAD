@@ -54,6 +54,7 @@ Contents
    :caption: Signed distance functions
 
    The SDF guide <sdf_guide>
+   Rendering fields <render_guide>
    Examples <examples>
    SDF design notes <SDF-DESIGN>
 

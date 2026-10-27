@@ -5,6 +5,33 @@ Changelog
 Unreleased
 ==========
 
+- ``yapcad.render``: engineering images from fields, headlessly, with no
+  mesh, no GPU and no new dependency. Agentic CAD work is gated by whether
+  the tool can see what it built, and until now a picture meant meshing the
+  part or generating BREP surfaces and handing the result to an external
+  viewer. ``render.image``, ``render.four_up`` and ``render.section_view``
+  sphere-trace the field in numpy and write a PNG -- about 0.1 s for a
+  five-node part at 512x512 and 2.8 s for a hundred-node one -- and
+  ``python -m yapcad.render design.dsl PART --view 4up`` does it from a DSL
+  design. The march is the Lipschitz step rule the mesher already relies on:
+  hard CSG gives a conservative lower bound on distance, so ``exact=False``
+  costs iterations and never correctness. Rays are clipped to the field's
+  bounding box and only the rays still in flight are evaluated each
+  iteration, together worth 43x. A planar section is not marched at all --
+  it is one ``evaluate`` call over a plane, so it is the cheapest view and
+  the only one that shows clearance outside the material and wall thickness
+  inside it. Parts are traced individually into a depth-and-normal
+  ``PartBuffer`` and composited by nearest depth, so a scene costs what its
+  parts cost rather than what one combined tree would; that compositing seam
+  is where a triangle rasteriser for tessellated BREP or imported mesh parts
+  joins later. Nearest-wins uses a tolerance rather than an exact
+  comparison, so datum-mated parts sharing a face read as a drawn boundary
+  line instead of speckle. Views are orthographic by default, with a scale
+  bar, a labelled axis triad, the model's bounding box and a legend drawn
+  into the frame, because a reader that is a program cannot measure a pixel.
+  Fields are the only thing it can trace: a STEP import or a mesh-only part
+  has no field until Phase 4 promotion lands. See ``docs/render_guide.rst``.
+
 - A field whose surface the cell cannot find is meshed finer instead of
   lost. A boolean can leave a feature thinner than anything either operand
   had -- a cut that leaves a 2 mm remnant of a 12 mm gusset -- and the rule
