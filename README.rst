@@ -293,6 +293,8 @@ Online **yapCAD** documentation is available at https://yapcad.readthedocs.io/en
 * ``docs/installation.rst`` - install options, extras, and environment variables.
 * ``docs/representations.rst`` - mesh, BREP and SDF solids, and how booleans choose an engine.
 * ``docs/sdf_guide.rst`` - the signed distance field guide.
+* ``docs/render_guide.rst`` - headless engineering images from fields:
+  ``yapcad.render`` and ``python -m yapcad.render``.
 * ``docs/dsl_reference.md`` - DSL language reference: syntax, types, builtins, and CLI usage.
 * ``docs/historical/dsl_spec.rst`` - the original DSL design specification.
 * ``docs/yapBREP.rst`` - OCC BREP implementation guide (installation, API, examples).
