@@ -9,6 +9,12 @@ What you get is more than a mesh renderer can give you.  Outside the material
 the value is the clearance to the nearest surface, so the exterior of the
 slice is a clearance map; inside, its magnitude is the local half-thickness.
 The zero contour is the cut outline.
+
+One thing to read correctly: the value is the distance in *three* dimensions,
+not the distance within the cut plane.  A point in the middle of a pocket can
+sit a few millimetres above its floor and tens of millimetres from any wall in
+the plane, and the slice shows the few millimetres -- which is the useful
+number, and not the one a flat drawing would suggest.
 """
 
 import math

@@ -105,6 +105,12 @@ carries information a mesh renderer cannot give you:
 * inside, its magnitude is the local **half-thickness**;
 * the zero contour is the cut outline.
 
+Read that value as a distance in *three* dimensions, not within the cut
+plane. A point in the middle of a pocket may sit a few millimetres above its
+floor and tens of millimetres from any wall in the plane; the slice shows the
+few millimetres. That is the useful number, and not the one a flat drawing
+would suggest.
+
 .. code-block:: python
 
    cut = render.section(part, axis="z", where=4.0)
