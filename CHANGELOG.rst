@@ -5,6 +5,25 @@ Changelog
 Unreleased
 ==========
 
+- Fixed three latent bugs in the solid machinery, each of the kind that
+  returns a plausible answer rather than an error, which is why none of them
+  had been reported.
+
+  ``solid()`` documented an empty solid and raised instead. ``args`` is a
+  tuple, so the ``args == []`` test was always false and the no-argument call
+  fell through to ``ValueError: bad arguments to solid``. ``solid([])``
+  worked, which is why the documented spelling was never missed.
+
+  ``Geometry.center`` reported the centre of a solid's **first surface**
+  rather than of the solid. For a one-surface solid that is the same answer;
+  for a multi-body solid it is the centre of an arbitrary piece. It is now
+  the midpoint of the bounding box the same method already computes, which
+  is what ``geom3d.center`` has always returned.
+
+  ``write_stl`` wrote a file for an object that produced no triangles. A
+  zero-facet STL is a valid file describing nothing, which is worse than a
+  refusal; ``write_step`` already refused, and the two now agree.
+
 - ``yapcad.render``: engineering images from fields, headlessly, with no
   mesh, no GPU and no new dependency. Agentic CAD work is gated by whether
   the tool can see what it built, and until now a picture meant meshing the
