@@ -1213,6 +1213,7 @@ def compile_and_run(
     representation: Optional[str] = None,
     sdf_cell_mm: Optional[float] = None,
     sdf_simplify: Optional[bool] = None,
+    sdf_mesh: Optional[bool] = None,
     source_path: Optional[str] = None,
 ) -> ExecutionResult:
     """
@@ -1244,6 +1245,9 @@ def compile_and_run(
                         solid primitives, fasteners and gears SDF-authored; see
                         :mod:`yapcad.dsl.runtime.representation`
         sdf_cell_mm: cell size SDF primitives are meshed at
+        sdf_mesh: in ``"sdf"`` mode, whether to mesh at all. ``False``
+                  builds the fields and defers every mesh, which is most of
+                  the build time; see :func:`yapcad.sdf.realize_all`
         sdf_simplify: in ``"sdf"`` mode, whether to simplify the finished
                       parts against their fields; by default yes, unless
                       ``YAPCAD_SDF_SIMPLIFY=0``
@@ -1302,7 +1306,7 @@ def compile_and_run(
     from .representation import is_sdf, simplify_result, using
     interpreter = Interpreter(recursion_limit=recursion_limit, source_path=source_path)
     try:
-        with using(representation, sdf_cell_mm):
+        with using(representation, sdf_cell_mm, sdf_mesh):
             result = interpreter.execute(module, command_name, parameters,
                                          source, source_path)
             if result.success and is_sdf():

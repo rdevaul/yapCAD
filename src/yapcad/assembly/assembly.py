@@ -770,11 +770,17 @@ class Assembly:
         source = deepcopy(self.geometry[part_name])
         if not positioned:
             return source
-        from yapcad.geom3d import rotatesurface
+        from yapcad.geom3d import _follow_sdf, _matrix_rows, rotatesurface
         from yapcad.xform import Matrix
         matrix = Matrix(self.transforms[part_name].tolist())
         source[1] = [rotatesurface(surface, 1.0, mat=matrix)
                      for surface in source[1]]
+        # The surfaces have moved; the field that *defines* the part has to
+        # move with them.  Without this a positioned field-authored part
+        # carried a mesh in its placed position and a tree still at the
+        # origin -- and for a part whose mesh is deferred there are no
+        # surfaces to move, so the placement would be lost entirely.
+        _follow_sdf(self.geometry[part_name], source, _matrix_rows(matrix))
         try:
             from yapcad.brep import apply_matrix_to_brep_solid
             apply_matrix_to_brep_solid(source, matrix)
