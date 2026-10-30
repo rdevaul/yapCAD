@@ -784,9 +784,12 @@ def solid(*args):
     for data-type correctness.
 
     """
-    if args==[] or (len(args) == 1 and args[0] == []):
+    if not args or (len(args) == 1 and args[0] == []):
         # empty solid, which is legal because we must support
-        # empty results of CSG operations, etc.
+        # empty results of CSG operations, etc.  NOTE: ``args`` is a tuple,
+        # so the no-argument case has to be tested as emptiness -- comparing
+        # it to a list is always False, which made the documented
+        # ``solid()`` spelling fall through to the error at the bottom.
         return ['solid',[],[],[] ]
 
     # check for "copy constructor" case
