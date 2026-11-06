@@ -402,7 +402,15 @@ def _component_record(definition: Any) -> Dict[str, Any]:
 
 
 def _geometry_fingerprint(solid: Any) -> str:
-    """Hash tessellated local geometry while excluding volatile metadata IDs."""
+    """Hash local geometry while excluding volatile metadata IDs.
+
+    The tessellation is the usual subject, but it is not the only
+    authoritative representation a solid can have: a field-authored solid
+    whose mesh has not been built carries no triangles at all, and hashing
+    only those would give every such part the same fingerprint.  The field's
+    content digest goes in alongside, so two different parts differ whether
+    or not either has been meshed.
+    """
     def surface_payload(surface: Any) -> Dict[str, Any]:
         return {
             "vertices": surface[1],
@@ -420,9 +428,26 @@ def _geometry_fingerprint(solid: Any) -> str:
                 collect(item)
 
     collect(solid[1:])
-    payload = {"surfaces": surfaces}
+    payload: Dict[str, Any] = {"surfaces": surfaces}
+    field = _field_digest(solid)
+    if field is not None:
+        payload["sdf"] = field
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _field_digest(solid: Any) -> Any:
+    """The content digest of a solid's SDF tree, or ``None``."""
+    if not (isinstance(solid, list) and len(solid) > 3
+            and isinstance(solid[3], list) and solid[3][:1] == ["sdf"]):
+        return None
+    try:
+        from yapcad.construction import get_construction
+        from yapcad.sdf.node import from_construction
+        node = from_construction(get_construction(solid))
+    except Exception:
+        return None
+    return None if node is None else node.digest
 
 
 def _derive_bom(

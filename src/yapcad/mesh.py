@@ -19,7 +19,11 @@ def mesh_view(obj: Sequence) -> Iterator[TriTuple]:
     deleting them would open holes in an otherwise closed mesh.
 
     For BREP-only solids (those with empty surfaces list), tessellation is
-    performed via pythonocc-core if available.
+    performed via pythonocc-core if available.  A solid whose SDF mesh has
+    been deferred is refused rather than tessellated into nothing: this is
+    the one place almost every triangle consumer passes through, so saying
+    it here says it for STL, STEP, the mesh booleans and the viewers at
+    once.
     """
 
     surfaces: Iterable[Sequence]
@@ -29,6 +33,7 @@ def mesh_view(obj: Sequence) -> Iterator[TriTuple]:
         surfaces = obj[1]
         # Handle BREP-only solids with empty surfaces list
         if not surfaces:
+            _require_mesh(obj)
             yield from _mesh_view_brep(obj)
             return
     else:
@@ -51,6 +56,15 @@ def mesh_view(obj: Sequence) -> Iterator[TriTuple]:
                 continue
 
             yield calc_normal, v0, v1, v2
+
+
+def _require_mesh(solid: Sequence) -> None:
+    """Refuse a solid whose SDF mesh has not been built yet."""
+    if not (isinstance(solid, list) and len(solid) > 3
+            and isinstance(solid[3], list) and solid[3][:1] == ['sdf']):
+        return
+    from yapcad.sdf.deferred import require_mesh
+    require_mesh(solid, "mesh_view")
 
 
 def _mesh_view_brep(solid: Sequence) -> Iterator[TriTuple]:

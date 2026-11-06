@@ -128,9 +128,24 @@ def _cell_size(solid, tree):
 
 
 def _mesh_bounds(solid):
-    """Axis-aligned bounds of a solid's mesh vertices."""
+    """Axis-aligned bounds of a solid's mesh vertices.
+
+    Only reached for a tree whose own bounds are not finite, which is a
+    field that was meshed inside explicit bounds.  A deferred solid records
+    those bounds in its plan, so ask the plan before the (absent) mesh.
+    """
+    meshing = meshing_from_construction(get_construction(solid)) or {}
+    recorded = meshing.get("bounds")
+    if recorded:
+        return tuple(recorded[:3]), tuple(recorded[3:])
     pts = np.asarray([v[:3] for surf in solid[1] for v in surf[1]],
                      dtype=float)
+    if pts.size == 0:
+        raise SdfError(
+            "this boolean needs to know where its operands are, and one of "
+            "them has an unbounded field, no mesh to measure and no bounds "
+            "recorded. Give the operand explicit bounds when you build it."
+        )
     return tuple(pts.min(axis=0)), tuple(pts.max(axis=0))
 
 

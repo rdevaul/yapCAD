@@ -14,7 +14,12 @@ Three things happen to a transformed SDF solid:
   authoritative definition follows the geometry;
 * the recorded meshing parameters are dropped, because a mesh transformed
   after meshing is not what those parameters would regenerate, and the
-  document should not claim a reproducibility it cannot honour;
+  document should not claim a reproducibility it cannot honour -- unless
+  the mesh has not been built yet, in which case the record is a *plan*
+  rather than a claim about an existing mesh, and the plan survives the
+  move: a part placed by a datum mate is still the same number of cells
+  across.  That is what lets a deferred solid be transformed and then
+  realized;
 * a derived BREP is re-tagged against the new tree when the BREP hook
   transformed it too -- replaying ``transform(tree, M)`` is literally the
   replayed shape carried through ``M``, so the tag stays truthful -- and is
@@ -26,7 +31,7 @@ import numpy as np
 
 from yapcad.construction import get_construction, set_construction
 from yapcad.sdf.node import from_construction, is_sdf_construction, \
-    to_construction
+    meshing_from_construction, to_construction
 from yapcad.sdf.ops import transform
 
 __all__ = ["follow_transform", "is_similarity"]
@@ -54,9 +59,21 @@ def follow_transform(original, transformed, matrix):
         return transformed
     before = from_construction(record)
     after = transform(before, matrix)
-    set_construction(transformed, to_construction(after))
+    set_construction(transformed, to_construction(after, meshing=_plan(record)))
     _follow_derived_brep(original, transformed, before, after, matrix)
     return transformed
+
+
+def _plan(record):
+    """A deferred solid's meshing plan, which outlives a transform.
+
+    ``None`` for a solid that has a mesh: those parameters describe work
+    already done, and transforming the mesh afterwards makes them a claim
+    the document could not honour.
+    """
+    from yapcad.sdf.convert import DEFERRED
+    meshing = meshing_from_construction(record) or {}
+    return dict(meshing) if meshing.get("method") == DEFERRED else None
 
 
 def _follow_derived_brep(original, transformed, before, after, matrix):

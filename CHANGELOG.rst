@@ -5,6 +5,50 @@ Changelog
 Unreleased
 ==========
 
+- A design can now be built **without meshing it**. Meshing is the expensive
+  half of field authoring -- about seven eighths of the time to build a part
+  -- and a great deal of what a design does afterwards never needs the
+  triangles: a datum mate transforms the tree, a range-of-motion sweep
+  measures clearance against the tree, and ``yapcad.render`` traces the tree.
+  ``compile_and_run(..., sdf_mesh=False)``, or ``with sdf.deferring():``
+  around any field code, builds the fields and defers every mesh.  A
+  105-node bracket went from 10.6 s to 0.09 s that way, and deferring then
+  realizing the one part that mattered took 5.2 s in total -- less than
+  building eagerly, because a design meshes every intermediate boolean on the
+  way through and throws those meshes away.  The result is bit-identical.
+  ``sdf.realize(solid)`` builds the mesh in place, so the assembly and the
+  caller holding the same list both get it; ``sdf.realize_all(value)`` walks a
+  result, a list, a mapping or an assembly and simplifies as the eager path
+  does.  What is carried is a *plan* rather than a record of work done, in
+  cells across the longest axis, so it survives a transform: a placed part is
+  still the same number of cells across.
+  
+  Deferral is safe because nothing answers from an absent mesh.  An empty
+  surface list is already legal in yapCAD -- it is what an empty CSG result
+  looks like -- so the code that consumes solids answers it rather than
+  refusing: ``issolidclosed`` calls an empty solid closed, ``volumeof`` calls
+  it zero, ``solid_contains_point`` puts every point outside, and a package
+  fingerprint hashed only triangles, so every mesh-free part would have
+  hashed alike.  Those are reasonable answers about nothing at all and wrong
+  about a part whose mesh has not been built.  Now ``solidbbox`` (and so
+  ``center`` and ``bbox``) answers from the tree's bounds; ``solid_contains_point``
+  and ``solids_intersect`` answer from the field, which is exact where ray
+  casting against triangles has to pick a tolerance; the fingerprint folds in
+  the field's digest; and ``volumeof``, ``issolidclosed``, ``solid_shells``
+  and ``mesh_view`` raise ``DeferredMeshError`` naming ``sdf.realize``.
+  ``mesh_view`` is where almost every triangle consumer passes, so saying it
+  there says it for STL, STEP, the mesh booleans and the viewers at once.  A
+  genuinely empty solid is unaffected.
+  
+- Fixed: a positioned part in an assembly dropped its field.
+  ``Assembly.get_part_geometry(positioned=True)`` transformed the surfaces by
+  hand and never gave the SDF tree the chance to follow, so a placed
+  field-authored part carried a mesh in its placed position and a tree still
+  at the origin -- and ``compound_geometry`` builds on it.  Range-of-motion
+  sweeps were unaffected, because they read unpositioned geometry and pose it
+  themselves.  It now goes through the same ``_follow_sdf`` hook the
+  ``geom3d`` transforms use.
+
 - ``yapcad.render``: engineering images from fields, headlessly, with no
   mesh, no GPU and no new dependency. Agentic CAD work is gated by whether
   the tool can see what it built, and until now a picture meant meshing the

@@ -8,6 +8,15 @@ fields: its booleans combine fields, its fillets round them exactly, and
 fasteners and gears choose their field versions.  That is how a design
 like yapRover builds without OpenCASCADE.
 
+``sdf_mesh=False`` builds the design without meshing anything.  Meshing is
+the expensive half of field authoring -- about seven eighths of the time to
+build a part -- and a design that is going to be swept for range of motion,
+rendered, or measured for clearance never needs the triangles.  The parts
+come back carrying their fields and a plan; :func:`yapcad.sdf.realize_all`
+builds the meshes if and when something wants them, and anything that needs
+triangles in the meantime says so rather than reading an empty surface list
+and believing it.
+
 Set it per call -- ``compile_and_run(..., representation="sdf")``,
 ``package_from_dsl(..., representation="sdf")`` -- or for a whole process
 with ``YAPCAD_DSL_REPRESENTATION=sdf``, for tools that do not expose the
@@ -78,10 +87,12 @@ def _cell_size():
 
 
 @contextlib.contextmanager
-def using(representation=None, sdf_cell_mm=None):
-    """Set the representation, and the SDF cell size, for a block.
+def using(representation=None, sdf_cell_mm=None, sdf_mesh=None):
+    """Set the representation, cell size and meshing policy for a block.
 
-    ``None`` leaves either setting as it is.
+    ``None`` leaves any of the three as it is.  ``sdf_mesh=False`` defers
+    every primitive's and every boolean's meshing; see
+    :func:`yapcad.sdf.deferring`.
     """
     tokens = []
     if representation is not None:
@@ -93,7 +104,11 @@ def using(representation=None, sdf_cell_mm=None):
             raise ValueError("sdf_cell_mm must be positive and finite")
         tokens.append((_cell, _cell.set(cell)))
     try:
-        yield
+        with contextlib.ExitStack() as stack:
+            if sdf_mesh is not None:
+                from yapcad.sdf.convert import deferring
+                stack.enter_context(deferring(not sdf_mesh))
+            yield
     finally:
         for var, token in reversed(tokens):
             var.reset(token)

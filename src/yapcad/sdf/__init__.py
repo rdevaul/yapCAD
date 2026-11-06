@@ -102,7 +102,22 @@ from yapcad.sdf.contour import (
     manifold_defects,
     proves_empty,
 )
-from yapcad.sdf.convert import NonManifoldMeshError, mesh_to_surface, to_solid
+from yapcad.sdf.convert import (
+    DEFERRED,
+    NonManifoldMeshError,
+    deferring,
+    is_deferring,
+    mesh_to_surface,
+    to_solid,
+)
+from yapcad.sdf.deferred import (
+    DeferredMeshError,
+    deferred_plan,
+    is_deferred,
+    realize,
+    realize_all,
+    require_mesh,
+)
 from yapcad.sdf.booleans import combine_all, is_sdf_solid
 from yapcad.sdf.simplify import (
     simplify_finished,
@@ -217,6 +232,15 @@ __all__ = [
     "mesh_to_surface",
     "to_solid",
     "NonManifoldMeshError",
+    "DEFERRED",
+    "deferring",
+    "is_deferring",
+    "DeferredMeshError",
+    "is_deferred",
+    "deferred_plan",
+    "realize",
+    "realize_all",
+    "require_mesh",
     # booleans between SDF solids
     "combine_all",
     "is_sdf_solid",

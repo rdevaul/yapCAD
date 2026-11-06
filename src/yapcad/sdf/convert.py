@@ -11,6 +11,8 @@ made round-trip, alongside the meshing parameters needed to reproduce the
 preview exactly — which matters because yapCAD signs packages.
 """
 
+import contextlib
+import contextvars
 import math
 import warnings
 
@@ -54,6 +56,41 @@ def mesh_to_surface(mesh):
     return surface(vertices, normals, faces)
 
 
+#: ``meshing["method"]`` for a solid whose mesh has not been built yet.
+#: The rest of the record is the *plan* -- what :func:`realize` will mesh at
+#: -- rather than a description of a mesh that exists.
+DEFERRED = "deferred"
+
+_deferring = contextvars.ContextVar("yapcad_sdf_defer_meshing", default=False)
+
+
+def is_deferring():
+    """True when :func:`to_solid` is currently deferring its meshing."""
+    return bool(_deferring.get())
+
+
+@contextlib.contextmanager
+def deferring(defer=True):
+    """Build fields into solids without meshing them, for a block.
+
+    Meshing is the expensive half of field authoring and most of what a
+    design does with a part afterwards never needs triangles: placing it by
+    a datum mate transforms the tree, a range-of-motion sweep measures
+    clearance against the tree, and :mod:`yapcad.render` traces the tree.
+    Inside this block those all still work, and the meshing is not done.
+
+    What comes out carries no surfaces.  Anything that genuinely needs
+    triangles -- an STL, a package preview, a volume -- says so and names
+    :func:`yapcad.sdf.realize`, rather than quietly answering from an empty
+    surface list.
+    """
+    token = _deferring.set(bool(defer))
+    try:
+        yield
+    finally:
+        _deferring.reset(token)
+
+
 #: Cells across the longest axis that automatic refinement will not pass.
 #: The corner lattice is ``(n+1) ** 3`` float64 values, so 256 is about
 #: 135 MB and 512 would be over a gigabyte.  :mod:`yapcad.sdf.booleans`
@@ -64,7 +101,7 @@ MAX_RESOLUTION = 256
 def to_solid(node, resolution=64, bounds=None, padding=None, chunk=32,
              prune=True, backend=DEFAULT_BACKEND, metadata=None, check=True,
              brep=False, cell_mm=None, refine=True,
-             refine_limit=MAX_RESOLUTION):
+             refine_limit=MAX_RESOLUTION, defer=None):
     """Mesh ``node`` and return it as a yapCAD solid.
 
     :param resolution: cells across the longest axis; the dominant quality
@@ -101,6 +138,9 @@ def to_solid(node, resolution=64, bounds=None, padding=None, chunk=32,
         pythonocc-core, and raises otherwise; ``"auto"`` attaches one when
         both hold and quietly skips it when not.  Off by default, because a
         BREP payload is megabytes where the tree is kilobytes.
+    :param defer: skip the meshing and return a solid that carries the
+        field and the plan to mesh it, for :func:`yapcad.sdf.realize` to
+        build later or never.  ``None`` follows :func:`deferring`.
     :returns: a solid whose construction slot holds the generating field.
 
     The meshing parameters are recorded in the construction record so the
@@ -112,11 +152,22 @@ def to_solid(node, resolution=64, bounds=None, padding=None, chunk=32,
     """
     if brep not in (False, True, "auto"):
         raise SdfError(f"brep must be True, False or 'auto', got {brep!r}")
-    replayed = _replay(node, brep)
 
-    bodies = _bodies(node)
     region = node.bounds if bounds is None else bounds
     start = _cells_across(region, resolution, cell_mm)
+
+    if is_deferring() if defer is None else bool(defer):
+        if brep is True:
+            raise SdfError(
+                "to_solid: brep=True and deferred meshing ask for opposite "
+                "things -- a replayed BREP now, and no work now. Realize the "
+                "solid with yapcad.sdf.realize(solid, brep=True) when you "
+                "want one, or pass brep='auto' to skip it here."
+            )
+        return _deferred_solid(node, start, bounds, padding, metadata)
+
+    replayed = _replay(node, brep)
+    bodies = _bodies(node)
     limit = max(int(refine_limit), start)
 
     def plan_for(cells):
@@ -221,6 +272,27 @@ def to_solid(node, resolution=64, bounds=None, padding=None, chunk=32,
         set_solid_metadata(result, dict(metadata))
     if replayed is not None:
         _attach_derived_brep(result, replayed, node)
+    return result
+
+
+def _deferred_solid(node, cells, bounds, padding, metadata):
+    """A solid that carries the field and the plan, and no triangles.
+
+    The plan is recorded in cells across the longest axis rather than as a
+    cell size, because that is what survives a transform: a part placed by a
+    datum mate is still the same number of cells across, where its cell size
+    in millimetres would have changed under a scale.
+    """
+    meshing = {"method": DEFERRED, "resolution": int(cells)}
+    if padding is not None:
+        meshing["padding"] = float(padding)
+    if bounds is not None:
+        meshing["bounds"] = [float(v) for v in bounds[0]] + \
+                            [float(v) for v in bounds[1]]
+    result = solid([], [], to_construction(node, meshing=meshing))
+    if metadata:
+        from yapcad.metadata import set_solid_metadata
+        set_solid_metadata(result, dict(metadata))
     return result
 
 

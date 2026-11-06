@@ -2836,8 +2836,14 @@ class BuiltinRegistry:
                 from yapcad.sdf.ops import compound as sdf_compound
                 tree = sdf_compound(*(from_construction(get_construction(op))
                                       for op in operands))
-                return solid_val(solid(all_surfaces, [],
-                                       to_construction(tree)))
+                # A compound of deferred parts has no surfaces to show for
+                # itself; without the plan it would be indistinguishable
+                # from an empty solid.
+                from yapcad.sdf.deferred import plan_from_sources
+                return solid_val(solid(
+                    all_surfaces, [],
+                    to_construction(tree,
+                                    meshing=plan_from_sources(tree, operands))))
             result = solid(all_surfaces, [], ['procedure', 'compound'])
 
             # If OCC available, create a proper compound shape

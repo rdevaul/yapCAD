@@ -879,6 +879,12 @@ def solidbbox(sld):
                          max(box[1][1], sb[1][1]),
                          max(box[1][2], sb[1][2]))]
 
+    # SDF fallback: a field-authored solid knows where it is whether or not
+    # its mesh has been built, and for a deferred solid this is the only
+    # answer there is.  Cheap -- the bounds are already on the tree.
+    if not box:
+        box = _sdf_bbox(sld)
+
     # BREP fallback when surfaces list is empty (e.g., sweep-generated solids)
     if not box:
         try:
@@ -899,6 +905,56 @@ def solidbbox(sld):
             pass  # Return empty list if BREP extraction fails
 
     return box
+
+def _require_mesh(sld, operation):
+    """Refuse an operation that needs triangles on a deferred solid.
+
+    An empty surface list is a legal answer in yapCAD -- it is what an empty
+    CSG result looks like -- so these functions answer it rather than
+    refusing.  A solid whose mesh has not been built yet looks identical and
+    deserves the opposite treatment, since "closed", "zero volume" and "no
+    shells" would all be wrong about it.  Imported lazily: most solids are
+    not fields, and geom3d is imported by the SDF package itself.
+    """
+    if not (isinstance(sld, list) and len(sld) > 3
+            and isinstance(sld[3], list) and sld[3][:1] == ['sdf']):
+        return
+    from yapcad.sdf.deferred import require_mesh
+    require_mesh(sld, operation)
+
+
+def _sdf_bbox(sld):
+    """A field-authored solid's bounds, from its tree, or ``[]``.
+
+    Raises for a solid whose mesh is deferred *and* whose field is
+    unbounded: there is no mesh to fall back on, and returning an empty box
+    would be read as "no extent" rather than "could not say".
+    """
+    import math
+
+    from yapcad.construction import get_construction
+    try:
+        record = get_construction(sld)
+    except Exception:
+        return []
+    from yapcad.sdf.node import from_construction, is_sdf_construction
+    if not is_sdf_construction(record):
+        return []
+    node = from_construction(record)
+    if node is None:
+        return []
+    lo, hi = node.bounds
+    if all(math.isfinite(v) for v in (*lo, *hi)):
+        return [point(lo[0], lo[1], lo[2]), point(hi[0], hi[1], hi[2])]
+    from yapcad.sdf.deferred import is_deferred
+    if is_deferred(sld):
+        raise ValueError(
+            "solidbbox: this solid's mesh is deferred and its field is "
+            "unbounded, so there is nothing to measure. Give the field "
+            "explicit bounds, or yapcad.sdf.realize(solid) first."
+        )
+    return []
+
 
 def _follow_sdf(original, transformed, matrix):
     """Let an SDF-authored solid's tree follow a transform of the solid.
@@ -1129,6 +1185,7 @@ def issolidclosed(x):
     if not issolid(x, fast=False):
         raise ValueError('invalid solid passed to issolidclosed')
 
+    _require_mesh(x, 'issolidclosed')
     surfaces = x[1]
 
     # Empty solid is trivially closed
@@ -1203,6 +1260,7 @@ def volumeof(x):
     if not issolid(x, fast=False):
         raise ValueError('invalid solid passed to volumeof')
 
+    _require_mesh(x, 'volumeof')
     if not issolidclosed(x):
         raise ValueError('solid must be topologically closed to compute volume')
 
@@ -1319,6 +1377,7 @@ def solid_shells(x):
     if not issolid(x, fast=False):
         raise ValueError('invalid solid passed to solid_shells')
 
+    _require_mesh(x, 'solid_shells')
     surfaces = x[1]
     if not surfaces:
         return [], []

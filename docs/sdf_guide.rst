@@ -387,6 +387,92 @@ mesh -- and shows clearance outside the material and wall thickness inside
 it. See :doc:`render_guide`.
 
 
+
+Building without meshing
+========================
+
+Meshing is the expensive half of field authoring -- about seven eighths of
+the time to build a part -- and a great deal of what a design does with a
+part afterwards never needs the triangles. Placing it by a datum mate
+transforms its tree; a range-of-motion sweep measures clearance against the
+tree; :mod:`yapcad.render` traces the tree. All of that works on a part
+whose mesh has never been built.
+
+``sdf_mesh=False`` builds the fields and defers every mesh:
+
+.. code-block:: python
+
+    result = compile_and_run(source, "BUILD", {}, representation="sdf",
+                             sdf_mesh=False)
+
+or, around any field code:
+
+.. code-block:: python
+
+    with sdf.deferring():
+        plate = sdf.to_solid(field)          # no triangles are made
+
+What comes back carries the field and a *plan* -- the cell it would have
+meshed at, recorded in cells across the longest axis so that it survives a
+transform. :func:`yapcad.sdf.realize` builds the mesh in place when
+something wants it, and :func:`yapcad.sdf.realize_all` does a whole design:
+
+.. code-block:: python
+
+    sdf.realize(plate)                # this part
+    sdf.realize_all(result.geometry)  # all of them, simplified as usual
+
+Deferring is not only postponement. A design meshes every intermediate
+boolean on the way through and throws those meshes away; deferring meshes
+only what survives. On a 105-node bracket, building eagerly took 10.6 s,
+while deferring and then realizing the one part that mattered took 5.2 s --
+for a bit-identical result.
+
+What refuses, and why
+---------------------
+
+An empty surface list is already legal in yapCAD: it is what an empty CSG
+result looks like. So the code that consumes solids was written when the
+only way to get one was to mean it, and it answers accordingly --
+``issolidclosed`` calls an empty solid closed, ``volumeof`` calls it zero,
+``solid_contains_point`` puts every point outside. Those are reasonable
+answers about nothing at all, and wrong about a part whose mesh has not been
+built yet.
+
+So a deferred solid never answers from an absent mesh. Either the field
+answers the question, or the call refuses and names the cure:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - asked for
+     - what happens
+   * - ``solidbbox``, ``center``, ``bbox``
+     - answered from the tree's bounds, no meshing
+   * - ``solid_contains_point``, ``solids_intersect``
+     - answered from the field, which is *exact* where ray casting
+       against triangles has to pick a tolerance
+   * - a transform, a datum mate
+     - moves the field and keeps the plan
+   * - ``volumeof``, ``issolidclosed``, ``solid_shells``
+     - ``DeferredMeshError`` naming :func:`yapcad.sdf.realize`
+   * - STL, STEP, a mesh boolean, a viewer
+     - the same refusal, raised once in ``mesh_view``
+
+A genuinely empty solid is unaffected: it is not waiting for anything, and
+still answers as it always did.
+
+Caveats
+-------
+
+* Deferral is opt-in, and meshing remains the default.
+* ``brep=True`` and deferral ask for opposite things, and say so.
+* A deferred part is not simplified until it is realized;
+  :func:`~yapcad.sdf.realize_all` simplifies as the eager path does, while
+  :func:`~yapcad.sdf.realize` leaves the mesh alone unless asked.
+
+
 Limits
 ======
 

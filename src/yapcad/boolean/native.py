@@ -1004,6 +1004,66 @@ def _group_hits(hits, tol):
 def _triangle_normal(tri):
     _, n = _geom3d().tri2p0n(tri)
     return n
+def _field_of(sld):
+    """The SDF tree behind a solid, or ``None``."""
+    if not (isinstance(sld, list) and len(sld) > 3
+            and isinstance(sld[3], list) and sld[3][:1] == ['sdf']):
+        return None
+    from yapcad.construction import get_construction
+    from yapcad.sdf.node import from_construction
+    return from_construction(get_construction(sld))
+
+
+def _field_contains(sld, p):
+    """Whether ``p`` is inside a field-authored solid, or ``None``.
+
+    Asking the field is not a fallback here, it is the better answer: the
+    sign of the distance at a point is exact, where ray casting against a
+    triangle mesh has to pick a tolerance and hope no ray grazes an edge.
+    """
+    node = _field_of(sld)
+    if node is None:
+        return None
+    import numpy as np
+
+    from yapcad.sdf.evaluate import evaluate
+    value = evaluate(node, np.asarray([[p[0], p[1], p[2]]], dtype=float))
+    return bool(float(value[0]) <= 0.0)
+
+
+def _fields_intersect(a, b, tol):
+    """Whether two field-authored solids overlap, or ``None``.
+
+    Sampled on a grid over the intersection of their bounds, so it answers
+    the question a mesh-free solid would otherwise silently answer "no".
+    It can miss an overlap thinner than the sample spacing, which is the
+    same caveat meshing carries, so it is deliberately conservative about
+    saying no: an empty bounds intersection is a real no, and anything else
+    is decided by the samples.
+    """
+    import numpy as np
+
+    from yapcad.sdf.evaluate import evaluate
+    from yapcad.sdf.node import bounds_intersect, bounds_is_empty
+
+    node_a, node_b = _field_of(a), _field_of(b)
+    if node_a is None or node_b is None:
+        return None
+    region = bounds_intersect(node_a.bounds, node_b.bounds)
+    if bounds_is_empty(region):
+        return False
+    lo, hi = np.asarray(region[0], float), np.asarray(region[1], float)
+    if not (np.all(np.isfinite(lo)) and np.all(np.isfinite(hi))):
+        return None
+    steps = [np.linspace(lo[i], hi[i], 24) for i in range(3)]
+    grid = np.stack(np.meshgrid(*steps, indexing="ij"), axis=-1)
+    points = grid.reshape(-1, 3)
+    inside_a = evaluate(node_a, points) <= 0.0
+    if not inside_a.any():
+        return False
+    return bool((evaluate(node_b, points[inside_a]) <= 0.0).any())
+
+
 def solid_contains_point(sld, p, tol=_DEFAULT_RAY_TOL):
     if not _geom3d().issolid(sld, fast=False):
         raise ValueError('invalid solid passed to solid_contains_point')
@@ -1012,6 +1072,9 @@ def solid_contains_point(sld, p, tol=_DEFAULT_RAY_TOL):
 
     surfaces = sld[1]
     if not surfaces:
+        inside = _field_contains(sld, p)
+        if inside is not None:
+            return inside
         return False
 
     box = _geom3d().solidbbox(sld)
@@ -1090,6 +1153,9 @@ def solids_intersect(a, b, tol=_DEFAULT_RAY_TOL):
     if not _geom3d().issolid(a, fast=False) or not _geom3d().issolid(b, fast=False):
         raise ValueError('invalid solid passed to solids_intersect')
     if not a[1] or not b[1]:
+        overlap = _fields_intersect(a, b, tol)
+        if overlap is not None:
+            return overlap
         return False
 
     box_a = _geom3d().solidbbox(a)
