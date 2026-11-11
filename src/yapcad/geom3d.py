@@ -1027,6 +1027,70 @@ def rotatesolid(x,ang,cent=point(0,0,0),axis=point(0,0,1.0),mat=False):
         _follow_sdf(x, s2, _matrix_rows(rot))
     return s2
 
+def transformsolid(x, mat):
+    """Return a copy of solid ``x`` moved by the rigid 4x4 ``mat``.
+
+    For a change of frame that is not a single axis rotation -- placing a
+    part onto a surface given by a normal and an up direction, say.  Unlike
+    transforming the vertex lists by hand, this keeps every representation
+    of the solid in step: the mesh, any OCC or native BREP, and an SDF
+    construction tree, which is what ``realize`` and the field queries read.
+    A copied record that described the solid before the move would silently
+    put those back where the solid used to be.
+
+    ``mat`` is an ``xform.Matrix`` whose linear part must be a proper
+    rotation (orthonormal, determinant +1), optionally with a translation.
+    Mirrors and scales change winding or normal lengths; use
+    ``mirrorsolid`` and ``scalesolid`` for those.
+    """
+    if not issolid(x):
+        raise ValueError('bad solid passed to transformsolid')
+    if not isinstance(mat, xform.Matrix):
+        raise ValueError('transformsolid requires an xform.Matrix')
+    rows = _matrix_rows(mat)
+    lin = [r[:3] for r in rows[:3]]
+    for i in range(3):
+        for j in range(3):
+            d = sum(lin[k][i] * lin[k][j] for k in range(3))
+            if abs(d - (1.0 if i == j else 0.0)) > 1e-9:
+                raise ValueError('transformsolid requires a rigid transform; '
+                                 'the matrix scales or shears')
+    det = (lin[0][0] * (lin[1][1] * lin[2][2] - lin[1][2] * lin[2][1])
+           - lin[0][1] * (lin[1][0] * lin[2][2] - lin[1][2] * lin[2][0])
+           + lin[0][2] * (lin[1][0] * lin[2][1] - lin[1][1] * lin[2][0]))
+    if det < 0.0:
+        raise ValueError('transformsolid requires a proper rotation; the '
+                         'matrix mirrors, so use mirrorsolid')
+    if any(abs(rows[3][j] - (0.0, 0.0, 0.0, 1.0)[j]) > 1e-12 for j in range(4)):
+        raise ValueError('transformsolid requires an affine matrix')
+
+    s2 = deepcopy(x)
+    surfs = []
+    for s in x[1]:
+        t = deepcopy(s)
+        t[1] = [mat.mul(point(v)) for v in s[1]]
+        # Normals have w=0, so the translation column leaves them alone.
+        t[2] = [mat.mul(vect(n[0], n[1], n[2], 0.0)) for n in s[2]]
+        surfs.append(t)
+    s2[1] = surfs
+    try:
+        from yapcad.brep import apply_matrix_to_brep_solid
+        apply_matrix_to_brep_solid(s2, mat)
+    except ImportError:
+        pass
+    try:
+        from yapcad.native_brep import (native_brep_from_solid,
+                                        transform_topology_graph,
+                                        attach_native_brep_to_solid)
+        graph = native_brep_from_solid(s2)
+        if graph is not None:
+            transform_topology_graph(graph, lambda p: mat.mul(point(p)))
+            attach_native_brep_to_solid(s2, graph)
+    except ImportError:
+        pass
+    _follow_sdf(x, s2, rows)
+    return s2
+
 def mirrorsolid(x,plane,preserveNormal=True):
     if not issolid(x):
         raise ValueError('bad solid passed to mirrorsolid')

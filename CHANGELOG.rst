@@ -5,6 +5,15 @@ Changelog
 Unreleased
 ==========
 
+- Fixed: ``text3d.text_on_surface`` rotated its text by rewriting vertex
+  lists and copied the unrotated solid's construction record (and dropped
+  its material and metadata) onto the result, so the record described the
+  text before the rotation.  Text carries a ``procedure`` record today, so
+  nothing could observe it yet; a field-authored or BREP-backed text solid
+  would have been put back where it started.  New ``geom3d.transformsolid``
+  applies a rigid 4x4 to a solid and keeps the mesh, the OCC and native BREP
+  and the SDF tree in step, and ``text_on_surface`` now uses it.
+
 - Fixed: ``FaceNamer`` (``yapcad.package.analysis``) could not be
   constructed -- it imported four ``geom3d`` helpers that did not exist.
   It now recovers faces from the mesh itself: a face is a maximal patch of
