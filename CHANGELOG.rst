@@ -5,6 +5,18 @@ Changelog
 Unreleased
 ==========
 
+- Fixed: ``FaceNamer`` (``yapcad.package.analysis``) could not be
+  constructed -- it imported four ``geom3d`` helpers that did not exist.
+  It now recovers faces from the mesh itself: a face is a maximal patch of
+  triangles joined across edges no sharper than ``crease_deg`` (default
+  30), found across the whole solid.  A box therefore has six faces whether
+  it came from ``prism`` (six surfaces) or from a mesh boolean or SDF part
+  (one surface), and a smooth cylinder wall is one face.  Each ``FaceInfo``
+  carries an area-weighted centroid and normal and the triangles it covers;
+  a patch facing every way at once, such as a whole cylinder wall, has a
+  zero normal instead of a made-up one.  Failures now raise instead of
+  being replaced with placeholder geometry, and deferred solids are refused.
+
 - Fixed: the DSL solid queries.  ``volume()`` and ``surface_area()``
   imported ``geom3d`` functions that had never been written, and
   ``is_empty()`` type-checked but had no runtime, so all three compiled and

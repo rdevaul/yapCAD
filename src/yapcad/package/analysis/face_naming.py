@@ -30,11 +30,16 @@ class FaceInfo:
 
     Attributes:
         index: Face index in the solid
-        centroid: Face centroid point
-        normal: Face normal vector (average for curved faces)
+        centroid: Area-weighted face centroid
+        normal: Area-weighted mean outward normal, normalised.  A patch that
+            faces every way at once -- a whole cylinder wall or sphere --
+            has no mean direction and gets ``(0, 0, 0)``, which no
+            ``ByNormalSelector`` matches.
         area: Face area
         name: Optional assigned name
         tags: Optional list of tags
+        triangles: ``(surface_index, face_index)`` pairs locating the face's
+            triangles in the solid it was extracted from
     """
     index: int
     centroid: Tuple[float, float, float]
@@ -42,6 +47,7 @@ class FaceInfo:
     area: float
     name: Optional[str] = None
     tags: List[str] = field(default_factory=list)
+    triangles: List[Tuple[int, int]] = field(default_factory=list)
 
 
 class FaceSelector:
@@ -203,63 +209,126 @@ class FaceNamer:
 
     This class extracts face information from solids and applies names
     based on selectors or explicit assignments.
+
+    A yapCAD surface is a triangle mesh with no notion of B-rep faces, and
+    its boundaries are an accident of construction: ``prism`` makes one
+    surface per side, but a mesh boolean or an SDF part is a single surface
+    covering every side.  So faces are recovered from the triangles: a face
+    is a maximal patch of triangles joined across edges whose dihedral angle
+    is at most ``crease_deg``, found across the whole solid regardless of
+    how its surfaces are divided.  A box gives six faces however it was
+    built; a smooth cylinder wall stays one face, as in a B-rep, provided
+    it is tessellated finer than ``crease_deg`` per segment.
+
+    Face indices are in order of each face's first triangle, so they are
+    deterministic for a given solid.  They are *mesh* faces: they match the
+    B-rep face order Gmsh uses only where the two decompositions agree.
     """
 
-    def __init__(self, solid: Any):
+    def __init__(self, solid: Any, crease_deg: float = 30.0):
         """
         Args:
             solid: yapCAD solid geometry
+            crease_deg: Largest dihedral angle, in degrees, across which two
+                triangles still belong to the same face
+
+        Raises:
+            ValueError: if ``solid`` is not a solid
+            DeferredMeshError: if its mesh is deferred (realize it first)
         """
         self.solid = solid
+        self.crease_deg = crease_deg
         self._faces: List[FaceInfo] = []
         self._extract_faces()
 
     def _extract_faces(self) -> None:
-        """Extract face information from solid."""
-        from yapcad.geom3d import issolid, getsurfaces
+        """Group the solid's triangles into faces and measure each one."""
+        from yapcad.geom3d import (
+            issolid, _require_mesh, _triangle_frame, _canonical_edge_key,
+        )
 
         if not issolid(self.solid):
-            return
+            raise ValueError("FaceNamer requires a yapCAD solid")
+        _require_mesh(self.solid, "FaceNamer")
 
-        surfaces = getsurfaces(self.solid)
+        # Per triangle: id, points, unit normal (None if degenerate), area.
+        tris = []
+        for si, surf in enumerate(self.solid[1]):
+            vertices = surf[1]
+            for fi, face in enumerate(surf[3]):
+                p0, p1, p2, cp = _triangle_frame(vertices, face)
+                length = math.sqrt(cp[0]**2 + cp[1]**2 + cp[2]**2)
+                unit = (cp[0]/length, cp[1]/length, cp[2]/length) if length > 0.0 else None
+                tris.append(((si, fi), (p0, p1, p2), unit, length / 2.0, cp))
 
-        for i, surf in enumerate(surfaces):
-            centroid = self._compute_centroid(surf)
-            normal = self._compute_normal(surf)
-            area = self._compute_area(surf)
+        # Edges by position, so faces join across surface boundaries and
+        # duplicated vertices alike.
+        edges: Dict[Any, List[int]] = {}
+        for t, (_, pts, _, _, _) in enumerate(tris):
+            for a, b in ((0, 1), (1, 2), (2, 0)):
+                edges.setdefault(_canonical_edge_key(pts[a], pts[b]), []).append(t)
 
-            self._faces.append(FaceInfo(
-                index=i,
-                centroid=centroid,
-                normal=normal,
-                area=area,
-            ))
+        cos_crease = math.cos(math.radians(self.crease_deg))
 
-    def _compute_centroid(self, surface: Any) -> Tuple[float, float, float]:
-        """Compute face centroid."""
-        from yapcad.geom3d import surface_center
-        try:
-            center = surface_center(surface)
-            return (float(center[0]), float(center[1]), float(center[2]))
-        except Exception:
-            return (0.0, 0.0, 0.0)
+        def joined(t, u):
+            # A degenerate triangle has no normal to compare, and letting it
+            # join either side would bridge two faces across a crease.
+            nt, nu = tris[t][2], tris[u][2]
+            if nt is None or nu is None:
+                return False
+            return nt[0]*nu[0] + nt[1]*nu[1] + nt[2]*nu[2] >= cos_crease
 
-    def _compute_normal(self, surface: Any) -> Tuple[float, float, float]:
-        """Compute face normal (average for curved faces)."""
-        from yapcad.geom3d import surface_normal
-        try:
-            normal = surface_normal(surface)
-            return (float(normal[0]), float(normal[1]), float(normal[2]))
-        except Exception:
-            return (0.0, 0.0, 1.0)
+        neighbours: List[List[int]] = [[] for _ in tris]
+        for members in edges.values():
+            for i, t in enumerate(members):
+                for u in members[i + 1:]:
+                    if t != u and joined(t, u):
+                        neighbours[t].append(u)
+                        neighbours[u].append(t)
 
-    def _compute_area(self, surface: Any) -> float:
-        """Compute face area."""
-        from yapcad.geom3d import surface_area
-        try:
-            return float(surface_area(surface))
-        except Exception:
-            return 0.0
+        seen = [False] * len(tris)
+        for seed in range(len(tris)):
+            if seen[seed] or tris[seed][2] is None:
+                continue
+            seen[seed] = True
+            group, stack = [], [seed]
+            while stack:
+                t = stack.pop()
+                group.append(t)
+                for u in neighbours[t]:
+                    if not seen[u]:
+                        seen[u] = True
+                        stack.append(u)
+            group.sort()
+            self._faces.append(self._measure(len(self._faces), [tris[t] for t in group]))
+
+    @staticmethod
+    def _measure(index: int, members: List[Any]) -> FaceInfo:
+        """Area, area-weighted centroid and mean normal of a triangle group."""
+        area = 0.0
+        centroid = [0.0, 0.0, 0.0]
+        net = [0.0, 0.0, 0.0]
+        twice_area = 0.0
+        for _, pts, _, a, cp in members:
+            area += a
+            twice_area += 2.0 * a
+            for k in range(3):
+                centroid[k] += a * (pts[0][k] + pts[1][k] + pts[2][k]) / 3.0
+                net[k] += cp[k]
+        centroid = tuple(c / area for c in centroid)
+        length = math.sqrt(net[0]**2 + net[1]**2 + net[2]**2)
+        # The same threshold geom3d.surface_normal uses for "no direction".
+        if length <= 1e-9 * twice_area:
+            normal = (0.0, 0.0, 0.0)
+        else:
+            normal = (net[0]/length, net[1]/length, net[2]/length)
+        return FaceInfo(
+            index=index,
+            centroid=centroid,
+            normal=normal,
+            area=area,
+            triangles=[m[0] for m in members],
+        )
 
     @property
     def faces(self) -> List[FaceInfo]:
@@ -329,6 +398,7 @@ class FaceNamer:
                     "area": f.area,
                     "name": f.name,
                     "tags": f.tags,
+                    "triangles": f.triangles,
                 }
                 for f in self._faces
             ]
