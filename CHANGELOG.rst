@@ -5,6 +5,29 @@ Changelog
 Unreleased
 ==========
 
+- Fixed: the DSL solid queries.  ``volume()`` and ``surface_area()``
+  imported ``geom3d`` functions that had never been written, and
+  ``is_empty()`` type-checked but had no runtime, so all three compiled and
+  then crashed.  ``geom3d`` gains ``surface_area`` (a surface, or a solid
+  with void shells included), ``surface_center`` and ``surface_normal``
+  (area-weighted, from triangle winding), and ``volume()`` now uses
+  ``volumeof``.
+
+- Changed: DSL ``centroid()`` returns the **volume centroid** -- the centre of
+  mass at uniform density -- from the new ``geom3d.centroidof``, which uses
+  the same divergence-theorem construction as ``volumeof``.  It used to
+  average the mesh vertices, which is biased toward densely tessellated
+  regions (a cone's came out under an eighth of the way up instead of a
+  quarter) and moves with mesh resolution.  Designs that call ``centroid()``
+  on asymmetric parts will see different, correct numbers;
+  ``vertex_centroid()`` keeps the old estimate for reproducing them.
+
+  Fixed at the same time: ``centroid()`` reported the **origin** for a solid
+  with no surfaces, so a deferred part at x=100 had its centroid at 0.  Every
+  solid query now refuses a deferred solid with ``DeferredMeshError``, as
+  ``volumeof`` already did, and ``centroid()`` raises for an empty, open or
+  zero-volume solid, none of which has a centroid.
+
 - A design can now be built **without meshing it**. Meshing is the expensive
   half of field authoring -- about seven eighths of the time to build a part
   -- and a great deal of what a design does afterwards never needs the

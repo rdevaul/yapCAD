@@ -125,7 +125,8 @@ FUNCTION_DESCRIPTIONS: Dict[str, str] = {
     "surface_area": "Calculate the surface area of a solid",
     "area": "Calculate the area of a 2D region",
     "perimeter": "Calculate the perimeter of a 2D region",
-    "centroid": "Calculate the centroid of a solid",
+    "centroid": "Calculate the volume centroid (centre of mass) of a closed solid",
+    "vertex_centroid": "Average a solid's mesh vertices (legacy centroid estimate)",
     "distance": "Calculate the distance between two points",
 
     # Transform Application
@@ -333,7 +334,7 @@ def list_functions(category: Optional[str] = None) -> List[str]:
                 filtered.append(name)
             elif category == "transform" and (ret_type == "transform" or "transform" in desc):
                 filtered.append(name)
-            elif category == "query" and name in ["volume", "surface_area", "area", "perimeter", "centroid", "distance", "is_empty"]:
+            elif category == "query" and name in ["volume", "surface_area", "area", "perimeter", "centroid", "vertex_centroid", "distance", "is_empty"]:
                 filtered.append(name)
 
         names = filtered
