@@ -5,6 +5,19 @@ Changelog
 Unreleased
 ==========
 
+- Fixed: a call that ended an ``if``, ``elif``, ``else`` or ``for`` body was
+  silently skipped. The parser lifts a block's trailing bare expression into
+  the block's ``final_expression`` and the interpreter ran only its
+  ``statements``, so ``add_part(...)`` as the last line of a loop, or a
+  recursive command as the last line of an ``if``, never ran -- no error, the
+  part was simply missing. The interpreter now runs the whole block.
+- Fixed: the solid ``assembly_compound`` emits in field mode kept its parts'
+  uniform meshes. The compound is positioned when the builtin is called and
+  the finished parts are simplified afterwards, so the assembly held the
+  simplified parts while the emitted solid -- what ``--output part.stl``
+  writes -- did not: a fifteen-part assembly exported 1.6 million triangles
+  where its parts held a tenth of that. The compound is now positioned again
+  from the simplified parts.
 - A design can now be built **without meshing it**. Meshing is the expensive
   half of field authoring -- about seven eighths of the time to build a part
   -- and a great deal of what a design does afterwards never needs the
