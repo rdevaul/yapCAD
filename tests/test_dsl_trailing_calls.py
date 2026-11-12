@@ -1,4 +1,4 @@
-"""A call that ends a block still runs.
+"""A call that ends a block still runs, and ``str`` names what it adds.
 
 The parser lifts a block's trailing bare expression into the block's
 ``final_expression``.  The interpreter used to execute only the block's
@@ -40,8 +40,8 @@ def report(body):
 def test_a_call_ending_a_for_body_runs():
     text = report('''
 command fill(a: assembly) -> assembly:
-    for name in ["p0", "p1", "p2"]:
-        add(a, name)
+    for i in range(3):
+        add(a, str("p", i))
     emit a
 ''')
     assert "Parts: 4" in text
@@ -71,16 +71,31 @@ command fill(a: assembly) -> assembly:
 
 
 def test_a_recursive_call_ending_an_if_body_runs():
+    """The shape of a branching recursion: one call continues, and a second,
+    inside an ``if``, branches."""
     text = report('''
-command walk(a: assembly, names: list<string>, i: int) -> assembly:
-    add(a, names[i])
-    if i < 2:
-        walk(a, names, i + 1)
+command branch(a: assembly, name: string, n: int) -> assembly:
+    if n <= 0:
+        emit a
+    add(a, name)
+    branch(a, str(name, "s"), n - 1)
+    if n > 1:
+        branch(a, str(name, "b"), n - 1)
     emit a
 
 command fill(a: assembly) -> assembly:
-    emit walk(a, ["one", "two", "three"], 0)
+    emit branch(a, "v", 3)
 ''')
-    assert "Parts: 4" in text
-    for name in ("one", "two", "three"):
+    # v; vs, vb; vss, vsb, vbs, vbb
+    assert "Parts: 8" in text
+    for name in ("vsb", "vbs", "vbb"):
         assert name in text
+
+
+def test_str_joins_the_text_of_its_arguments():
+    source = '''
+module naming
+command TOP() -> string:
+    emit str("leaf_", 2, "_", 0.5, "_", true)
+'''
+    assert run(source).emit_result.data == "leaf_2_0.5_true"

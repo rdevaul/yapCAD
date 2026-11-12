@@ -743,6 +743,50 @@ fillet_edges(s: solid, edges: list<edge>, radius: float) -> solid
 chamfer_edges(s: solid, edges: list<edge>, distance: float) -> solid
 ```
 
+### Field Primitives and Operations
+
+These exist only as signed distance fields: there is no mesh or BREP
+construction behind them. The two primitives are SDF-authored in either
+representation. The operations take SDF-authored solids and return one, so a
+design that uses them is built with `--representation sdf`
+(`representation="sdf"`); given a mesh or BREP solid they stop with an error
+that says so. See the [SDF guide](sdf_guide.rst).
+
+```python
+# A capsule: everything within `radius` of the segment start-end
+capsule(start: point3d, end: point3d, radius: float) -> solid
+
+# A torus in the XY plane, centred on the origin
+torus(major_radius: float, minor_radius: float) -> solid
+
+# Booleans whose seam is blended over `radius` instead of left sharp
+smooth_union(a: solid, b: solid, radius: float) -> solid
+smooth_difference(a: solid, b: solid, radius: float) -> solid
+smooth_intersection(a: solid, b: solid, radius: float) -> solid
+
+# Grow a part outward by `distance` (negative shrinks it). The offset of a
+# part is the same distance from it everywhere, which makes it the running
+# clearance of a print-in-place joint: difference(socket, offset_solid(pin, 0.3))
+offset_solid(s: solid, distance: float) -> solid
+
+# A wall of `thickness` straddling the part's surface
+shell_solid(s: solid, thickness: float) -> solid
+
+# Twist about the Z axis: the section at height z turns counter-clockwise,
+# seen from +Z, by degrees_per_unit * z DEGREES
+twist_solid(s: solid, degrees_per_unit: float) -> solid
+
+# The part of `s` occupied by a lattice sheet of the given period.
+# `thickness` is the sheet's level-set half-width, not a wall in model units
+gyroid_lattice(s: solid, period: float, thickness: float) -> solid
+schwarz_p_lattice(s: solid, period: float, thickness: float) -> solid
+```
+
+Each result is meshed no coarser than its operands were, as the field
+booleans are, and keeps the first operand's `@meta` metadata. A blend's
+bounds grow by its radius, so blend first and cut to size afterwards when a
+face has to stay flat -- on the print bed, say.
+
 ### Transformation Functions
 
 > **Angles are in DEGREES.** All rotation transforms (`rotate`, `rotate_2d`,
@@ -872,6 +916,11 @@ all_true(values: list<bool>) -> bool    # True if all elements are true
 # Debug output
 print(value, ...) -> bool  # variadic, returns true
 
+# Join the text of the arguments: str("leaf_", 2, "_", 0.5) == "leaf_2_0.5".
+# The DSL has no string operators; this is how a loop or a recursive command
+# gives each part and mate it adds a name of its own.
+str(value, ...) -> string  # variadic
+
 # Empty geometry constructors
 empty_solid() -> solid
 empty_region() -> region2d
@@ -990,6 +1039,22 @@ command make_branch(depth: int) -> solid:
     branch: solid = cylinder(1.0, 5.0)
     sub: solid = make_branch(depth - 1)  # Recursive call
     emit union(branch, translate(sub, 0.0, 0.0, 5.0))
+```
+
+A recursive command can also be called for its effect -- growing an
+assembly, one `add_part` and one `add_named_mate` per call -- and may call
+itself more than once to branch:
+
+```python
+command grow(a: assembly, parent: string, name: string, n: int) -> assembly:
+    if n <= 0:
+        emit a
+    add_part(a, LINK(), name)
+    add_named_mate(a, str("j_", name), "revolute", parent, "tip", name, "root")
+    grow(a, name, str(name, "s"), n - 1)        # carry on
+    if n > 1:
+        grow(a, name, str(name, "b"), n - 1)    # and branch
+    emit a
 ```
 
 **Recursion Limits:** To prevent runaway recursion, command-to-command call depth is
@@ -1423,6 +1488,23 @@ have one placement parent. Rooted solving currently supports `rigid` and
 Joint values are absolute radians, not accumulated deltas.
 Revolute limits also use radians and include both boundary values. Limits on
 dependent joints are checked after coupling expressions have been evaluated.
+
+Two things to know when the parts come from a parametric or recursive
+command:
+
+- **`solve_assembly` solves with every joint at zero**, and refuses if a
+  joint's limits exclude zero. For a joint whose range does not include
+  zero -- a side branch that only swings between 55 and 135 degrees -- solve
+  first, then `set_joint_position`, then `set_mate_limits`.
+- **Datums are literals and do not follow a transform.** A part's
+  `@meta(assembly.datums=[...])` positions are in the frame the command
+  emits its solid in; `translate`, `rotate` or `scale` applied to that solid
+  afterwards moves the geometry and leaves the datums where they were. Build
+  the part where its datums say it is. A command whose size depends on a
+  parameter can declare one datum per size (`tip0`, `tip1`, ...) and let the
+  caller pick with `str("tip", level)`.
+
+`examples/ivy_vine/ivy_vine.dsl` does both.
 
 Once a design carries datums, named mates and limits, it can be swept for
 clearance without meshing: build it with `representation="sdf"` and hand the

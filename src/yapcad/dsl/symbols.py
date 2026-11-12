@@ -658,6 +658,50 @@ class SymbolTable:
             ("distance", FLOAT, None),
         ], SOLID)
 
+        # Field (SDF) primitives and operations.  These exist only as
+        # fields: the primitives are SDF-authored in either representation,
+        # and the operations need SDF-authored operands.
+        self._register_builtin("capsule", [
+            ("start", POINT3D, None),
+            ("end", POINT3D, None),
+            ("radius", FLOAT, None),
+        ], SOLID)
+
+        self._register_builtin("torus", [
+            ("major_radius", FLOAT, None),
+            ("minor_radius", FLOAT, None),
+        ], SOLID)
+
+        for _blend in ("smooth_union", "smooth_difference",
+                       "smooth_intersection"):
+            self._register_builtin(_blend, [
+                ("a", SOLID, None),
+                ("b", SOLID, None),
+                ("radius", FLOAT, None),
+            ], SOLID)
+
+        self._register_builtin("offset_solid", [
+            ("s", SOLID, None),
+            ("distance", FLOAT, None),
+        ], SOLID)
+
+        self._register_builtin("shell_solid", [
+            ("s", SOLID, None),
+            ("thickness", FLOAT, None),
+        ], SOLID)
+
+        self._register_builtin("twist_solid", [
+            ("s", SOLID, None),
+            ("degrees_per_unit", FLOAT, None),
+        ], SOLID)
+
+        for _lattice in ("gyroid_lattice", "schwarz_p_lattice"):
+            self._register_builtin(_lattice, [
+                ("s", SOLID, None),
+                ("period", FLOAT, None),
+                ("thickness", FLOAT, None),
+            ], SOLID)
+
         # Pattern operations
         self._register_builtin("radial_pattern", [
             ("shape", UNKNOWN, None),  # Any geometry
@@ -740,6 +784,9 @@ class SymbolTable:
             ("list", make_list_type(make_list_type(UNKNOWN)), None),
         ], make_list_type(UNKNOWN))  # Flatten nested list
         self._register_builtin("print", [("value", UNKNOWN, None)], BOOL, is_variadic=True)
+        # str(...) joins the text of its arguments: the DSL has no string
+        # operators, and a recursive command needs a name per instance.
+        self._register_builtin("str", [("value", UNKNOWN, None)], STRING, is_variadic=True)
 
         # Phase 3: Numeric aggregation functions
         self._register_builtin("sum", [
