@@ -5,6 +5,20 @@ Changelog
 Unreleased
 ==========
 
+- DSL: a command called again with the same arguments is answered from the
+  first call. A command's result depends only on its arguments, so a
+  recursive design that asks for ``LINK(1, true)`` nine times builds it once
+  -- and the repeats are the *same* solid rather than equal copies, so an
+  assembly meshes and simplifies each distinct part once. On a
+  fourteen-link recursive assembly with eight distinct links that is 213
+  calls answered from the cache and nine solids to mesh instead of fifteen.
+  Only calls whose arguments are all numbers, booleans and strings are
+  cached, which leaves out every command handed an assembly to add to; a
+  result that is an assembly is never shared; and a call that printed, ran a
+  native function or ran a python block is not cached, since repeating it
+  is not known to be the same as reusing its result. A command that emits
+  another's cached solid and carries ``@meta`` of its own annotates a copy.
+  ``YAPCAD_DSL_MEMOIZE=0`` turns it off.
 - DSL: the operations only fields have are builtins. ``capsule`` and
   ``torus``; ``smooth_union``, ``smooth_difference`` and
   ``smooth_intersection``; ``offset_solid``, ``shell_solid`` and
