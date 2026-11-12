@@ -1057,6 +1057,15 @@ command grow(a: assembly, parent: string, name: string, n: int) -> assembly:
     emit a
 ```
 
+**Repeated calls are built once.** A command's result depends only on its
+arguments, so a call with the same arguments as an earlier one returns that
+call's result -- the same solid, not a copy. A recursive design therefore
+builds, meshes and simplifies each *distinct* part once, however many times
+the recursion asks for it. This applies to calls whose arguments are all
+numbers, booleans and strings; a command given an assembly (like `grow`
+above) always runs, as does one that calls `print` or native code. Set
+`YAPCAD_DSL_MEMOIZE=0` to turn it off.
+
 **Recursion Limits:** To prevent runaway recursion, command-to-command call depth is
 limited to 100 by default. The type checker warns about recursive call patterns.
 Configure the limit via:

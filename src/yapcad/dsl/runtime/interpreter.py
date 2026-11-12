@@ -4,6 +4,7 @@ Tree-walking interpreter for DSL execution.
 Evaluates AST nodes to produce geometry and other values.
 """
 
+import copy
 import os
 import pathlib
 from dataclasses import dataclass, field
@@ -115,6 +116,18 @@ class Interpreter:
 
         self.call_depth = 0  # Current command call depth
 
+        # Results of command calls already made in this run, by command and
+        # arguments; see _call_command.
+        self.memoize = os.environ.get(
+            "YAPCAD_DSL_MEMOIZE", "1").strip().lower() not in (
+                "0", "off", "false", "no")
+        self._memo: Dict[Any, Value] = {}
+        self._memo_shared: set = set()   # id() of every cached solid
+        self.memo_hits = 0
+        # Bumped by anything a repeated call could not be replaced by its
+        # result for: print(), a native function, a python block.
+        self._effects = 0
+
     def execute(
         self,
         module: Module,
@@ -136,6 +149,12 @@ class Interpreter:
         Returns:
             ExecutionResult with geometry and provenance
         """
+        # A cached result belongs to one run: the next may build under a
+        # different representation or cell size.
+        self._memo.clear()
+        self._memo_shared.clear()
+        self.memo_hits = 0
+
         # Resolve source directory for 'use' statement resolution
         src_dir: Optional[str] = None
         eff_source_path = source_path or self.source_path
@@ -360,6 +379,14 @@ class Interpreter:
             return
         if not isinstance(data, list) or not issolid(data):
             return
+        if id(data) in self._memo_shared:
+            # This solid is another command's cached result, emitted here
+            # unchanged.  Annotate a copy: the hint belongs to this command,
+            # not to every other caller of that one.
+            data = list(data)
+            if len(data) > 4:
+                data[4] = copy.deepcopy(data[4])
+            emitted.data = data
         apply_meta_hint(data, meta_hint)
 
     def _execute_statement(self, stmt: Statement, ctx: ExecutionContext) -> None:
@@ -526,6 +553,7 @@ class Interpreter:
 
     def _execute_python_block(self, block: PythonBlock, ctx: ExecutionContext) -> None:
         """Execute an embedded Python block."""
+        self._effects += 1      # arbitrary Python: not known to be pure
         # Build the execution namespace with current variables
         namespace = {}
         scope = ctx.current_scope
@@ -797,6 +825,8 @@ class Interpreter:
             self._reject_if_ambiguous(func_name)
 
         # Call the built-in function
+        if func_name == "print":
+            self._effects += 1  # a repeated call has to print again
         return call_builtin(func_name, args, named_args)
 
     def _lookup_command(self, module, name: str):
@@ -856,9 +886,18 @@ class Interpreter:
                     default_val = self._evaluate(param.default_value, parent_ctx)
                     param_dict[param.name] = default_val
 
+            # A command's result depends only on its arguments, so a call
+            # already made with the same ones is answered from the first.
+            key = self._memo_key(command, param_dict)
+            if key is not None and key in self._memo:
+                self.memo_hits += 1
+                cached = self._memo[key]
+                return Value(cached.data, cached.type, dict(cached.annotations))
+
             # Create a new context for the command execution
             module_name = self.current_module.name if self.current_module else "unknown"
             cmd_ctx = create_context(module_name, command.name, param_dict, "")
+            effects_before = self._effects
 
             # Execute the command body
             self._execute_command(command, cmd_ctx)
@@ -870,14 +909,64 @@ class Interpreter:
 
             # Return the emitted value
             if cmd_ctx.emit_result is not None:
-                return cmd_ctx.emit_result.value
+                value = cmd_ctx.emit_result.value
+                if (key is not None and self._effects == effects_before
+                        and not cmd_ctx.has_errors
+                        and self._memo_cacheable(value)):
+                    self._memo[key] = Value(value.data, value.type,
+                                            dict(value.annotations))
+                    if isinstance(value.data, list):
+                        self._memo_shared.add(id(value.data))
+                return value
             else:
                 raise RuntimeError(f"Command '{command.name}' did not emit a value")
         finally:
             self.call_depth -= 1
 
+    # -- memoised command calls ------------------------------------------
+
+    _MEMO_SCALARS = (bool, int, float, str)
+
+    def _memo_key(self, command: Command, param_dict: Dict[str, Value]):
+        """What identifies a call for reuse, or None if it cannot be reused.
+
+        Only calls whose arguments are all numbers, booleans and strings are
+        keyed.  That is every parametric part builder -- ``LINK(level, side)``
+        -- and it leaves out, without having to reason about them, the
+        commands called for their effect on an argument: one that is handed
+        an assembly to grow never has a key.
+
+        The argument's type is part of the key: ``1``, ``1.0`` and ``true``
+        hash alike in Python and are three different DSL values.
+        """
+        if not self.memoize:
+            return None
+        parts = []
+        for param in command.parameters:
+            value = param_dict.get(param.name)
+            data = getattr(value, "data", None)
+            if value is None or not isinstance(data, self._MEMO_SCALARS):
+                return None
+            if isinstance(data, float) and data != data:    # NaN != NaN
+                return None
+            parts.append((type(data).__name__, data))
+        return (id(command), tuple(parts))
+
+    @staticmethod
+    def _memo_cacheable(value: Value) -> bool:
+        """True for a result that can be handed out again.
+
+        Geometry, numbers, strings and lists of them are values: nothing in
+        the DSL changes one in place, so two callers can hold the same one.
+        An assembly is a handle that its callers go on to add parts to, and
+        two callers must not be given the same handle.
+        """
+        from ..types import ASSEMBLY
+        return value is not None and value.type != ASSEMBLY
+
     def _call_native_function(self, func_name: str, args: List[Value]) -> Value:
         """Call a native function with the given arguments."""
+        self._effects += 1      # arbitrary Python: not known to be pure
         func = self.native_functions[func_name]
 
         # Unwrap Value objects to raw Python values
