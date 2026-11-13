@@ -498,7 +498,13 @@ class Geometry:
                             self.__bbox = [point(xmin, ymin, zmin), point(xmax, ymax, zmax)]
                     if not self.__bbox:
                         self.__bbox = solidbbox(self.__elem)
-                    self.__center = center(self.__elem[1][0]) if self.__elem[1] else point(0,0,0)
+                    # The centre of the whole solid, from the box computed
+                    # just above.  This used to take the centre of
+                    # ``self.__elem[1][0]`` -- the *first surface* -- which
+                    # is the centre of the solid only for a solid with one
+                    # surface.
+                    self.__center = (scale3(add(self.__bbox[0], self.__bbox[1]), 0.5)
+                                     if self.__bbox else point(0,0,0))
                 except Exception:
                     self.__bbox = None
                     self.__center = None
@@ -508,7 +514,8 @@ class Geometry:
                     self.__length = 0.0
                     try:
                         self.__bbox = solidbbox(self.__elem)
-                        self.__center = center(self.__elem[1][0]) if self.__elem[1] else point(0,0,0)
+                        self.__center = (scale3(add(self.__bbox[0], self.__bbox[1]), 0.5)
+                                         if self.__bbox else point(0,0,0))
                     except Exception:
                         self.__bbox = None
                         self.__center = None
