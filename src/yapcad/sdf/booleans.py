@@ -54,6 +54,7 @@ __all__ = [
     "OPERATIONS",
     "combine_all",
     "combine_solids",
+    "derive_solid",
     "is_sdf_solid",
 ]
 
@@ -237,3 +238,44 @@ def combine_all(solids, operation, cell_mm=None):
 def combine_solids(a, b, operation, cell_mm=None):
     """Combine two SDF-authored solids; see :func:`combine_all`."""
     return combine_all([a, b], operation, cell_mm=cell_mm)
+
+
+def derive_solid(solids, build, cell_mm=None, max_cell=None):
+    """Mesh a field built from the fields of SDF-authored ``solids``.
+
+    ``build`` is called with one tree per solid and returns the new tree: a
+    smooth blend of two parts, an offset or a twist of one, a lattice cut to
+    a part's shape.  This is the general form of what :func:`combine_all`
+    does for the three hard booleans, and it follows the same rule -- the
+    result is meshed no coarser than any operand was.
+
+    :param cell_mm: mesh at this cell size instead of the derived one.
+    :param max_cell: an upper limit on the derived cell, for a field whose
+        own detail (a lattice wall) is finer than anything the operands had.
+    :returns: a new SDF-authoritative solid carrying the built tree.
+    """
+    solids = list(solids)
+    if not solids:
+        raise SdfError("derive_solid needs at least one solid")
+    roles = ["first", "second"] + [f"operand {i + 1}"
+                                   for i in range(2, len(solids))]
+    trees = [_tree(s, role) for s, role in zip(solids, roles)]
+    node = build(*trees)
+    if not _finite(node.bounds):
+        raise SdfError(
+            f"the derived field ({node.kind}) is unbounded and cannot be "
+            f"meshed; intersect it with a bounded part first"
+        )
+    if cell_mm is not None:
+        return to_solid(node, cell_mm=cell_mm)
+    cells = [c for c in (_cell_size(s, t) for s, t in zip(solids, trees))
+             if c is not None and c > 0.0]
+    if max_cell is not None and max_cell > 0.0:
+        cells.append(float(max_cell))
+    longest = _longest(node.bounds)
+    if cells and longest > 0.0:
+        resolution = math.ceil(longest / min(cells))
+    else:
+        resolution = DEFAULT_RESOLUTION
+    resolution = int(min(max(resolution, 2), MAX_RESOLUTION))
+    return to_solid(node, resolution=resolution)

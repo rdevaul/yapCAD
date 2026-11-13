@@ -147,6 +147,7 @@ class BuiltinRegistry:
         self._register_query_functions()
         self._register_utility_functions()
         self._register_fillet_chamfer_functions()
+        self._register_field_functions()
         self._register_phase2_geometry_functions()
         self._register_phase3_text_functions()
         self._register_phase4_path_functions()
@@ -3199,6 +3200,19 @@ class BuiltinRegistry:
             print(" ".join(str(a.data) for a in args))
             return bool_val(True)
 
+        def _str_val(*args: Value) -> Value:
+            """Join the text of the arguments into one string.
+
+            ``str("leaf_", depth, "_", i)`` gives ``"leaf_2_0"``.  The DSL
+            has no string operators, and a recursive command that adds
+            parts or mates needs a distinct name for each one.
+            """
+            def text(value):
+                if isinstance(value, bool):
+                    return "true" if value else "false"
+                return str(value)
+            return string_val("".join(text(a.data) for a in args))
+
         def _concat(list1: Value, list2: Value) -> Value:
             """Concatenate two lists."""
             combined = list1.data + list2.data
@@ -3260,6 +3274,11 @@ class BuiltinRegistry:
             "print",
             _make_sig("print", [STRING], BOOL, is_variadic=True),
             _print_val,
+        ))
+        self.register(BuiltinFunction(
+            "str",
+            _make_sig("str", [STRING], STRING, is_variadic=True),
+            _str_val,
         ))
 
         # Phase 3: Numeric and boolean aggregation functions
@@ -3459,6 +3478,151 @@ class BuiltinRegistry:
             _make_sig("chamfer", [SOLID, FLOAT], SOLID),
             _chamfer,
         ))
+
+    # --- Field (SDF) Primitives and Operations ---
+
+    def _register_field_functions(self) -> None:
+        """Register the primitives and operations that exist only as fields.
+
+        A capsule, a torus, a smooth blend, an offset, a twist and a lattice
+        have no mesh or BREP construction in yapCAD; they are arithmetic on
+        signed distance fields.  The primitives here are SDF-authored in
+        either representation.  The operations take SDF-authored solids and
+        return one, meshed no coarser than their operands
+        (:func:`yapcad.sdf.derive_solid`).
+        """
+
+        def _field_op(name, operands, build, max_cell=None):
+            from yapcad.sdf.booleans import derive_solid, is_sdf_solid
+            for index, operand in enumerate(operands):
+                if not is_sdf_solid(operand):
+                    which = ("the solid" if len(operands) == 1 else
+                             ("the first solid", "the second solid")[index])
+                    raise RuntimeError(
+                        f"{name} works on signed distance fields, and "
+                        f"{which} it was given is not SDF-authored. Build "
+                        f"the design with representation=\"sdf\" "
+                        f"(--representation sdf), and make the operands "
+                        f"from field primitives and booleans rather than "
+                        f"extrusions, sweeps or lofts."
+                    )
+            solid = derive_solid(operands, build,
+                                 cell_mm=None, max_cell=max_cell)
+            return _inherit_metadata(solid_val(solid), operands[0])
+
+        def _capsule(start: Value, end: Value, radius: Value) -> Value:
+            """A capsule: everything within ``radius`` of the segment from
+            ``start`` to ``end``.  Always SDF-authored."""
+            from yapcad import sdf
+            from yapcad.dsl.runtime import representation
+            return solid_val(representation.mesh_field(sdf.capsule(
+                tuple(float(v) for v in start.data[:3]),
+                tuple(float(v) for v in end.data[:3]),
+                float(radius.data))))
+
+        def _torus(major_radius: Value, minor_radius: Value) -> Value:
+            """A torus in the xy plane, centred on the origin.  Always
+            SDF-authored."""
+            from yapcad import sdf
+            from yapcad.dsl.runtime import representation
+            return solid_val(representation.mesh_field(sdf.torus(
+                float(major_radius.data), float(minor_radius.data))))
+
+        def _smooth(name, op_name):
+            def blend(a: Value, b: Value, radius: Value) -> Value:
+                from yapcad import sdf
+                op = getattr(sdf, op_name)
+                r = float(radius.data)
+                return _field_op(name, [a.data, b.data],
+                                 lambda ta, tb: op(ta, tb, r))
+            blend.__doc__ = (
+                f"``{name}(a, b, radius)``: the boolean of two SDF-authored "
+                f"solids with the seam blended over ``radius``.")
+            return blend
+
+        def _offset_solid(s: Value, distance: Value) -> Value:
+            """Grow an SDF-authored solid outward by ``distance``; a
+            negative distance shrinks it."""
+            from yapcad import sdf
+            d = float(distance.data)
+            return _field_op("offset_solid", [s.data],
+                             lambda t: sdf.offset(t, d))
+
+        def _shell_solid(s: Value, thickness: Value) -> Value:
+            """A wall of ``thickness`` straddling the surface of an
+            SDF-authored solid."""
+            from yapcad import sdf
+            w = float(thickness.data)
+            return _field_op("shell_solid", [s.data],
+                             lambda t: sdf.shell(t, w), max_cell=w / 2.0)
+
+        def _twist_solid(s: Value, degrees_per_unit: Value) -> Value:
+            """Twist an SDF-authored solid about the z axis: the section at
+            height ``z`` turns counter-clockwise, seen from +z, by
+            ``degrees_per_unit * z`` degrees."""
+            from yapcad import sdf
+            rate = math.radians(float(degrees_per_unit.data))
+            return _field_op("twist_solid", [s.data],
+                             lambda t: sdf.twist(t, rate))
+
+        def _lattice(name, prim_name):
+            def lattice(s: Value, period: Value, thickness: Value) -> Value:
+                from yapcad import sdf
+                prim = getattr(sdf, prim_name)
+                period_mm = float(period.data)
+                sheet = prim(period_mm, float(thickness.data))
+                # A lattice wall is finer than the part it fills; resolve
+                # each period with enough cells to keep the sheet closed.
+                return _field_op(name, [s.data],
+                                 lambda t: sdf.intersect(t, sheet),
+                                 max_cell=period_mm / 16.0)
+            lattice.__doc__ = (
+                f"``{name}(s, period, thickness)``: the part of an "
+                f"SDF-authored solid occupied by a {prim_name} sheet of the "
+                f"given period.  ``thickness`` is the sheet's level-set "
+                f"half-width, not a wall thickness in model units.")
+            return lattice
+
+        self.register(BuiltinFunction(
+            "capsule",
+            _make_sig("capsule", [POINT3D, POINT3D, FLOAT], SOLID),
+            _capsule,
+        ))
+        self.register(BuiltinFunction(
+            "torus",
+            _make_sig("torus", [FLOAT, FLOAT], SOLID),
+            _torus,
+        ))
+        for name, op_name in (("smooth_union", "smooth_union"),
+                              ("smooth_difference", "smooth_subtract"),
+                              ("smooth_intersection", "smooth_intersect")):
+            self.register(BuiltinFunction(
+                name,
+                _make_sig(name, [SOLID, SOLID, FLOAT], SOLID),
+                _smooth(name, op_name),
+            ))
+        self.register(BuiltinFunction(
+            "offset_solid",
+            _make_sig("offset_solid", [SOLID, FLOAT], SOLID),
+            _offset_solid,
+        ))
+        self.register(BuiltinFunction(
+            "shell_solid",
+            _make_sig("shell_solid", [SOLID, FLOAT], SOLID),
+            _shell_solid,
+        ))
+        self.register(BuiltinFunction(
+            "twist_solid",
+            _make_sig("twist_solid", [SOLID, FLOAT], SOLID),
+            _twist_solid,
+        ))
+        for name, prim_name in (("gyroid_lattice", "gyroid"),
+                                ("schwarz_p_lattice", "schwarz_p")):
+            self.register(BuiltinFunction(
+                name,
+                _make_sig(name, [SOLID, FLOAT, FLOAT], SOLID),
+                _lattice(name, prim_name),
+            ))
 
     # --- Edge Selection and Selective Fillet/Chamfer Functions ---
 
