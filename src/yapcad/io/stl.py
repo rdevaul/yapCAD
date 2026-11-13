@@ -25,6 +25,10 @@ def write_stl(obj: Sequence, path_or_file, *, binary: bool = True, name: str = '
     """
 
     triangles = list(triangles_from_mesh(mesh_view(obj)))
+    if not triangles:
+        # A zero-facet STL is a valid file that silently describes nothing,
+        # which is worse than a refusal.  ``write_step`` already refuses.
+        raise ValueError('object produced no triangles for STL export')
 
     if binary:
         _write_binary(triangles, path_or_file, name)
