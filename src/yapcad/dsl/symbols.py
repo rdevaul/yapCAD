@@ -722,6 +722,7 @@ class SymbolTable:
         self._register_builtin("area", [("r", REGION2D, None)], FLOAT)
         self._register_builtin("perimeter", [("r", REGION2D, None)], FLOAT)
         self._register_builtin("centroid", [("s", SOLID, None)], POINT3D)
+        self._register_builtin("vertex_centroid", [("s", SOLID, None)], POINT3D)
         self._register_builtin("distance", [
             ("a", POINT, None),
             ("b", POINT, None),

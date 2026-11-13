@@ -870,10 +870,22 @@ split_solid(s: solid, plane_point: point3d, plane_normal: vector3d) -> list<soli
 
 ```python
 # Solid queries
-volume(s: solid) -> float
-surface_area(s: solid) -> float
-centroid(s: solid) -> point3d
+volume(s: solid) -> float           # closed solids only
+surface_area(s: solid) -> float     # includes internal void shells
+centroid(s: solid) -> point3d       # volume centroid of a closed solid
+vertex_centroid(s: solid) -> point3d  # mean of mesh vertices (legacy)
 is_empty(s: solid) -> bool
+```
+
+Every solid query refuses a solid whose mesh is deferred (see
+`sdf.realize`), rather than answering from its empty surface list.
+`centroid` is the centre of mass at uniform density and does not depend on
+tessellation; it raises for an open, empty or zero-volume solid.  It used
+to return the mean of the mesh vertices, which is biased toward
+densely tessellated regions; `vertex_centroid` keeps that estimate for
+reproducing older results.
+
+```python
 
 # Region2D queries
 area(r: region2d) -> float
