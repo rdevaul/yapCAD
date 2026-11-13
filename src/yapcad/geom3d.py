@@ -1030,6 +1030,70 @@ def rotatesolid(x,ang,cent=point(0,0,0),axis=point(0,0,1.0),mat=False):
         _follow_sdf(x, s2, _matrix_rows(rot))
     return s2
 
+def transformsolid(x, mat):
+    """Return a copy of solid ``x`` moved by the rigid 4x4 ``mat``.
+
+    For a change of frame that is not a single axis rotation -- placing a
+    part onto a surface given by a normal and an up direction, say.  Unlike
+    transforming the vertex lists by hand, this keeps every representation
+    of the solid in step: the mesh, any OCC or native BREP, and an SDF
+    construction tree, which is what ``realize`` and the field queries read.
+    A copied record that described the solid before the move would silently
+    put those back where the solid used to be.
+
+    ``mat`` is an ``xform.Matrix`` whose linear part must be a proper
+    rotation (orthonormal, determinant +1), optionally with a translation.
+    Mirrors and scales change winding or normal lengths; use
+    ``mirrorsolid`` and ``scalesolid`` for those.
+    """
+    if not issolid(x):
+        raise ValueError('bad solid passed to transformsolid')
+    if not isinstance(mat, xform.Matrix):
+        raise ValueError('transformsolid requires an xform.Matrix')
+    rows = _matrix_rows(mat)
+    lin = [r[:3] for r in rows[:3]]
+    for i in range(3):
+        for j in range(3):
+            d = sum(lin[k][i] * lin[k][j] for k in range(3))
+            if abs(d - (1.0 if i == j else 0.0)) > 1e-9:
+                raise ValueError('transformsolid requires a rigid transform; '
+                                 'the matrix scales or shears')
+    det = (lin[0][0] * (lin[1][1] * lin[2][2] - lin[1][2] * lin[2][1])
+           - lin[0][1] * (lin[1][0] * lin[2][2] - lin[1][2] * lin[2][0])
+           + lin[0][2] * (lin[1][0] * lin[2][1] - lin[1][1] * lin[2][0]))
+    if det < 0.0:
+        raise ValueError('transformsolid requires a proper rotation; the '
+                         'matrix mirrors, so use mirrorsolid')
+    if any(abs(rows[3][j] - (0.0, 0.0, 0.0, 1.0)[j]) > 1e-12 for j in range(4)):
+        raise ValueError('transformsolid requires an affine matrix')
+
+    s2 = deepcopy(x)
+    surfs = []
+    for s in x[1]:
+        t = deepcopy(s)
+        t[1] = [mat.mul(point(v)) for v in s[1]]
+        # Normals have w=0, so the translation column leaves them alone.
+        t[2] = [mat.mul(vect(n[0], n[1], n[2], 0.0)) for n in s[2]]
+        surfs.append(t)
+    s2[1] = surfs
+    try:
+        from yapcad.brep import apply_matrix_to_brep_solid
+        apply_matrix_to_brep_solid(s2, mat)
+    except ImportError:
+        pass
+    try:
+        from yapcad.native_brep import (native_brep_from_solid,
+                                        transform_topology_graph,
+                                        attach_native_brep_to_solid)
+        graph = native_brep_from_solid(s2)
+        if graph is not None:
+            transform_topology_graph(graph, lambda p: mat.mul(point(p)))
+            attach_native_brep_to_solid(s2, graph)
+    except ImportError:
+        pass
+    _follow_sdf(x, s2, rows)
+    return s2
+
 def mirrorsolid(x,plane,preserveNormal=True):
     if not issolid(x):
         raise ValueError('bad solid passed to mirrorsolid')
@@ -1332,6 +1396,210 @@ def _surface_signed_volume(surf):
         p2 = point(vertices[face[2]])
         total += dot(p0, cross(sub(p1, p0), sub(p2, p0))) / 6.0
     return total
+
+
+def _brep_props(x, kind):
+    """Global properties of a solid that carries BREP data and no mesh.
+
+    Mirrors the fallback ``volumeof`` uses for a surface-less solid: a
+    BREP-only solid is not empty, so answering from its empty surface list
+    would be wrong.  Returns ``None`` when there is no BREP to ask (no OCC,
+    or genuinely nothing there).  ``kind`` is ``'volume'`` or ``'surface'``.
+    """
+    try:
+        from yapcad.brep import brep_from_solid, occ_available
+        if not occ_available():
+            return None
+        brep = brep_from_solid(x)
+        if not brep:
+            return None
+        from OCC.Core.GProp import GProp_GProps
+        from OCC.Core.BRepGProp import brepgprop
+    except ImportError:
+        return None
+    props = GProp_GProps()
+    if kind == 'volume':
+        brepgprop.VolumeProperties(brep.shape, props)
+    else:
+        brepgprop.SurfaceProperties(brep.shape, props)
+    return props
+
+
+def _triangle_frame(vertices, face):
+    """Points and the (unnormalised) winding cross product of a triangle.
+
+    The cross product's direction is the outward normal for yapCAD's
+    counter-clockwise winding, and its magnitude is twice the area.
+    """
+    if len(face) != 3:
+        raise ValueError('non-triangular face encountered')
+    p0 = point(vertices[face[0]])
+    p1 = point(vertices[face[1]])
+    p2 = point(vertices[face[2]])
+    return p0, p1, p2, cross(sub(p1, p0), sub(p2, p0))
+
+
+def surface_area(x):
+    """Area of a surface, or the total surface area of a solid.
+
+    A solid's area is the sum over its surfaces, so internal void shells
+    count -- that is the area a coating or a heat-transfer calculation sees.
+    A solid whose mesh is deferred is refused rather than reported as zero;
+    a solid with no surfaces but BREP data is measured from the BREP; a
+    genuinely empty solid has area 0.
+
+    Example:
+        >>> from yapcad.geom3d_util import prism
+        >>> abs(surface_area(prism(2, 2, 2)) - 24.0) < 1e-9
+        True
+    """
+    if issurface(x):
+        return surfacearea(x)
+    if not issolid(x):
+        raise ValueError('surface_area requires a surface or a solid')
+    _require_mesh(x, 'surface_area')
+    if not x[1]:
+        props = _brep_props(x, 'surface')
+        return abs(props.Mass()) if props is not None else 0.0
+    return sum(surfacearea(s) for s in x[1])
+
+
+def surface_center(s):
+    """Area-weighted centroid of a surface's triangles.
+
+    This is the centre of the *sheet*, not of any volume it bounds: for a
+    planar face it is the face centroid, and for a closed shell it is the
+    centroid of the shell's skin.  Unlike ``center`` it does not depend on
+    how the bounding box happens to sit, and unlike a vertex average it does
+    not drift toward densely tessellated regions.
+
+    Raises ``ValueError`` for a surface with no area.
+    """
+    if not issurface(s):
+        raise ValueError('surface_center requires a surface')
+    vertices = s[1]
+    total = 0.0
+    acc = [0.0, 0.0, 0.0]
+    for face in s[3]:
+        p0, p1, p2, cp = _triangle_frame(vertices, face)
+        a = mag(cp) / 2.0
+        total += a
+        for k in range(3):
+            acc[k] += a * (p0[k] + p1[k] + p2[k]) / 3.0
+    if total <= 0.0:
+        raise ValueError('surface_center: surface has no area')
+    return point(acc[0] / total, acc[1] / total, acc[2] / total)
+
+
+def surface_normal(s):
+    """Area-weighted mean outward normal of a surface, normalised.
+
+    Computed from triangle winding rather than the stored vertex normals,
+    which are shading data and may be smoothed.  For a planar face it is the
+    face normal.  For a curved patch it is the mean direction the patch
+    faces.  A closed shell faces every way at once, and its net normal is
+    zero; that case raises ``ValueError`` rather than returning an arbitrary
+    direction, as does a surface with no area.
+    """
+    if not issurface(s):
+        raise ValueError('surface_normal requires a surface')
+    vertices = s[1]
+    acc = [0.0, 0.0, 0.0]
+    area2 = 0.0
+    for face in s[3]:
+        _, _, _, cp = _triangle_frame(vertices, face)
+        area2 += mag(cp)
+        for k in range(3):
+            acc[k] += cp[k]
+    if area2 <= 0.0:
+        raise ValueError('surface_normal: surface has no area')
+    length = math.sqrt(acc[0]**2 + acc[1]**2 + acc[2]**2)
+    # The net normal of a closed shell cancels to round-off; anything below
+    # a part in 10^9 of the total area is that, not a direction.
+    if length <= 1e-9 * area2:
+        raise ValueError('surface_normal: surface is closed or faces every '
+                         'way at once, so it has no mean normal')
+    return vect(acc[0] / length, acc[1] / length, acc[2] / length, 0.0)
+
+
+def centroidof(x):
+    """Volume centroid (centre of mass at uniform density) of a closed solid.
+
+    Uses the divergence theorem on the triangulation, the same construction
+    as ``volumeof``: each triangle and the origin span a tetrahedron of
+    signed volume ``V_i``, whose centroid is ``(p0 + p1 + p2) / 4``, and the
+    solid's centroid is ``sum(V_i * c_i) / sum(V_i)``.  Inward-wound void
+    shells contribute negative volume, so a hollow solid comes out right.
+    Unlike a vertex average, the result does not depend on the tessellation.
+
+    Refuses rather than guessing: a deferred solid raises
+    ``DeferredMeshError``, and an open, empty or zero-volume solid raises
+    ``ValueError``, since none of them has a centroid to report.
+
+    Example:
+        >>> from yapcad.geom3d_util import prism
+        >>> c = centroidof(translatesolid(prism(2, 2, 2), point(5, 0, 0)))
+        >>> [round(v, 9) for v in c[:3]]
+        [5.0, 0.0, 0.0]
+    """
+    if not issolid(x, fast=False):
+        raise ValueError('invalid solid passed to centroidof')
+    _require_mesh(x, 'centroidof')
+    if not x[1]:
+        props = _brep_props(x, 'volume')
+        if props is not None and abs(props.Mass()) > 0.0:
+            c = props.CentreOfMass()
+            return point(c.X(), c.Y(), c.Z())
+        raise ValueError('centroidof: the solid is empty, so its centroid '
+                         'is undefined')
+    if not issolidclosed(x):
+        raise ValueError('centroidof: solid must be topologically closed '
+                         'to compute a volume centroid')
+    total = 0.0
+    gross = 0.0
+    acc = [0.0, 0.0, 0.0]
+    for surf in x[1]:
+        vertices = surf[1]
+        for face in surf[3]:
+            p0, p1, p2, cp = _triangle_frame(vertices, face)
+            v = dot(p0, cp) / 6.0
+            total += v
+            gross += abs(v)
+            for k in range(3):
+                acc[k] += v * (p0[k] + p1[k] + p2[k]) / 4.0
+    # Judged relative to the tetrahedra themselves, so the test does not
+    # depend on model units.
+    if abs(total) <= 1e-12 * gross:
+        raise ValueError('centroidof: solid has zero volume, so its '
+                         'centroid is undefined')
+    return point(acc[0] / total, acc[1] / total, acc[2] / total)
+
+
+def vertex_centroid(x):
+    """Mean of a solid's mesh vertices.
+
+    A cheap estimate, and what the DSL ``centroid()`` builtin returned before
+    it computed the volume centroid.  It is biased toward densely tessellated
+    regions -- a cylinder's rim pulls it -- and changes with mesh resolution,
+    so prefer ``centroidof`` unless you need to reproduce old results.
+
+    Refuses a deferred solid, and raises ``ValueError`` for one with no
+    vertices, rather than reporting the origin.
+    """
+    if not issolid(x):
+        raise ValueError('invalid solid passed to vertex_centroid')
+    _require_mesh(x, 'vertex_centroid')
+    acc = [0.0, 0.0, 0.0]
+    n = 0
+    for surf in x[1]:
+        for v in surf[1]:
+            for k in range(3):
+                acc[k] += float(v[k])
+            n += 1
+    if n == 0:
+        raise ValueError('vertex_centroid: the solid has no vertices, so '
+                         'its centroid is undefined')
+    return point(acc[0] / n, acc[1] / n, acc[2] / n)
 
 
 def solid_shells(x):

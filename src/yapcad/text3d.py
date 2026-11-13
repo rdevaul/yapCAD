@@ -1342,23 +1342,12 @@ def text_on_surface(
         [0, 0, 0, 1]
     ])
 
-    # Apply rotation to all surfaces
-    from yapcad.geom3d import rotatesurface
-    rotated_surfaces = []
-    for surf in text_centered[1]:
-        # Apply matrix to all vertices
-        new_verts = [R.mul(v) for v in surf[1]]
-        # Apply matrix to all normals
-        new_norms = [R.mul(nm) for nm in surf[2]]
-        # Create new surface
-        new_surf = deepcopy(surf)
-        new_surf[1] = new_verts
-        new_surf[2] = new_norms
-        rotated_surfaces.append(new_surf)
-
-    # Create rotated solid
-    from yapcad.geom3d import solid as make_solid
-    text_rotated = make_solid(rotated_surfaces, [], text_centered[3] if len(text_centered) > 3 else None)
+    # Rotate through transformsolid rather than by hand, so the construction
+    # record, BREP, material and metadata all move with the mesh.  Copying
+    # the record across unchanged left it describing the text as it was
+    # before the rotation.
+    from yapcad.geom3d import transformsolid
+    text_rotated = transformsolid(text_centered, R)
 
     # Translate to surface center, with margin offset along normal
     offset = point(

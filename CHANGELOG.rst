@@ -5,6 +5,50 @@ Changelog
 Unreleased
 ==========
 
+- Fixed: ``text3d.text_on_surface`` rotated its text by rewriting vertex
+  lists and copied the unrotated solid's construction record (and dropped
+  its material and metadata) onto the result, so the record described the
+  text before the rotation.  Text carries a ``procedure`` record today, so
+  nothing could observe it yet; a field-authored or BREP-backed text solid
+  would have been put back where it started.  New ``geom3d.transformsolid``
+  applies a rigid 4x4 to a solid and keeps the mesh, the OCC and native BREP
+  and the SDF tree in step, and ``text_on_surface`` now uses it.
+
+- Fixed: ``FaceNamer`` (``yapcad.package.analysis``) could not be
+  constructed -- it imported four ``geom3d`` helpers that did not exist.
+  It now recovers faces from the mesh itself: a face is a maximal patch of
+  triangles joined across edges no sharper than ``crease_deg`` (default
+  30), found across the whole solid.  A box therefore has six faces whether
+  it came from ``prism`` (six surfaces) or from a mesh boolean or SDF part
+  (one surface), and a smooth cylinder wall is one face.  Each ``FaceInfo``
+  carries an area-weighted centroid and normal and the triangles it covers;
+  a patch facing every way at once, such as a whole cylinder wall, has a
+  zero normal instead of a made-up one.  Failures now raise instead of
+  being replaced with placeholder geometry, and deferred solids are refused.
+
+- Fixed: the DSL solid queries.  ``volume()`` and ``surface_area()``
+  imported ``geom3d`` functions that had never been written, and
+  ``is_empty()`` type-checked but had no runtime, so all three compiled and
+  then crashed.  ``geom3d`` gains ``surface_area`` (a surface, or a solid
+  with void shells included), ``surface_center`` and ``surface_normal``
+  (area-weighted, from triangle winding), and ``volume()`` now uses
+  ``volumeof``.
+
+- Changed: DSL ``centroid()`` returns the **volume centroid** -- the centre of
+  mass at uniform density -- from the new ``geom3d.centroidof``, which uses
+  the same divergence-theorem construction as ``volumeof``.  It used to
+  average the mesh vertices, which is biased toward densely tessellated
+  regions (a cone's came out under an eighth of the way up instead of a
+  quarter) and moves with mesh resolution.  Designs that call ``centroid()``
+  on asymmetric parts will see different, correct numbers;
+  ``vertex_centroid()`` keeps the old estimate for reproducing them.
+
+  Fixed at the same time: ``centroid()`` reported the **origin** for a solid
+  with no surfaces, so a deferred part at x=100 had its centroid at 0.  Every
+  solid query now refuses a deferred solid with ``DeferredMeshError``, as
+  ``volumeof`` already did, and ``centroid()`` raises for an empty, open or
+  zero-volume solid, none of which has a centroid.
+
 - A design can now be built **without meshing it**. Meshing is the expensive
   half of field authoring -- about seven eighths of the time to build a part
   -- and a great deal of what a design does afterwards never needs the
