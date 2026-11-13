@@ -38,6 +38,7 @@ Unreleased
   ``statements``, so ``add_part(...)`` as the last line of a loop, or a
   recursive command as the last line of an ``if``, never ran -- no error, the
   part was simply missing. The interpreter now runs the whole block.
+  
 - Fixed: the solid ``assembly_compound`` emits in field mode kept its parts'
   uniform meshes. The compound is positioned when the builtin is called and
   the finished parts are simplified afterwards, so the assembly held the
@@ -45,6 +46,51 @@ Unreleased
   writes -- did not: a fifteen-part assembly exported 1.6 million triangles
   where its parts held a tenth of that. The compound is now positioned again
   from the simplified parts.
+  
+- Fixed: ``text3d.text_on_surface`` rotated its text by rewriting vertex
+  lists and copied the unrotated solid's construction record (and dropped
+  its material and metadata) onto the result, so the record described the
+  text before the rotation.  Text carries a ``procedure`` record today, so
+  nothing could observe it yet; a field-authored or BREP-backed text solid
+  would have been put back where it started.  New ``geom3d.transformsolid``
+  applies a rigid 4x4 to a solid and keeps the mesh, the OCC and native BREP
+  and the SDF tree in step, and ``text_on_surface`` now uses it.
+
+- Fixed: ``FaceNamer`` (``yapcad.package.analysis``) could not be
+  constructed -- it imported four ``geom3d`` helpers that did not exist.
+  It now recovers faces from the mesh itself: a face is a maximal patch of
+  triangles joined across edges no sharper than ``crease_deg`` (default
+  30), found across the whole solid.  A box therefore has six faces whether
+  it came from ``prism`` (six surfaces) or from a mesh boolean or SDF part
+  (one surface), and a smooth cylinder wall is one face.  Each ``FaceInfo``
+  carries an area-weighted centroid and normal and the triangles it covers;
+  a patch facing every way at once, such as a whole cylinder wall, has a
+  zero normal instead of a made-up one.  Failures now raise instead of
+  being replaced with placeholder geometry, and deferred solids are refused.
+
+- Fixed: the DSL solid queries.  ``volume()`` and ``surface_area()``
+  imported ``geom3d`` functions that had never been written, and
+  ``is_empty()`` type-checked but had no runtime, so all three compiled and
+  then crashed.  ``geom3d`` gains ``surface_area`` (a surface, or a solid
+  with void shells included), ``surface_center`` and ``surface_normal``
+  (area-weighted, from triangle winding), and ``volume()`` now uses
+  ``volumeof``.
+
+- Changed: DSL ``centroid()`` returns the **volume centroid** -- the centre of
+  mass at uniform density -- from the new ``geom3d.centroidof``, which uses
+  the same divergence-theorem construction as ``volumeof``.  It used to
+  average the mesh vertices, which is biased toward densely tessellated
+  regions (a cone's came out under an eighth of the way up instead of a
+  quarter) and moves with mesh resolution.  Designs that call ``centroid()``
+  on asymmetric parts will see different, correct numbers;
+  ``vertex_centroid()`` keeps the old estimate for reproducing them.
+
+  Fixed at the same time: ``centroid()`` reported the **origin** for a solid
+  with no surfaces, so a deferred part at x=100 had its centroid at 0.  Every
+  solid query now refuses a deferred solid with ``DeferredMeshError``, as
+  ``volumeof`` already did, and ``centroid()`` raises for an empty, open or
+  zero-volume solid, none of which has a centroid.
+
 - A design can now be built **without meshing it**. Meshing is the expensive
   half of field authoring -- about seven eighths of the time to build a part
   -- and a great deal of what a design does afterwards never needs the
@@ -88,6 +134,25 @@ Unreleased
   sweeps were unaffected, because they read unpositioned geometry and pose it
   themselves.  It now goes through the same ``_follow_sdf`` hook the
   ``geom3d`` transforms use.
+
+- Fixed three latent bugs in the solid machinery, each of the kind that
+  returns a plausible answer rather than an error, which is why none of them
+  had been reported.
+
+  ``solid()`` documented an empty solid and raised instead. ``args`` is a
+  tuple, so the ``args == []`` test was always false and the no-argument call
+  fell through to ``ValueError: bad arguments to solid``. ``solid([])``
+  worked, which is why the documented spelling was never missed.
+
+  ``Geometry.center`` reported the centre of a solid's **first surface**
+  rather than of the solid. For a one-surface solid that is the same answer;
+  for a multi-body solid it is the centre of an arbitrary piece. It is now
+  the midpoint of the bounding box the same method already computes, which
+  is what ``geom3d.center`` has always returned.
+
+  ``write_stl`` wrote a file for an object that produced no triangles. A
+  zero-facet STL is a valid file describing nothing, which is worse than a
+  refusal; ``write_step`` already refused, and the two now agree.
 
 - ``yapcad.render``: engineering images from fields, headlessly, with no
   mesh, no GPU and no new dependency. Agentic CAD work is gated by whether

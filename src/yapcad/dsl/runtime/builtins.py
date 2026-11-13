@@ -2884,6 +2884,25 @@ class BuiltinRegistry:
             "empty_solid", _make_sig("empty_solid", [], SOLID), _empty_solid,
         ))
 
+        def _is_empty(s: Value) -> Value:
+            """True for a solid with no geometry, e.g. an empty CSG result.
+
+            A deferred solid is refused rather than called empty: whether
+            its field meshes to anything is not known until it is realized.
+            """
+            from yapcad.geom3d import issolid, _require_mesh, _brep_props
+            data = s.data
+            if not issolid(data):
+                raise ValueError("is_empty requires a solid")
+            _require_mesh(data, "is_empty")
+            if data[1]:
+                return bool_val(False)
+            return bool_val(_brep_props(data, "volume") is None)
+
+        self.register(BuiltinFunction(
+            "is_empty", _make_sig("is_empty", [SOLID], BOOL), _is_empty,
+        ))
+
         # Boolean operations
         self.register(BuiltinFunction(
             "union",
@@ -3023,11 +3042,11 @@ class BuiltinRegistry:
 
         def _volume(s: Value) -> Value:
             """Calculate volume of a solid."""
-            from yapcad.geom3d import volume
-            return float_val(volume(s.data))
+            from yapcad.geom3d import volumeof
+            return float_val(volumeof(s.data))
 
         def _surface_area(s: Value) -> Value:
-            """Calculate surface area of a solid."""
+            """Calculate surface area of a solid (void shells included)."""
             from yapcad.geom3d import surface_area
             return float_val(surface_area(s.data))
 
@@ -3090,41 +3109,27 @@ class BuiltinRegistry:
             return float_val(total_length)
 
         def _centroid(s: Value) -> Value:
-            """Compute centroid of a solid.
+            """Volume centroid of a closed solid (centre of mass at uniform
+            density), independent of tessellation.
 
-            Estimates centroid from mesh vertex averaging.
+            Raises for a deferred, empty, open or zero-volume solid rather
+            than reporting the origin.  ``vertex_centroid`` keeps the old
+            vertex-average estimate.
             """
-            from yapcad.geom3d import issolid
-            from yapcad.geom import point
-
-            data = s.data
-            if not issolid(data):
+            from yapcad.geom3d import centroidof, issolid
+            if not issolid(s.data):
                 raise ValueError("centroid requires a solid")
+            return point_val(centroidof(s.data), is_2d=False)
 
-            # solid structure: ['solid', [surfaces...], procedure, holes]
-            # each surface: ['surface', [vertices...], [normals...], ...]
-            surfaces = data[1] if len(data) > 1 and isinstance(data[1], list) else []
-            xs, ys, zs = [], [], []
-            for surf in surfaces:
-                # surf = ['surface', vertices_list, normals_list, ...]
-                if isinstance(surf, list) and len(surf) > 1 and surf[0] == 'surface':
-                    vertices = surf[1]
-                    for v in vertices:
-                        if isinstance(v, (list, tuple)) and len(v) >= 3:
-                            try:
-                                xs.append(float(v[0]))
-                                ys.append(float(v[1]))
-                                zs.append(float(v[2]))
-                            except (TypeError, ValueError):
-                                pass
-
-            if not xs:
-                return point_val(point(0, 0, 0), is_2d=False)
-
-            cx = sum(xs) / len(xs)
-            cy = sum(ys) / len(ys)
-            cz = sum(zs) / len(zs)
-            return point_val(point(cx, cy, cz), is_2d=False)
+        def _vertex_centroid(s: Value) -> Value:
+            """Mean of a solid's mesh vertices: what ``centroid`` returned
+            before it computed the volume centroid.  Biased toward densely
+            tessellated regions; kept to reproduce older results.
+            """
+            from yapcad.geom3d import vertex_centroid, issolid
+            if not issolid(s.data):
+                raise ValueError("vertex_centroid requires a solid")
+            return point_val(vertex_centroid(s.data), is_2d=False)
 
         def _distance(a: Value, b: Value, tolerance: Value) -> Value:
             """Compute Euclidean distance between two points."""
@@ -3135,6 +3140,11 @@ class BuiltinRegistry:
             "centroid",
             _make_sig("centroid", [SOLID], POINT3D),
             _centroid,
+        ))
+        self.register(BuiltinFunction(
+            "vertex_centroid",
+            _make_sig("vertex_centroid", [SOLID], POINT3D),
+            _vertex_centroid,
         ))
         self.register(BuiltinFunction(
             "distance",
