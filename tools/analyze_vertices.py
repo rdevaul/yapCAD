@@ -5,6 +5,9 @@ This tool operates directly on yapCAD's internal representation,
 analyzing vertex usage and identifying potential geometry issues with
 configurable epsilon tolerance for determining vertex proximity.
 
+Mesh-representation only: deferred (field-first) solids carry no
+triangles until realized, so call :func:`yapcad.sdf.realize` first.
+
 Unlike trimesh-based diagnostics, this operates at the yapCAD level
 and can detect:
 - Truly orphaned vertices (not referenced by any face)

@@ -226,11 +226,28 @@ def main(argv: list[str] | None = None) -> int:
     summary: dict[str, object] = {
         "input": str(stl_path.resolve()),
         "workdir": str(workdir.resolve()),
+        "builtin": None,
         "admesh": None,
         "meshfix": None,
         "slicer": None,
         "notes": [],
     }
+
+    # 0. built-in check ----------------------------------
+    # yapcad.mesh_check is the same watertightness/component check that
+    # `python -m yapcad.dsl run --require-watertight` applies at export.
+    try:
+        from yapcad.mesh_check import check_mesh
+        report = check_mesh(str(stl_path))
+        summary["builtin"] = {
+            "triangles": report.triangles,
+            "watertight": report.watertight,
+            "components": report.components,
+            "bounds": report.bounds,
+        }
+    except ImportError:
+        summary["notes"].append(
+            "yapcad.mesh_check/trimesh unavailable; skipping built-in check")
 
     # 1. admesh ------------------------------------------
     admesh_bin = which(["admesh"])

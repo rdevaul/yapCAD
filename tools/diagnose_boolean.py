@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Diagnose boolean meshes produced by yapCAD using trimesh helpers."""
+"""Diagnose boolean meshes produced by yapCAD using trimesh helpers.
+
+Mesh-representation only: these solids come from the mesh engine (see
+yapcad.sdf.deferred for field-first solids, which carry no triangles until
+realized).
+"""
 
 from __future__ import annotations
 

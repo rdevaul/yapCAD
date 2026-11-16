@@ -1,4 +1,10 @@
-"""Shared mesh-diagnostics helpers for yapCAD solids."""
+"""Shared mesh-diagnostics helpers for yapCAD solids.
+
+The watertightness and connected-component checks are the ones in
+:mod:`yapcad.mesh_check`, shared with ``python -m yapcad.dsl run``'s
+``--require-watertight``; the rest of this module adds the deeper
+diagnostics (boundary edges, self-intersections, edge lengths).
+"""
 
 from __future__ import annotations
 
@@ -16,6 +22,11 @@ try:
 except ImportError as exc:  # pragma: no cover - optional dependency
     raise SystemExit("trimesh is required for mesh diagnostics (pip install trimesh[easy])") from exc
 
+try:
+    from yapcad.mesh_check import check_mesh
+except ImportError:  # tools may run without the package installed
+    check_mesh = None
+
 
 @dataclass
 class MeshDiagnostics:
@@ -29,6 +40,7 @@ class MeshDiagnostics:
     min_edge_length: Optional[float]
     max_edge_length: Optional[float]
     orphan_vertices: int
+    connected_components: Optional[int] = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -79,6 +91,15 @@ def diagnose_mesh(mesh: "trimesh.Trimesh") -> MeshDiagnostics:
 
     is_volume = bool(getattr(mesh, "is_volume", mesh.is_watertight))
 
+    components = None
+    if check_mesh is not None:
+        # The same split the CLI uses; diagnose_mesh may run on trimesh
+        # meshes it did not load itself, so fall back to None quietly.
+        try:
+            components = check_mesh(mesh).components
+        except Exception:
+            components = None
+
     return MeshDiagnostics(
         triangles=int(len(mesh.faces)) if mesh.faces is not None else 0,
         vertices=int(len(mesh.vertices)) if mesh.vertices is not None else 0,
@@ -90,6 +111,7 @@ def diagnose_mesh(mesh: "trimesh.Trimesh") -> MeshDiagnostics:
         min_edge_length=min_len,
         max_edge_length=max_len,
         orphan_vertices=int(orphan_vertices),
+        connected_components=components,
     )
 
 

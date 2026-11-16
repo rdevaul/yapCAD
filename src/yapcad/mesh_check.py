@@ -88,6 +88,10 @@ def check_mesh(target) -> MeshCheck:
     try:
         import trimesh  # noqa: F401
     except ImportError:
+        if isinstance(target, (str, bytes)) or hasattr(target, "__fspath__"):
+            raise ImportError(
+                "trimesh is required to read mesh files; install "
+                "trimesh[easy] or pass a yapCAD solid") from None
         return MeshCheck(triangles=_count_triangles(target),
                          watertight=None, components=None, bounds=None)
 
