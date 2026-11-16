@@ -260,6 +260,41 @@ class TestFromDsl:
         image(parts, view="top", pixels=(120, 90), path=out)
         assert out.exists()
 
+    def test_the_build_is_deferred(self, design, monkeypatch):
+        # The renderer traces fields, so the build must not waste time
+        # meshing the design on the way through; meshing is deferred and
+        # happens once, if at all, elsewhere.
+        import yapcad.dsl as dsl
+        seen = {}
+        real = dsl.compile_and_run
+
+        def spy(source, command, params, **kwargs):
+            seen.update(kwargs)
+            return real(source, command, params, **kwargs)
+
+        monkeypatch.setattr(dsl, "compile_and_run", spy)
+        parts, _ = parts_from_dsl(design, "PLATE", cell_mm=2.0)
+        assert seen.get("sdf_mesh") is False
+        # and the part still renders from its field
+        gbuf = render(parts, Camera.fit(scene_bounds(parts), view="top",
+                                        pixels=(64, 48)))
+        assert gbuf.hit.any()
+
+    def test_defer_mesh_can_be_turned_off(self, design, monkeypatch):
+        # Passing an explicit False hands the choice back to the DSL's
+        # default for callers that want triangles up front.
+        import yapcad.dsl as dsl
+        seen = {}
+        real = dsl.compile_and_run
+
+        def spy(source, command, params, **kwargs):
+            seen.update(kwargs)
+            return real(source, command, params, **kwargs)
+
+        monkeypatch.setattr(dsl, "compile_and_run", spy)
+        parts_from_dsl(design, "PLATE", cell_mm=2.0, defer_mesh=False)
+        assert seen.get("sdf_mesh") is None
+
     def test_a_missing_command_says_which_design(self, design):
         with pytest.raises(RuntimeError, match="NOPE"):
             parts_from_dsl(design, "NOPE")
