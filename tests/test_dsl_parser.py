@@ -840,3 +840,65 @@ command CMD_B(x: float = 1.0) -> solid:
         ast = parse_source(src)
         assert ast.functions[0].meta_hint == {"assembly.joint_kind": "revolute"}
         assert ast.functions[1].meta_hint is None
+
+
+class TestNativeBlockCode:
+    """The legacy ``native python { ... } exports { ... }`` block."""
+
+    INDENTED_BLOCK = """
+module m
+native python {
+    BASE = 2.0
+
+    def helper(x):
+        return x * BASE
+} exports {
+    fn helper(x: float) -> float;
+}
+command PART() -> float:
+    emit helper(3.0)
+"""
+
+    @staticmethod
+    def parse_native(src):
+        # The native block extractor reads the original source text, so
+        # this parse must pass it -- unlike parse_source, which does not.
+        source = textwrap.dedent(src)
+        return parse(tokenize(source), source=source)
+
+    def test_the_exports_block_uses_fn_declarations(self):
+        """Exports list ``fn name(args) -> type;`` declarations."""
+        ast = self.parse_native(self.INDENTED_BLOCK)
+        exports = ast.native_blocks[0].exports
+        assert [d.name for d in exports] == ["helper"]
+        assert exports[0].parameters[0].name == "x"
+
+    def test_indented_native_code_is_dedented(self):
+        """Uniform indentation is stripped, not just leading whitespace.
+
+        Stripping alone lifts the first line to column zero and leaves
+        the rest indented under it -- an IndentationError at exec time.
+        """
+        ast = self.parse_native(self.INDENTED_BLOCK)
+        code = ast.native_blocks[0].code
+        assert code.startswith("BASE = 2.0")
+        compile(code, "<native>", "exec")  # valid Python after dedent
+
+    def test_an_indented_native_block_runs(self):
+        from yapcad.dsl import compile_and_run
+        result = compile_and_run(self.INDENTED_BLOCK, "PART", {})
+        assert result.success, result.error_message
+        geometry = result.geometry
+        value = (geometry.data if hasattr(geometry, "data") else geometry)
+        assert value == 6.0
+
+    def test_flush_native_code_is_unchanged(self):
+        """Unindented blocks still parse exactly as written."""
+        src = (self.INDENTED_BLOCK
+               .replace("    BASE = 2.0", "BASE = 2.0")
+               .replace("    def helper(x):", "def helper(x):")
+               .replace("        return x * BASE", "    return x * BASE"))
+        ast = self.parse_native(src)
+        code = ast.native_blocks[0].code
+        assert code.startswith("BASE = 2.0")
+        compile(code, "<native>", "exec")

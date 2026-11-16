@@ -1623,9 +1623,14 @@ native python {
     def helper(x):
         return x * 2
 } exports {
-    helper(x: float) -> float
+    fn helper(x: float) -> float;
 }
 ```
+
+The `exports` block declares each native function with `fn name(args) ->
+type;`; the declaration is checked against the Python code when the module
+loads, and a mismatch is a load-time error.  The block body may be
+indented; yapCAD dedents it before execution.
 
 The type checker issues warnings (W212, W213) when native code is present, indicating
 that manual review is required for type safety.
