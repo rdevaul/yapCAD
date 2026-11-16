@@ -104,3 +104,41 @@ def test_the_setting_does_not_leak_out_of_a_call():
     with representation.using("sdf", 0.5):
         assert representation.is_sdf()
     assert not representation.is_sdf()
+
+
+def test_an_emitted_assembly_compound_is_the_simplified_parts():
+    """``assembly_compound`` positions the parts when it is called, which is
+    before the finished parts are simplified.  The emitted solid has to be
+    positioned again afterwards, or an STL export writes the uniform meshes
+    while the assembly holds the simplified ones."""
+    source = '''
+module rep
+@meta(assembly.datums=[{"id": "a", "kind": "axis",
+    "origin_mm": [0.0, 0.0, 0.0], "direction": [0.0, 0.0, 1.0]}])
+command P() -> solid:
+    emit difference(sphere(6.0), cylinder(2.0, 20.0))
+
+command PART() -> solid:
+    let a: assembly = assembly("pair")
+    add_part(a, P(), "p")
+    add_part(a, P(), "q")
+    add_named_mate(a, "j", "revolute", "p", "a", "q", "a")
+    solve_assembly(a, "p")
+    emit assembly_compound(a)
+'''
+
+    def triangles(solid):
+        return sum(len(surface[3]) for surface in solid[1])
+
+    def build(simplify):
+        result = compile_and_run(source, "PART", {}, representation="sdf",
+                                 sdf_simplify=simplify)
+        assert result.success, result.error_message
+        assembly = result.emit_result.value.annotations["assembly"]
+        return result.geometry, assembly
+
+    uniform, _ = build(False)
+    compound, assembly = build(True)
+    parts = sum(triangles(assembly.geometry[name]) for name in ("p", "q"))
+    assert triangles(compound) == parts
+    assert triangles(compound) < triangles(uniform) / 2

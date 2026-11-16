@@ -307,9 +307,26 @@ class Interpreter:
         """
         return resolve_uses(module, source_dir)
 
+    @staticmethod
+    def _block_statements(block: Block):
+        """Every statement of ``block``, in order, including its last.
+
+        The parser lifts a block's trailing bare expression out of
+        ``statements`` into ``final_expression``, so that a block can have a
+        value.  A statement-level block has no use for the value, but the
+        expression still has to run: it is usually a call made for its
+        effect -- ``add_part(...)`` ending a loop body, a recursive command
+        ending an ``if`` -- and skipping it dropped that call silently.
+        """
+        final = getattr(block, "final_expression", None)
+        if final is None:
+            return block.statements
+        return list(block.statements) + [
+            ExpressionStatement(span=final.span, expression=final)]
+
     def _execute_command(self, command: Command, ctx: ExecutionContext) -> None:
         """Execute a command's body statements."""
-        for stmt in command.body.statements:
+        for stmt in self._block_statements(command.body):
             self._execute_statement(stmt, ctx)
             if ctx.should_return:
                 break
@@ -451,7 +468,7 @@ class Interpreter:
         with ctx.new_scope("for-loop"):
             for item in items:
                 ctx.set_variable(stmt.variable, wrap_value(item, elem_type))
-                for body_stmt in stmt.body.statements:
+                for body_stmt in self._block_statements(stmt.body):
                     self._execute_statement(body_stmt, ctx)
                     if ctx.should_return:
                         return
@@ -465,7 +482,7 @@ class Interpreter:
         if condition.is_truthy():
             # Execute then branch
             with ctx.new_scope("if-then"):
-                for body_stmt in stmt.then_branch.statements:
+                for body_stmt in self._block_statements(stmt.then_branch):
                     self._execute_statement(body_stmt, ctx)
                     if ctx.should_return:
                         return
@@ -476,7 +493,7 @@ class Interpreter:
                 elif_cond = self._evaluate(elif_branch.condition, ctx)
                 if elif_cond.is_truthy():
                     with ctx.new_scope("elif"):
-                        for body_stmt in elif_branch.body.statements:
+                        for body_stmt in self._block_statements(elif_branch.body):
                             self._execute_statement(body_stmt, ctx)
                             if ctx.should_return:
                                 return
@@ -486,7 +503,7 @@ class Interpreter:
             # Execute else branch if no elif matched
             if not executed and stmt.else_branch is not None:
                 with ctx.new_scope("else"):
-                    for body_stmt in stmt.else_branch.statements:
+                    for body_stmt in self._block_statements(stmt.else_branch):
                         self._execute_statement(body_stmt, ctx)
                         if ctx.should_return:
                             return
@@ -502,7 +519,7 @@ class Interpreter:
     def _execute_block(self, block: Block, ctx: ExecutionContext) -> None:
         """Execute a block of statements."""
         with ctx.new_scope("block"):
-            for stmt in block.statements:
+            for stmt in self._block_statements(block):
                 self._execute_statement(stmt, ctx)
                 if ctx.should_return:
                     break

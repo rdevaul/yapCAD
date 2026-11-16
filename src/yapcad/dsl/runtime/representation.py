@@ -161,7 +161,19 @@ def simplify_result(result, simplify=None):
                                                          dict) else None
     if assembly is not None and isinstance(getattr(assembly, "geometry",
                                                    None), dict):
+        changed = False
         for name, solid in list(assembly.geometry.items()):
             if isinstance(solid, list) and solid and solid[0] == "solid":
-                assembly.geometry[name] = finish(solid)
+                finished = finish(solid)
+                changed = changed or finished is not solid
+                assembly.geometry[name] = finished
+        # ``assembly_compound`` positioned the parts when it was called,
+        # which was before they were simplified.  Position them again, or
+        # the emitted solid -- what an STL export writes -- keeps the
+        # uniform meshes while the assembly holds the simplified ones.
+        if (changed and isinstance(data, list) and len(data) > 3
+                and data[0] == "solid"
+                and data[3] == ["procedure", "assembly_compound"]
+                and getattr(assembly, "_solved", False)):
+            value.data = assembly.compound_geometry()
     return result
