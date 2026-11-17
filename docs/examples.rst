@@ -2,9 +2,47 @@
 Examples
 ========
 
-Two example scripts show signed distance fields at work. Both run on a
-plain ``pip install yapCAD``, with no OpenCASCADE; both write STL meshes,
-PNG previews and a JSON summary. Other examples are listed in the README.
+Two example scripts and one DSL design show signed distance fields at work.
+All run on a plain ``pip install yapCAD``, with no OpenCASCADE. Other examples are listed in the README.
+
+
+A recursive, articulated design in the DSL
+==========================================
+
+``examples/ivy_vine/ivy_vine.dsl`` is a print-in-place ivy vine: fifteen
+parts, fourteen hinges, one file of DSL. It is the worked example for three
+things at once.
+
+.. image:: images/sdf/ivy-vine.png
+   :width: 560px
+   :alt: an articulated ivy vine with IVY cut through its largest leaf
+
+* **Recursion.** ``grow()`` adds one link to an assembly and calls itself
+  twice, once to continue the stem and once to grow a smaller vine from the
+  link's bud. The leaf veins branch by a second recursion that returns a
+  ``list<solid>`` of grooves.
+* **Field operations.** Leaf outlines are ``smooth_union`` of pointed lobes.
+  A hinge's running clearance is ``offset_solid`` of the mating part, so the
+  gap is the same everywhere, bevels included.
+* **Mates.** Each link joins its parent by a revolute mate on axis datums
+  from ``@meta(assembly.datums=[...])``. The limits the design declares are
+  the ranges a :doc:`range-of-motion sweep <rom_guide>` measured clear.
+
+.. image:: images/sdf/ivy-vine-hinge.png
+   :width: 560px
+   :alt: section through a hinge: a flared pin, a ridged ring and an arch
+
+.. code-block:: bash
+
+    cd examples/ivy_vine
+    python -m yapcad.dsl check ivy_vine.dsl
+    python build_vine.py --quick     # pictures, clearances, joint sweeps
+    python build_vine.py             # the same, and out/ivy_vine.stl
+    python check_print.py out/ivy_vine.stl
+
+``build_vine.py`` builds the design deferred (``sdf_mesh=False``), so the
+assembly exists as fields in under a second; the clearance checks, sweeps and
+pictures read those fields, and only the STL export meshes anything.
 
 
 Parts built as fields

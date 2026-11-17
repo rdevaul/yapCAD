@@ -338,6 +338,23 @@ extrusions, sweeps, lofts -- still produce meshes. Set it with:
 * ``YAPCAD_DSL_REPRESENTATION=sdf`` (and ``YAPCAD_DSL_SDF_CELL_MM``) for
   tools that do not pass it on.
 
+The operations that only fields have are DSL builtins too:
+``capsule`` and ``torus``; ``smooth_union``, ``smooth_difference`` and
+``smooth_intersection``; ``offset_solid``, ``shell_solid`` and
+``twist_solid`` (in degrees per unit of z, as the DSL's other geometry
+angles are degrees); and ``gyroid_lattice`` and ``schwarz_p_lattice``, which
+cut the infinite sheet to a part, since a DSL solid has to be bounded.
+
+.. code-block:: python
+
+    command HINGE_RING() -> solid:
+        let pin: solid = chamfer(cylinder(4.0, 6.0), 1.0)
+        # The bore clears the pin by 0.35 everywhere, bevels included.
+        emit difference(cylinder(7.0, 6.0), offset_solid(pin, 0.35))
+
+They take SDF-authored solids, and say so when handed anything else. Each
+result is meshed no coarser than its operands (:func:`yapcad.sdf.derive_solid`).
+
 ``sdf_cell_mm`` sets the cell size primitives are meshed at; a primitive
 is never meshed coarser than a quarter of its thinnest extent. The yapRover
 release design builds this way with no OCC: every structural part comes

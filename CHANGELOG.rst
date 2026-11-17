@@ -5,6 +5,33 @@ Changelog
 Unreleased
 ==========
 
+- DSL: the operations only fields have are builtins. ``capsule`` and
+  ``torus``; ``smooth_union``, ``smooth_difference`` and
+  ``smooth_intersection``; ``offset_solid``, ``shell_solid`` and
+  ``twist_solid``; ``gyroid_lattice`` and ``schwarz_p_lattice``. Until now a
+  design reached ``yapcad.sdf``'s blends, offsets and lattices only through a
+  ``native python`` block, which gives up the DSL's static verifiability to
+  call one function. The primitives are SDF-authored in either
+  representation; the operations take SDF-authored solids, keep the first
+  operand's metadata, and refuse a mesh or BREP operand with an error naming
+  the operand and the setting to change. ``twist_solid`` takes degrees per
+  unit of z, like the DSL's other geometry angles; the lattices take the part
+  to fill, because a DSL solid is meshed and an infinite sheet cannot be.
+  ``sdf.derive_solid(solids, build)`` is the helper underneath: mesh a tree
+  built from the trees of SDF-authored solids, no coarser than any operand.
+- DSL: ``str(...)`` joins the text of its arguments. The DSL has no string
+  operators, so a loop or a recursive command had no way to give each part
+  and mate it added a name of its own.
+- ``examples/ivy_vine``: a print-in-place articulated ivy vine, fifteen
+  parts and fourteen hinges from one DSL file. A command that calls itself
+  twice grows the branching stem; leaf outlines are smooth unions of lobes; a
+  hinge's running clearance is ``offset_solid`` of its mating part; and the
+  declared joint limits are the ranges a ``yapcad.rom`` sweep measured clear.
+  Its driver builds the design deferred, checks clearances and sweeps the
+  joints on the fields, and meshes only to write the STL.
+- Docs: the DSL reference says that ``solve_assembly`` solves with every
+  joint at zero (so limits that exclude zero are set after posing) and that
+  datums do not follow a transform applied to their solid.
 - Fixed: a call that ended an ``if``, ``elif``, ``else`` or ``for`` body was
   silently skipped. The parser lifts a block's trailing bare expression into
   the block's ``final_expression`` and the interpreter ran only its

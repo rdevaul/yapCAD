@@ -118,7 +118,7 @@ from yapcad.sdf.deferred import (
     realize_all,
     require_mesh,
 )
-from yapcad.sdf.booleans import combine_all, is_sdf_solid
+from yapcad.sdf.booleans import combine_all, derive_solid, is_sdf_solid
 from yapcad.sdf.simplify import (
     simplify_finished,
     simplify_mesh,
@@ -243,6 +243,7 @@ __all__ = [
     "require_mesh",
     # booleans between SDF solids
     "combine_all",
+    "derive_solid",
     "is_sdf_solid",
     # exact CSG replay
     "csg_blockers",
