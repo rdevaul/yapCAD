@@ -77,3 +77,47 @@ def test_the_floor_does_not_cost_the_simplification():
     simplified = len(_faces(_build(0.5)))
     uniform = len(_faces(_build(0.5, simplify=False)))
     assert simplified < 0.1 * uniform
+
+
+# -- parts whose own triangles are under the absolute floor -------------------
+
+def _part(expr, simplify):
+    source = f"module small\ncommand PART() -> solid:\n    emit {expr}\n"
+    result = compile_and_run(source, "PART", {}, representation="sdf",
+                             sdf_simplify=simplify)
+    assert result.success, result.error_message
+    return result.geometry
+
+
+@pytest.mark.sdf_simplify
+@pytest.mark.parametrize("size", (0.1, 1.0))
+def test_a_small_part_is_simplified(size):
+    """A 1 mm cube at the default 64 cells has triangles of 2.4e-4, half
+    the absolute sliver floor.  Every collapse left a triangle under the
+    floor, so the part kept all 47,628 of them."""
+    from yapcad.geom3d import issolidclosed, volumeof
+    expr = f"box({size}, {size}, {size})"
+    uniform = _part(expr, False)
+    simplified = _part(expr, True)
+    assert len(_faces(simplified)) < len(_faces(uniform)) / 100
+    assert issolidclosed(simplified)
+    assert volumeof(simplified) == pytest.approx(size ** 3, rel=1e-6)
+
+
+@pytest.mark.sdf_simplify
+def test_a_small_part_is_held_to_its_own_scale():
+    """The floor that replaces the absolute one is relative to the mesh,
+    so a small part still gets no slivers by its own measure."""
+    from yapcad.sdf.simplify import _MIN_CROSS_RELATIVE
+    spacing = 1.0 / 64
+    simplified = _part("difference(box(1.0, 0.8, 0.5), cylinder(0.15, 2.0))",
+                       True)
+    crosses = _cross_magnitudes(simplified)
+    assert crosses.min() > _MIN_CROSS_RELATIVE * spacing * spacing * 0.5
+
+
+def test_the_floor_is_unchanged_for_an_ordinary_mesh():
+    from yapcad.sdf.simplify import _MIN_CROSS, _min_cross
+    for spacing in (0.1, 0.3125, 1.0, 25.0):
+        assert _min_cross(spacing) == _MIN_CROSS
+    assert _min_cross(1.0 / 64) < _MIN_CROSS

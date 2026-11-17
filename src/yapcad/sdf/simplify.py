@@ -157,6 +157,22 @@ _MIN_NORMAL_DOT = 0.2
 #: measures 1.5e-2, thirty times this.
 _MIN_CROSS = 100.0 * epsilon
 
+#: The same floor, as a fraction of the cross product of a typical triangle
+#: of the mesh being simplified (its median edge length, squared).  The
+#: absolute floor above assumes a mesh whose own triangles clear it.  A
+#: small part does not: a 1 mm cube meshed at 64 cells has triangles of
+#: 2.4e-4, half the floor, so every collapse left a "sliver" and the part
+#: was not simplified at all.  The floor in force is the lower of the two,
+#: so nothing changes for a mesh coarser than about 0.07 units a cell, and
+#: a finer one is held to its own scale instead.
+_MIN_CROSS_RELATIVE = 0.1
+
+
+def _min_cross(spacing):
+    """Smallest cross product a collapse may leave, for a mesh whose
+    typical edge is ``spacing`` long."""
+    return min(_MIN_CROSS, _MIN_CROSS_RELATIVE * spacing * spacing)
+
 
 def _face_normals(V, F):
     n = np.cross(V[F[:, 1]] - V[F[:, 0]], V[F[:, 2]] - V[F[:, 0]])
@@ -311,7 +327,8 @@ def _round(node, V, F, tolerance, rejected, spacing, face_err):
     old_len = np.linalg.norm(old_n, axis=1)
     with np.errstate(invalid="ignore", divide="ignore"):
         dot = np.einsum("ij,ij->i", old_n, new_n) / (old_len * new_len)
-    bad_face = survives & ~((new_len > _MIN_CROSS) & (dot > _MIN_NORMAL_DOT))
+    bad_face = survives & ~((new_len > _min_cross(spacing))
+                            & (dot > _MIN_NORMAL_DOT))
 
     # Fidelity: the new triangles' worst sampled error must be within the
     # tolerance -- or, where dual contouring already left more error than
