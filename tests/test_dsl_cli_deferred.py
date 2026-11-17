@@ -9,6 +9,8 @@ report goes to stderr and ``--require-watertight`` can fail the run.
 import subprocess
 import sys
 
+import pytest
+
 from yapcad.dsl.__main__ import main
 from yapcad.mesh_check import check_mesh, MeshCheck
 
@@ -130,8 +132,65 @@ def test_report_of_the_deferred_single_mesh():
         assert word in report.summary()
 
 
+def _two_boxes():
+    from yapcad.geom import point
+    from yapcad.geom3d import solid
+    from yapcad.geom3d_util import prism
+    near = prism(2, 2, 2)
+    far = prism(2, 2, 2, center=point(10, 0, 0))
+    return solid(near[1] + far[1])
+
+
+def _without_trimesh(monkeypatch):
+    """Make ``import trimesh`` fail, as on a plain ``pip install yapcad``."""
+    import builtins
+    real = builtins.__import__
+
+    def refuse(name, *args, **kwargs):
+        if name == "trimesh" or name.startswith("trimesh."):
+            raise ImportError("No module named 'trimesh'")
+        return real(name, *args, **kwargs)
+    monkeypatch.setattr(builtins, "__import__", refuse)
+
+
+def test_a_solid_is_checked_without_trimesh(monkeypatch):
+    _without_trimesh(monkeypatch)
+    report = check_mesh(_two_boxes())
+    assert report.triangles == 24
+    assert report.watertight is True
+    assert report.components == 2
+    assert report.bounds[0] == pytest.approx((-1.0, -1.0, -1.0))
+    assert report.bounds[1] == pytest.approx((11.0, 1.0, 1.0))
+
+
+def test_an_open_solid_is_seen_without_trimesh(monkeypatch):
+    from yapcad.geom3d import solid
+    from yapcad.geom3d_util import prism
+    _without_trimesh(monkeypatch)
+    report = check_mesh(solid(prism(2, 2, 2)[1][:5]))
+    assert report.watertight is False
+    assert report.components == 1
+
+
+def test_a_mesh_file_still_needs_trimesh(monkeypatch, tmp_path):
+    _without_trimesh(monkeypatch)
+    with pytest.raises(ImportError, match="trimesh"):
+        check_mesh(tmp_path / "part.stl")
+
+
+def test_components_are_counted_when_trimesh_cannot_split(monkeypatch):
+    # trimesh splits a mesh with scipy or networkx; with neither it
+    # raises, and the count used to come back as None.
+    trimesh = pytest.importorskip("trimesh")
+
+    def no_engine(self, *args, **kwargs):
+        raise ImportError("no graph engines available!")
+    monkeypatch.setattr(trimesh.Trimesh, "split", no_engine)
+    assert check_mesh(_two_boxes()).components == 2
+
+
 def test_check_mesh_sees_two_bodies_as_two_components():
-    import trimesh
+    trimesh = pytest.importorskip("trimesh")
     pair = trimesh.util.concatenate([
         trimesh.creation.box((2.0, 2.0, 2.0)),
         trimesh.creation.box((2.0, 2.0, 2.0)).apply_translation((10.0, 0, 0)),
@@ -143,7 +202,7 @@ def test_check_mesh_sees_two_bodies_as_two_components():
 
 def test_check_mesh_sees_an_open_mesh():
     import numpy as np
-    import trimesh
+    trimesh = pytest.importorskip("trimesh")
     open_mesh = trimesh.Trimesh(
         vertices=np.array([[0.0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]]),
         faces=np.array([[0, 1, 2], [0, 2, 3]]))

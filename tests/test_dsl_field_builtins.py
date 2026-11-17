@@ -192,11 +192,16 @@ def test_a_mesh_operand_is_refused_with_what_to_do(expr, name):
 
 
 def test_the_second_operand_is_named_when_it_is_the_mesh():
-    expr = ("smooth_union(sphere(4.0), "
-            "extrude(rectangle(4.0, 4.0), 4.0), 1.0)")
-    result = run(expr, rep="sdf")
-    assert not result.success
-    assert "the second solid" in result.error_message
+    # Called directly with a pure-Python mesh solid: the DSL can only make
+    # a mesh operand under representation="sdf" by extruding, and that
+    # needs pythonocc-core or manifold3d, which not every install has.
+    from yapcad.dsl.runtime.builtins import call_builtin
+    from yapcad.dsl.runtime.values import float_val, solid_val
+    from yapcad.geom3d_util import prism
+    field = solid_val(sdf.to_solid(sdf.sphere(4.0), resolution=16))
+    with pytest.raises(RuntimeError, match="the second solid"):
+        call_builtin("smooth_union",
+                     [field, solid_val(prism(4, 4, 4)), float_val(1.0)])
 
 
 # -- deferred meshing ---------------------------------------------------------
