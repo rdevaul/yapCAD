@@ -1323,7 +1323,7 @@ def compile_and_run(
     from .representation import is_sdf, simplify_result, using
     interpreter = Interpreter(recursion_limit=recursion_limit, source_path=source_path)
     try:
-        with using(representation, sdf_cell_mm, sdf_mesh):
+        with using(representation, sdf_cell_mm, sdf_mesh, sdf_simplify):
             result = interpreter.execute(module, command_name, parameters,
                                          source, source_path)
             if result.success and is_sdf():
