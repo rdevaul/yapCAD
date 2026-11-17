@@ -19,6 +19,16 @@ Unreleased
   is not known to be the same as reusing its result. A command that emits
   another's cached solid and carries ``@meta`` of its own annotates a copy.
   ``YAPCAD_DSL_MEMOIZE=0`` turns it off.
+
+  Two things follow from repeats being one solid.  Python code downstream
+  of ``compile_and_run`` that edits a part in place -- tags it, sets its
+  material -- now edits every instance of that part; copy the solid first to
+  change one.  And the instances share an entity id, so ``geometry_to_json``
+  now gives any entity whose id an earlier one already used a fresh id in
+  the document (the solids themselves are untouched).  That also covers a
+  transformed copy, which has always kept its source's id.  The results of
+  a run are held until it ends, so a design that calls one command with
+  very many different arguments uses more memory than it did.
 - DSL: the operations only fields have are builtins. ``capsule`` and
   ``torus``; ``smooth_union``, ``smooth_difference`` and
   ``smooth_intersection``; ``offset_solid``, ``shell_solid`` and

@@ -1078,6 +1078,10 @@ numbers, booleans and strings; a command given an assembly (like `grow`
 above) always runs, as does one that calls `print` or native code. Set
 `YAPCAD_DSL_MEMOIZE=0` to turn it off.
 
+Because the repeats are one solid, Python code that edits a returned part
+in place (tagging it, setting its material) changes every instance of that
+part. Copy the solid first to change just one.
+
 **Recursion Limits:** To prevent runaway recursion, command-to-command call depth is
 limited to 100 by default. The type checker warns about recursive call patterns.
 Configure the limit via:
