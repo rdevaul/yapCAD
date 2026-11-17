@@ -201,6 +201,17 @@ def cmd_run(args):
             print(f"Error: {e}", file=sys.stderr)
             return 1
 
+    # Deferred meshing: an SDF build that outputs STL needs the mesh once,
+    # at the end, so building it per-primitive on the way is wasted work.
+    # The renderer and clearance checks never need triangles at all.
+    representation = args.representation or os.environ.get(
+        'YAPCAD_DSL_REPRESENTATION', 'mesh')
+    defer_mesh = args.defer_mesh
+    if defer_mesh is None:
+        defer_mesh = (representation == 'sdf'
+                      and (args.output or '').lower().endswith('.stl'))
+    sdf_mesh = False if defer_mesh and representation == 'sdf' else None
+
     print(f"Executing {args.command} with parameters: {parameters}")
 
     # Check if creating a package
@@ -234,6 +245,7 @@ def cmd_run(args):
                              representation=args.representation,
                              sdf_cell_mm=args.sdf_cell,
                              sdf_simplify=False if args.no_simplify else None,
+                             sdf_mesh=sdf_mesh,
                              source_path=str(source_path))
 
     if not result.success:
@@ -244,6 +256,7 @@ def cmd_run(args):
 
     # Check geometry type and determine if 2D or 3D
     from yapcad.geom3d import issolid, volumeof
+    from yapcad.sdf.deferred import DeferredMeshError
     from yapcad.ezdxf_exporter import is_2d_geometry
 
     geometry = result.geometry
@@ -255,6 +268,8 @@ def cmd_run(args):
         try:
             vol = volumeof(geometry)
             print(f"Result: solid with volume {vol:.2f}")
+        except DeferredMeshError:
+            print("Result: deferred field (meshing happens once, at export)")
         except ValueError:
             print("Result: solid (volume calculation not available)")
     elif isinstance(geometry, list) and geometry and issolid(geometry[0]):
@@ -262,6 +277,9 @@ def cmd_run(args):
         try:
             total_vol = sum(volumeof(g) for g in geometry if issolid(g))
             print(f"Result: {len(geometry)} solid(s) with total volume {total_vol:.2f}")
+        except DeferredMeshError:
+            print(f"Result: {len(geometry)} deferred field(s) "
+                  "(meshing happens once, at export)")
         except ValueError:
             print(f"Result: {len(geometry)} solid(s)")
     elif is_2d_geometry(geometry):
@@ -318,6 +336,37 @@ def cmd_run(args):
                     for i in range(1, len(geometry)):
                         solid = solid_boolean(solid, geometry[i], 'union')
 
+            # The deferred path combines fields while they are still lazy
+            # (above) and meshes exactly once here, at --sdf-cell or the
+            # resolution the build recorded.
+            if sdf_mesh is False:
+                from yapcad.sdf.deferred import is_deferred, realize
+                if is_deferred(solid):
+                    if args.sdf_cell is not None:
+                        realize(solid, cell_mm=args.sdf_cell)
+                    else:
+                        realize(solid)
+                if suffix == '.stl':
+                    from yapcad.io.stl import write_stl
+                    from yapcad.mesh_check import check_mesh
+                    report = check_mesh(solid)
+                    print(report.summary(), file=sys.stderr)
+                    if args.require_watertight:
+                        reason = None
+                        if report.watertight is None:
+                            reason = ("trimesh is not installed, so "
+                                      "watertightness cannot be verified")
+                        elif not report.watertight:
+                            reason = "the mesh is not watertight"
+                        if reason:
+                            print(f"Error: refusing to export: {reason}",
+                                  file=sys.stderr)
+                            return 1
+                    write_stl(solid, str(output_path))
+                    print(f"Exported to: {output_path} "
+                          "(single deferred mesh)")
+                    return 0
+
             if suffix == '.step' or suffix == '.stp':
                 step_format = os.environ.get('YAPCAD_STEP_FORMAT', 'faceted').lower()
                 if step_format == 'analytic' or args.strict_step:
@@ -355,7 +404,7 @@ def cmd_run(args):
     return 0
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(
         prog='python -m yapcad.dsl',
         description='yapCAD DSL compiler and runner',
@@ -410,8 +459,20 @@ def main():
     run_parser.add_argument('--sdf-cell', type=float, metavar='MM',
                           help='Cell size SDF primitives are meshed at '
                                '(env: YAPCAD_DSL_SDF_CELL_MM)')
+    run_parser.add_argument('--no-defer-mesh', action='store_false',
+                          dest='defer_mesh',
+                          help='With --representation sdf, mesh every '
+                               'primitive on the way through instead of '
+                               'meshing the finished field once at export')
+    run_parser.add_argument('--defer-mesh', action='store_true',
+                          default=None, dest='defer_mesh',
+                          help='Defer meshing to export time (default when '
+                               '--representation sdf and the output is STL)')
+    run_parser.add_argument('--require-watertight', action='store_true',
+                          help='Fail (non-zero exit) if the deferred STL '
+                               'mesh is not watertight')
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     if args.action == 'check':
         return cmd_check(args)

@@ -223,10 +223,13 @@ each off, on that 105-node part:
      - 41.42 M
 
 The bigger cost is usually next door. Building that 105-node tree through
-the DSL took 11.7 s, against 2.8 s to render it, because the DSL meshes every
-primitive and every boolean on the way through -- meshes this renderer never
-looks at. Raising ``--cell`` makes the build cheaper and does not affect the
-image at all, since the render uses the field rather than the mesh.
+the DSL used to mesh every primitive and every boolean on the way through
+-- meshes this renderer never looks at. The CLI (and
+:func:`~yapcad.render.parts_from_dsl`) now defers that meshing: the build
+returns fields plus a meshing plan and no triangles, so the whole build
+feeds the renderer directly. ``--cell`` sizes the recorded plan; raising it
+makes any *later* meshing cheaper and does not affect the image at all,
+since the render uses the field rather than the mesh.
 
 Extending it: the backend seam
 ------------------------------

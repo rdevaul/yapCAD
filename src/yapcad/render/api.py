@@ -268,20 +268,23 @@ def four_up(target, views=("iso", "front", "top"), section_axis="z",
 
 
 def parts_from_dsl(path, command, params=None, cell_mm=None, simplify=False,
-                   name=None):
+                   name=None, defer_mesh=True):
     """Build a DSL command and return its field as a one-part scene.
 
     The field is what the renderer wants, so this asks the DSL for an SDF
-    representation.  Note that the DSL still meshes each primitive on the way
-    through, and for a large assembly that meshing dominates the time to a
-    first image.
+    representation.  Meshing is deferred (``defer_mesh=True``): the renderer
+    sphere-traces the field itself, and per-primitive meshes would be built
+    and discarded on the way; the design comes back carrying its field and a
+    meshing plan instead.
     """
     from yapcad.dsl import compile_and_run
     source = open(path).read()
     started = time.time()
     result = compile_and_run(source, command, dict(params or {}),
                              representation="sdf", sdf_cell_mm=cell_mm,
-                             sdf_simplify=simplify, source_path=str(path))
+                             sdf_simplify=simplify,
+                             sdf_mesh=False if defer_mesh else None,
+                             source_path=str(path))
     if not result.success:
         raise RuntimeError(
             f"{path}: building {command} failed: {result.error_message}")

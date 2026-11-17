@@ -5,6 +5,7 @@ Converts a token stream into an Abstract Syntax Tree (AST).
 Supports Python-style indentation-based blocks.
 """
 
+import textwrap
 from typing import List, Optional, Callable, Any, Union
 from .tokens import Token, TokenType, SourceSpan, SourceLocation, is_type_token
 from .ast import (
@@ -1391,10 +1392,9 @@ class Parser:
         """Parse a legacy native python block."""
         start = self._advance()  # consume 'native'
         self._consume(TokenType.PYTHON, "'python'")
-        self._consume(TokenType.LBRACE, "'{'")
+        open_brace = self._consume(TokenType.LBRACE, "'{'")
 
         brace_depth = 1
-        code_start_offset = self._current().span.start.offset
 
         while not self._is_at_end() and brace_depth > 0:
             token = self._advance()
@@ -1407,7 +1407,13 @@ class Parser:
         code_end_offset = closing_brace.span.start.offset
 
         if self.source is not None:
-            code = self.source[code_start_offset:code_end_offset].strip()
+            # Slice from just after the opening brace, so the first code
+            # line keeps its indentation, and dedent: a block whose code
+            # is uniformly indented is valid Python once the common
+            # prefix is removed.  Stripping alone would lift the first
+            # line to column zero and leave the rest indented under it.
+            raw = self.source[open_brace.span.end.offset:code_end_offset]
+            code = textwrap.dedent(raw).strip()
         else:
             code = ""
 

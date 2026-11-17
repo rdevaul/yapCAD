@@ -355,6 +355,14 @@ cut the infinite sheet to a part, since a DSL solid has to be bounded.
 They take SDF-authored solids, and say so when handed anything else. Each
 result is meshed no coarser than its operands (:func:`yapcad.sdf.derive_solid`).
 
+With ``--representation sdf`` and STL output, ``python -m yapcad.dsl run``
+defers meshing by default: the design builds as lazy fields, the finished
+part is meshed exactly once at ``--sdf-cell``, and the run reports the
+result -- triangles, watertightness, connected components and bounding box
+-- on stderr. Pass ``--require-watertight`` to make a non-watertight mesh
+fail the command, or ``--no-defer-mesh`` to force the eager per-primitive
+meshing back on.
+
 ``sdf_cell_mm`` sets the cell size primitives are meshed at; a primitive
 is never meshed coarser than a quarter of its thinnest extent. The yapRover
 release design builds this way with no OCC: every structural part comes

@@ -81,9 +81,9 @@ def build_parser():
                         choices=("auto", "part", "group", "none"),
                         dest="colour_by")
     parser.add_argument("--cell", type=float, default=None, metavar="MM",
-                        help="SDF cell size the DSL meshes primitives at; "
-                             "larger is faster to build and does not affect "
-                             "the render, which uses the field itself")
+                        help="SDF cell size recorded in the build's meshing "
+                             "plan; the renderer sphere-traces the field "
+                             "itself, so it never meshes the design")
     parser.add_argument("--simplify", action="store_true",
                         help="let the DSL simplify parts against their "
                              "fields while building (slower)")
