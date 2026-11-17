@@ -69,8 +69,26 @@ def _lattice(n):
 
 _LATTICES = {n: _lattice(n) for n in range(1, _MAX_DIVISIONS + 1)}
 
+#: Sample points per triangle in the quick look that comes before the full
+#: one; see :func:`_round`.
+_COARSE_POINTS = 6
 
-def _sample_max(node, tris, divisions):
+
+def _coarse(table):
+    """A few of a lattice's points, spread across it.
+
+    A lattice too small for a quick look to save anything gives a single
+    point, so the quick look costs next to nothing there.
+    """
+    if len(table) <= 3 * _COARSE_POINTS:
+        return table[:1]
+    return table[np.linspace(0, len(table) - 1, _COARSE_POINTS).astype(int)]
+
+
+_COARSE = {n: _coarse(table) for n, table in _LATTICES.items()}
+
+
+def _sample_max(node, tris, divisions, lattices=_LATTICES):
     """Worst ``|f|`` per triangle, sampling every triangle in one batch.
 
     Grouping the triangles by division count and evaluating each group
@@ -83,7 +101,7 @@ def _sample_max(node, tris, divisions):
         return np.zeros(0)
     order = np.argsort(divisions, kind="stable")
     ordered = divisions[order]
-    tables = [_LATTICES[int(n)] for n in np.unique(ordered).tolist()]
+    tables = [lattices[int(n)] for n in np.unique(ordered).tolist()]
     sizes = {int(n): len(t) for n, t in zip(np.unique(ordered).tolist(), tables)}
     counts = np.array([sizes[int(n)] for n in ordered], dtype=np.int64)
     offsets = np.zeros(len(tris) + 1, dtype=np.int64)
@@ -103,11 +121,12 @@ def _sample_max(node, tris, divisions):
     return out
 
 
-def _max_error(node, tris, spacing):
+def _max_error(node, tris, spacing, lattices=_LATTICES):
     """Worst ``|f|`` sampled across each triangle of ``tris`` ``(T, 3, 3)``
     on a grid no coarser than ``spacing`` -- the original mesh's edge
     length -- so a large merged triangle is checked as densely as the many
-    small ones it replaces."""
+    small ones it replaces.  ``lattices`` picks the sample points for each
+    division count; :data:`_COARSE` gives a subset of the full ones."""
     if len(tris) == 0:
         return np.zeros(0)
     longest = np.max(np.linalg.norm(tris - np.roll(tris, 1, axis=1), axis=2),
@@ -117,7 +136,7 @@ def _max_error(node, tris, spacing):
     # samples, and two divisions once read 0.095 where the truth was 0.142.
     divisions = np.clip(np.ceil(2.0 * longest / spacing), 4,
                         _MAX_DIVISIONS).astype(int)
-    return _sample_max(node, tris, divisions)
+    return _sample_max(node, tris, divisions, lattices)
 
 
 #: A changed triangle's normal must stay within ~78 degrees of its old one.
@@ -302,24 +321,41 @@ def _round(node, V, F, tolerance, rejected, spacing, face_err):
     # may not let all its new triangles reach that triangle's error, or the
     # bad region grows a ring every round.  So the worst error may not rise,
     # and the excess over the tolerance, integrated over area, may not grow.
-    new_face_err = _max_error(node, new[survives], spacing)
     old_face_err = face_err[faces]
-    new_err = np.zeros(len(chosen))
     old_err = np.zeros(len(chosen))
-    np.maximum.at(new_err, owner[survives], new_face_err)
     np.maximum.at(old_err, owner, old_face_err)
+    vertex_err = np.abs(evaluate(node, P[chosen]))
+    allowed = np.maximum(tolerance, old_err)
+
+    # Sampling the new triangles is nearly all of a round's work, so it is
+    # spent only on collapses that can still pass.  One that has already
+    # failed -- a flipped or sliver triangle, a merged vertex off the
+    # surface -- is not sampled at all.  The rest get a quick look first,
+    # at a few of each triangle's sample points: those are a subset of the
+    # full set, so they can only under-read the worst error, and a collapse
+    # they put over the limit would be put over it by the full set too.
+    # Nothing here changes which collapses pass.
+    failed = vertex_err > allowed
+    failed[np.unique(owner[bad_face])] = True
+    sample = survives & ~failed[owner]
+    quick = np.zeros(len(chosen))
+    np.maximum.at(quick, owner[sample],
+                  _max_error(node, new[sample], spacing, _COARSE))
+    failed |= quick > allowed
+    sample = survives & ~failed[owner]
+    sampled = np.zeros(len(faces))
+    sampled[sample] = _max_error(node, new[sample], spacing)
+    new_face_err = sampled[survives]
+    new_err = np.zeros(len(chosen))
+    np.maximum.at(new_err, owner[survives], new_face_err)
     new_excess = np.zeros(len(chosen))
     old_excess = np.zeros(len(chosen))
     np.add.at(new_excess, owner[survives],
               new_len[survives] * np.maximum(new_face_err - tolerance, 0.0))
     np.add.at(old_excess, owner,
               old_len * np.maximum(old_face_err - tolerance, 0.0))
-    vertex_err = np.abs(evaluate(node, P[chosen]))
-    allowed = np.maximum(tolerance, old_err)
-
-    ok = ((vertex_err <= allowed) & (new_err <= allowed)
+    ok = (~failed & (new_err <= allowed)
           & (new_excess <= old_excess * (1.0 + 1e-9)))
-    ok[np.unique(owner[bad_face])] = False
     rejected = np.concatenate([rejected, E[chosen[~ok]]])
     if not ok.any():
         return V, F, 0, rejected, face_err

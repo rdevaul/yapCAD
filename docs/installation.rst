@@ -100,6 +100,7 @@ Environment variables
 ``YAPCAD_DSL_REPRESENTATION``      ``mesh`` (default) or ``sdf``: what DSL primitives produce
 ``YAPCAD_DSL_SDF_CELL_MM``         the cell size DSL primitives are meshed at in ``sdf`` mode
 ``YAPCAD_SDF_SIMPLIFY``            ``0`` keeps finished SDF parts' uniform meshes
+``YAPCAD_SDF_THREADS``             threads a field evaluation is spread over; ``1`` turns it off
 ``YAPCAD_DSL_RECURSION_LIMIT``     depth limit for DSL command-to-command calls (default 100)
 ``YAPCAD_STEP_FORMAT``             ``faceted`` (default) or ``analytic``: STEP from ``yapcad.dsl run``
 ``YAPCAD_FASTENER_DATA``           extra fastener catalog directories, searched before the bundled data

@@ -40,7 +40,13 @@ from collections import namedtuple
 import numpy as np
 
 from yapcad.geom import epsilon
-from yapcad.sdf.evaluate import DEFAULT_BACKEND, evaluate, gradient
+from yapcad.sdf.evaluate import (
+    DEFAULT_BACKEND,
+    evaluate,
+    evaluate_batches,
+    gradient,
+    thread_count,
+)
 from yapcad.sdf.node import INF, SdfError, bounds_is_empty
 
 #: The result of :func:`dual_contour`.
@@ -161,22 +167,34 @@ def sample_corners(node, origin, spacing, counts, chunk=32, prune=True,
         centre_values = None
         far = np.zeros(len(blocks), dtype=bool)
 
+    def corners(block):
+        axes = [
+            origin[a] + np.arange(span[0], span[1], dtype=float) * spacing
+            for a, span in enumerate(block)
+        ]
+        grid = np.meshgrid(*axes, indexing="ij")
+        return np.stack([g.ravel() for g in grid], axis=1)
+
+    near = []
     for n, (sx, sy, sz) in enumerate(blocks):
-        region = (slice(*sx), slice(*sy), slice(*sz))
         if far[n]:
             # Sign-correct by construction: no surface within `margin`, so
             # the field cannot change sign anywhere in this chunk.
-            values[region] = centre_values[n]
-            continue
-        axes = [
-            origin[a] + np.arange(span[0], span[1], dtype=float) * spacing
-            for a, span in enumerate((sx, sy, sz))
-        ]
-        grid = np.meshgrid(*axes, indexing="ij")
-        pts = np.stack([g.ravel() for g in grid], axis=1)
-        values[region] = evaluate(node, pts, backend=backend).reshape(
-            tuple(s[1] - s[0] for s in (sx, sy, sz))
-        )
+            values[slice(*sx), slice(*sy), slice(*sz)] = centre_values[n]
+        else:
+            near.append(n)
+
+    # The chunks that may hold surface are independent of one another, so
+    # they are evaluated across threads -- a wave of them at a time, which
+    # keeps peak memory proportional to a few chunks rather than to all.
+    wave = max(1, 2 * thread_count())
+    for start in range(0, len(near), wave):
+        group = [blocks[n] for n in near[start:start + wave]]
+        sampled = evaluate_batches(node, [corners(block) for block in group],
+                                   backend=backend)
+        for (sx, sy, sz), block_values in zip(group, sampled):
+            values[slice(*sx), slice(*sy), slice(*sz)] = block_values.reshape(
+                tuple(s[1] - s[0] for s in (sx, sy, sz)))
     return values
 
 

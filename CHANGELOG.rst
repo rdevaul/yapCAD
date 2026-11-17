@@ -5,6 +5,24 @@ Changelog
 Unreleased
 ==========
 
+- Simplifying a field-authored part is about three times faster, and
+  meshing one about a third faster, with byte-identical results.  Measured
+  on a 95-node part of the ivy vine (53,236 triangles to 4,914, four
+  cores): simplifying went from 116 s to 36 s, meshing from 2.7 s to 1.9 s.
+
+  The simplifier spent nearly all its time sampling the field across the
+  triangles each candidate collapse would create, including candidates
+  that had already failed.  It now skips those, and gives the rest a quick
+  look at a few of their sample points first; the few are among the full
+  set, so a collapse they reject would have been rejected anyway.  That
+  alone is 116 s to 68 s on one thread.
+
+  Field evaluation is spread over threads: large batches are split, and
+  the mesher's chunks are evaluated side by side.  A point's value does
+  not depend on its batch, so the arrays are the same.
+  ``YAPCAD_SDF_THREADS`` sets the count (default: the CPUs available, up
+  to eight); ``1`` turns it off.
+
 - DSL: the operations only fields have are builtins. ``capsule`` and
   ``torus``; ``smooth_union``, ``smooth_difference`` and
   ``smooth_intersection``; ``offset_solid``, ``shell_solid`` and
