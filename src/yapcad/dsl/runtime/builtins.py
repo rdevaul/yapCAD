@@ -4373,6 +4373,11 @@ class BuiltinRegistry:
                     "solve the assembly before creating assembly geometry",
                     assembly_name=asm.data.name,
                 )
+            # The parts are finished once they are asked for as geometry;
+            # simplify them now, so the compound is built from what the
+            # assembly ends up holding.
+            from yapcad.dsl.runtime import representation
+            representation.finish_assembly_parts(asm.data)
             return solid_val(
                 asm.data.compound_geometry(),
                 annotations={"assembly": asm.data},

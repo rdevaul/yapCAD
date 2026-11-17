@@ -5,6 +5,23 @@ Changelog
 Unreleased
 ==========
 
+- Fixed: an assembly compound that was transformed before it was emitted
+  kept its unsimplified meshes, and one emitted by a command carrying
+  ``@meta`` lost that metadata.  The compound used to be positioned from the
+  uniform parts and positioned again after they were simplified, which could
+  only reach a compound emitted exactly as ``assembly_compound`` built it,
+  and replaced the annotated solid with a bare one.  ``assembly_compound``
+  now simplifies the parts first, so the compound is right from the start:
+  ``translate(assembly_compound(a), ...)`` exported 86,776 triangles where
+  the parts held 9,412.
+
+- A lattice or shell whose detail is finer than the mesh can carry now says
+  so.  ``gyroid_lattice``, ``schwarz_p_lattice`` and ``shell_solid`` ask for
+  cells fine enough for their own walls; past the 256-cell limit the request
+  was dropped silently, so a 2 mm gyroid in a 200 mm box was sampled at 2.5
+  cells a period.  ``sdf.derive_solid`` now warns with the cell it needed
+  and the cell it got.
+
 - DSL: the operations only fields have are builtins. ``capsule`` and
   ``torus``; ``smooth_union``, ``smooth_difference`` and
   ``smooth_intersection``; ``offset_solid``, ``shell_solid`` and

@@ -33,6 +33,7 @@ they still go to the existing engines.  That is the rest of Phase 4.
 """
 
 import math
+import warnings
 
 import numpy as np
 
@@ -277,5 +278,21 @@ def derive_solid(solids, build, cell_mm=None, max_cell=None):
         resolution = math.ceil(longest / min(cells))
     else:
         resolution = DEFAULT_RESOLUTION
+    if (max_cell is not None and max_cell > 0.0
+            and longest / float(max_cell) > MAX_RESOLUTION):
+        # The cap below would otherwise swallow this without a word, and
+        # the result is not a coarser version of the part but a different
+        # one: a lattice sampled at two cells a period has no walls.
+        warnings.warn(
+            f"derive_solid: the {node.kind} needs cells of "
+            f"{float(max_cell):.4g} to resolve its own detail, and at "
+            f"{longest:.4g} across that is "
+            f"{math.ceil(longest / float(max_cell))} cells, more than the "
+            f"{MAX_RESOLUTION} a mesh is allowed. It is meshed at cells of "
+            f"{longest / MAX_RESOLUTION:.4g} instead, which is too coarse "
+            f"for that detail: expect missing or broken walls. Use coarser "
+            f"detail (a longer lattice period, a thicker shell) or a "
+            f"smaller part.",
+            RuntimeWarning, stacklevel=2)
     resolution = int(min(max(resolution, 2), MAX_RESOLUTION))
     return to_solid(node, resolution=resolution)

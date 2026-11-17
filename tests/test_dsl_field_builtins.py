@@ -225,3 +225,22 @@ def test_field_builtins_defer_their_meshes(expr):
     sdf.realize_all(deferred)
     assert not sdf.is_deferred(deferred) and issolidclosed(deferred)
     assert volumeof(deferred) == pytest.approx(volumeof(eager), rel=1e-2)
+
+
+# -- detail finer than the mesh can carry -------------------------------------
+
+@pytest.mark.parametrize("expr", [
+    "gyroid_lattice(box(200.0, 200.0, 200.0), 2.0, 0.3)",
+    "shell_solid(sphere(20.0), 0.05)",
+])
+def test_detail_the_resolution_cap_cannot_carry_is_announced(expr):
+    """A lattice or a thin shell asks for cells finer than its operands
+    had.  Past the resolution cap the request used to be dropped silently
+    and the part meshed at whatever the cap allowed."""
+    with pytest.warns(RuntimeWarning, match="too coarse for that detail"):
+        part(expr, sdf_mesh=False)
+
+
+def test_detail_within_the_cap_is_not_announced(recwarn):
+    part("gyroid_lattice(box(16.0, 16.0, 16.0), 8.0, 0.5)", sdf_mesh=False)
+    assert not [w for w in recwarn if "too coarse" in str(w.message)]
