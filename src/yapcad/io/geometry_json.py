@@ -609,6 +609,29 @@ def _serialize_sketch(geomlist: list, metadata_override: Optional[Dict[str, Any]
     }
 
 
+def _make_entity_id_unique(entry: Dict[str, Any], seen: set) -> None:
+    """Give ``entry`` an id no earlier entity in the document has.
+
+    Two entries can arrive with one id without either being wrong: a
+    transformed copy keeps its source's metadata, and a DSL command called
+    twice with the same arguments hands back the same solid, so an assembly
+    of four identical links is one solid four times over.  A document's
+    ids have to be distinct all the same.  Only the entry is renamed; the
+    solid is shared with whoever else holds it and keeps the id it has.
+    """
+    if entry["id"] in seen:
+        new_id = str(uuid.uuid4())
+        entry["id"] = new_id
+        metadata = entry.get("metadata")
+        if isinstance(metadata, dict):
+            metadata = dict(metadata)
+            for key in ("entityId", "id"):
+                if key in metadata:
+                    metadata[key] = new_id
+            entry["metadata"] = metadata
+    seen.add(entry["id"])
+
+
 def geometry_to_json(
     entities: Iterable[list],
     *,
@@ -620,6 +643,7 @@ def geometry_to_json(
     """Serialize solids/surfaces into the geometry JSON document."""
     serialized_entities: List[Dict[str, Any]] = []
     surface_cache: Dict[str, Dict[str, Any]] = {}
+    solid_ids: set = set()
 
     for item in entities:
         metadata_override = None
@@ -638,6 +662,7 @@ def geometry_to_json(
                     set_layer(meta, layer)
                 meta.update({k: v for k, v in metadata_override.items() if k != "layer"})
             solid_entry = _serialize_solid(entity, surface_cache, metadata_override)
+            _make_entity_id_unique(solid_entry, solid_ids)
             serialized_entities.append(solid_entry)
         elif issurface(entity):
             if metadata_override:
