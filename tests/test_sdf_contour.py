@@ -388,7 +388,10 @@ class TestToSolid:
         assert sdf.from_construction(record) == node
 
     def test_meshing_parameters_are_recorded_for_reproducibility(self):
-        record = get_construction(sdf.to_solid(sdf.sphere(5.0), resolution=17))
+        # With the reference backend: a compiled one adds its name, which
+        # tests/test_sdf_mesh_backend.py covers.
+        record = get_construction(sdf.to_solid(sdf.sphere(5.0), resolution=17,
+                                               backend="numpy"))
         assert sdf.meshing_from_construction(record) == {
             "method": "dual-contouring",
             "resolution": 17,
