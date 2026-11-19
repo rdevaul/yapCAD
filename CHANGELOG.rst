@@ -29,6 +29,24 @@ Unreleased
   transformed copy, which has always kept its source's id.  The results of
   a run are held until it ends, so a design that calls one command with
   very many different arguments uses more memory than it did.
+  
+- Fixed: an assembly compound that was transformed before it was emitted
+  kept its unsimplified meshes, and one emitted by a command carrying
+  ``@meta`` lost that metadata.  The compound used to be positioned from the
+  uniform parts and positioned again after they were simplified, which could
+  only reach a compound emitted exactly as ``assembly_compound`` built it,
+  and replaced the annotated solid with a bare one.  ``assembly_compound``
+  now simplifies the parts first, so the compound is right from the start:
+  ``translate(assembly_compound(a), ...)`` exported 86,776 triangles where
+  the parts held 9,412.
+
+- A lattice or shell whose detail is finer than the mesh can carry now says
+  so.  ``gyroid_lattice``, ``schwarz_p_lattice`` and ``shell_solid`` ask for
+  cells fine enough for their own walls; past the 256-cell limit the request
+  was dropped silently, so a 2 mm gyroid in a 200 mm box was sampled at 2.5
+  cells a period.  ``sdf.derive_solid`` now warns with the cell it needed
+  and the cell it got.
+
 - DSL: the operations only fields have are builtins. ``capsule`` and
   ``torus``; ``smooth_union``, ``smooth_difference`` and
   ``smooth_intersection``; ``offset_solid``, ``shell_solid`` and
@@ -43,9 +61,11 @@ Unreleased
   to fill, because a DSL solid is meshed and an infinite sheet cannot be.
   ``sdf.derive_solid(solids, build)`` is the helper underneath: mesh a tree
   built from the trees of SDF-authored solids, no coarser than any operand.
+  
 - DSL: ``str(...)`` joins the text of its arguments. The DSL has no string
   operators, so a loop or a recursive command had no way to give each part
   and mate it added a name of its own.
+  
 - ``examples/ivy_vine``: a print-in-place articulated ivy vine, fifteen
   parts and fourteen hinges from one DSL file. A command that calls itself
   twice grows the branching stem; leaf outlines are smooth unions of lobes; a
@@ -53,9 +73,11 @@ Unreleased
   declared joint limits are the ranges a ``yapcad.rom`` sweep measured clear.
   Its driver builds the design deferred, checks clearances and sweeps the
   joints on the fields, and meshes only to write the STL.
+  
 - Docs: the DSL reference says that ``solve_assembly`` solves with every
   joint at zero (so limits that exclude zero are set after posing) and that
   datums do not follow a transform applied to their solid.
+  
 - Fixed: a call that ended an ``if``, ``elif``, ``else`` or ``for`` body was
   silently skipped. The parser lifts a block's trailing bare expression into
   the block's ``final_expression`` and the interpreter ran only its
