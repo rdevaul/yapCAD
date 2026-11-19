@@ -2,14 +2,15 @@
 """Time every field backend this machine has, on the same work.
 
     python tools/bench_field_backends.py
-    python tools/bench_field_backends.py --links 400 --size 1280x960
+    python tools/bench_field_backends.py --links 400 --size 1280x960,3840x2160
 
 The part is a double helix of blended capsules, the shape that makes the
 numpy backend slow: hundreds of nodes and no hard union to cull.  For each
 backend that is available it reports
 
 * raw field evaluation, in nanoseconds a point;
-* one preview frame, and how many pixels differ from numpy's;
+* a preview frame at each size asked for, and how many pixels of the
+  first differ from numpy's;
 * for the double-precision backends, a dual-contour mesh, and how far its
   vertices sit from numpy's.
 
@@ -86,13 +87,16 @@ def main(argv=None):
     parser.add_argument("--links", type=int, default=112,
                         help="capsules per strand (default: %(default)s, "
                              "about 500 nodes)")
-    parser.add_argument("--size", default="640x480", metavar="WxH")
+    parser.add_argument("--size", default="640x480,1920x1440",
+                        metavar="WxH[,WxH...]",
+                        help="frame sizes to draw (default: %(default)s)")
     parser.add_argument("--points", type=int, default=400000)
     parser.add_argument("--cells", type=int, default=160,
                         help="mesh resolution (default: %(default)s)")
     parser.add_argument("--repeat", type=int, default=2)
     args = parser.parse_args(argv)
-    width, height = (int(v) for v in args.size.lower().split("x"))
+    sizes = [tuple(int(v) for v in size.split("x"))
+             for size in args.size.lower().split(",")]
     sys.setrecursionlimit(max(sys.getrecursionlimit(), 20 * args.links))
     warnings.simplefilter("ignore")
 
@@ -110,22 +114,29 @@ def main(argv=None):
     points = lo + np.random.default_rng(0).random((args.points, 3)) * (hi - lo)
     scene = [Part(node, name="helix")]
     reference = {}
-    print(f"\n{'backend':8} {'evaluate':>14} {'vs numpy':>9}   "
-          f"{'frame ' + args.size:>16} {'pixels off':>11}   "
+    frames = "".join(f"{f'{w}x{h}':>11}" for w, h in sizes)
+    print(f"\n{'backend':8} {'evaluate':>14} {'vs numpy':>9}  "
+          f"{frames} {'pixels off':>11}   "
           f"{'mesh':>8} {'vertex shift':>13}")
     for name, _note in found:
         evaluate(node, points[:64], backend=name)        # load the kernel
         t_eval, values = timed(
             lambda: evaluate(node, points, backend=name), args.repeat)
-        t_frame, frame = timed(
-            lambda: render.image(scene, view="iso", pixels=(width, height),
-                                 backend=name), args.repeat)
+        times, frame = [], None
+        for size in sizes:
+            seconds, drawn = timed(
+                lambda: render.image(scene, view="iso", pixels=size,
+                                     backend=name), args.repeat)
+            times.append(seconds)
+            frame = drawn if frame is None else frame
         if name == "numpy":
             reference.update(values=values, frame=frame)
         worst = float(np.abs(values - reference["values"]).max())
         off = int((frame != reference["frame"]).any(axis=2).sum())
         row = (f"{name:8} {1e9 * t_eval / args.points:9.0f} ns/pt "
-               f"{worst:9.1e}   {t_frame:14.2f} s {off:11d}   ")
+               f"{worst:9.1e}  "
+               + "".join(f"{t:9.2f} s" for t in times)
+               + f" {off:11d}   ")
         if name == "wgpu":
             row += f"{'--':>8} {'previews only':>13}"
         else:

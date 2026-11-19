@@ -284,10 +284,13 @@ a machine, which takes a few seconds, and caches it.
 reaches Metal on Apple silicon and Vulkan or Direct3D on NVIDIA, AMD and
 Intel. It computes in single precision, the only kind WebGPU has: values are
 good to about 1e-7 of the model's extent, and an image drawn with it differs
-from numpy's in a fraction of a percent of pixels, along silhouettes. It has
-been checked for correctness on a software adapter only, so ``auto`` never
-picks it. ``tools/bench_field_backends.py`` times every backend a machine
-has, on the same frames.
+from numpy's in a fraction of a percent of pixels, along silhouettes. The
+whole march runs on the GPU -- every step of every ray and the normal where
+it lands, in one dispatch -- so a frame costs the GPU's arithmetic plus the
+ray set-up and shading that stay in numpy. It has been run on an Apple M5
+Max (Metal) and an NVIDIA GB10 (Vulkan); that is two machines, so ``auto``
+does not pick it yet. ``tools/bench_field_backends.py`` times every backend
+a machine has, on the same frames.
 
 Extending it: the backend seam
 ------------------------------

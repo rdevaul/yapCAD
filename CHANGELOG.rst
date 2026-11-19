@@ -5,6 +5,15 @@ Changelog
 Unreleased
 ==========
 
+- The GPU backend marches rays on the GPU.  ``backend="wgpu"`` used to
+  evaluate the field on the GPU and march on the CPU, going back once per
+  step with the rays still in flight; on an Apple M5 Max and an NVIDIA GB10
+  the field was 8 to 16 times faster than numba but a frame only 2 to 3
+  times, because those round trips were most of it.  The march -- every
+  step of every ray, and the normal where it lands -- is now one dispatch
+  (``yapcad.sdf.tape_wgpu.march``).  The image is unchanged: the same
+  pixels differ from numpy's as before.  Still opt-in, still previews only.
+
 - Meshing and simplifying a field use the compiled backend when numba is
   installed.  On the 95-node ivy part, on four cores, meshing goes from
   2.0 s to 0.8 s and simplifying from 35 s to 13 s; on an 18-thread Apple
