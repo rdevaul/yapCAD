@@ -12,6 +12,10 @@ is not available here by design — a preview samples the field at 10^6 points
 or more, and per-point Python would make that hopeless.
 """
 
+import os
+import threading
+from concurrent.futures import ThreadPoolExecutor
+
 import numpy as np
 
 from yapcad.sdf.node import (
@@ -82,6 +86,87 @@ def _eval(node, pts, cache, backend):
     return values
 
 
+#: Points per piece when a batch is split across threads.  Large enough
+#: that numpy's per-call overhead stays small against the arithmetic, small
+#: enough that a piece's intermediates stay in cache.
+THREAD_CHUNK = 25000
+
+_pool = None
+_pool_key = None
+_pool_lock = threading.Lock()
+
+
+def thread_count():
+    """Threads a field evaluation is spread over.
+
+    ``YAPCAD_SDF_THREADS`` sets it; ``1`` turns threading off.  By default
+    it is the number of CPUs this process may use, up to eight -- past
+    that the pieces contend for memory bandwidth more than they gain.
+    """
+    value = os.environ.get("YAPCAD_SDF_THREADS", "").strip()
+    if value:
+        try:
+            return max(1, int(value))
+        except ValueError:
+            raise SdfError(
+                f"YAPCAD_SDF_THREADS must be a whole number, got {value!r}"
+            ) from None
+    try:
+        available = len(os.sched_getaffinity(0))
+    except AttributeError:      # not every platform has it
+        available = os.cpu_count() or 1
+    return max(1, min(available, 8))
+
+
+def _executor(workers):
+    """The shared pool, rebuilt if the worker count or the process changed.
+
+    A pool does not survive a fork: the child would inherit its bookkeeping
+    without its threads and wait on them for ever, and parts are meshed in
+    worker processes often enough for that to matter.
+    """
+    global _pool, _pool_key
+    key = (os.getpid(), workers)
+    with _pool_lock:
+        if _pool_key != key:
+            _pool = ThreadPoolExecutor(
+                max_workers=workers, thread_name_prefix="yapcad-sdf")
+            _pool_key = key
+        return _pool
+
+
+def evaluate_batches(node, batches, backend=DEFAULT_BACKEND):
+    """Evaluate ``node`` at each ``(N, 3)`` array of ``batches``.
+
+    The batches are spread over threads -- numpy releases the interpreter
+    lock inside its array arithmetic, which is where a field evaluation
+    spends its time.  The result is a list in the order of ``batches``, and
+    each entry is exactly what evaluating that batch alone would give: the
+    threads share nothing but the node, which is immutable.
+    """
+    batches = list(batches)
+    workers = min(thread_count(), len(batches))
+    if workers < 2 or threading.current_thread().name.startswith(
+            "yapcad-sdf"):
+        return [_eval(node, pts, {}, backend) for pts in batches]
+    return list(_executor(workers).map(
+        lambda pts: _eval(node, pts, {}, backend), batches))
+
+
+def _eval_split(node, pts, backend):
+    """Evaluate one array of points, in pieces across threads if it is
+    large enough to be worth it.
+
+    A point's value does not depend on what else is in its batch, so the
+    pieces put back together are the values the whole batch would give.
+    """
+    if len(pts) < 2 * THREAD_CHUNK or thread_count() < 2:
+        return _eval(node, pts, {}, backend)
+    pieces = [np.ascontiguousarray(pts[start:start + THREAD_CHUNK])
+              for start in range(0, len(pts), THREAD_CHUNK)]
+    return np.concatenate(evaluate_batches(node, pieces, backend))
+
+
 def evaluate(node, points, backend=DEFAULT_BACKEND):
     """Evaluate the field of ``node`` at ``points``.
 
@@ -94,7 +179,7 @@ def evaluate(node, points, backend=DEFAULT_BACKEND):
     :func:`safe_step`.
     """
     pts, single = _as_points(points)
-    values = _eval(node, pts, {}, backend)
+    values = _eval_split(node, pts, backend)
     return float(values[0]) if single else values
 
 
@@ -132,13 +217,12 @@ def gradient(node, points, eps=None, backend=DEFAULT_BACKEND):
     h = _default_epsilon(node) if eps is None else float(eps)
     if h <= 0.0:
         raise SdfError("gradient: eps must be positive")
-    cache = {}
     out = np.empty_like(pts)
     for axis in range(3):
         step = np.zeros(3)
         step[axis] = h
-        ahead = _eval(node, np.ascontiguousarray(pts + step), cache, backend)
-        behind = _eval(node, np.ascontiguousarray(pts - step), cache, backend)
+        ahead = _eval_split(node, np.ascontiguousarray(pts + step), backend)
+        behind = _eval_split(node, np.ascontiguousarray(pts - step), backend)
         out[:, axis] = (ahead - behind) / (2.0 * h)
     return out[0] if single else out
 
