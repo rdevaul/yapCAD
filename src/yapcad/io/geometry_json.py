@@ -104,7 +104,7 @@ def _sdf_mesh_parameters(construction: List[Any]) -> Dict[str, Any]:
     """Reproducibility parameters for a mesh generated from a field."""
     params: Dict[str, Any] = {"generatedFrom": "sdf"}
     if len(construction) >= 3 and isinstance(construction[2], dict):
-        for key in ("method", "resolution", "padding", "bounds"):
+        for key in ("method", "resolution", "padding", "bounds", "backend"):
             if key in construction[2]:
                 params[key] = deepcopy(construction[2][key])
     return params
@@ -153,7 +153,7 @@ def _construction_from_sdf(record: Any, mesh_record: Dict[str, Any],
     construction: List[Any] = ["sdf", tree]
     meshing = {
         key: deepcopy(mesh_record[key])
-        for key in ("method", "resolution", "padding", "bounds")
+        for key in ("method", "resolution", "padding", "bounds", "backend")
         if key in mesh_record
     }
     if meshing:

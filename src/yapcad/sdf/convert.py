@@ -22,7 +22,7 @@ from yapcad.sdf.contour import (
     manifold_defects,
     proves_empty,
 )
-from yapcad.sdf.evaluate import DEFAULT_BACKEND
+from yapcad.sdf.evaluate import DEFAULT_BACKEND, mesh_backend
 from yapcad.sdf.node import (
     SdfError,
     bounds_intersect,
@@ -99,7 +99,7 @@ MAX_RESOLUTION = 256
 
 
 def to_solid(node, resolution=64, bounds=None, padding=None, chunk=32,
-             prune=True, backend=DEFAULT_BACKEND, metadata=None, check=True,
+             prune=True, backend=None, metadata=None, check=True,
              brep=False, cell_mm=None, refine=True,
              refine_limit=MAX_RESOLUTION, defer=None):
     """Mesh ``node`` and return it as a yapCAD solid.
@@ -126,6 +126,10 @@ def to_solid(node, resolution=64, bounds=None, padding=None, chunk=32,
         which is what an empty CSG result is.
     :param refine_limit: the most cells across the longest axis refinement
         will ask for.
+    :param backend: what evaluates the field: ``"numpy"``, ``"numba"`` or
+        ``"auto"``.  ``None`` follows ``YAPCAD_SDF_BACKEND``, which is
+        ``auto`` unless set; see :func:`yapcad.sdf.evaluate.mesh_backend`.
+        A backend other than numpy is written into the meshing record.
     :param metadata: optional dictionary merged into the solid's metadata.
     :param check: verify the mesh is a closed manifold before wrapping it in
         a solid.  Leave it on: the downstream — ``volumeof``, the exporters,
@@ -166,6 +170,7 @@ def to_solid(node, resolution=64, bounds=None, padding=None, chunk=32,
             )
         return _deferred_solid(node, start, bounds, padding, metadata)
 
+    backend = mesh_backend(node, backend)
     replayed = _replay(node, brep)
     bodies = _bodies(node)
     limit = max(int(refine_limit), start)
@@ -258,6 +263,10 @@ def to_solid(node, resolution=64, bounds=None, padding=None, chunk=32,
         "method": "dual-contouring",
         "resolution": int(cells),
     }
+    # numpy is the reference and is what an absent key means, so documents
+    # meshed with it are unchanged.
+    if backend != DEFAULT_BACKEND:
+        meshing["backend"] = backend
     # Only record what was actually specified; a null in the document would
     # have to round-trip as a null, and an absent key says the same thing.
     if padding is not None:

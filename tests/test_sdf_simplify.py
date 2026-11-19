@@ -88,6 +88,8 @@ def test_the_record_keeps_the_field_and_the_tolerance(simplified):
     record = get_construction(simplified)
     assert sdf.from_construction(record) == PLATE
     meshing = sdf.meshing_from_construction(record)
+    # A compiled backend adds its name to the record; numpy adds nothing.
+    assert meshing["simplify"].pop("backend", "numba") == "numba"
     assert meshing["simplify"] == {"method": "field-qem", "tolerance": 0.01}
     assert meshing["resolution"] == 64
 

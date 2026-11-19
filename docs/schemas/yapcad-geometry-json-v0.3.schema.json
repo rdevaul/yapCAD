@@ -198,6 +198,13 @@
               },
               "minItems": 6,
               "maxItems": 6
+            },
+            "backend": {
+              "enum": [
+                "numpy",
+                "numba"
+              ],
+              "description": "What evaluated the field while meshing. Absent means numpy, the reference; the compiled backend agrees with it to rounding and not bit for bit."
             }
           },
           "description": "Meshing parameters are recorded so the preview is reproducible, which matters because yapCAD signs packages."

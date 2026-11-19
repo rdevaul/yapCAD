@@ -220,6 +220,24 @@ meshes are usually discarded. Pass ``simplify=False`` (fasteners, gears),
 to keep the uniform meshes. ``sdf.simplify_finished`` applies the same rule
 to your own parts.
 
+**Which backend meshes.** Meshing and simplifying are nearly all field
+evaluation. With numba installed (``pip install "yapcad[fast]"``) they run
+on the compiled backend, :mod:`yapcad.sdf.tape`, which is several times
+faster on a small part and ten or more on a large one. It makes the same
+triangles as numpy with vertices that agree to about 1e-10 -- not the same
+bytes -- and a simplifier collapse that sits right on the tolerance can
+fall either way, so two backends' simplified parts can differ slightly in
+triangle count while meeting the same bounds.
+
+Because yapCAD signs packages, a mesh says what made it. The meshing
+record carries ``"backend": "numba"``, and so does the simplify record; an
+absent key means numpy, the reference. Set ``YAPCAD_SDF_BACKEND=numpy`` to
+mesh with numpy whatever is installed, when a mesh's bytes have to match
+one made on another machine; ``to_solid(..., backend=...)`` and
+``simplify_solid(..., backend=...)`` decide for one call. A part using a
+node kind the tape does not cover yet (extrusions, threads, gears) is
+meshed with numpy regardless.
+
 
 Booleans
 ========

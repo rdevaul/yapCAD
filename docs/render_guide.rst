@@ -266,8 +266,10 @@ Frame                                 ``numpy``  ``numba``
 ====================================  =========  =========
 
 The images are the same in every pixel. The values behind them agree with
-numpy to rounding, about one part in 1e13, not bit for bit -- which is why
-the compiled backend draws previews and does not yet make meshes.
+numpy to rounding, about one part in 1e13, not bit for bit.
+
+The same backend meshes and simplifies fields, chosen separately by
+``YAPCAD_SDF_BACKEND``; a mesh records which one made it. See the SDF guide.
 
 **Coverage.** The tape covers the primitives, booleans, blends, placements,
 offsets, shells, twists and lattices. It does not yet cover ``polygon``,
