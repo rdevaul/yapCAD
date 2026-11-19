@@ -50,6 +50,7 @@ MIN_CELLS_ACROSS = 4
 _representation = contextvars.ContextVar("yapcad_dsl_representation",
                                          default=None)
 _cell = contextvars.ContextVar("yapcad_dsl_sdf_cell_mm", default=None)
+_simplify = contextvars.ContextVar("yapcad_dsl_sdf_simplify", default=None)
 
 
 def _check(value):
@@ -86,15 +87,48 @@ def _cell_size():
     return value
 
 
+def simplify_setting():
+    """Whether finished parts are simplified in this block: ``True`` or
+    ``False`` when the caller said, ``None`` to follow
+    ``YAPCAD_SDF_SIMPLIFY`` (see :func:`yapcad.sdf.simplify_finished`)."""
+    return _simplify.get()
+
+
+def finish_assembly_parts(assembly):
+    """Simplify an assembly's SDF parts in place, each distinct part once.
+
+    A part is finished once it is in an assembly that is being turned into
+    geometry.  ``assembly_compound`` calls this first, so the compound it
+    positions is made of the simplified parts whatever is done to it
+    afterwards -- emitted as it is, transformed, or carried under a
+    command's ``@meta``.  Simplifying is idempotent, and it leaves alone
+    whatever is not SDF-authored and whatever has no mesh yet.
+    """
+    from yapcad.sdf.simplify import simplify_finished
+    geometry = getattr(assembly, "geometry", None)
+    if not is_sdf() or not isinstance(geometry, dict):
+        return
+    done = {}
+    for name, solid in list(geometry.items()):
+        if isinstance(solid, list) and solid and solid[0] == "solid":
+            if id(solid) not in done:
+                done[id(solid)] = simplify_finished(solid, simplify_setting())
+            geometry[name] = done[id(solid)]
+
+
 @contextlib.contextmanager
-def using(representation=None, sdf_cell_mm=None, sdf_mesh=None):
+def using(representation=None, sdf_cell_mm=None, sdf_mesh=None,
+          sdf_simplify=None):
     """Set the representation, cell size and meshing policy for a block.
 
-    ``None`` leaves any of the three as it is.  ``sdf_mesh=False`` defers
+    ``None`` leaves any of them as it is.  ``sdf_mesh=False`` defers
     every primitive's and every boolean's meshing; see
-    :func:`yapcad.sdf.deferring`.
+    :func:`yapcad.sdf.deferring`.  ``sdf_simplify`` says whether finished
+    parts are simplified.
     """
     tokens = []
+    if sdf_simplify is not None:
+        tokens.append((_simplify, _simplify.set(bool(sdf_simplify))))
     if representation is not None:
         tokens.append((_representation,
                        _representation.set(_check(representation))))
@@ -134,9 +168,11 @@ def simplify_result(result, simplify=None):
 
     That is the emitted solid or solids, and the parts of an emitted
     assembly, each distinct part once.  Anything not SDF-authored is left
-    alone.
+    alone.  ``simplify=None`` follows the block's setting.
     """
     from yapcad.sdf.simplify import simplify_finished
+    if simplify is None:
+        simplify = simplify_setting()
 
     emit = getattr(result, "emit_result", None)
     value = getattr(emit, "value", None)
@@ -167,13 +203,20 @@ def simplify_result(result, simplify=None):
                 finished = finish(solid)
                 changed = changed or finished is not solid
                 assembly.geometry[name] = finished
-        # ``assembly_compound`` positioned the parts when it was called,
-        # which was before they were simplified.  Position them again, or
-        # the emitted solid -- what an STL export writes -- keeps the
-        # uniform meshes while the assembly holds the simplified ones.
+        # ``assembly_compound`` simplifies the parts before it positions
+        # them, so there is normally nothing left to do here.  A compound
+        # built some other way, from parts that were only now simplified,
+        # is positioned again -- or the emitted solid, which is what an STL
+        # export writes, keeps the uniform meshes while the assembly holds
+        # the simplified ones.  The metadata rides along: it is the emitted
+        # solid's (a command's ``@meta``), not the geometry's.
         if (changed and isinstance(data, list) and len(data) > 3
                 and data[0] == "solid"
                 and data[3] == ["procedure", "assembly_compound"]
                 and getattr(assembly, "_solved", False)):
-            value.data = assembly.compound_geometry()
+            rebuilt = assembly.compound_geometry()
+            if len(data) > 4 and isinstance(data[4], dict) and data[4]:
+                from yapcad.metadata import set_solid_metadata
+                set_solid_metadata(rebuilt, data[4])
+            value.data = rebuilt
     return result

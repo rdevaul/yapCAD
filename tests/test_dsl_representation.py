@@ -142,3 +142,53 @@ command PART() -> solid:
     parts = sum(triangles(assembly.geometry[name]) for name in ("p", "q"))
     assert triangles(compound) == parts
     assert triangles(compound) < triangles(uniform) / 2
+
+
+_PAIR = '''
+module rep
+@meta(assembly.datums=[{"id": "a", "kind": "axis",
+    "origin_mm": [0.0, 0.0, 0.0], "direction": [0.0, 0.0, 1.0]}])
+command P() -> solid:
+    emit difference(sphere(6.0), cylinder(2.0, 20.0))
+
+%s
+command PART() -> solid:
+    let a: assembly = assembly("pair")
+    add_part(a, P(), "p")
+    add_part(a, P(), "q")
+    add_named_mate(a, "j", "revolute", "p", "a", "q", "a")
+    solve_assembly(a, "p")
+    emit %s
+'''
+
+
+def _pair(meta, emitted, simplify):
+    result = compile_and_run(_PAIR % (meta, emitted), "PART", {},
+                             representation="sdf", sdf_simplify=simplify)
+    assert result.success, result.error_message
+    return result.geometry
+
+
+def _triangles(solid):
+    return sum(len(surface[3]) for surface in solid[1])
+
+
+def test_a_transformed_assembly_compound_is_the_simplified_parts():
+    """The compound is built from simplified parts, so it stays simplified
+    through whatever is done to it before it is emitted.  Re-positioning it
+    afterwards could only reach a compound emitted exactly as built."""
+    moved = "translate(assembly_compound(a), 100.0, 0.0, 0.0)"
+    plain = _pair("", "assembly_compound(a)", True)
+    simplified = _pair("", moved, True)
+    uniform = _pair("", moved, False)
+    assert _triangles(simplified) == _triangles(plain)
+    assert _triangles(simplified) < _triangles(uniform) / 2
+    assert solidbbox(simplified)[0][0] == pytest.approx(94.0, abs=0.1)
+
+
+def test_meta_on_the_command_that_emits_a_compound_survives_simplifying():
+    from yapcad.metadata import get_solid_metadata
+    for simplify in (False, True):
+        compound = _pair('@meta(material="PLA")', "assembly_compound(a)",
+                         simplify)
+        assert get_solid_metadata(compound).get("material") == "PLA"
