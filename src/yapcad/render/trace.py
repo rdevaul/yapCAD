@@ -84,6 +84,63 @@ def _chunked(fn, points, chunk):
                            for i in range(0, points.shape[0], chunk)])
 
 
+def _lipschitz(node):
+    """The constant a march divides by, with a warning and 1 for a field
+    that does not report a usable one."""
+    lipschitz = float(node.lipschitz)
+    if not math.isfinite(lipschitz) or lipschitz <= 0.0:
+        warnings.warn(
+            f"field reports a Lipschitz constant of {node.lipschitz}; "
+            "marching with L = 1, which may step through thin features",
+            RuntimeWarning, stacklevel=4)
+        lipschitz = 1.0
+    return lipschitz
+
+
+def march_gpu(node, origins, dirs, bounds, far, tol, max_steps=256,
+              epsilon=None):
+    """March every ray on the GPU and return ``(depth, normals, stats)``.
+
+    The whole march -- every step of every ray, and the normal where it
+    lands -- is one dispatch per :data:`yapcad.sdf.tape_wgpu.MARCH_RAYS`
+    rays, where :func:`march` goes back to the backend once per step with
+    the rays still in flight.  With the field itself on the GPU those round
+    trips were most of a frame.
+
+    Rays are clipped to the box here, in double precision, and handed over
+    as the point where each enters it and how far it may go, so the GPU's
+    single precision is spent on the part and not on the distance from the
+    camera.  The rule for a step, a hit and a miss is :func:`march`'s.
+    """
+    from yapcad.sdf import tape, tape_wgpu
+    from yapcad.sdf.evaluate import _SINGLE_PRECISION_STEP, _default_epsilon
+    lipschitz = _lipschitz(node)
+    enter, leave = slab(origins, dirs, bounds)
+    leave = np.minimum(leave, float(far))
+    live = np.nonzero(enter < leave)[0]
+    depth = np.full(origins.shape[0], np.inf)
+    normals = np.zeros((origins.shape[0], 3))
+    step = (_SINGLE_PRECISION_STEP * _default_epsilon(node)
+            if epsilon is None else float(epsilon))
+    starts = origins[live] + enter[live, None] * dirs[live]
+    travelled, hit_normals, steps, unconverged = tape_wgpu.march(
+        tape.compiled(node), starts, dirs[live], leave[live] - enter[live],
+        tol, lipschitz, max_steps, step)
+    depth[live] = enter[live] + travelled
+    normals[live] = hit_normals
+    hits = int(np.isfinite(travelled).sum())
+    stats = {"backend": "wgpu",
+             "rays": int(origins.shape[0]),
+             "clipped": int(origins.shape[0] - live.size),
+             "steps": int(steps.max()) if steps.size else 0,
+             # The marching steps, and six more for each hit's normal.
+             "evaluations": int(steps.sum()) + 6 * hits,
+             "unconverged": int(unconverged.sum()),
+             "tolerance": float(tol),
+             "hits": hits}
+    return depth, normals, stats
+
+
 def march(node, origins, dirs, bounds, far, tol, max_steps=256,
           backend=DEFAULT_BACKEND, chunk=DEFAULT_CHUNK):
     """March every ray and return ``(depth, stats)``.
@@ -93,13 +150,7 @@ def march(node, origins, dirs, bounds, far, tol, max_steps=256,
     the box, and the evaluations spent -- the last being the number to watch
     when a render feels slow.
     """
-    lipschitz = float(node.lipschitz)
-    if not math.isfinite(lipschitz) or lipschitz <= 0.0:
-        warnings.warn(
-            f"field reports a Lipschitz constant of {node.lipschitz}; "
-            "marching with L = 1, which may step through thin features",
-            RuntimeWarning, stacklevel=3)
-        lipschitz = 1.0
+    lipschitz = _lipschitz(node)
 
     enter, leave = slab(origins, dirs, bounds)
     leave = np.minimum(leave, float(far))
@@ -164,18 +215,22 @@ def render_part(node, camera, name="", group="", tol=None, max_steps=256,
         hi = np.where(np.isfinite(hi), hi, centre + reach)
     tolerance = TOLERANCE_FRACTION * camera.mm_per_px if tol is None \
         else float(tol)
-    depth, stats = march(node, origins, dirs, (lo, hi), camera.far,
-                         tolerance, max_steps=max_steps, backend=backend,
-                         chunk=chunk)
-
-    normals = np.zeros((depth.size, 3))
-    index = np.nonzero(np.isfinite(depth))[0]
-    if index.size:
-        points = origins[index] + depth[index, None] * dirs[index]
-        normals[index] = _chunked(
-            lambda p: normal(node, p, eps=epsilon, backend=backend),
-            points, chunk)
-    stats["hits"] = int(index.size)
+    if resolve_backend(node, backend) == "wgpu":
+        depth, normals, stats = march_gpu(
+            node, origins, dirs, (lo, hi), camera.far, tolerance,
+            max_steps=max_steps, epsilon=epsilon)
+    else:
+        depth, stats = march(node, origins, dirs, (lo, hi), camera.far,
+                             tolerance, max_steps=max_steps, backend=backend,
+                             chunk=chunk)
+        normals = np.zeros((depth.size, 3))
+        index = np.nonzero(np.isfinite(depth))[0]
+        if index.size:
+            points = origins[index] + depth[index, None] * dirs[index]
+            normals[index] = _chunked(
+                lambda p: normal(node, p, eps=epsilon, backend=backend),
+                points, chunk)
+        stats["hits"] = int(index.size)
 
     if stats["unconverged"] > 0.01 * stats["rays"]:
         warnings.warn(

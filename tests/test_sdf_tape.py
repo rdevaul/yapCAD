@@ -273,10 +273,12 @@ def test_the_gpu_kernel_names_every_opcode():
     this needs no GPU: every opcode must have a case, and no placeholder may
     survive the substitution."""
     from yapcad.sdf import tape_wgpu
-    source = tape_wgpu._kernel_source()
-    assert "OP_" not in source
-    for number in range(len(tape.OPCODES)):
-        assert f"case {number} " in source
+    for entry in (tape_wgpu._EVALUATE, tape_wgpu._MARCH):
+        source = tape_wgpu._kernel_source(entry)
+        assert "OP_" not in source
+        assert "MAX_REGISTERS" not in source and "GROUP)" not in source
+        for number in range(len(tape.OPCODES)):
+            assert f"case {number} " in source
 
 
 @needs_gpu
@@ -339,3 +341,64 @@ def test_a_render_says_which_backend_drew_each_part():
     assert render_part(UNSUPPORTED, camera).stats["backend"] == "numpy"
     expected = "numba" if tape.numba_available() else "numpy"
     assert render_part(BALL, camera).stats["backend"] == expected
+
+
+# -- the march on the GPU -----------------------------------------------------
+
+def _rays(node, pixels=(96, 72)):
+    from yapcad.render.camera import Camera
+    camera = Camera.fit(node.bounds, view="iso", pixels=pixels)
+    origins, dirs = camera.rays()
+    lo, hi = (np.asarray(v, dtype=float) for v in node.bounds)
+    return camera, origins, dirs, (lo, hi)
+
+
+@needs_gpu
+@pytest.mark.parametrize("name", ["subtract", "smooth_union", "twist",
+                                  "chamfered_box", "torus"])
+def test_the_gpu_march_lands_where_the_reference_march_does(name):
+    from yapcad.render.trace import march, march_gpu
+    node = SAMPLES[name]
+    camera, origins, dirs, box = _rays(node)
+    tolerance = 0.45 * camera.mm_per_px
+    expected, _ = march(node, origins, dirs, box, camera.far, tolerance,
+                        backend="numpy")
+    depth, normals, stats = march_gpu(node, origins, dirs, box, camera.far,
+                                      tolerance)
+    hit, reference_hit = np.isfinite(depth), np.isfinite(expected)
+    # A ray grazing a silhouette can fall either side in single precision.
+    assert (hit != reference_hit).mean() < 0.01
+    both = hit & reference_hit
+    # Both stopped within the tolerance of the surface, so they are within
+    # a few tolerances of each other along the ray.
+    assert np.abs(depth[both] - expected[both]).max() < 20 * tolerance
+    assert np.median(np.abs(depth[both] - expected[both])) < 1e-3
+    lengths = np.linalg.norm(normals[hit], axis=1)
+    assert lengths == pytest.approx(1.0, abs=1e-4)
+    assert not normals[~hit].any()
+    assert stats["backend"] == "wgpu" and stats["hits"] == int(hit.sum())
+    assert stats["evaluations"] >= stats["rays"] - stats["clipped"]
+
+
+@needs_gpu
+def test_the_gpu_march_reports_rays_that_run_out_of_steps():
+    from yapcad.render.trace import march_gpu
+    node = SAMPLES["subtract"]
+    camera, origins, dirs, box = _rays(node)
+    _, _, stats = march_gpu(node, origins, dirs, box, camera.far,
+                            0.45 * camera.mm_per_px, max_steps=1)
+    assert stats["steps"] == 1
+    assert stats["unconverged"] > 0
+
+
+@needs_gpu
+def test_a_gpu_preview_is_the_reference_preview_but_for_its_edges():
+    from yapcad import render
+    from yapcad.render.api import Part
+    scene = [Part(SAMPLES["subtract"], name="plate"),
+             Part(sdf.translate(SAMPLES["chamfered_box"], (0.0, 0.0, 6.0)),
+                  name="block")]
+    reference = render.image(scene, pixels=(240, 180), backend="numpy")
+    drawn = render.image(scene, pixels=(240, 180), backend="wgpu")
+    differs = (reference != drawn).any(axis=2)
+    assert differs.mean() < 0.02
