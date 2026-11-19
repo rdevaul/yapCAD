@@ -32,6 +32,7 @@ mesh, or a mesh file path).
 | Tool | Status | What it does |
 |------|--------|--------------|
 | `render_assembly.py` | current | Multi-view PNG of a per-layer DSL assembly. Thin wrapper over `yapcad.render`: builds each layer as a deferred SDF field, one coloured part per layer, 4-up sheet (`--views 4`, default) or one image per named view (`--views 6`). |
+| `bench_field_backends.py` | current | Times every field backend the machine has (numpy, numba, wgpu) on one part: raw evaluation, a preview frame and a mesh, each checked against numpy. Run it to see what the compiled and GPU backends buy on a given machine. |
 | `validate_mesh.py` | current | CAM-oriented lint/heal/slice pipeline over an STL. Starts with the built-in `yapcad.mesh_check` report, then chains `admesh`, `meshfix` and a slicer front-end if installed. |
 | `mesh_diagnostics.py` | current | Shared trimesh diagnostics (`MeshDiagnostics`) used by the diagnose tools; watertightness and component counts come from `yapcad.mesh_check`. |
 | `diagnose_boolean.py` | current | Boolean-engine diagnostics (cube/sphere/box-hole/tube fixtures) through trimesh. Mesh representation only. |

@@ -4,9 +4,10 @@ Rendering fields: headless engineering images
 Agentic CAD work is gated by whether the tool can see what it built. Until
 now, getting a picture out of yapCAD meant meshing the part or generating
 BREP surfaces and handing the result to an external viewer. :mod:`yapcad.render`
-removes that step for SDF-authored geometry: it sphere-traces the field in
-numpy and writes a PNG, with no window, no GPU, no mesh and no new
-dependency.
+removes that step for SDF-authored geometry: it sphere-traces the field and
+writes a PNG, with no window, no mesh and nothing required beyond numpy.
+Installing numba makes it about ten times faster on a large part; see
+`Field backends`_.
 
 .. code-block:: python
 
@@ -33,10 +34,9 @@ Where this sits
 hand the triangles to an existing viewer (Tier 0), or emit GLSL and
 sphere-trace it in a browser (Tier 1). Both put a human in front of a screen.
 This is the tier in between, for a reader that is a *program*, and it is the
-cheapest of the three: it carries none of the shader emitter's risk of
-drifting away from the numpy backend, because it **is** the numpy backend.
-:func:`yapcad.sdf.evaluate` and :func:`yapcad.sdf.normal` are the whole of it,
-so ``smooth_union`` cannot come to mean two different things.
+cheapest of the three. :func:`yapcad.sdf.evaluate` and
+:func:`yapcad.sdf.normal` are the whole of it, so ``smooth_union`` cannot
+come to mean two different things.
 
 Sphere tracing works here for the same reason the mesher does. Hard CSG
 produces a conservative *lower bound* on distance rather than an exact one,
@@ -230,6 +230,62 @@ returns fields plus a meshing plan and no triangles, so the whole build
 feeds the renderer directly. ``--cell`` sizes the recorded plan; raising it
 makes any *later* meshing cheaper and does not affect the image at all,
 since the render uses the field rather than the mesh.
+
+Field backends
+--------------
+
+Nearly all of a render is field evaluation: a 640 x 480 view asks for a few
+hundred thousand values, and the numpy backend walks the whole tree for
+each batch, one array pass per node. Its cost grows with the node count --
+about 4 microseconds a point on a 95-node part and 19 on a 500-node one.
+
+The compiled backend removes that. :mod:`yapcad.sdf.tape` flattens the tree
+to a *tape* -- arrays of opcodes, registers and parameters -- and one fixed
+kernel runs it for every point. Nothing is compiled per design.
+
+=========  ==========================================  =========================
+Backend    What runs the field                         Needs
+=========  ==========================================  =========================
+``numpy``  the reference tree walk                     nothing
+``numba``  the tape, on every CPU core                 ``pip install "yapcad[fast]"``
+``wgpu``   the tape, on a GPU (experimental)           ``pip install "yapcad[gpu]"``
+``auto``   ``numba`` where it applies, else ``numpy``  --
+=========  ==========================================  =========================
+
+``auto`` is the default for every render. Pass ``backend=`` to
+:func:`~yapcad.render.image` and the rest, ``--backend`` on the command
+line, or set ``YAPCAD_RENDER_BACKEND``. Measured on four cores:
+
+====================================  =========  =========
+Frame                                 ``numpy``  ``numba``
+====================================  =========  =========
+508-node helix, iso, 640 x 480        5.5 s      0.5 s
+508-node helix, 4-up, 1280 x 960      22 s       1.8 s
+15-part ivy vine, iso, 640 x 480      3.8 s      1.5 s
+15-part ivy vine, 4-up, 1280 x 960    29 s       6.3 s
+====================================  =========  =========
+
+The images are the same in every pixel. The values behind them agree with
+numpy to rounding, about one part in 1e13, not bit for bit -- which is why
+the compiled backend draws previews and does not yet make meshes.
+
+**Coverage.** The tape covers the primitives, booleans, blends, placements,
+offsets, shells, twists and lattices. It does not yet cover ``polygon``,
+``extrude``, ``apex_extrude``, threads, hex fasteners or gears; a part that
+uses one falls back to numpy under ``auto``, part by part.
+:func:`yapcad.sdf.tape.unsupported_kinds` names what is in the way.
+
+**The first frame.** numba compiles the kernel the first time it is used on
+a machine, which takes a few seconds, and caches it.
+
+**The GPU backend.** ``wgpu`` runs the same tape through WebGPU, which
+reaches Metal on Apple silicon and Vulkan or Direct3D on NVIDIA, AMD and
+Intel. It computes in single precision, the only kind WebGPU has: values are
+good to about 1e-7 of the model's extent, and an image drawn with it differs
+from numpy's in a fraction of a percent of pixels, along silhouettes. It has
+been checked for correctness on a software adapter only, so ``auto`` never
+picks it. ``tools/bench_field_backends.py`` times every backend a machine
+has, on the same frames.
 
 Extending it: the backend seam
 ------------------------------

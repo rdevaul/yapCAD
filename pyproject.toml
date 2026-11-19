@@ -78,6 +78,20 @@ tests = [
   "jsonschema",
   # The VISUALTEST=true suite draws through yapcad.pyglet_drawable.
   "pyglet>=1.5,<2",
+  # So CI runs the compiled field backend (yapcad.sdf.tape) rather than
+  # skipping its tests.
+  "numba>=0.59",
+]
+# The compiled field backend: yapcad.sdf.tape runs a flattened field through
+# one numba kernel. Previews (yapcad.render) use it automatically when it is
+# installed; nothing requires it.
+fast = [
+  "numba>=0.59",
+]
+# The same tape on a GPU through WebGPU (Metal, Vulkan, Direct3D 12).
+# Experimental, single precision, previews only; asked for by name.
+gpu = [
+  "wgpu>=0.19",
 ]
 meshcheck = [
   "trimesh>=4.0",

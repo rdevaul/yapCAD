@@ -12,6 +12,8 @@ import time
 from yapcad.render.api import four_up, image, parts_from_dsl, section_view
 from yapcad.render.raster import write_png
 from yapcad.render.camera import ORTHOGRAPHIC, PERSPECTIVE, VIEWS
+from yapcad.render.trace import DEFAULT_BACKEND
+from yapcad.sdf.evaluate import resolve_backend
 
 
 def _size(text):
@@ -89,6 +91,11 @@ def build_parser():
                              "fields while building (slower)")
     parser.add_argument("--param", type=_param, action="append", default=[],
                         metavar="NAME=VALUE", help="a DSL parameter; repeat")
+    parser.add_argument("--backend", default=DEFAULT_BACKEND,
+                        choices=("auto", "numpy", "numba", "wgpu"),
+                        help="how fields are evaluated: numba is the "
+                             "compiled backend, auto uses it when it can "
+                             "(default: %(default)s)")
     parser.add_argument("--max-steps", type=int, default=256,
                         dest="max_steps", help="march iteration cap")
     parser.add_argument("--no-annotate", action="store_false",
@@ -120,22 +127,25 @@ def main(argv=None):
         img = four_up(parts, section_axis=axis, section_at=where,
                       pixels=(args.size[0] // 2, args.size[1] // 2),
                       theme=args.theme, colour_by=args.colour_by,
-                      max_steps=args.max_steps)
+                      backend=args.backend, max_steps=args.max_steps)
     elif view == "section":
         img = section_view(parts, axis=axis, where=where, pixels=args.size,
-                           theme=args.theme, annotate=args.annotate)
+                           theme=args.theme, annotate=args.annotate,
+                           backend=args.backend)
     else:
         img = image(parts, view=view, pixels=args.size, theme=args.theme,
                     projection=PERSPECTIVE if args.perspective
                     else ORTHOGRAPHIC,
                     colour_by=args.colour_by, annotate=args.annotate,
-                    max_steps=args.max_steps)
+                    backend=args.backend, max_steps=args.max_steps)
     drawn = time.time() - started
     write_png(out, img)
     if not args.quiet:
+        used = sorted({resolve_backend(p.node, args.backend) for p in parts})
         print(f"{args.command}: field built in {build_seconds:.1f}s, "
               f"{view} drawn in {drawn:.2f}s at "
-              f"{img.shape[1]}x{img.shape[0]} -> {out}")
+              f"{img.shape[1]}x{img.shape[0]} "
+              f"({'/'.join(used)}) -> {out}")
     return 0
 
 

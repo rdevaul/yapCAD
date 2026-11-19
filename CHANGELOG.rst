@@ -5,6 +5,34 @@ Changelog
 Unreleased
 ==========
 
+- Previews are about ten times faster on a large part, with numba
+  installed (``pip install "yapcad[fast]"``).  A render is nearly all field
+  evaluation, and the numpy backend walks the tree node by node, so its
+  cost grows with the node count.  ``yapcad.sdf.tape`` flattens a field to
+  a *tape* -- opcodes, registers and parameters -- that one fixed kernel
+  runs for every point; nothing is compiled per design.  On four cores a
+  508-node helix draws in 0.5 s instead of 5.5 s (4-up: 1.8 s instead of
+  22 s) and the 15-part ivy vine in 1.5 s instead of 3.8 s (4-up: 6.3 s
+  instead of 29 s), the same image in every pixel.
+
+  ``yapcad.render`` uses it by default where it applies
+  (``backend="auto"``, ``--backend``, ``YAPCAD_RENDER_BACKEND``) and falls
+  back to numpy, part by part, without numba or for a part that uses a node
+  kind the tape does not cover yet: ``polygon``, ``extrude``,
+  ``apex_extrude``, threads, hex fasteners and gears.  Everything else in
+  yapCAD still evaluates with numpy: the tape agrees with it to about one
+  part in 1e13, not bit for bit, and meshes are signed and compared.
+  ``evaluate``, ``gradient`` and ``normal`` take ``backend="numba"`` for
+  anyone who wants it elsewhere.
+
+  ``backend="wgpu"`` runs the same tape on a GPU through WebGPU -- Metal on
+  Apple silicon, Vulkan or Direct3D elsewhere (``pip install
+  "yapcad[gpu]"``).  It is experimental and never chosen automatically: it
+  computes in single precision, and it has been checked for correctness on
+  a software adapter only, not timed on real hardware.
+  ``tools/bench_field_backends.py`` times every backend a machine has.
+
+
 - Fixed: a small field-authored part was not simplified at all.  The
   simplifier refuses a collapse that leaves a sliver, and judged slivers
   against an absolute floor of 5e-4 on the triangle's cross product.  A

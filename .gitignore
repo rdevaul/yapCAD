@@ -87,3 +87,7 @@ docs/*.pdf
 
 # Workbench dev deps — never commit
 workbench/node_modules/
+
+# numba on-disk cache (yapcad.sdf.tape)
+*.nbi
+*.nbc

@@ -23,8 +23,9 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from yapcad.sdf.evaluate import DEFAULT_BACKEND, evaluate
+from yapcad.sdf.evaluate import evaluate
 
+from yapcad.render.trace import DEFAULT_BACKEND
 from yapcad.render.palette import get_theme
 from yapcad.render.raster import round_number, to_image
 
