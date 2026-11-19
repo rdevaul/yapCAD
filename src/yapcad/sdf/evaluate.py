@@ -73,6 +73,35 @@ def _compiled(node, backend):
     return lambda pts: tape.run(flat, pts)
 
 
+def mesh_backend(node, backend=None):
+    """The backend that meshes and simplifies ``node``: ``"numba"`` or
+    ``"numpy"``.
+
+    ``None`` follows ``YAPCAD_SDF_BACKEND``, which is ``auto`` unless set:
+    the compiled backend when numba is installed and the tree can be
+    flattened, numpy otherwise.  Set it to ``numpy`` to mesh with the
+    reference backend whatever is installed -- the choice for a mesh whose
+    bytes have to match one made on another machine, since the compiled
+    backend agrees with numpy to rounding and not bit for bit.  The backend
+    that made a mesh is written into its meshing record.
+
+    The GPU backend is refused: it computes in single precision, which is
+    enough for an image and not for a mesh.
+    """
+    if backend is None:
+        backend = (os.environ.get("YAPCAD_SDF_BACKEND", "").strip().lower()
+                   or AUTO_BACKEND)
+    if backend == WGPU_BACKEND:
+        raise SdfError(
+            "the wgpu backend computes in single precision and is for "
+            "previews; mesh with numba or numpy")
+    if backend not in (AUTO_BACKEND, NUMBA_BACKEND, DEFAULT_BACKEND):
+        raise SdfError(
+            f"unknown meshing backend {backend!r}; expected auto, numba or "
+            f"numpy")
+    return resolve_backend(node, backend)
+
+
 def resolve_backend(node, backend=AUTO_BACKEND):
     """The backend that will actually evaluate ``node``: ``"numba"`` or
     ``"numpy"`` for ``"auto"``, and the name itself otherwise."""

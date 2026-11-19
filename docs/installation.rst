@@ -100,6 +100,8 @@ Environment variables
 ``YAPCAD_DSL_REPRESENTATION``      ``mesh`` (default) or ``sdf``: what DSL primitives produce
 ``YAPCAD_DSL_SDF_CELL_MM``         the cell size DSL primitives are meshed at in ``sdf`` mode
 ``YAPCAD_SDF_SIMPLIFY``            ``0`` keeps finished SDF parts' uniform meshes
+``YAPCAD_SDF_BACKEND``             what meshes and simplifies a field: ``auto`` (default: numba when
+                                   installed, else numpy), ``numpy`` or ``numba``
 ``YAPCAD_RENDER_BACKEND``          how previews evaluate fields: ``auto`` (default), ``numpy``, ``numba``
                                    or ``wgpu`` (see :doc:`render_guide`)
 ``YAPCAD_SDF_THREADS``             threads a field evaluation is spread over; ``1`` turns it off

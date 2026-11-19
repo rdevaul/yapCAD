@@ -44,7 +44,12 @@ import math
 import numpy as np
 
 from yapcad.geom import epsilon
-from yapcad.sdf.evaluate import evaluate, gradient
+from yapcad.sdf.evaluate import (
+    DEFAULT_BACKEND,
+    evaluate,
+    gradient,
+    mesh_backend,
+)
 from yapcad.sdf.node import SdfError
 
 __all__ = ["simplify_mesh", "simplify_solid", "simplify_finished",
@@ -88,7 +93,8 @@ def _coarse(table):
 _COARSE = {n: _coarse(table) for n, table in _LATTICES.items()}
 
 
-def _sample_max(node, tris, divisions, lattices=_LATTICES):
+def _sample_max(node, tris, divisions, lattices=_LATTICES,
+                backend=DEFAULT_BACKEND):
     """Worst ``|f|`` per triangle, sampling every triangle in one batch.
 
     Grouping the triangles by division count and evaluating each group
@@ -114,14 +120,15 @@ def _sample_max(node, tris, divisions, lattices=_LATTICES):
         span = block.size // 3
         pts[at:at + span] = block.reshape(-1, 3)
         at += span
-    err = np.abs(evaluate(node, pts))
+    err = np.abs(evaluate(node, pts, backend=backend))
     worst = np.maximum.reduceat(err, offsets[:-1])
     out = np.empty(len(tris))
     out[order] = worst
     return out
 
 
-def _max_error(node, tris, spacing, lattices=_LATTICES):
+def _max_error(node, tris, spacing, lattices=_LATTICES,
+               backend=DEFAULT_BACKEND):
     """Worst ``|f|`` sampled across each triangle of ``tris`` ``(T, 3, 3)``
     on a grid no coarser than ``spacing`` -- the original mesh's edge
     length -- so a large merged triangle is checked as densely as the many
@@ -136,7 +143,7 @@ def _max_error(node, tris, spacing, lattices=_LATTICES):
     # samples, and two divisions once read 0.095 where the truth was 0.142.
     divisions = np.clip(np.ceil(2.0 * longest / spacing), 4,
                         _MAX_DIVISIONS).astype(int)
-    return _sample_max(node, tris, divisions, lattices)
+    return _sample_max(node, tris, divisions, lattices, backend)
 
 
 #: A changed triangle's normal must stay within ~78 degrees of its old one.
@@ -228,12 +235,12 @@ def _candidates(V, Q, E):
     return pos
 
 
-def _project(node, P, steps=2):
+def _project(node, P, steps=2, backend=DEFAULT_BACKEND):
     """Move points onto the surface by Newton steps along the gradient."""
     P = P.copy()
     for _ in range(steps):
-        f = evaluate(node, P)
-        g = gradient(node, P)
+        f = evaluate(node, P, backend=backend)
+        g = gradient(node, P, backend=backend)
         gg = np.einsum("ij,ij->i", g, g)
         ok = gg > 1e-24
         P[ok] -= (f[ok] / gg[ok])[:, None] * g[ok]
@@ -246,7 +253,8 @@ def _quadric_cost(Q, E, P):
     return np.einsum("ij,ijk,ik->i", h, q, h)
 
 
-def _round(node, V, F, tolerance, rejected, spacing, face_err):
+def _round(node, V, F, tolerance, rejected, spacing, face_err,
+           backend=DEFAULT_BACKEND):
     """One round of collapses.
 
     :param rejected: ``(k, 2)`` edges tested and rejected in earlier rounds
@@ -289,7 +297,7 @@ def _round(node, V, F, tolerance, rejected, spacing, face_err):
         nb = vnbr[vstart[b]:vstart[b + 1]]
         # Link condition: the endpoints may share only the two vertices
         # opposite the edge, or the collapse pinches the surface.
-        if len(np.intersect1d(na, nb, assume_unique=True)) != 2:
+        if len(set(na.tolist()).intersection(nb.tolist())) != 2:
             continue
         locked[a] = locked[b] = True
         locked[na] = True
@@ -301,15 +309,18 @@ def _round(node, V, F, tolerance, rejected, spacing, face_err):
     # Only the chosen candidates are moved onto the surface: projection
     # costs a field and gradient evaluation per point per step.
     P = P.copy()
-    P[chosen] = _project(node, P[chosen])
+    P[chosen] = _project(node, P[chosen], backend=backend)
 
     # Every triangle around each chosen edge, with the merged vertex in
     # place, except the two that contain the edge and vanish.
     owner, faces = [], []
     for k, e in enumerate(chosen.tolist()):
         a, b = int(E[e, 0]), int(E[e, 1])
-        around = np.union1d(ffaces[fstart[a]:fstart[a + 1]],
-                            ffaces[fstart[b]:fstart[b + 1]])
+        # Sorted and without repeats, as np.union1d gives, but these are a
+        # dozen integers and the call is made tens of thousands of times.
+        around = np.array(sorted(
+            set(ffaces[fstart[a]:fstart[a + 1]].tolist()).union(
+                ffaces[fstart[b]:fstart[b + 1]].tolist())), dtype=np.int64)
         faces.append(around)
         owner.append(np.full(len(around), k))
     faces = np.concatenate(faces)
@@ -341,7 +352,7 @@ def _round(node, V, F, tolerance, rejected, spacing, face_err):
     old_face_err = face_err[faces]
     old_err = np.zeros(len(chosen))
     np.maximum.at(old_err, owner, old_face_err)
-    vertex_err = np.abs(evaluate(node, P[chosen]))
+    vertex_err = np.abs(evaluate(node, P[chosen], backend=backend))
     allowed = np.maximum(tolerance, old_err)
 
     # Sampling the new triangles is nearly all of a round's work, so it is
@@ -357,11 +368,12 @@ def _round(node, V, F, tolerance, rejected, spacing, face_err):
     sample = survives & ~failed[owner]
     quick = np.zeros(len(chosen))
     np.maximum.at(quick, owner[sample],
-                  _max_error(node, new[sample], spacing, _COARSE))
+                  _max_error(node, new[sample], spacing, _COARSE, backend))
     failed |= quick > allowed
     sample = survives & ~failed[owner]
     sampled = np.zeros(len(faces))
-    sampled[sample] = _max_error(node, new[sample], spacing)
+    sampled[sample] = _max_error(node, new[sample], spacing,
+                                 backend=backend)
     new_face_err = sampled[survives]
     new_err = np.zeros(len(chosen))
     np.maximum.at(new_err, owner[survives], new_face_err)
@@ -404,8 +416,12 @@ def _round(node, V, F, tolerance, rejected, spacing, face_err):
     return V[used], F.reshape(-1, 3), int(ok.sum()), rejected, face_err
 
 
-def simplify_mesh(node, vertices, triangles, tolerance, max_rounds=200):
+def simplify_mesh(node, vertices, triangles, tolerance, max_rounds=200,
+                  backend=None):
     """Simplify a closed triangle mesh of ``node`` to within ``tolerance``.
+
+    :param backend: what evaluates the field, as for
+        :func:`yapcad.sdf.to_solid`; ``None`` follows ``YAPCAD_SDF_BACKEND``.
 
     :returns: ``(vertices, triangles)`` arrays.
     """
@@ -423,10 +439,11 @@ def simplify_mesh(node, vertices, triangles, tolerance, max_rounds=200):
                                              axis=1))) if len(edges) else 1.0
     if len(F) == 0:
         return V, F
-    face_err = _max_error(node, V[F], spacing)
+    backend = mesh_backend(node, backend)
+    face_err = _max_error(node, V[F], spacing, backend=backend)
     for _ in range(int(max_rounds)):
         V, F, done, rejected, face_err = _round(node, V, F, tol, rejected,
-                                                spacing, face_err)
+                                                spacing, face_err, backend)
         if done == 0:
             break
     return V, F
@@ -441,7 +458,7 @@ def _default_tolerance(solid, node):
     return DEFAULT_TOLERANCE_CELLS * cell
 
 
-def simplify_solid(solid, tolerance=None):
+def simplify_solid(solid, tolerance=None, backend=None):
     """Simplify every surface of an SDF-authored solid against its field.
 
     :param tolerance: how far, in model units, the simplified surface may
@@ -469,11 +486,12 @@ def simplify_solid(solid, tolerance=None):
         return solid
     if tolerance is None:
         tolerance = _default_tolerance(solid, node)
+    backend = mesh_backend(node, backend)
     surfaces = []
     for surf in solid[1]:
         V = np.array([p[:3] for p in surf[1]], dtype=float)
-        V, F = simplify_mesh(node, V, surf[3], tolerance)
-        N = normal(node, V)
+        V, F = simplify_mesh(node, V, surf[3], tolerance, backend=backend)
+        N = normal(node, V, backend=backend)
         surfaces.append(surface(
             [[float(x), float(y), float(z), 1.0] for x, y, z in V],
             [[float(x), float(y), float(z), 0.0] for x, y, z in N],
@@ -481,6 +499,8 @@ def simplify_solid(solid, tolerance=None):
     if meshing:
         meshing["simplify"] = {"method": "field-qem",
                                "tolerance": float(tolerance)}
+        if backend != DEFAULT_BACKEND:
+            meshing["simplify"]["backend"] = backend
     result = make_solid(surfaces, [], to_construction(
         node, meshing=meshing or None))
     # Keep the metadata -- fastener and gear specs, tags, and any BREP

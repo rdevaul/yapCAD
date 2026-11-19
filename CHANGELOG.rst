@@ -5,6 +5,27 @@ Changelog
 Unreleased
 ==========
 
+- Meshing and simplifying a field use the compiled backend when numba is
+  installed.  On the 95-node ivy part, on four cores, meshing goes from
+  2.0 s to 0.8 s and simplifying from 35 s to 13 s; on an 18-thread Apple
+  M5 Max a 500-node part meshes in 0.19 s instead of 2.3 s.
+
+  The compiled backend makes the same triangles as numpy, with vertices
+  that agree to about 1e-10, but not the same bytes; and a collapse that
+  sits right on the simplifier's tolerance can fall either way, so a
+  simplified part can differ by a percent or so in triangle count while
+  staying within the same bounds.  Because yapCAD signs packages, a mesh
+  now says what made it: the meshing record, and the geometry document's
+  mesh representation, carry ``"backend": "numba"``, and the simplify
+  record does the same.  An absent key means numpy, so documents meshed
+  with the reference backend are unchanged.
+
+  ``YAPCAD_SDF_BACKEND=numpy`` forces the reference backend, for a mesh
+  whose bytes must match one made elsewhere; ``to_solid``,
+  ``simplify_solid`` and ``simplify_mesh`` take ``backend=`` too.  A part
+  that uses a node kind the tape does not cover is meshed with numpy as
+  before.  The GPU backend is refused for meshing: it is single precision.
+
 - Previews are about ten times faster on a large part, with numba
   installed (``pip install "yapcad[fast]"``).  A render is nearly all field
   evaluation, and the numpy backend walks the tree node by node, so its
