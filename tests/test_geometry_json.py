@@ -196,3 +196,26 @@ def test_sketch_primitives_roundtrip():
     assert any(isarc(entity) and not iscircle(entity) for entity in returned_geom)
     assert any(iscatmullrom(entity) for entity in returned_geom)
     assert any(isnurbs(entity) for entity in returned_geom)
+
+
+def test_entities_that_share_an_id_are_given_distinct_ones():
+    """A transformed copy keeps its source's metadata, and a memoised DSL
+    command hands back the same solid twice.  The document's ids are
+    distinct either way, and the solids keep the ids they had."""
+    from yapcad.geom3d import translatesolid
+    from yapcad.metadata import ensure_solid_id
+
+    part = _make_prism_solid()
+    original = ensure_solid_id(part)
+    moved = translatesolid(part, point(5, 0, 0))
+    assert ensure_solid_id(moved) == original
+
+    doc = geometry_to_json([part, part, moved])
+    solids = [e for e in doc["entities"] if e["type"] == "solid"]
+    ids = [e["id"] for e in solids]
+    assert len(solids) == 3 and len(set(ids)) == 3
+    assert ids[0] == original
+    for entry in solids:
+        assert entry["metadata"].get("entityId", entry["id"]) == entry["id"]
+    assert ensure_solid_id(part) == original
+    assert len(geometry_from_json(doc)) == 3
