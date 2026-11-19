@@ -32,6 +32,60 @@ Unreleased
   a software adapter only, not timed on real hardware.
   ``tools/bench_field_backends.py`` times every backend a machine has.
 
+
+- Fixed: a small field-authored part was not simplified at all.  The
+  simplifier refuses a collapse that leaves a sliver, and judged slivers
+  against an absolute floor of 5e-4 on the triangle's cross product.  A
+  1 mm cube meshed at the default 64 cells has triangles of 2.4e-4 to begin
+  with, so every collapse was refused and the cube kept all 47,628
+  triangles where a 20 mm one drops to 56.  The floor is now the lower of
+  the absolute one and a tenth of a typical triangle of the mesh in hand,
+  so nothing changes for a mesh coarser than about 0.07 units a cell, and
+  the 1 mm cube comes out at 58 triangles.
+
+- Simplifying a field-authored part is about three times faster, and
+  meshing one about a third faster, with byte-identical results.  Measured
+  on a 95-node part of the ivy vine (53,236 triangles to 4,914, four
+  cores): simplifying went from 116 s to 36 s, meshing from 2.7 s to 1.9 s.
+
+  The simplifier spent nearly all its time sampling the field across the
+  triangles each candidate collapse would create, including candidates
+  that had already failed.  It now skips those, and gives the rest a quick
+  look at a few of their sample points first; the few are among the full
+  set, so a collapse they reject would have been rejected anyway.  That
+  alone is 116 s to 68 s on one thread.
+
+  Field evaluation is spread over threads: large batches are split, and
+  the mesher's chunks are evaluated side by side.  A point's value does
+  not depend on its batch, so the arrays are the same.
+  ``YAPCAD_SDF_THREADS`` sets the count (default: the CPUs available, up
+  to eight); ``1`` turns it off.
+  
+- DSL: a command called again with the same arguments is answered from the
+  first call. A command's result depends only on its arguments, so a
+  recursive design that asks for ``LINK(1, true)`` nine times builds it once
+  -- and the repeats are the *same* solid rather than equal copies, so an
+  assembly meshes and simplifies each distinct part once. On a
+  fourteen-link recursive assembly with eight distinct links that is 213
+  calls answered from the cache and nine solids to mesh instead of fifteen.
+  Only calls whose arguments are all numbers, booleans and strings are
+  cached, which leaves out every command handed an assembly to add to; a
+  result that is an assembly is never shared; and a call that printed, ran a
+  native function or ran a python block is not cached, since repeating it
+  is not known to be the same as reusing its result. A command that emits
+  another's cached solid and carries ``@meta`` of its own annotates a copy.
+  ``YAPCAD_DSL_MEMOIZE=0`` turns it off.
+
+  Two things follow from repeats being one solid.  Python code downstream
+  of ``compile_and_run`` that edits a part in place -- tags it, sets its
+  material -- now edits every instance of that part; copy the solid first to
+  change one.  And the instances share an entity id, so ``geometry_to_json``
+  now gives any entity whose id an earlier one already used a fresh id in
+  the document (the solids themselves are untouched).  That also covers a
+  transformed copy, which has always kept its source's id.  The results of
+  a run are held until it ends, so a design that calls one command with
+  very many different arguments uses more memory than it did.
+  
 - Fixed: an assembly compound that was transformed before it was emitted
   kept its unsimplified meshes, and one emitted by a command carrying
   ``@meta`` lost that metadata.  The compound used to be positioned from the
@@ -63,9 +117,11 @@ Unreleased
   to fill, because a DSL solid is meshed and an infinite sheet cannot be.
   ``sdf.derive_solid(solids, build)`` is the helper underneath: mesh a tree
   built from the trees of SDF-authored solids, no coarser than any operand.
+  
 - DSL: ``str(...)`` joins the text of its arguments. The DSL has no string
   operators, so a loop or a recursive command had no way to give each part
   and mate it added a name of its own.
+  
 - ``examples/ivy_vine``: a print-in-place articulated ivy vine, fifteen
   parts and fourteen hinges from one DSL file. A command that calls itself
   twice grows the branching stem; leaf outlines are smooth unions of lobes; a
@@ -73,9 +129,11 @@ Unreleased
   declared joint limits are the ranges a ``yapcad.rom`` sweep measured clear.
   Its driver builds the design deferred, checks clearances and sweeps the
   joints on the fields, and meshes only to write the STL.
+  
 - Docs: the DSL reference says that ``solve_assembly`` solves with every
   joint at zero (so limits that exclude zero are set after posing) and that
   datums do not follow a transform applied to their solid.
+  
 - Fixed: a call that ended an ``if``, ``elif``, ``else`` or ``for`` body was
   silently skipped. The parser lifts a block's trailing bare expression into
   the block's ``final_expression`` and the interpreter ran only its
