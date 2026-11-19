@@ -24,6 +24,58 @@ from yapcad.sdf.node import (
 
 DEFAULT_BACKEND = "numpy"
 
+#: The compiled backend: the tree flattened to a tape and run by one numba
+#: kernel (:mod:`yapcad.sdf.tape`).  Much faster on a large tree, and equal
+#: to numpy to rounding rather than bit for bit.
+NUMBA_BACKEND = "numba"
+
+#: The tape on a GPU through WebGPU (:mod:`yapcad.sdf.tape_wgpu`).  Single
+#: precision and experimental: for previews, by name only.
+WGPU_BACKEND = "wgpu"
+
+#: Use the compiled backend where it applies and numpy where it does not:
+#: numba is not installed, or the tree has a node kind the tape cannot
+#: express yet.
+AUTO_BACKEND = "auto"
+
+
+def _compiled(node, backend):
+    """The tape evaluator for ``node`` under ``backend``, or ``None`` to
+    walk the tree with numpy.
+
+    ``"auto"`` falls back quietly.  ``"numba"`` was asked for by name, so
+    it says why it cannot be had.
+    """
+    if backend not in (NUMBA_BACKEND, AUTO_BACKEND, WGPU_BACKEND):
+        return None
+    from yapcad.sdf import tape
+    if backend == WGPU_BACKEND:
+        from yapcad.sdf import tape_wgpu
+        flat = tape.compiled(node)
+        return lambda pts: tape_wgpu.run(flat, pts)
+    if not tape.numba_available():
+        if backend == AUTO_BACKEND:
+            return None
+        raise SdfError(
+            "the numba backend needs numba, which is not installed; "
+            "pip install \"yapcad[fast]\", or use backend=\"auto\" to "
+            "fall back to numpy")
+    try:
+        flat = tape.compiled(node)
+    except tape.TapeUnsupported:
+        if backend == AUTO_BACKEND:
+            return None
+        raise
+    return lambda pts: tape.run(flat, pts)
+
+
+def resolve_backend(node, backend=AUTO_BACKEND):
+    """The backend that will actually evaluate ``node``: ``"numba"`` or
+    ``"numpy"`` for ``"auto"``, and the name itself otherwise."""
+    if backend == AUTO_BACKEND:
+        return NUMBA_BACKEND if _compiled(node, backend) else DEFAULT_BACKEND
+    return backend
+
 
 def _as_points(points):
     """Normalise input to a contiguous ``(N, 3)`` float array.
@@ -94,8 +146,18 @@ def evaluate(node, points, backend=DEFAULT_BACKEND):
     :func:`safe_step`.
     """
     pts, single = _as_points(points)
-    values = _eval(node, pts, {}, backend)
+    fast = _compiled(node, backend)
+    if fast is not None:
+        values = fast(pts)
+    else:
+        values = _eval(node, pts, {}, _walked(backend))
     return float(values[0]) if single else values
+
+
+def _walked(backend):
+    """The per-node backend a tree walk uses: ``"auto"`` that could not be
+    compiled walks with numpy."""
+    return DEFAULT_BACKEND if backend == AUTO_BACKEND else backend
 
 
 def safe_step(node, values):
@@ -107,6 +169,13 @@ def safe_step(node, values):
     field is exact or not.
     """
     return np.abs(np.asarray(values, dtype=float)) / node.lipschitz
+
+
+#: How much wider the finite-difference step is in single precision, as a
+#: multiple of the default: 1e-3 of the extent instead of 1e-6.  Wide enough
+#: for the difference to carry four digits, and still well under a pixel of
+#: any frame an image is drawn at.
+_SINGLE_PRECISION_STEP = 1000.0
 
 
 def _default_epsilon(node):
@@ -132,14 +201,22 @@ def gradient(node, points, eps=None, backend=DEFAULT_BACKEND):
     h = _default_epsilon(node) if eps is None else float(eps)
     if h <= 0.0:
         raise SdfError("gradient: eps must be positive")
-    cache = {}
+    if backend == WGPU_BACKEND:
+        # Single precision resolves about 1e-7 of the extent, so a step
+        # of 1e-6 of it differences two values that agree to a digit.
+        h = max(h, _SINGLE_PRECISION_STEP * _default_epsilon(node))
+    fast = _compiled(node, backend)
+    if fast is None:
+        cache = {}
+        walked = _walked(backend)
+
+        def fast(query):
+            return _eval(node, np.ascontiguousarray(query), cache, walked)
     out = np.empty_like(pts)
     for axis in range(3):
         step = np.zeros(3)
         step[axis] = h
-        ahead = _eval(node, np.ascontiguousarray(pts + step), cache, backend)
-        behind = _eval(node, np.ascontiguousarray(pts - step), cache, backend)
-        out[:, axis] = (ahead - behind) / (2.0 * h)
+        out[:, axis] = (fast(pts + step) - fast(pts - step)) / (2.0 * h)
     return out[0] if single else out
 
 

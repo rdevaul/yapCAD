@@ -23,11 +23,21 @@ assemblies are rendered one part at a time and composited: see
 """
 
 import math
+import os
 import warnings
 
 import numpy as np
 
-from yapcad.sdf.evaluate import DEFAULT_BACKEND, evaluate, normal
+from yapcad.sdf.evaluate import evaluate, normal, resolve_backend
+
+#: The backend a render evaluates fields with.  ``"auto"`` uses the compiled
+#: tape (:mod:`yapcad.sdf.tape`) when numba is installed and the part's tree
+#: can be flattened, and numpy otherwise; ``YAPCAD_RENDER_BACKEND`` overrides
+#: it with ``numpy``, ``numba`` or ``auto``.  A preview is the one place the
+#: compiled backend is the default: it agrees with numpy to rounding, which
+#: an image cannot show, and it is not used for meshes.
+DEFAULT_BACKEND = (os.environ.get("YAPCAD_RENDER_BACKEND", "").strip().lower()
+                   or "auto")
 
 from yapcad.render.buffers import PartBuffer
 
@@ -110,7 +120,8 @@ def march(node, origins, dirs, bounds, far, tol, max_steps=256,
             depth[live[hit]] = t[live[hit]]
         t[live] += np.maximum(np.abs(values) / lipschitz, min_step)
         live = live[~hit & (t[live] < leave[live])]
-    stats = {"rays": int(origins.shape[0]),
+    stats = {"backend": resolve_backend(node, backend),
+             "rays": int(origins.shape[0]),
              "clipped": int(origins.shape[0] - int((enter < leave).sum())),
              "steps": int(used),
              "evaluations": int(evaluations),
@@ -121,7 +132,7 @@ def march(node, origins, dirs, bounds, far, tol, max_steps=256,
 
 def render_part(node, camera, name="", group="", tol=None, max_steps=256,
                 backend=DEFAULT_BACKEND, chunk=DEFAULT_CHUNK, bounds=None,
-                epsilon=None):
+                epsilon=None, rays=None):
     """Fill a :class:`~yapcad.render.buffers.PartBuffer` from a field.
 
     This is the backend side of the contract in
@@ -136,8 +147,11 @@ def render_part(node, camera, name="", group="", tol=None, max_steps=256,
         pixel.
     :param epsilon: finite-difference step for the normals; defaults to
         :mod:`yapcad.sdf`'s own choice for the tree.
+    :param rays: ``camera.rays()``, if the caller already has them.  Every
+        part of a scene is traced with the same rays, and building them is
+        a visible share of a many-part frame once the fields are fast.
     """
-    origins, dirs = camera.rays()
+    origins, dirs = camera.rays() if rays is None else rays
     box = node.bounds if bounds is None else bounds
     lo = np.asarray(box[0], dtype=float)
     hi = np.asarray(box[1], dtype=float)

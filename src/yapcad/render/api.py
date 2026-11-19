@@ -10,7 +10,6 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from yapcad.sdf.evaluate import DEFAULT_BACKEND
 from yapcad.sdf.node import Node, bounds_union
 
 from yapcad.render.palette import get_theme
@@ -28,7 +27,7 @@ from yapcad.render.sheet import PAD, annotate as draw_furniture, grid
 from yapcad.render.buffers import composite
 from yapcad.render.camera import ORTHOGRAPHIC, PERSPECTIVE, VIEWS, Camera
 from yapcad.render.section import section, section_colours
-from yapcad.render.trace import render_part
+from yapcad.render.trace import DEFAULT_BACKEND, render_part
 
 #: Depth quantisation for the nearest-wins test, in pixels.  See
 #: :func:`yapcad.render.buffers.composite` for why this is not zero.
@@ -134,8 +133,9 @@ def render(target, camera, colour_by="auto", backend=DEFAULT_BACKEND,
     with the parts in it rather than with the size of one combined tree.
     """
     parts = _resolve_groups(as_parts(target), colour_by)
+    rays = camera.rays()
     buffers = [render_part(p.node, camera, name=p.name, group=p.group,
-                           backend=backend, **trace_kwargs)
+                           backend=backend, rays=rays, **trace_kwargs)
                for p in parts]
     return composite(buffers, tie=TIE_PIXELS * camera.mm_per_px)
 

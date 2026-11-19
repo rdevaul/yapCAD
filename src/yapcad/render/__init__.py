@@ -3,13 +3,17 @@
 ``docs/SDF-DESIGN.md`` section 6 plans two rendering tiers: mesh the field and
 hand the triangles to an existing viewer, or emit GLSL and sphere-trace it in
 a browser.  Both put a human in front of a screen.  This package is the tier
-in between, for the reader who is a *program*: no window, no GPU, no mesh --
-sphere-trace the field in numpy and write a PNG, in seconds.
+in between, for the reader who is a *program*: no window, no mesh, and no
+GPU needed -- sphere-trace the field and write a PNG, in seconds.
 
-It carries none of the shader emitter's risk of drifting away from the numpy
-backend, because it *is* the numpy backend.  ``evaluate`` and ``normal`` from
-:mod:`yapcad.sdf` are the whole of it, so ``smooth_union`` cannot come to mean
-two different things.
+``evaluate`` and ``normal`` from :mod:`yapcad.sdf` are the whole of it, so
+``smooth_union`` cannot come to mean one thing in a picture and another in a
+part.  What evaluates the field is a backend chosen per render.  numpy is
+the reference.  With numba installed (``pip install "yapcad[fast]"``) the
+field is flattened to a tape and run by one compiled kernel
+(:mod:`yapcad.sdf.tape`), which is the default when it applies and about ten
+times faster on a large part; every node kind it covers is tested against
+numpy.  ``backend="wgpu"`` runs the same tape on a GPU, experimentally.
 
 ::
 
