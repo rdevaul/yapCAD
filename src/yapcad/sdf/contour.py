@@ -34,6 +34,7 @@ variable leaf depth and QEF-error-driven collapse, needs the crack-patching
 traversal of Ju et al. and is deferred; see the design document.
 """
 
+import collections
 import math
 from collections import namedtuple
 
@@ -572,15 +573,21 @@ def _weld_coincident(vertices, triangles, cell_lo, centre, spacing):
     the mesh by position -- :func:`yapcad.geom3d.issolidclosed`, and any STL
     reader, which has nothing else to go on.
 
-    Where the two vertices are joined by a mesh edge and collapsing that
+    First, a zero-thickness wall -- two sheets at the same positions with
+    opposite windings, which a union of parts sharing a face produces -- is
+    dropped.  Then, where the two vertices are joined by a mesh edge and collapsing that
     edge keeps the surface a manifold (the *link condition*: the only
     vertices they both neighbour are the two opposite that edge), they are
     merged and the two triangles on the edge, which have no area, are
     dropped.  Nothing moves, so the surface is exactly the one the QEF
     chose.
 
+    Two vertices that share no triangle -- the two sides of the seam a
+    dropped wall leaves -- are welded when every edge at the result is used
+    once in each direction, which zips the seam closed.
+
     What cannot be merged -- two surface components of one cell that meet at
-    a point, or two sheets that touch without sharing an edge -- is moved
+    a point -- is moved
     apart by one position quantum instead, as it always was.  Merging is
     what fixes #121: the 40 nm edges that nudge used to leave between
     neighbouring cells collapsed when the mesh was stored as float32.
@@ -606,6 +613,29 @@ def _weld_coincident(vertices, triangles, cell_lo, centre, spacing):
         for v in tris[t]:
             if is_colliding[v]:
                 incident[int(v)].add(int(t))
+
+    # A zero-thickness wall -- where two unioned parts share a face, the
+    # union of their exact distances is 0 across it -- meshes as two sheets
+    # at the same positions with opposite windings.  They enclose nothing,
+    # so drop both.  This leaves the surface on either side open along the
+    # same loop, which the zip below closes.
+    canon = {}
+    for t in np.nonzero(is_colliding[tris].all(axis=1))[0]:
+        k = [tuple(keys[v]) for v in tris[t]]
+        if len(set(k)) < 3:
+            # Two corners at one point: a triangle the collapse below
+            # removes, and one whose orientation a position key can't tell.
+            continue
+        i = k.index(min(k))
+        canon.setdefault(tuple(k[i:] + k[:i]), []).append(int(t))
+    for key, ts in canon.items():
+        twins = canon.get((key[0], key[2], key[1]), [])
+        if key < (key[0], key[2], key[1]):
+            for t, u in zip(ts, twins):
+                for x in (t, u):
+                    alive[x] = False
+                    for w in tris[x]:
+                        incident[int(w)].discard(x)
 
     def neighbours(v):
         out = set()
@@ -636,29 +666,69 @@ def _weld_coincident(vertices, triangles, cell_lo, centre, spacing):
         incident[v] = set()
         return True
 
+    def zip_weld(u, v):
+        """Merge ``v`` into ``u`` when they share no triangle -- two open
+        boundaries at the same place -- if every edge at ``u`` afterwards is
+        used once in each direction."""
+        if incident[u] & incident[v]:
+            return False
+        directed = collections.Counter()
+        for t in incident[u] | incident[v]:
+            tri = [u if int(x) == v else int(x) for x in tris[t]]
+            for k in range(3):
+                a, b = tri[k], tri[(k + 1) % 3]
+                if u in (a, b):
+                    directed[(a, b)] += 1
+        if any(c > 1 for c in directed.values()):
+            return False
+        faces = [frozenset(u if int(x) == v else int(x) for x in tris[t])
+                 for t in incident[u] | incident[v]]
+        if len(set(faces)) != len(faces):
+            return False
+        for t in incident[v]:
+            tris[t][tris[t] == v] = u
+        incident[u] |= incident[v]
+        incident[v] = set()
+        return True
+
     removed = np.zeros(n, dtype=bool)
     stranded = []
     order = colliding[np.argsort(inverse[colliding], kind="stable")]
     groups = np.split(order, np.nonzero(np.diff(inverse[order]))[0] + 1)
+    # Several cells can put a vertex on one lattice point -- a face that
+    # lands on a lattice plane does it at every corner -- and a vertex may be
+    # joined by an edge to only some of the others.  Merge pairs until
+    # nothing more is allowed, in a fixed order for determinism.  Every
+    # collapse, in every group, comes before any zip: a zip changes the
+    # neighbourhoods a collapse elsewhere is judged on.
+    pending = []
     for group in groups:
-        # Several cells can put a vertex on one lattice point -- a face that
-        # lands on a lattice plane does it at every corner -- and a vertex
-        # may be joined by an edge to only some of the others.  Merge pairs
-        # until no collapse is allowed, in a fixed order for determinism.
-        survivors = [int(x) for x in group]
-        merged = True
-        while merged and len(survivors) > 1:
-            merged = False
-            for a in range(len(survivors)):
-                for b in range(a + 1, len(survivors)):
-                    u, v = survivors[a], survivors[b]
-                    if collapse(u, v):
-                        removed[v] = True
-                        survivors.pop(b)
-                        merged = True
-                        break
-                if merged:
-                    break
+        # A vertex left with no triangle -- inside a dropped wall -- is
+        # simply gone.
+        survivors = []
+        for x in (int(x) for x in group):
+            if incident[x]:
+                survivors.append(x)
+            else:
+                removed[x] = True
+        pending.append(survivors)
+
+    def merge_one(survivors, join):
+        for a in range(len(survivors)):
+            for b in range(a + 1, len(survivors)):
+                u, v = survivors[a], survivors[b]
+                if join(u, v):
+                    removed[v] = True
+                    survivors.pop(b)
+                    return True
+        return False
+
+    for joins in ((collapse,), (zip_weld, collapse)):
+        for survivors in pending:
+            while len(survivors) > 1 and any(merge_one(survivors, join)
+                                             for join in joins):
+                pass
+    for survivors in pending:
         if len(survivors) > 1:
             stranded.extend(survivors)
 
@@ -668,8 +738,7 @@ def _weld_coincident(vertices, triangles, cell_lo, centre, spacing):
         # lands on a lattice plane keeps its exact position.  This distance
         # does not survive float32 far from the origin, which is why every
         # vertex that can be merged is merged instead: what reaches here is
-        # rare -- two sheets that touch without sharing an edge, such as the
-        # zero-thickness wall where two unioned parts share a face.
+        # rare -- two components of one cell that pinch at a point.
         s = np.asarray(stranded)
         inset = min(4.0 * epsilon, 0.25 * spacing)
         toward = centre[s] - vertices[s]
@@ -780,6 +849,11 @@ def _flip_degenerate(vertices, triangles, rounds=8):
     return tris
 
 
+#: A direction no lattice plane or diagonal is normal to, for ranking
+#: points by position when two choices are otherwise equal.
+_TIE_DIRECTION = np.array([0.5773502691, 0.5773614523, 0.5773390859])
+
+
 def _emit_triangles(values, edge_idx, vertex_of, counts, vertices=None):
     """One quad per interior crossing edge, split into two triangles.
 
@@ -795,6 +869,11 @@ def _emit_triangles(values, edge_idx, vertex_of, counts, vertices=None):
     reads it (#85).
     """
     pieces = []
+    if vertices is not None:
+        _, inverse, counts_at = np.unique(
+            _position_keys(vertices), axis=0,
+            return_inverse=True, return_counts=True)
+        shared = counts_at[inverse.ravel()] > 1
     for axis in range(3):
         idx = edge_idx[axis]
         if idx[0].size == 0:
@@ -831,7 +910,18 @@ def _emit_triangles(values, edge_idx, vertex_of, counts, vertices=None):
                                _shape_quality(p[0], p[2], p[3]))
             second = np.minimum(_shape_quality(p[0], p[1], p[3]),
                                 _shape_quality(p[1], p[2], p[3]))
-            other = second > first
+            # On a tie -- a flat quad -- split by position, not by corner
+            # order, so two quads on the same four points split the same
+            # way whichever way they wind: a zero-thickness wall's two
+            # sheets then match triangle for triangle and can be dropped.
+            rank = [p[k] @ _TIE_DIRECTION for k in range(4)]
+            by_position = (np.minimum(rank[1], rank[3])
+                           < np.minimum(rank[0], rank[2]))
+            # Only where all four corners share their positions with other
+            # vertices, which is the only place a twin sheet can be;
+            # elsewhere the corner order decides, as it always did.
+            tie = (np.abs(second - first) <= 1e-12) & shared[quad].all(axis=1)
+            other = np.where(tie, by_position, second > first)
         keep = quad[~other]
         swap = quad[other]
         pieces.extend([keep[:, [0, 1, 2]], keep[:, [0, 2, 3]],

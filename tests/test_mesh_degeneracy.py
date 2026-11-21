@@ -171,3 +171,18 @@ def test_strokes_thinner_than_a_few_cells_mesh_without_coincident_vertices():
         assert sdf.manifold_defects(mesh) == {
             "boundary": 0, "nonmanifold": 0, "coincident": 0, "degenerate": 0,
         }, resolution
+
+
+def test_parts_sharing_a_face_mesh_without_an_internal_wall():
+    # A union of exact distances is 0 across the shared face, which used to
+    # mesh as two coincident sheets kept apart by one position quantum.
+    left = sdf.box((10.0, 10.0, 10.0))
+    right = sdf.translate(sdf.box((10.0, 10.0, 10.0)), (10.0, 0.0, 0.0))
+    mesh = sdf.dual_contour(sdf.union(left, right), resolution=20)
+    V, F = np.asarray(mesh.vertices), np.asarray(mesh.triangles)
+    assert not np.isclose(V[F][:, :, 0], 5.0).all(axis=1).any()
+    assert not any(sdf.manifold_defects(mesh).values())
+    solid_ = sdf.to_solid(sdf.union(left, right), resolution=20)
+    from yapcad.geom3d import volumeof
+    assert volumeof(solid_) == pytest.approx(2000.0, rel=1e-9)
+    assert _stl_defects(translatesolid(solid_, [5000.0, 0.0, 0.0])) == (0, 0)

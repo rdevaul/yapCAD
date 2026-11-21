@@ -17,9 +17,12 @@ Unreleased
   triangle that still has no area, along a sharp edge that runs down a
   lattice line, has its longest edge flipped.  The field-built miter gear
   loses its 12 collinear triangles, and engraved text at resolutions 350 and
-  490 no longer refuses on coincident vertices (#94).  Vertices that cannot
-  be merged -- two sheets that touch without sharing an edge -- are still
-  nudged by one position quantum, as before.
+  490 no longer refuses on coincident vertices (#94).  Two parts that share
+  a face used to mesh with a zero-thickness double wall across it, since a
+  union of exact distances is 0 there; that wall is now dropped and the
+  seam it leaves zipped closed, so the union meshes as one body.  Two
+  components of one cell that pinch at a point are still nudged apart by
+  one position quantum, as before.
 
 - A triangle is degenerate by shape, not size (#85).
   ``geometry_utils.triangle_normal`` used to call a triangle degenerate when
