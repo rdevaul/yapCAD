@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import math
+import sys
 from dataclasses import dataclass
 from typing import Iterable, Sequence, Tuple
 
-from yapcad.geom import cross, epsilon, mag
+from yapcad.geom import cross, mag
 
 Vec3 = Tuple[float, float, float]
 
@@ -44,21 +46,92 @@ def to_vector(vec: Sequence[float]) -> Tuple[float, float, float, float]:
     return float(vec[0]), float(vec[1]), float(vec[2]), 0.0
 
 
-def triangle_normal(v0: Vec3, v1: Vec3, v2: Vec3, *,
-                    tol: float = epsilon) -> Vec3 | None:
-    """Return a unit normal, or None when doubled area is <= ``tol``.
+#: A triangle is degenerate when twice its area is at most this fraction of
+#: its longest edge squared.  That ratio is twice the triangle's height over
+#: its base: a statement about shape, so the same triangle gets the same
+#: answer in millimetres, metres or inches (#85).  Honest triangles in
+#: yapCAD meshes measure 2e-4 and up; collinear ones 1e-11 and below.
+DEGENERATE_ASPECT = 1e-9
 
-    Mesh transport uses tol=0 to preserve small faces of closed meshes;
-    geometric predicates retain the historical tolerance by default.
+#: Multiple of the representation floor (see :func:`degenerate_floor`).
+#: Measured floors run at about half the prediction; 4 is margin.
+_FLOOR_FACTOR = 4.0
+
+
+def degenerate_floor(longest: float, magnitude: float) -> float:
+    """The smallest doubled area a triangle can meaningfully claim.
+
+    Coordinates of magnitude ``magnitude`` carry about ``magnitude * u`` of
+    absolute precision (``u`` the machine epsilon), and so do the edge
+    vectors built from them.  A cross product of edges of length ``longest``
+    is therefore noise below about ``u * magnitude * longest``: such a
+    triangle is thinner than its own coordinates can express, and calling
+    its normal undefined is the honest answer.  Near the origin this never
+    binds; it is what keeps a mesh moved far from the origin from turning
+    degenerate in a different way than the same mesh at home.
+    """
+    return _FLOOR_FACTOR * sys.float_info.epsilon * magnitude * longest
+
+
+def _degenerate(cross_len: float, v0, v1, v2) -> bool:
+    longest_sq = 0.0
+    for p, q in ((v0, v1), (v1, v2), (v2, v0)):
+        d = (q[0] - p[0]) ** 2 + (q[1] - p[1]) ** 2 + (q[2] - p[2]) ** 2
+        if d > longest_sq:
+            longest_sq = d
+    if longest_sq == 0.0:
+        return True
+    magnitude = max(abs(c) for p in (v0, v1, v2) for c in (p[0], p[1], p[2]))
+    threshold = max(DEGENERATE_ASPECT * longest_sq,
+                    degenerate_floor(math.sqrt(longest_sq), magnitude))
+    return cross_len <= threshold
+
+
+def triangle_normal(v0: Vec3, v1: Vec3, v2: Vec3, *,
+                    tol: float | None = None) -> Vec3 | None:
+    """Return a unit normal, or None when the triangle is degenerate.
+
+    By default a triangle is degenerate by shape, not size: see
+    :data:`DEGENERATE_ASPECT` and :func:`degenerate_floor`.  This is the one
+    place yapCAD answers the question, so the closure audit
+    (:func:`yapcad.geom3d.issolidclosed`) and the consumers agree.
+
+    An explicit ``tol`` instead compares the doubled area against that
+    absolute value.  Mesh transport passes ``tol=0`` to carry every face
+    with any area at all.
     """
 
     ax, ay, az = v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2]
     bx, by, bz = v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2]
     n = cross([ax, ay, az, 1.0], [bx, by, bz, 1.0])
     length = mag(n)
-    if length <= tol:
+    if tol is None:
+        if _degenerate(length, v0, v1, v2):
+            return None
+    elif length <= tol:
         return None
     return (n[0] / length, n[1] / length, n[2] / length)
+
+
+def degenerate_faces(vertices, faces):
+    """Boolean mask over ``faces`` (index triples into ``vertices``, which
+    may be yapCAD points) of the triangles :func:`triangle_normal` calls
+    degenerate.  Vectorised, for whole meshes."""
+    import numpy as np
+
+    faces = np.asarray(faces, dtype=np.int64).reshape(-1, 3)
+    if faces.size == 0:
+        return np.zeros(0, dtype=bool)
+    V = np.asarray([p[:3] for p in vertices], dtype=float)
+    T = V[faces]
+    e = [T[:, 1] - T[:, 0], T[:, 2] - T[:, 1], T[:, 0] - T[:, 2]]
+    cross_len = np.linalg.norm(np.cross(e[0], -e[2]), axis=1)
+    longest_sq = np.max([np.einsum("ij,ij->i", d, d) for d in e], axis=0)
+    magnitude = np.abs(T).reshape(len(T), -1).max(axis=1)
+    threshold = np.maximum(
+        DEGENERATE_ASPECT * longest_sq,
+        _FLOOR_FACTOR * sys.float_info.epsilon * magnitude * np.sqrt(longest_sq))
+    return (longest_sq == 0.0) | (cross_len <= threshold)
 
 
 def triangle_area(v0: Vec3, v1: Vec3, v2: Vec3) -> float:
@@ -70,9 +143,16 @@ def triangle_area(v0: Vec3, v1: Vec3, v2: Vec3) -> float:
     return 0.5 * mag(n)
 
 
-def triangle_is_degenerate(v0: Vec3, v1: Vec3, v2: Vec3, tol: float = epsilon) -> bool:
-    """Return ``True`` if a triangle collapses under the given tolerance."""
+def triangle_is_degenerate(v0: Vec3, v1: Vec3, v2: Vec3,
+                           tol: float | None = None) -> bool:
+    """Return ``True`` if a triangle has no meaningful normal.
 
+    By default this is :func:`triangle_normal`'s scale-free test; an
+    explicit ``tol`` compares the area against that absolute value.
+    """
+
+    if tol is None:
+        return triangle_normal(v0, v1, v2) is None
     return triangle_area(v0, v1, v2) <= tol
 
 
@@ -112,6 +192,9 @@ __all__ = [
     "to_point",
     "to_vector",
     "triangle_normal",
+    "degenerate_faces",
+    "degenerate_floor",
+    "DEGENERATE_ASPECT",
     "triangle_area",
     "triangle_is_degenerate",
     "orient_triangle",

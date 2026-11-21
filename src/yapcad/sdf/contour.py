@@ -40,6 +40,7 @@ from collections import namedtuple
 import numpy as np
 
 from yapcad.geom import epsilon
+from yapcad.geometry_utils import DEGENERATE_ASPECT, degenerate_faces
 from yapcad.sdf.evaluate import (
     DEFAULT_BACKEND,
     evaluate,
@@ -547,47 +548,144 @@ def dual_contour(node, resolution=64, bounds=None, padding=None,
     cell_lo = origin + np.stack(active_idx, axis=1).astype(float)[
         cell_of_vertex] * spacing
     vertices = np.clip(vertices, cell_lo, cell_lo + spacing)
-    vertices = _separate_coincident(vertices, cell_lo, spacing)
 
-    normals = _vertex_normals(node, vertices, normal_sum, eps, backend)
-    triangles = _emit_triangles(values, edge_idx, vertex_of, counts)
+    triangles = _emit_triangles(values, edge_idx, vertex_of, counts, vertices)
+    vertices, triangles, kept = _weld_coincident(
+        vertices, triangles, cell_lo, centre, spacing)
+    triangles = _flip_degenerate(vertices, triangles)
+    normals = _vertex_normals(node, vertices, normal_sum[kept], eps, backend)
     return Mesh(vertices, normals, triangles)
 
 
-def _separate_coincident(vertices, cell_lo, spacing):
-    """Pull any vertices sharing a position strictly inside their own cells.
+def _position_keys(vertices):
+    """Vertex positions quantised the way :func:`yapcad.geom3d._point_to_key`
+    quantises them, so a collision here is one ``issolidclosed`` would see."""
+    return np.round(np.asarray(vertices) / epsilon).astype(np.int64)
 
-    Clamping to the closed cell lets two neighbours land on the face they
-    share.  That matters more than it looks: yapCAD's
-    :func:`yapcad.geom3d.issolidclosed` keys edges by vertex *position*
-    rather than index, so a coincident pair merges two distinct edges, the
-    solid reads as open, and ``volumeof`` refuses it — even though the index
-    topology is perfectly sound.
 
-    Only the colliding vertices are moved, and only as far as one position
-    quantum needs.  Everything else keeps the position the QEF chose, so a
-    box whose faces land exactly on lattice planes still meshes to its exact
-    volume.  After the move each colliding vertex sits at least ``inset``
-    inside its own cell, so it is at least ``inset`` from anything in a
-    neighbouring cell and at least ``2 * inset`` from another moved vertex —
-    both comfortably more than the quantum.
+def _weld_coincident(vertices, triangles, cell_lo, centre, spacing):
+    """Merge vertices that share a position, or move them apart.
+
+    Clamping each vertex to its closed cell lets two neighbouring cells put
+    their vertices at the same point on the face, edge or corner they share.
+    Two vertices at one position are a defect for every consumer that keys
+    the mesh by position -- :func:`yapcad.geom3d.issolidclosed`, and any STL
+    reader, which has nothing else to go on.
+
+    Where the two vertices are joined by a mesh edge and collapsing that
+    edge keeps the surface a manifold (the *link condition*: the only
+    vertices they both neighbour are the two opposite that edge), they are
+    merged and the two triangles on the edge, which have no area, are
+    dropped.  Nothing moves, so the surface is exactly the one the QEF
+    chose.
+
+    What cannot be merged -- two surface components of one cell that meet at
+    a point, or two sheets that touch without sharing an edge -- is moved
+    apart by one position quantum instead, as it always was.  Merging is
+    what fixes #121: the 40 nm edges that nudge used to leave between
+    neighbouring cells collapsed when the mesh was stored as float32.
+
+    :returns: ``(vertices, triangles, kept)``, where ``kept`` indexes the
+        surviving vertices in the input, so per-vertex arrays can follow.
     """
-    keys = np.round(np.asarray(vertices) / epsilon).astype(np.int64)
+    n = len(vertices)
+    keys = _position_keys(vertices)
     _, inverse, counts = np.unique(
-        keys, axis=0, return_inverse=True, return_counts=True
-    )
-    colliding = counts[inverse.ravel()] > 1
-    if not np.any(colliding):
-        return vertices
+        keys, axis=0, return_inverse=True, return_counts=True)
+    inverse = inverse.ravel()
+    colliding = np.nonzero(counts[inverse] > 1)[0]
+    if colliding.size == 0 or triangles.size == 0:
+        return vertices, triangles, np.arange(n)
 
-    inset = min(4.0 * epsilon, 0.25 * spacing)
-    moved = vertices.copy()
-    moved[colliding] = np.clip(
-        vertices[colliding],
-        cell_lo[colliding] + inset,
-        cell_lo[colliding] + spacing - inset,
-    )
-    return moved
+    tris = triangles.copy()
+    alive = np.ones(len(tris), dtype=bool)
+    is_colliding = np.zeros(n, dtype=bool)
+    is_colliding[colliding] = True
+    incident = {int(v): set() for v in colliding}
+    for t in np.nonzero(is_colliding[tris].any(axis=1))[0]:
+        for v in tris[t]:
+            if is_colliding[v]:
+                incident[int(v)].add(int(t))
+
+    def neighbours(v):
+        out = set()
+        for t in incident[v]:
+            out.update(int(x) for x in tris[t])
+        out.discard(v)
+        return out
+
+    def collapse(u, v):
+        """Merge ``v`` into ``u`` if the edge between them allows it."""
+        shared = incident[u] & incident[v]
+        if len(shared) != 2:
+            return False
+        opposite = set()
+        for t in shared:
+            opposite.update(int(x) for x in tris[t])
+        opposite -= {u, v}
+        if len(opposite) != 2 or neighbours(u) & neighbours(v) != opposite:
+            return False
+        for t in shared:
+            alive[t] = False
+            for w in tris[t]:
+                if is_colliding[w] and int(w) not in (u, v):
+                    incident[int(w)].discard(t)
+        for t in incident[v] - shared:
+            tris[t][tris[t] == v] = u
+        incident[u] = (incident[u] | incident[v]) - shared
+        incident[v] = set()
+        return True
+
+    removed = np.zeros(n, dtype=bool)
+    stranded = []
+    order = colliding[np.argsort(inverse[colliding], kind="stable")]
+    groups = np.split(order, np.nonzero(np.diff(inverse[order]))[0] + 1)
+    for group in groups:
+        # Several cells can put a vertex on one lattice point -- a face that
+        # lands on a lattice plane does it at every corner -- and a vertex
+        # may be joined by an edge to only some of the others.  Merge pairs
+        # until no collapse is allowed, in a fixed order for determinism.
+        survivors = [int(x) for x in group]
+        merged = True
+        while merged and len(survivors) > 1:
+            merged = False
+            for a in range(len(survivors)):
+                for b in range(a + 1, len(survivors)):
+                    u, v = survivors[a], survivors[b]
+                    if collapse(u, v):
+                        removed[v] = True
+                        survivors.pop(b)
+                        merged = True
+                        break
+                if merged:
+                    break
+        if len(survivors) > 1:
+            stranded.extend(survivors)
+
+    vertices = vertices.copy()
+    if stranded:
+        # Moved only as far as one position quantum needs, so a face that
+        # lands on a lattice plane keeps its exact position.  This distance
+        # does not survive float32 far from the origin, which is why every
+        # vertex that can be merged is merged instead: what reaches here is
+        # rare -- two sheets that touch without sharing an edge, such as the
+        # zero-thickness wall where two unioned parts share a face.
+        s = np.asarray(stranded)
+        inset = min(4.0 * epsilon, 0.25 * spacing)
+        toward = centre[s] - vertices[s]
+        length = np.linalg.norm(toward, axis=1, keepdims=True)
+        step = np.where(length > 0.0,
+                        toward * (inset / np.where(length > 0.0, length, 1.0)),
+                        0.0)
+        # The step towards each vertex's own mass point separates two
+        # components of one cell; the inset separates neighbouring cells.
+        vertices[s] = np.clip(vertices[s] + step,
+                              cell_lo[s] + inset, cell_lo[s] + spacing - inset)
+
+    kept = np.nonzero(~removed)[0]
+    remap = np.full(n, -1, dtype=np.int64)
+    remap[kept] = np.arange(kept.size)
+    return vertices[kept], remap[tris[alive]], kept
 
 
 def _vertex_normals(node, vertices, normal_sum, eps, backend):
@@ -608,12 +706,93 @@ def _vertex_normals(node, vertices, normal_sum, eps, backend):
     return normals
 
 
-def _emit_triangles(values, edge_idx, vertex_of, counts):
+def _shape_quality(a, b, c):
+    """Twice a triangle's area over its longest edge squared, per row:
+    dimensionless, 0 for a degenerate triangle and about 0.87 at best."""
+    cross = np.linalg.norm(np.cross(b - a, c - a), axis=1)
+    longest = np.maximum.reduce([
+        np.einsum("ij,ij->i", b - a, b - a),
+        np.einsum("ij,ij->i", c - b, c - b),
+        np.einsum("ij,ij->i", a - c, a - c),
+    ])
+    return np.where(longest > 0.0, cross / np.where(longest > 0.0, longest, 1.0), 0.0)
+
+
+#: Shape quality below which a triangle has no meaningful normal.
+_DEGENERATE = DEGENERATE_ASPECT
+
+
+def _flip_degenerate(vertices, triangles, rounds=8):
+    """Remove zero-area triangles by flipping their longest edge.
+
+    A triangle whose vertices lie on one line -- four vertices of a quad
+    clamped onto a lattice line along a sharp edge, where neither diagonal
+    helps -- has a third vertex on its longest edge.  Flipping that edge
+    with the triangle across it splits the neighbour at that vertex: two
+    triangles covering exactly the neighbour's area, so the surface does not
+    move and nothing folds.  A flip is skipped when the new edge already
+    exists, and the pass repeats for chains of such triangles.
+    """
+    tris = np.asarray(triangles).copy()
+    if tris.size == 0:
+        return tris
+    for _ in range(rounds):
+        P = vertices[tris]
+        quality = _shape_quality(P[:, 0], P[:, 1], P[:, 2])
+        bad = np.nonzero(quality < _DEGENERATE)[0]
+        if bad.size == 0:
+            break
+        edges = {}
+        for t, (a, b, c) in enumerate(tris.tolist()):
+            edges[(a, b)] = t
+            edges[(b, c)] = t
+            edges[(c, a)] = t
+        done = set()
+        flipped = 0
+        for t in bad.tolist():
+            if t in done:
+                continue
+            tri = tris[t].tolist()
+            lengths = [np.sum((vertices[tri[(k + 1) % 3]] - vertices[tri[k]]) ** 2)
+                       for k in range(3)]
+            k = int(np.argmax(lengths))
+            a, b, c = tri[k], tri[(k + 1) % 3], tri[(k + 2) % 3]
+            t2 = edges.get((b, a))
+            if t2 is None or t2 in done:
+                continue
+            other = tris[t2].tolist()
+            d = other[(other.index(b) + 2) % 3]
+            if d == c or (c, d) in edges or (d, c) in edges:
+                continue
+            new1, new2 = [a, d, c], [d, b, c]
+            q = _shape_quality(vertices[[a, d]], vertices[[d, b]], vertices[[c, c]])
+            if q.min() < _DEGENERATE:
+                continue
+            tris[t], tris[t2] = new1, new2
+            for key in ((a, b), (b, c), (c, a), (b, a), (a, d), (d, b)):
+                edges.pop(key, None)
+            for e in ((a, d), (d, c), (c, a), (d, b), (b, c), (c, d)):
+                edges[e] = t if e in ((a, d), (d, c), (c, a)) else t2
+            done.update((t, t2))
+            flipped += 1
+        if not flipped:
+            break
+    return tris
+
+
+def _emit_triangles(values, edge_idx, vertex_of, counts, vertices=None):
     """One quad per interior crossing edge, split into two triangles.
 
     Winding is taken from the direction the field increases along the edge,
     so every triangle comes out counter-clockwise seen from outside the
     solid — yapCAD's convention, and what makes ``volumeof`` positive.
+
+    Given ``vertices``, each quad is split along whichever diagonal leaves
+    its worse triangle the better shaped.  A fixed diagonal makes a
+    zero-area triangle whenever three of the quad's vertices are clamped
+    onto one line of the lattice, and that triangle is load-bearing: it
+    closes the mesh by index while having no normal for anything that
+    reads it (#85).
     """
     pieces = []
     for axis in range(3):
@@ -644,8 +823,19 @@ def _emit_triangles(values, edge_idx, vertex_of, counts):
         flip = ~inside_first
         quad[flip] = quad[flip][:, ::-1]
 
-        pieces.append(quad[:, [0, 1, 2]])
-        pieces.append(quad[:, [0, 2, 3]])
+        if vertices is None:
+            other = np.zeros(len(quad), dtype=bool)
+        else:
+            p = [vertices[quad[:, k]] for k in range(4)]
+            first = np.minimum(_shape_quality(p[0], p[1], p[2]),
+                               _shape_quality(p[0], p[2], p[3]))
+            second = np.minimum(_shape_quality(p[0], p[1], p[3]),
+                                _shape_quality(p[1], p[2], p[3]))
+            other = second > first
+        keep = quad[~other]
+        swap = quad[other]
+        pieces.extend([keep[:, [0, 1, 2]], keep[:, [0, 2, 3]],
+                       swap[:, [0, 1, 3]], swap[:, [1, 2, 3]]])
 
     if not pieces:
         return np.zeros((0, 3), dtype=np.int64)
@@ -655,17 +845,20 @@ def _emit_triangles(values, edge_idx, vertex_of, counts):
 def manifold_defects(mesh):
     """Count the ways ``mesh`` fails to be a closed manifold.
 
-    :returns: ``{"boundary": n, "nonmanifold": n, "coincident": n}`` — edges
-        used by exactly one triangle, edges used by three or more, and
-        vertices sharing a position with another vertex.
+    :returns: ``{"boundary": n, "nonmanifold": n, "coincident": n,
+        "degenerate": n}`` — edges used by exactly one triangle, edges used
+        by three or more, vertices sharing a position with another vertex,
+        and triangles with no meaningful normal
+        (:func:`yapcad.geometry_utils.triangle_normal`).
 
     Dual contouring places **one** vertex per cell, so a cell that the
     surface passes through twice cannot represent both sheets and the result
     is non-manifold there.  In practice that means a wall thinner than a
     cell, or two lattice sheets approaching within a cell of each other.
-    The cure is more resolution, or Manifold Dual Contouring (Schaefer and
-    Ju), which splits such a cell into one vertex per surface component and
-    is not implemented here.
+    :func:`dual_contour` already places one vertex per surface *component*
+    of a cell (the vertex-splitting half of Manifold Dual Contouring), so
+    what remains is a cell whose components the corner signs cannot tell
+    apart; the cure is more resolution, or an adaptive grid.
 
     Coincident vertices are counted separately because yapCAD's own
     :func:`yapcad.geom3d.issolidclosed` keys edges by vertex *position*
@@ -680,7 +873,8 @@ def manifold_defects(mesh):
     """
     triangles = np.asarray(mesh.triangles)
     if triangles.size == 0:
-        return {"boundary": 0, "nonmanifold": 0, "coincident": 0}
+        return {"boundary": 0, "nonmanifold": 0, "coincident": 0,
+                "degenerate": 0}
     edges = np.concatenate([
         triangles[:, [0, 1]], triangles[:, [1, 2]], triangles[:, [2, 0]]
     ])
@@ -694,6 +888,8 @@ def manifold_defects(mesh):
         "boundary": int(np.sum(counts == 1)),
         "nonmanifold": int(np.sum(counts > 2)),
         "coincident": int(len(mesh.vertices) - distinct),
+        "degenerate": int(np.sum(
+            degenerate_faces(np.asarray(mesh.vertices), triangles))),
     }
 
 
