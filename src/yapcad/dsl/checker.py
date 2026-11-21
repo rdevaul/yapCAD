@@ -402,13 +402,23 @@ class TypeChecker:
                 "W201"
             )
 
+    @staticmethod
+    def _accepts(target: Type, value: Type, expr) -> bool:
+        """``target.is_assignable_from(value)``, except that an empty list
+        literal takes the element type of the list it is assigned to:
+        ``parts: list<solid> = []`` seeds a list that a loop fills (#80)."""
+        if (isinstance(expr, ListLiteral) and not expr.elements
+                and isinstance(target, ListType)):
+            return True
+        return target.is_assignable_from(value)
+
     def _check_let_statement(self, stmt: LetStatement) -> None:
         """Check a let statement."""
         init_type = self._check_expression(stmt.initializer)
         previous = self.symbols.lookup(stmt.name)
         if (stmt.type_annotation is None and previous is not None
                 and previous.kind in (SymbolKind.VARIABLE, SymbolKind.PARAMETER)):
-            if not previous.type.is_assignable_from(init_type):
+            if not self._accepts(previous.type, init_type, stmt.initializer):
                 self._error(
                     f"Cannot assign '{init_type}' to target of type '{previous.type}'",
                     stmt.initializer.span, "E212")
@@ -417,7 +427,7 @@ class TypeChecker:
 
         if stmt.type_annotation is not None:
             declared_type = self._resolve_type_node(stmt.type_annotation)
-            if not declared_type.is_assignable_from(init_type):
+            if not self._accepts(declared_type, init_type, stmt.initializer):
                 self._error(
                     f"Cannot assign '{init_type}' to variable of type '{declared_type}'",
                     stmt.initializer.span,
@@ -447,7 +457,7 @@ class TypeChecker:
         target_type = self._check_expression(stmt.target)
         value_type = self._check_expression(stmt.value)
 
-        if not target_type.is_assignable_from(value_type):
+        if not self._accepts(target_type, value_type, stmt.value):
             self._error(
                 f"Cannot assign '{value_type}' to target of type '{target_type}'",
                 stmt.value.span,
@@ -949,7 +959,30 @@ class TypeChecker:
         return_type = sig.return_type
         if isinstance(return_type, ListType) and return_type.element_type == UNKNOWN:
             # Functions that return list<unknown> need type inference
-            if sig.name in ('concat', 'reverse', 'flatten'):
+            if sig.name in ('concat', 'append'):
+                # The element type comes from whichever operand knows it, so
+                # an empty seed does not erase it: concat([], [p]) and
+                # append([], p) are both lists of p's type.
+                known = [t for t in arg_types[:1] if isinstance(t, ListType)
+                         and t.element_type != UNKNOWN]
+                if not known and len(arg_types) > 1:
+                    second = arg_types[1]
+                    if sig.name == 'append' and second not in (UNKNOWN, ERROR):
+                        known = [make_list_type(second)]
+                    elif (isinstance(second, ListType)
+                          and second.element_type != UNKNOWN):
+                        known = [second]
+                if known:
+                    return_type = known[0]
+                if (sig.name == 'append' and len(arg_types) > 1
+                        and isinstance(arg_types[0], ListType)
+                        and arg_types[0].element_type not in (UNKNOWN, ERROR)
+                        and arg_types[1] not in (UNKNOWN, ERROR)
+                        and not arg_types[0].element_type.is_assignable_from(arg_types[1])):
+                    self._error(
+                        f"Cannot append '{arg_types[1]}' to '{arg_types[0]}'",
+                        expr.span, "E272")
+            elif sig.name in ('reverse', 'flatten'):
                 if arg_types and isinstance(arg_types[0], ListType):
                     if sig.name == 'flatten' and isinstance(arg_types[0].element_type, ListType):
                         # flatten: list<list<T>> -> list<T>

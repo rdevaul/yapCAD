@@ -778,6 +778,10 @@ class SymbolTable:
             ("list1", make_list_type(UNKNOWN), None),
             ("list2", make_list_type(UNKNOWN), None),
         ], make_list_type(UNKNOWN))  # Concatenate two lists
+        self._register_builtin("append", [
+            ("list", make_list_type(UNKNOWN), None),
+            ("item", UNKNOWN, None),
+        ], make_list_type(UNKNOWN))  # A new list with item added at the end
         self._register_builtin("reverse", [
             ("list", make_list_type(UNKNOWN), None),
         ], make_list_type(UNKNOWN))  # Reverse a list
@@ -845,6 +849,10 @@ class SymbolTable:
             ("datum_a",   STRING,   None),
             ("part_b",    STRING,   None),
             ("datum_b",   STRING,   None),
+        ], ASSEMBLY)
+        self._register_builtin("fix_part", [
+            ("asm", ASSEMBLY, None),
+            ("name", STRING, None),
         ], ASSEMBLY)
         self._register_builtin("solve_assembly", [
             ("asm", ASSEMBLY, None),

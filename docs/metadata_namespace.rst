@@ -185,6 +185,38 @@ Captures analysis intent, solver information, and result references for the enti
 
 
 
+6a. Magnet Namespace (`magnet`)
+-------------------------------
+
+Marks a permanent magnet, so viewers can draw its magnetization and
+electromagnetic tools can pick it up.  yapCAD has no magnet primitive; any
+solid may carry this section.
+
+.. list-table::
+   :header-rows: 1
+
+   * - Key
+     - Type
+     - Description
+   * - ``M``
+     - array[3] of number
+     - Magnetization direction in the part's own frame.  Consumers normalise it.
+   * - ``Br_T``
+     - number
+     - Remanence in tesla.
+   * - ``Hcj_kA_m``
+     - number, optional
+     - Intrinsic coercivity in kA/m.
+   * - ``grade``
+     - string, optional
+     - Grade name, e.g. ``"N52"``.
+   * - ``pattern``
+     - string, optional
+     - ``"axial"`` (default), ``"diametric"`` or ``"radial"``.  With ``"radial"``, ``M`` is ignored and the field points away from the part's axis.
+
+The direction is in the part's frame, so it turns with the part when an
+assembly places it.
+
 7. Custom Extensions
 --------------------
 

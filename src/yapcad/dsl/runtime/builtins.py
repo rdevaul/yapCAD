@@ -2795,6 +2795,9 @@ class BuiltinRegistry:
                 result = solid_boolean(result, operands[i], 'intersection')
             return _inherit_metadata(solid_val(result), operands[0])
 
+        _COMPOUND_CHILD_KEYS = ('name', 'material', 'layer', 'tags',
+                                'magnet', 'manufacturing', 'assembly')
+
         def _compound(*args: Value) -> Value:
             """Create a compound of multiple solids without boolean operations.
 
@@ -2819,11 +2822,42 @@ class BuiltinRegistry:
             if len(operands) == 0:
                 raise ValueError("compound requires at least one solid")
 
-            # Collect all surfaces from all solids for the mesh representation
+            # Collect all surfaces from all solids for the mesh representation.
+            # Each child's surfaces are tagged with its material and recorded
+            # as a range, so the compound keeps the parts apart for viewers
+            # and the BOM rather than reading as one body (#80).
+            from copy import deepcopy
+            from yapcad.geom3d import issolid
+            from yapcad.metadata import (get_solid_metadata,
+                                         get_surface_metadata,
+                                         set_surface_metadata)
             all_surfaces = []
-            for op in operands:
-                if len(op) > 1 and op[1]:
-                    all_surfaces.extend(op[1])
+            children = []
+            for index, op in enumerate(operands):
+                start = len(all_surfaces)
+                meta = deepcopy(get_solid_metadata(op)) if issolid(op) else {}
+                material = meta.get('material')
+                for surf in (op[1] if len(op) > 1 and op[1] else []):
+                    if material is not None:
+                        # A copy, so tagging never touches the operand.
+                        surf = list(surf)
+                        surface_meta = deepcopy(get_surface_metadata(surf))
+                        surface_meta.setdefault('material', deepcopy(material))
+                        set_surface_metadata(surf, surface_meta)
+                    all_surfaces.append(surf)
+                child = {'index': index, 'surfaces': [start, len(all_surfaces)]}
+                # Identity and the descriptive keys only: not the child's
+                # geometry (its BREP), which the compound carries anyway.
+                child.update({k: meta[k] for k in _COMPOUND_CHILD_KEYS
+                              if k in meta})
+                if meta.get('id'):
+                    child['source_id'] = meta['id']
+                children.append(child)
+
+            def with_children(result):
+                get_solid_metadata(result, create=True)['compound'] = {
+                    'children': children}
+                return result
 
             # Create result solid with combined surfaces.  When every
             # operand is field-authored the compound keeps their fields, so
@@ -2841,11 +2875,11 @@ class BuiltinRegistry:
                 # itself; without the plan it would be indistinguishable
                 # from an empty solid.
                 from yapcad.sdf.deferred import plan_from_sources
-                return solid_val(solid(
+                return solid_val(with_children(solid(
                     all_surfaces, [],
                     to_construction(tree,
-                                    meshing=plan_from_sources(tree, operands))))
-            result = solid(all_surfaces, [], ['procedure', 'compound'])
+                                    meshing=plan_from_sources(tree, operands)))))
+            result = with_children(solid(all_surfaces, [], ['procedure', 'compound']))
 
             # If OCC available, create a proper compound shape
             if occ_available():
@@ -3221,6 +3255,13 @@ class BuiltinRegistry:
             # Create Value directly since combined contains raw data
             return Value(combined, ListType(elem_type))
 
+        def _append(lst: Value, item: Value) -> Value:
+            """A new list: ``lst`` with ``item`` added at the end."""
+            elem_type = lst.type.element_type
+            if elem_type == UNKNOWN:
+                elem_type = item.type
+            return Value(list(lst.data) + [item.data], ListType(elem_type))
+
         def _reverse(lst: Value) -> Value:
             """Reverse a list."""
             reversed_data = list(reversed(lst.data))
@@ -3259,6 +3300,11 @@ class BuiltinRegistry:
             "concat",
             _make_sig("concat", [ListType(UNKNOWN), ListType(UNKNOWN)], ListType(UNKNOWN)),
             _concat,
+        ))
+        self.register(BuiltinFunction(
+            "append",
+            _make_sig("append", [ListType(UNKNOWN), UNKNOWN], ListType(UNKNOWN)),
+            _append,
         ))
         self.register(BuiltinFunction(
             "reverse",
@@ -4289,6 +4335,11 @@ class BuiltinRegistry:
             ))
             return asm
 
+        def _fix_part(asm: Value, name: Value) -> Value:
+            """Keep a part at the pose it was added in when solving (#80)."""
+            asm.data.fix_part(str(name.data))
+            return asm
+
         def _solve_assembly(asm: Value, root_part: Value) -> Value:
             result = asm.data.solve(str(root_part.data))
             if not result.success:
@@ -4454,6 +4505,11 @@ class BuiltinRegistry:
                 "set_joint_position", [ASSEMBLY, STRING, FLOAT], ASSEMBLY,
             ),
             _set_joint_position,
+        ))
+        self.register(BuiltinFunction(
+            "fix_part",
+            _make_sig("fix_part", [ASSEMBLY, STRING], ASSEMBLY),
+            _fix_part,
         ))
         self.register(BuiltinFunction(
             "set_mate_limits",

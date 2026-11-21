@@ -233,6 +233,29 @@ numerics, and lists of the above.  Non-literals are stringified.
 | `operation.policy` | `strict`, `warn`, `ignore` |
 | `operation.feature_kind` | `access_panel`, `vent`, `parachute_door`, `fastener_through`, `wire_pass`, `channel`, `pocket`, `other` |
 
+#### Magnets
+
+yapCAD has no magnet primitive.  Mark a permanent magnet with a `magnet`
+section so viewers can draw its magnetization and EM tools can pick it up:
+
+```python
+@meta(material={"name": "N52"},
+      magnet={"M": [0.0, 1.0, 0.0], "Br_T": 1.28})
+command RING_MAGNET() -> solid:
+    ...
+```
+
+| Key | Type | Meaning |
+|-----|------|---------|
+| `magnet.M` | 3-vector | Magnetization direction in the part's own frame (normalised by consumers) |
+| `magnet.Br_T` | float | Remanence, tesla |
+| `magnet.Hcj_kA_m` | float, optional | Intrinsic coercivity, kA/m |
+| `magnet.grade` | string, optional | Grade name, e.g. `"N52"` |
+| `magnet.pattern` | string, optional | `"axial"` (default), `"diametric"` or `"radial"`; with `"radial"`, `M` is ignored and the field points away from the part's axis |
+
+The direction is in the part's frame, so it turns with the part when an
+assembly places it.  `compound` keeps each child's `magnet` section.
+
 #### Surfaced through the service API
 
 The `/dsl/commands` endpoint includes `meta_hint` in each command object when
@@ -288,6 +311,29 @@ command MY_PART(
 
 All key values must be **literals** (strings, numbers, booleans, or lists of
 literals).  Non-literal expressions are accepted by the parser but stringified.
+
+#### Magnets
+
+yapCAD has no magnet primitive.  Mark a permanent magnet with a `magnet`
+section so viewers can draw its magnetization and EM tools can pick it up:
+
+```python
+@meta(material={"name": "N52"},
+      magnet={"M": [0.0, 1.0, 0.0], "Br_T": 1.28})
+command RING_MAGNET() -> solid:
+    ...
+```
+
+| Key | Type | Meaning |
+|-----|------|---------|
+| `magnet.M` | 3-vector | Magnetization direction in the part's own frame (normalised by consumers) |
+| `magnet.Br_T` | float | Remanence, tesla |
+| `magnet.Hcj_kA_m` | float, optional | Intrinsic coercivity, kA/m |
+| `magnet.grade` | string, optional | Grade name, e.g. `"N52"` |
+| `magnet.pattern` | string, optional | `"axial"` (default), `"diametric"` or `"radial"`; with `"radial"`, `M` is ignored and the field points away from the part's axis |
+
+The direction is in the part's frame, so it turns with the part when an
+assembly places it.  `compound` keeps each child's `magnet` section.
 
 #### Surfaced through the service API
 
@@ -698,7 +744,10 @@ difference(a: solid, tools: list<solid>) -> solid  # variadic
 intersection(a: solid, b: solid) -> solid
 intersection(solids: list<solid>) -> solid  # variadic
 
-# Compound - combine without merging (for multi-body assemblies)
+# Compound - combine without merging (for multi-body assemblies).
+# Each child keeps its identity: its surfaces carry its material, and the
+# compound's metadata lists the children under compound.children, with the
+# range of surfaces each one contributed and its material, layer and tags.
 compound(a: solid, b: solid) -> solid
 compound(solids: list<solid>) -> solid  # variadic
 
@@ -904,8 +953,18 @@ range(end: int) -> list<int>                       # [0, 1, ..., end-1]
 range(start: int, end: int) -> list<int>           # [start, ..., end-1]
 range(start: int, end: int, step: int) -> list<int>
 concat(list1: list<T>, list2: list<T>) -> list<T>
+append(lst: list<T>, item: T) -> list<T>           # a new list; lst is unchanged
 reverse(lst: list<T>) -> list<T>
 flatten(nested: list<list<T>>) -> list<T>
+```
+
+An empty list literal takes the element type of the list it is assigned to,
+so a typed list can be seeded empty and filled in a loop:
+
+```python
+parts: list<solid> = []
+for i in range(n):
+    parts = append(parts, translate(LEG(), 20.0 * i, 0.0, 0.0))
 ```
 
 ### Aggregation Functions
@@ -1498,6 +1557,7 @@ Assembly builtins:
 | `add_mate(asm, kind, part_a, datum_a, part_b, datum_b)` | `assembly` | Add a backwards-compatible synthesized-name mate |
 | `add_named_mate(asm, name, kind, part_a, datum_a, part_b, datum_b)` | `assembly` | Add a stable, pose-addressable mate |
 | `solve_assembly(asm, root_part)` | `assembly` | Solve a rooted rigid/revolute placement tree |
+| `fix_part(asm, name)` | `assembly` | Keep a part at the pose it was added in, instead of placing it by mates; parts mated to it are placed from it |
 | `set_joint_position(asm, mate_name, value)` | `assembly` | Set an absolute revolute position in radians and re-solve |
 | `set_mate_limits(asm, mate_name, min_value, max_value)` | `assembly` | Set inclusive revolute position limits in radians |
 | `add_joint_coupling(asm, name, dependent, drivers, coefficients, offset)` | `assembly` | Define `dependent = offset + sum(coefficients[i] * drivers[i])` |
