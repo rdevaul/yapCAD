@@ -327,7 +327,8 @@ class TestManifoldGuard:
         for node in (sdf.sphere(5.0), sdf.box(8.0), sdf.torus(9.0, 2.5)):
             mesh = sdf.dual_contour(node, resolution=24)
             assert sdf.manifold_defects(mesh) == {
-                "boundary": 0, "nonmanifold": 0, "coincident": 0
+                "boundary": 0, "nonmanifold": 0, "coincident": 0,
+            "degenerate": 0,
             }
 
     def test_an_empty_mesh_is_not_a_defect(self):
@@ -336,7 +337,8 @@ class TestManifoldGuard:
             bounds=((50.0, 50.0, 50.0), (60.0, 60.0, 60.0)),
         )
         assert sdf.manifold_defects(mesh) == {
-            "boundary": 0, "nonmanifold": 0, "coincident": 0
+            "boundary": 0, "nonmanifold": 0, "coincident": 0,
+            "degenerate": 0,
         }
 
     def test_resolution_must_be_at_least_two(self):
