@@ -8,6 +8,7 @@ import struct
 import pytest
 from yapcad.geom import point
 from yapcad.geom3d import solid, surface
+from yapcad.geom import epsilon
 from yapcad.geometry_utils import triangle_normal
 from yapcad.io.stl import write_stl
 from yapcad.mesh import mesh_view
@@ -49,7 +50,10 @@ def test_exactly_degenerate_face_is_still_skipped():
     assert list(mesh_view(obj)) == []
 
 
-def test_normal_default_tolerance_is_unchanged():
+def test_default_degeneracy_is_judged_by_shape_not_size():
+    # A well-shaped triangle 0.1 um across has a normal (#85); an explicit
+    # absolute tolerance still behaves as it always did.
     points = [(0, 0, 0), (1e-4, 0, 0), (0, 1e-4, 0)]
-    assert triangle_normal(*points) is None
+    assert triangle_normal(*points) == (0.0, 0.0, 1.0)
+    assert triangle_normal(*points, tol=epsilon) is None
     assert triangle_normal(*points, tol=0.0) == (0.0, 0.0, 1.0)
