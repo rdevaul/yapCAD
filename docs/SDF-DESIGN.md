@@ -282,14 +282,15 @@ extending the `authoritative` enum is a breaking change for strict readers.
     "generatedFrom": "sdf",
     "method": "dual-contouring",
     "resolution": 128,
-    "adaptiveDepth": 4,
-    "tolerance": 0.01
+    "adaptive": {"cellMin": 0.05, "cellMax": 0.8, "tolerance": 0.01}
   }
 }
 ```
 
 Meshing parameters are recorded so that the preview is *reproducible*, which
-matters for package signing.
+matters for package signing. `adaptive` is present only for adaptive meshes;
+see `sdf-adaptive-contouring.md` §7 for the choice of explicit cell bounds
+over a depth count.
 
 ### 8.3 Slot-semantics defects (resolved)
 
