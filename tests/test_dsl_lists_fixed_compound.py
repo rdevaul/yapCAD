@@ -20,6 +20,56 @@ def run(source, command="C"):
 # typed lists
 # ---------------------------------------------------------------------------
 
+@pytest.mark.parametrize("element, grow, expected", [
+    ("solid", "append(xs, box(1.0, 1.0, 1.0))", "list<solid>"),
+    ("solid", "concat(xs, [box(1.0, 1.0, 1.0)])", "list<solid>"),
+    ("float", "append(xs, 1.5)", "list<float>"),
+    # An int joins a list of float without making it a list of int.
+    ("float", "append(xs, 2)", "list<float>"),
+    ("string", "append(xs, \"a\")", "list<string>"),
+])
+def test_a_seeded_list_is_tagged_with_what_it_holds(element, grow, expected):
+    """An empty literal has no element to take a type from, and used to be
+    a list of int at run time whatever it was declared as -- so a
+    ``list<solid>`` built in a loop reached its consumers tagged
+    ``list<int>``, and a loop over it handed out solids labelled int."""
+    result = run(f"""
+        module t
+        command C() -> list<{element}>:
+            xs: list<{element}> = []
+            for i in range(2):
+                xs = {grow}
+            emit xs
+    """)
+    assert result.success, result.error_message
+    assert str(result.emit_result.value.type) == expected
+    assert len(result.emit_result.value.data) == 2
+
+
+def test_a_list_emptied_by_reassignment_keeps_its_type():
+    result = run("""
+        module t
+        command C() -> list<float>:
+            xs: list<float> = [1.0, 2.0]
+            xs = []
+            xs = append(xs, 3.5)
+            emit xs
+    """)
+    assert result.success, result.error_message
+    assert str(result.emit_result.value.type) == "list<float>"
+    assert result.emit_result.value.data == [3.5]
+
+
+def test_an_untyped_empty_list_is_still_a_list_of_int():
+    from yapcad.dsl.runtime.builtins import call_builtin
+    from yapcad.dsl.runtime.values import Value, float_val, int_val
+    from yapcad.dsl.types import INT, ListType
+    empty = Value([], ListType(INT))
+    assert str(call_builtin("append", [empty, int_val(1)]).type) == "list<int>"
+    # With nothing to go on but the item, the item decides.
+    assert str(call_builtin("append", [empty, float_val(1.5)]).type) \
+        == "list<float>"
+
 def test_an_empty_typed_list_is_filled_with_append():
     result = run("""
         module t

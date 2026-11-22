@@ -3250,15 +3250,24 @@ class BuiltinRegistry:
         def _concat(list1: Value, list2: Value) -> Value:
             """Concatenate two lists."""
             combined = list1.data + list2.data
-            # Get element type from the list type info, not from data
+            # Get element type from the list type info, not from data.  An
+            # empty first list has nothing to say about what it holds -- an
+            # untyped ``[]`` is tagged as a list of int -- so the second
+            # list's type stands.
             elem_type = list1.type.element_type
+            if not list1.data and list2.data:
+                elem_type = list2.type.element_type
             # Create Value directly since combined contains raw data
             return Value(combined, ListType(elem_type))
 
         def _append(lst: Value, item: Value) -> Value:
             """A new list: ``lst`` with ``item`` added at the end."""
             elem_type = lst.type.element_type
-            if elem_type == UNKNOWN:
+            # An empty list's tag may be the int default of an untyped
+            # ``[]``; a float added to a list<float> seed stays a float list.
+            if elem_type == UNKNOWN or (
+                    not lst.data and lst.type == ListType(INT)
+                    and item.type != INT):
                 elem_type = item.type
             return Value(list(lst.data) + [item.data], ListType(elem_type))
 

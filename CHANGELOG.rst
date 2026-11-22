@@ -10,6 +10,9 @@ Unreleased
   ``parts: list<solid> = []`` type-checks, and the new
   ``append(list<T>, T) -> list<T>`` adds one item, refusing one of the wrong
   type.  ``concat`` onto an empty seed keeps the other operand's type.
+  The list is tagged at run time with
+  what it was declared to hold: an empty literal used to be a list of int
+  whatever its declaration said.
 
 - ``fix_part(asm, name)`` keeps a part at the pose it was added in when the
   assembly is solved (``Assembly.fix_part`` in Python).  A part built in

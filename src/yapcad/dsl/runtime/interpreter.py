@@ -1091,7 +1091,14 @@ class Interpreter:
     def _eval_list_literal(self, lst: ListLiteral, ctx: ExecutionContext) -> Value:
         """Evaluate a list literal."""
         if not lst.elements:
-            return list_val([], INT)  # Empty list, default to int
+            # The checker records the list type an empty literal is assigned
+            # to (``parts: list<solid> = []``), so the value is tagged as
+            # what it will hold.  With nothing recorded it is a list of int,
+            # as it always was.
+            seeded = getattr(lst, "seeded_type", None)
+            if isinstance(seeded, ListType):
+                return Value([], seeded)
+            return list_val([], INT)
 
         values = [self._evaluate(elem, ctx) for elem in lst.elements]
         elem_type = values[0].type if values else INT

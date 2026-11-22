@@ -409,6 +409,9 @@ class TypeChecker:
         ``parts: list<solid> = []`` seeds a list that a loop fills (#80)."""
         if (isinstance(expr, ListLiteral) and not expr.elements
                 and isinstance(target, ListType)):
+            # Tell the interpreter too: an empty literal carries no element
+            # to take a type from, and would otherwise be a list of int.
+            expr.seeded_type = target
             return True
         return target.is_assignable_from(value)
 
