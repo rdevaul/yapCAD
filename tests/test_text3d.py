@@ -100,11 +100,23 @@ class TestTextWidth:
         assert w3 > w1
 
     def test_height_scaling(self):
-        """Width should scale with height."""
-        w5 = text_width('HELLO', height=5.0)
-        w10 = text_width('HELLO', height=10.0)
+        """Glyph widths scale with height."""
+        w5 = text_width('HELLO', height=5.0, spacing=0.0)
+        w10 = text_width('HELLO', height=10.0, spacing=0.0)
         ratio = w10 / w5
-        assert 1.9 < ratio < 2.1, f"Width scaling incorrect: {ratio}"
+        assert ratio == pytest.approx(2.0, rel=1e-9), f"Width scaling incorrect: {ratio}"
+
+    def test_block_spacing_scales_with_height(self):
+        """Block-font spacing is in character units, so it scales too."""
+        w5 = text_width('HELLO', height=5.0, font='block')
+        w10 = text_width('HELLO', height=10.0, font='block')
+        assert w10 / w5 == pytest.approx(2.0, rel=1e-9)
+
+    def test_spacing_adds_to_the_width(self):
+        """Extra spacing widens the text by the same amount at every gap."""
+        tight = text_width('HELLO', height=5.0, spacing=0.0)
+        loose = text_width('HELLO', height=5.0, spacing=1.0)
+        assert loose > tight
 
 
 class TestTextSolid:
