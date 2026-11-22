@@ -413,7 +413,7 @@ def proves_empty(node, resolution=64, bounds=None, padding=None, chunk=32,
 
 def dual_contour(node, resolution=64, bounds=None, padding=None,
                  chunk=32, prune=True, backend=DEFAULT_BACKEND,
-                 cell_mm=None):
+                 cell_mm=None, sampling="chunks"):
     """Mesh the surface of ``node`` by dual contouring.
 
     :param resolution: cells across the longest axis of the region.
@@ -425,6 +425,12 @@ def dual_contour(node, resolution=64, bounds=None, padding=None,
     :param prune: use the Lipschitz bound to skip empty chunks.
     :param cell_mm: the cell size to mesh at, in model units, instead of
         deriving one from ``resolution``.
+    :param sampling: how the corner lattice is filled.  ``"chunks"`` samples
+        every corner of each ``chunk``-sized block the surface may reach.
+        ``"octree"`` subdivides further and samples only corners within
+        about a cell of the surface (:mod:`yapcad.sdf.octree`); the mesh is
+        identical, with fewer field evaluations.  ``prune=False`` samples
+        every corner either way.
     :returns: a :class:`Mesh`.
 
     An empty :class:`Mesh` means the lattice found no surface, which is
@@ -434,10 +440,19 @@ def dual_contour(node, resolution=64, bounds=None, padding=None,
 
     The result is deterministic: identical arguments give identical arrays.
     """
+    if sampling not in ("chunks", "octree"):
+        raise SdfError(
+            f"dual_contour: sampling must be 'chunks' or 'octree', "
+            f"got {sampling!r}")
     origin, spacing, counts = _resolve_region(node, bounds, resolution,
                                               padding, cell_mm)
-    values = sample_corners(node, origin, spacing, counts, chunk=chunk,
-                            prune=prune, backend=backend)
+    if prune and sampling == "octree":
+        from yapcad.sdf.octree import sample_corners_octree
+        values = sample_corners_octree(node, origin, spacing, counts,
+                                       backend=backend).values
+    else:
+        values = sample_corners(node, origin, spacing, counts, chunk=chunk,
+                                prune=prune, backend=backend)
 
     crossings = [_edge_crossings(values, axis) for axis in range(3)]
     edge_idx = [np.nonzero(crossings[axis]) for axis in range(3)]

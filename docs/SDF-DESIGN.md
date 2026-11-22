@@ -486,15 +486,19 @@ Empty space therefore costs almost nothing, and peak memory is bounded by the
 chunk rather than the lattice. Every emitted cell is still the same size,
 though. Genuinely adaptive *output* — variable leaf depth with QEF-error
 collapse — needs the crack-patching cell/face/edge traversal of Ju et al. and
-is deferred. The tests assert that pruned and unpruned meshing agree
-bit-for-bit, which is what makes the optimisation safe to trust.
+is deferred; `sdf-adaptive-contouring.md` is the plan, and its stage A, an
+octree that samples only corners near the surface
+(`dual_contour(..., sampling="octree")`), is built. The tests assert that
+pruned, unpruned and octree-sampled meshing agree bit-for-bit, which is what
+makes the optimisation safe to trust.
 
 **One vertex per cell is a real limit, and it is now detected.** Dual
 contouring cannot represent two surface sheets passing through one cell, so
 a wall or a gap thinner than a cell yields non-manifold edges: a gyroid with
 a 0.37-unit wall meshed at a 0.63-unit cell produces 42 of them. Manifold
 Dual Contouring (Schaefer and Ju) fixes this by splitting such a cell into
-one vertex per surface component; it is not implemented. Following §5.3's
+one vertex per surface component; that has since been implemented (032da42),
+and the check below now catches what remains. Following §5.3's
 own argument that a tool which states its limits beats one that degrades
 silently, `to_solid` checks edge multiplicity by default and refuses with a
 message naming the cause and the cure, with `check=False` to override.

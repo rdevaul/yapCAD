@@ -5,6 +5,17 @@ Changelog
 Unreleased
 ==========
 
+- Stage A of adaptive dual contouring (#94): ``dual_contour`` and
+  ``to_solid`` take ``sampling="octree"``, which subdivides the corner
+  lattice with the Lipschitz bound and samples only the corners within about
+  a cell of the surface (``yapcad.sdf.octree``).  The mesh is byte-identical
+  to the default ``sampling="chunks"``.  It pays where a field sample is
+  expensive (an engraved block meshes its corners 6.5 times faster on numba)
+  and costs time on primitive fields, so it is opt-in.  The design note
+  ``docs/sdf-adaptive-contouring.md`` now records that §3's hidden-crossing
+  test (R2) fires next to every surface as stated, and must be redesigned
+  before stage B.
+
 - The DSL can build a typed list in a loop (#80).  An empty list literal
   takes the element type of the list it is assigned to, so
   ``parts: list<solid> = []`` type-checks, and the new

@@ -101,7 +101,7 @@ MAX_RESOLUTION = 256
 def to_solid(node, resolution=64, bounds=None, padding=None, chunk=32,
              prune=True, backend=None, metadata=None, check=True,
              brep=False, cell_mm=None, refine=True,
-             refine_limit=MAX_RESOLUTION, defer=None):
+             refine_limit=MAX_RESOLUTION, defer=None, sampling="chunks"):
     """Mesh ``node`` and return it as a yapCAD solid.
 
     :param resolution: cells across the longest axis; the dominant quality
@@ -126,6 +126,9 @@ def to_solid(node, resolution=64, bounds=None, padding=None, chunk=32,
         which is what an empty CSG result is.
     :param refine_limit: the most cells across the longest axis refinement
         will ask for.
+    :param sampling: ``"chunks"`` or ``"octree"``, passed to
+        :func:`~yapcad.sdf.contour.dual_contour`.  The mesh is the same
+        either way; ``"octree"`` evaluates the field at fewer points.
     :param backend: what evaluates the field: ``"numpy"``, ``"numba"`` or
         ``"auto"``.  ``None`` follows ``YAPCAD_SDF_BACKEND``, which is
         ``auto`` unless set; see :func:`yapcad.sdf.evaluate.mesh_backend`.
@@ -211,7 +214,8 @@ def to_solid(node, resolution=64, bounds=None, padding=None, chunk=32,
         for body, body_bounds, body_cells in plan_for(cells):
             mesh = dual_contour(body, resolution=body_cells,
                                 bounds=body_bounds, padding=padding,
-                                chunk=chunk, prune=prune, backend=backend)
+                                chunk=chunk, prune=prune, backend=backend,
+                                sampling=sampling)
             if len(mesh.triangles) == 0:
                 absent.append((body, body_bounds, body_cells))
                 continue
