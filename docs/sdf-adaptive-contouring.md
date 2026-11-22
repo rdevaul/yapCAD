@@ -131,14 +131,13 @@ instead of the uniform cell.
 - `to_solid` passes `cell_mm` as `cell_min`. A new `tolerance` (chordal
   error, in model units) defaults to half of `cell_min`. `resolution`, if
   given, sets `cell_max`.
-- The meshing record gains `"adaptive": {"cellMin": ..., "cellMax": ...,
-  "tolerance": ...}`. `SDF-DESIGN.md` §8.2 already reserves `adaptiveDepth`;
-  one name should win.
+- The meshing record gains `"adaptive": {"coarsest": ..., "tolerance": ...}`
+  beside `resolution`, in cells rather than model units, which replaces the
+  `adaptiveDepth` that `SDF-DESIGN.md` §8.2 used to reserve (§7, decision 5).
 - The refine-on-failure loop in `to_solid` becomes unnecessary for adaptive
   meshes: R1 and R2 find thin material directly. It stays for uniform meshes.
-- `simplify_finished` stays available, but on adaptive output it should
-  become a polish pass. Whether it runs by default is a measurement
-  question; see §7.
+- `simplify_finished` stays available, but it does not run by default on
+  adaptive output (§7, decision 4).
 - Backends: corner sampling becomes a gather over integer keys per level,
   evaluated in one call per level, so numpy, numba and the tape backend all
   apply unchanged.
@@ -170,8 +169,9 @@ value, at three tolerances.
 plus `simplify_finished` on the plate, the miter gear and the rover
 cradle.
 
-**D. Default.** Switch `to_solid` to adaptive if C shows equal or better
-error at lower cost. Otherwise keep it opt-in.
+**D. Default.** Adaptive stays opt-in for now (§7, decision 1). Switching
+`to_solid` to adaptive is a separate decision, made once C shows equal or
+better error at lower cost and the opt-in mesher has been used in practice.
 
 A rough expectation for the plate, not yet measured: leaves concentrate
 along the strokes and the plate's edges, so the sampled corners should be a
@@ -179,22 +179,37 @@ small fraction of the uniform lattice's 2.9 million cells, and the triangle
 count should land near the simplified mesh's (8,784 in #94) rather than near
 512,000. Stage A's numbers will replace this guess.
 
-## 7. Decisions needed
+## 7. Decisions (settled 2026-11-21)
 
-1. **Default behaviour.** Should adaptive meshing become `to_solid`'s default
-   once stage C measures well, or stay opt-in (as the GPU backend is)?
-2. **Knobs.** Keep `resolution`, which counts cells across the bounding box,
-   as a coarse cap, or deprecate it in favour of `cell_min`, `cell_max` and
-   `tolerance` in model units?
-3. **Determinism.** Uniform meshes are deterministic per backend today. Is
-   the same guarantee required of adaptive meshes? It rules out
-   order-dependent balancing, so the design above balances by key order.
-4. **Simplifier.** If adaptive output is within, say, 1.5 times the
-   simplified triangle count, should `simplify_finished` stop running by
-   default?
-5. **Record format.** `adaptiveDepth` (reserved in §8.2) or the explicit cell
-   bounds in §5? Packages are signed, so this is a format decision rather
-   than a detail.
+1. **Default behaviour: opt-in.** `adaptive=False` stays the default.
+   Stage D is a later decision, made once the opt-in mesher has a track
+   record, not automatically when stage C measures well.
+2. **Knobs: keep `resolution` as a coarse cap.** It sets `cell_max`;
+   `cell_min`, `cell_max` and `tolerance` are added alongside it and nothing
+   is deprecated.
+3. **Determinism: required.** For a given backend, the same node and
+   parameters give the same mesh, byte for byte, as uniform meshes do.
+   Balancing and every other pass run in key order, never in an order that
+   depends on evaluation or thread scheduling.
+4. **Simplifier: off by default on adaptive output.** Adaptive meshing is
+   meant to be a single-pass alternative to uniform meshing plus
+   `simplify_finished`, with a competitive triangle count. So
+   `simplify_finished` does not run by default when `adaptive=True`; it stays
+   available on request. Stage C's measurement is the acceptance test for
+   this goal (within about 1.5 times the simplified count, at equal or better
+   chordal error), not a gate on the default.
+5. **Record format: cell bounds, in cells.** The record keeps `resolution`,
+   cells across the longest axis at the finest cell, as it does today, and
+   an adaptive mesh adds
+   `"adaptive": {"coarsest": <cells across at cell_max>,
+   "tolerance": <chordal tolerance as a fraction of the finest cell>}`.
+   `resolution` must be `coarsest` times a power of two, and that power is
+   the tree's depth, so `adaptiveDepth` is dropped from `SDF-DESIGN.md`
+   §8.2. The bounds are recorded in cells rather than millimetres for the
+   reason `resolution` already is (`convert.py`, `_deferred_solid`): it is
+   what survives a transform, since a part scaled after meshing is still
+   the same number of cells across, where its cell size in millimetres has
+   changed. Nothing has written `adaptiveDepth` yet.
 
 ## References
 
