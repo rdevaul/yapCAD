@@ -793,6 +793,19 @@ def edge_info(edge: BrepEdge) -> dict:
 
 # Convenience functions for combining selections
 
+def _shape_key(shape):
+    """Return a hashable key that is equal for shapes that are ``IsSame``.
+
+    The key ignores orientation, so an edge seen from either adjacent face
+    gets the same key. pythonocc-core 7.8 removed ``TopoDS_Shape.HashCode``;
+    from then on ``hash(shape)`` has the same meaning.
+    """
+    hash_code = getattr(shape, "HashCode", None)
+    if hash_code is not None:
+        return hash_code(2147483647)
+    return hash(shape)
+
+
 def union_edges(*edge_lists: List[BrepEdge]) -> List[BrepEdge]:
     """Combine multiple edge lists, removing duplicates.
 
@@ -808,7 +821,7 @@ def union_edges(*edge_lists: List[BrepEdge]) -> List[BrepEdge]:
     for edge_list in edge_lists:
         for edge in edge_list:
             # Use the shape's hash for uniqueness
-            edge_hash = hash(edge.shape.HashCode(2147483647))
+            edge_hash = _shape_key(edge.shape)
             if edge_hash not in seen:
                 seen.add(edge_hash)
                 result.append(edge)
@@ -835,7 +848,7 @@ def intersect_edges(*edge_lists: List[BrepEdge]) -> List[BrepEdge]:
     for edge_list in edge_lists:
         hash_set = set()
         for edge in edge_list:
-            edge_hash = hash(edge.shape.HashCode(2147483647))
+            edge_hash = _shape_key(edge.shape)
             hash_set.add(edge_hash)
             edge_by_hash[edge_hash] = edge
         hash_sets.append(hash_set)
@@ -861,10 +874,10 @@ def subtract_edges(base_edges: List[BrepEdge],
     """
     remove_hashes = set()
     for edge in edges_to_remove:
-        remove_hashes.add(hash(edge.shape.HashCode(2147483647)))
+        remove_hashes.add(_shape_key(edge.shape))
 
     return [e for e in base_edges
-            if hash(e.shape.HashCode(2147483647)) not in remove_hashes]
+            if _shape_key(e.shape) not in remove_hashes]
 
 
 __all__ = [
