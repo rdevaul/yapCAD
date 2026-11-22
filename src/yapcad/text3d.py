@@ -53,7 +53,7 @@ Fit-aware text generation:
 
 from yapcad.geom import point, vect, epsilon, add, sub, scale3
 from yapcad.geom3d import (
-    poly2surfaceXY, solid, solid_boolean, issolid,
+    poly2surfaceXY, solid, solid_boolean, issolid, surface,
     translatesurface, rotatesurface
 )
 from yapcad.geom3d_util import extrude, prism
@@ -93,12 +93,18 @@ STROKE_WIDTH = 1.0
 # Rectangle format: (x, y, width, height) in grid units
 # Origin is bottom-left of character cell
 
+# Strokes within a glyph share an edge or stay apart; none meets another only
+# at a corner.  Two strokes that touch at a point make a cut whose pockets
+# meet along a single line, an edge four faces share, which no mesh consumer
+# accepts as watertight (#82).  The "corner fill" cells close those contacts.
 BLOCK_FONT = {
     'A': [
         (1, 6, 3, 1),   # Top bar
         (0, 0, 1, 6),   # Left vertical
         (4, 0, 1, 6),   # Right vertical
         (1, 3, 3, 1),   # Middle bar
+        (0, 6, 1, 1),   # Corner fill: no point-only contact
+        (4, 6, 1, 1),   # Corner fill: no point-only contact
     ],
     'B': [
         (0, 0, 1, 7),   # Left vertical
@@ -107,17 +113,24 @@ BLOCK_FONT = {
         (1, 0, 3, 1),   # Bottom bar
         (4, 4, 1, 2),   # Upper right
         (4, 1, 1, 2),   # Lower right
+        (4, 0, 1, 1),   # Corner fill: no point-only contact
+        (4, 3, 1, 1),   # Corner fill: no point-only contact
+        (4, 6, 1, 1),   # Corner fill: no point-only contact
     ],
     'C': [
         (0, 1, 1, 5),   # Left vertical
         (1, 6, 4, 1),   # Top bar
         (1, 0, 4, 1),   # Bottom bar
+        (0, 0, 1, 1),   # Corner fill: no point-only contact
+        (0, 6, 1, 1),   # Corner fill: no point-only contact
     ],
     'D': [
         (0, 0, 1, 7),   # Left vertical
         (1, 6, 3, 1),   # Top bar
         (1, 0, 3, 1),   # Bottom bar
         (4, 1, 1, 5),   # Right vertical
+        (4, 0, 1, 1),   # Corner fill: no point-only contact
+        (4, 6, 1, 1),   # Corner fill: no point-only contact
     ],
     'E': [
         (0, 0, 1, 7),   # Left vertical
@@ -136,6 +149,8 @@ BLOCK_FONT = {
         (1, 0, 4, 1),   # Bottom bar
         (4, 1, 1, 3),   # Lower right
         (2, 3, 2, 1),   # Middle bar (partial)
+        (0, 0, 1, 1),   # Corner fill: no point-only contact
+        (0, 6, 1, 1),   # Corner fill: no point-only contact
     ],
     'H': [
         (0, 0, 1, 7),   # Left vertical
@@ -152,6 +167,7 @@ BLOCK_FONT = {
         (3, 1, 1, 5),   # Right vertical
         (0, 0, 3, 1),   # Bottom bar
         (0, 1, 1, 2),   # Lower left hook
+        (3, 0, 1, 1),   # Corner fill: no point-only contact
     ],
     'K': [
         (0, 0, 1, 7),   # Left vertical
@@ -162,6 +178,12 @@ BLOCK_FONT = {
         (2, 2, 1, 1),   # Lower diagonal part 1
         (3, 1, 1, 1),   # Lower diagonal part 2
         (4, 0, 1, 1),   # Lower diagonal part 3
+        (1, 2, 1, 1),   # Corner fill: no point-only contact
+        (1, 4, 1, 1),   # Corner fill: no point-only contact
+        (2, 1, 1, 1),   # Corner fill: no point-only contact
+        (2, 5, 1, 1),   # Corner fill: no point-only contact
+        (3, 0, 1, 1),   # Corner fill: no point-only contact
+        (3, 6, 1, 1),   # Corner fill: no point-only contact
     ],
     'L': [
         (0, 0, 1, 7),   # Left vertical
@@ -173,6 +195,7 @@ BLOCK_FONT = {
         (1, 5, 1, 1),   # Left diagonal
         (2, 4, 1, 1),   # Center peak
         (3, 5, 1, 1),   # Right diagonal
+        (2, 5, 1, 1),   # Corner fill: no point-only contact
     ],
     'N': [
         (0, 0, 1, 7),   # Left vertical
@@ -180,18 +203,26 @@ BLOCK_FONT = {
         (1, 5, 1, 1),   # Diagonal part 1
         (2, 4, 1, 1),   # Diagonal part 2
         (3, 3, 1, 1),   # Diagonal part 3
+        (2, 5, 1, 1),   # Corner fill: no point-only contact
+        (3, 4, 1, 1),   # Corner fill: no point-only contact
     ],
     'O': [
         (0, 1, 1, 5),   # Left vertical
         (4, 1, 1, 5),   # Right vertical
         (1, 6, 3, 1),   # Top bar
         (1, 0, 3, 1),   # Bottom bar
+        (0, 0, 1, 1),   # Corner fill: no point-only contact
+        (0, 6, 1, 1),   # Corner fill: no point-only contact
+        (4, 0, 1, 1),   # Corner fill: no point-only contact
+        (4, 6, 1, 1),   # Corner fill: no point-only contact
     ],
     'P': [
         (0, 0, 1, 7),   # Left vertical
         (1, 6, 3, 1),   # Top bar
         (1, 3, 3, 1),   # Middle bar
         (4, 4, 1, 2),   # Right upper
+        (4, 3, 1, 1),   # Corner fill: no point-only contact
+        (4, 6, 1, 1),   # Corner fill: no point-only contact
     ],
     'Q': [
         (0, 1, 1, 5),   # Left vertical
@@ -200,6 +231,10 @@ BLOCK_FONT = {
         (1, 0, 3, 1),   # Bottom bar
         (3, 1, 1, 1),   # Tail part 1
         (4, 0, 1, 1),   # Tail part 2
+        (0, 0, 1, 1),   # Corner fill: no point-only contact
+        (0, 6, 1, 1),   # Corner fill: no point-only contact
+        (4, 1, 1, 1),   # Corner fill: no point-only contact
+        (4, 6, 1, 1),   # Corner fill: no point-only contact
     ],
     'R': [
         (0, 0, 1, 7),   # Left vertical
@@ -209,6 +244,10 @@ BLOCK_FONT = {
         (2, 2, 1, 1),   # Lower diagonal part 1
         (3, 1, 1, 1),   # Lower diagonal part 2
         (4, 0, 1, 1),   # Lower diagonal part 3
+        (2, 1, 1, 1),   # Corner fill: no point-only contact
+        (3, 0, 1, 1),   # Corner fill: no point-only contact
+        (4, 3, 1, 1),   # Corner fill: no point-only contact
+        (4, 6, 1, 1),   # Corner fill: no point-only contact
     ],
     'S': [
         (1, 6, 4, 1),   # Top bar
@@ -216,6 +255,10 @@ BLOCK_FONT = {
         (1, 3, 3, 1),   # Middle bar
         (4, 1, 1, 2),   # Lower right
         (0, 0, 4, 1),   # Bottom bar
+        (0, 3, 1, 1),   # Corner fill: no point-only contact
+        (0, 6, 1, 1),   # Corner fill: no point-only contact
+        (4, 0, 1, 1),   # Corner fill: no point-only contact
+        (4, 3, 1, 1),   # Corner fill: no point-only contact
     ],
     'T': [
         (0, 6, 5, 1),   # Top bar
@@ -225,6 +268,8 @@ BLOCK_FONT = {
         (0, 1, 1, 6),   # Left vertical
         (4, 1, 1, 6),   # Right vertical
         (1, 0, 3, 1),   # Bottom bar
+        (0, 0, 1, 1),   # Corner fill: no point-only contact
+        (4, 0, 1, 1),   # Corner fill: no point-only contact
     ],
     'V': [
         (0, 3, 1, 4),   # Left vertical upper
@@ -232,6 +277,10 @@ BLOCK_FONT = {
         (2, 0, 1, 1),   # Bottom point
         (3, 1, 1, 2),   # Right diagonal
         (4, 3, 1, 4),   # Right vertical upper
+        (0, 2, 1, 1),   # Corner fill: no point-only contact
+        (1, 0, 1, 1),   # Corner fill: no point-only contact
+        (3, 0, 1, 1),   # Corner fill: no point-only contact
+        (4, 2, 1, 1),   # Corner fill: no point-only contact
     ],
     'W': [
         (0, 0, 1, 7),   # Left vertical
@@ -239,6 +288,7 @@ BLOCK_FONT = {
         (1, 1, 1, 1),   # Left diagonal
         (2, 2, 1, 1),   # Center trough
         (3, 1, 1, 1),   # Right diagonal
+        (2, 1, 1, 1),   # Corner fill: no point-only contact
     ],
     'X': [
         (0, 5, 1, 2),   # Top left
@@ -250,6 +300,13 @@ BLOCK_FONT = {
         (0, 0, 1, 2),   # Bottom left
         (3, 2, 1, 1),   # Lower right diagonal
         (4, 0, 1, 2),   # Bottom right
+        (1, 1, 1, 1),   # Corner fill: no point-only contact
+        (0, 4, 1, 1),   # Corner fill: no point-only contact
+        (2, 2, 1, 1),   # Corner fill: no point-only contact
+        (1, 3, 1, 1),   # Corner fill: no point-only contact
+        (3, 3, 1, 1),   # Corner fill: no point-only contact
+        (3, 1, 1, 1),   # Corner fill: no point-only contact
+        (4, 4, 1, 1),   # Corner fill: no point-only contact
     ],
     'Y': [
         (0, 5, 1, 2),   # Top left
@@ -257,6 +314,10 @@ BLOCK_FONT = {
         (2, 0, 1, 4),   # Center vertical
         (3, 4, 1, 1),   # Upper right diagonal
         (4, 5, 1, 2),   # Top right
+        (0, 4, 1, 1),   # Corner fill: no point-only contact
+        (1, 3, 1, 1),   # Corner fill: no point-only contact
+        (3, 3, 1, 1),   # Corner fill: no point-only contact
+        (4, 4, 1, 1),   # Corner fill: no point-only contact
     ],
     'Z': [
         (0, 6, 5, 1),   # Top bar
@@ -264,6 +325,8 @@ BLOCK_FONT = {
         (2, 3, 1, 2),   # Diagonal part 2
         (1, 2, 1, 1),   # Diagonal part 3
         (0, 0, 5, 1),   # Bottom bar
+        (2, 2, 1, 1),   # Corner fill: no point-only contact
+        (2, 5, 1, 1),   # Corner fill: no point-only contact
     ],
     '0': [
         (0, 1, 1, 5),   # Left vertical
@@ -271,6 +334,10 @@ BLOCK_FONT = {
         (1, 6, 3, 1),   # Top bar
         (1, 0, 3, 1),   # Bottom bar
         (2, 3, 1, 1),   # Center diagonal (distinguishes from O)
+        (0, 0, 1, 1),   # Corner fill: no point-only contact
+        (0, 6, 1, 1),   # Corner fill: no point-only contact
+        (4, 0, 1, 1),   # Corner fill: no point-only contact
+        (4, 6, 1, 1),   # Corner fill: no point-only contact
     ],
     '1': [
         (2, 0, 1, 7),   # Center vertical
@@ -285,6 +352,11 @@ BLOCK_FONT = {
         (1, 2, 1, 1),   # Diagonal
         (0, 1, 1, 1),   # Lower left
         (0, 0, 5, 1),   # Bottom bar
+        (0, 2, 1, 1),   # Corner fill: no point-only contact
+        (0, 6, 1, 1),   # Corner fill: no point-only contact
+        (1, 3, 1, 1),   # Corner fill: no point-only contact
+        (4, 3, 1, 1),   # Corner fill: no point-only contact
+        (4, 6, 1, 1),   # Corner fill: no point-only contact
     ],
     '3': [
         (0, 6, 4, 1),   # Top bar
@@ -292,6 +364,9 @@ BLOCK_FONT = {
         (1, 3, 3, 1),   # Middle bar
         (4, 1, 1, 2),   # Lower right
         (0, 0, 4, 1),   # Bottom bar
+        (4, 0, 1, 1),   # Corner fill: no point-only contact
+        (4, 3, 1, 1),   # Corner fill: no point-only contact
+        (4, 6, 1, 1),   # Corner fill: no point-only contact
     ],
     '4': [
         (0, 3, 1, 4),   # Left vertical (upper)
@@ -304,6 +379,8 @@ BLOCK_FONT = {
         (1, 3, 3, 1),   # Middle bar
         (4, 1, 1, 2),   # Lower right
         (0, 0, 4, 1),   # Bottom bar
+        (4, 0, 1, 1),   # Corner fill: no point-only contact
+        (4, 3, 1, 1),   # Corner fill: no point-only contact
     ],
     '6': [
         (0, 1, 1, 5),   # Left vertical
@@ -311,11 +388,16 @@ BLOCK_FONT = {
         (1, 3, 3, 1),   # Middle bar
         (1, 0, 3, 1),   # Bottom bar
         (4, 1, 1, 2),   # Lower right
+        (0, 0, 1, 1),   # Corner fill: no point-only contact
+        (0, 6, 1, 1),   # Corner fill: no point-only contact
+        (4, 0, 1, 1),   # Corner fill: no point-only contact
+        (4, 3, 1, 1),   # Corner fill: no point-only contact
     ],
     '7': [
         (0, 6, 5, 1),   # Top bar
         (4, 3, 1, 3),   # Upper right
         (2, 0, 2, 3),   # Lower center-right
+        (4, 2, 1, 1),   # Corner fill: no point-only contact
     ],
     '8': [
         (0, 1, 1, 2),   # Lower left
@@ -325,6 +407,12 @@ BLOCK_FONT = {
         (1, 6, 3, 1),   # Top bar
         (1, 3, 3, 1),   # Middle bar
         (1, 0, 3, 1),   # Bottom bar
+        (0, 0, 1, 1),   # Corner fill: no point-only contact
+        (0, 3, 1, 1),   # Corner fill: no point-only contact
+        (0, 6, 1, 1),   # Corner fill: no point-only contact
+        (4, 0, 1, 1),   # Corner fill: no point-only contact
+        (4, 3, 1, 1),   # Corner fill: no point-only contact
+        (4, 6, 1, 1),   # Corner fill: no point-only contact
     ],
     '9': [
         (0, 4, 1, 2),   # Upper left
@@ -332,6 +420,10 @@ BLOCK_FONT = {
         (1, 6, 3, 1),   # Top bar
         (1, 3, 3, 1),   # Middle bar
         (0, 0, 4, 1),   # Bottom bar
+        (0, 3, 1, 1),   # Corner fill: no point-only contact
+        (0, 6, 1, 1),   # Corner fill: no point-only contact
+        (4, 0, 1, 1),   # Corner fill: no point-only contact
+        (4, 6, 1, 1),   # Corner fill: no point-only contact
     ],
     '-': [
         (1, 3, 3, 1),   # Horizontal bar
@@ -352,16 +444,24 @@ BLOCK_FONT = {
         (2, 3, 1, 1),   # Center
         (3, 4, 1, 1),   # Upper middle
         (4, 5, 1, 2),   # Top right
+        (1, 1, 1, 1),   # Corner fill: no point-only contact
+        (2, 2, 1, 1),   # Corner fill: no point-only contact
+        (3, 3, 1, 1),   # Corner fill: no point-only contact
+        (4, 4, 1, 1),   # Corner fill: no point-only contact
     ],
     '(': [
         (3, 5, 1, 1),   # Top curve
         (2, 2, 1, 3),   # Vertical
         (3, 1, 1, 1),   # Bottom curve
+        (2, 1, 1, 1),   # Corner fill: no point-only contact
+        (2, 5, 1, 1),   # Corner fill: no point-only contact
     ],
     ')': [
         (1, 5, 1, 1),   # Top curve
         (2, 2, 1, 3),   # Vertical
         (1, 1, 1, 1),   # Bottom curve
+        (2, 1, 1, 1),   # Corner fill: no point-only contact
+        (2, 5, 1, 1),   # Corner fill: no point-only contact
     ],
     ' ': [],  # Space - no rectangles
 }
@@ -872,6 +972,140 @@ def _text_to_polygons_block(text, height, spacing):
     return polygons
 
 
+def _glyph_cells(rects):
+    cells = set()
+    for x, y, w, h in rects:
+        cells.update((i, j) for i in range(x, x + w) for j in range(y, y + h))
+    return cells
+
+
+def _cell_outlines(cells, merge=True):
+    """Trace the boundary of a set of unit grid cells into closed loops.
+
+    Each loop keeps the cells on its left, so outer boundaries come out
+    counter-clockwise and holes clockwise.  Straight runs are merged into
+    single edges unless ``merge`` is false.  Requires that no two cells meet only at a corner, which
+    :data:`BLOCK_FONT` guarantees: every boundary vertex then has exactly
+    one way out, and the trace is unambiguous.
+    """
+    nxt = {}
+    for (i, j) in cells:
+        if (i, j - 1) not in cells:
+            nxt[(i, j)] = (i + 1, j)            # bottom edge, left to right
+        if (i + 1, j) not in cells:
+            nxt[(i + 1, j)] = (i + 1, j + 1)    # right edge, upward
+        if (i, j + 1) not in cells:
+            nxt[(i + 1, j + 1)] = (i, j + 1)    # top edge, right to left
+        if (i - 1, j) not in cells:
+            nxt[(i, j + 1)] = (i, j)            # left edge, downward
+    loops = []
+    while nxt:
+        start = min(nxt)
+        loop = [start]
+        here = nxt.pop(start)
+        while here != start:
+            loop.append(here)
+            here = nxt.pop(here)
+        if not merge:
+            loops.append(loop)
+            continue
+        # Drop vertices in the middle of a straight run.
+        corners = [p for k, p in enumerate(loop)
+                   if (loop[k - 1][0] - p[0]) * (loop[(k + 1) % len(loop)][1] - p[1])
+                   != (loop[k - 1][1] - p[1]) * (loop[(k + 1) % len(loop)][0] - p[0])]
+        loops.append(corners)
+    return loops
+
+
+def _loop_area(loop):
+    return 0.5 * sum(loop[k - 1][0] * loop[k][1] - loop[k][0] * loop[k - 1][1]
+                     for k in range(len(loop)))
+
+
+def _block_glyph_groups(text, height, spacing):
+    """Block-font text as outlines with holes, in the format of
+    :func:`_text_to_grouped_glyphs_ttf`: one ``{'outer', 'holes'}`` per
+    connected piece of each glyph."""
+    scale = height / CHAR_HEIGHT
+    advance = CHAR_WIDTH * scale + spacing * scale
+    groups = []
+    for n, char in enumerate(text.upper()):
+        rects = BLOCK_FONT.get(char, [(1, 1, 3, 5)])
+        loops = _cell_outlines(_glyph_cells(rects))
+        x0 = n * advance
+
+        def to_points(loop):
+            pts = [point(x0 + i * scale, j * scale, 0) for i, j in loop]
+            return pts + [pts[0]]
+
+        outers = [l for l in loops if _loop_area(l) > 0]
+        holes = [l for l in loops if _loop_area(l) < 0]
+        assigned = {k: [] for k in range(len(outers))}
+        for hole in holes:
+            # A hole belongs to the smallest outer loop containing it.
+            px, py = hole[0][0] + 0.5, hole[0][1] + 0.5
+            inside = [k for k, outer in enumerate(outers)
+                      if _point_in_polygon(px, py, outer)]
+            if inside:
+                k = min(inside, key=lambda k: _loop_area(outers[k]))
+                assigned[k].append(hole)
+        for k, outer in enumerate(outers):
+            groups.append({'outer': to_points(outer),
+                           'holes': [to_points(h) for h in assigned[k]]})
+    return groups
+
+
+def _block_glyph_surfaces(text, height, spacing, depth):
+    """Block-font text extruded to ``depth``, meshed on the font lattice.
+
+    Yields, per glyph, a bottom cap, a top cap and a wall surface.  Caps
+    are two triangles per cell and walls one quad per boundary cell edge,
+    all on shared lattice vertices, so each glyph is closed by
+    construction.  That relies on :data:`BLOCK_FONT` having no cells that
+    meet only at a corner.
+    """
+    scale = height / CHAR_HEIGHT
+    advance = CHAR_WIDTH * scale + spacing * scale
+    up, down = vect(0, 0, 1, 0), vect(0, 0, -1, 0)
+    for n, char in enumerate(text.upper()):
+        cells = _glyph_cells(BLOCK_FONT.get(char, [(1, 1, 3, 5)]))
+        if not cells:
+            continue
+        x0 = n * advance
+
+        def at(i, j, z):
+            return point(x0 + i * scale, j * scale, z)
+
+        caps = []
+        for z, normal, flip in ((0.0, down, True), (float(depth), up, False)):
+            index, verts, faces = {}, [], []
+
+            def vid(i, j):
+                if (i, j) not in index:
+                    index[(i, j)] = len(verts)
+                    verts.append(at(i, j, z))
+                return index[(i, j)]
+
+            for (i, j) in sorted(cells):
+                a, b, c, d = vid(i, j), vid(i + 1, j), vid(i + 1, j + 1), vid(i, j + 1)
+                tris = [[a, b, c], [a, c, d]]
+                faces.extend([t[::-1] for t in tris] if flip else tris)
+            caps.append(surface(verts, [normal] * len(verts), faces))
+
+        verts, norms, faces = [], [], []
+        for loop in _cell_outlines(cells, merge=False):
+            for k, p in enumerate(loop):
+                q = loop[(k + 1) % len(loop)]
+                # Cells lie to the left of p -> q, so outward is to the right.
+                out = vect(q[1] - p[1], p[0] - q[0], 0, 0)
+                base = len(verts)
+                verts.extend([at(p[0], p[1], 0.0), at(q[0], q[1], 0.0),
+                              at(q[0], q[1], float(depth)), at(p[0], p[1], float(depth))])
+                norms.extend([out] * 4)
+                faces.extend([[base, base + 1, base + 2], [base, base + 2, base + 3]])
+        yield caps + [surface(verts, norms, faces)]
+
+
 def text_solid(text, height=5.0, depth=1.0, spacing=1.0, center=None, font=None):
     """Create extruded 3D text solid.
 
@@ -917,8 +1151,15 @@ def text_solid(text, height=5.0, depth=1.0, spacing=1.0, center=None, font=None)
     grouped_glyphs = None
     if use_ttf and font_path:
         grouped_glyphs = _text_to_grouped_glyphs_ttf(text, height, spacing, font_path)
-
     all_surfaces = []
+
+    if grouped_glyphs is None:
+        # Block font: mesh each glyph's cells on the lattice directly, so the
+        # strokes make one closed solid rather than boxes that overlap and
+        # touch (#82), and no polygon triangulator is involved.
+        for surfaces in _block_glyph_surfaces(text, height, spacing, depth):
+            all_surfaces.extend(surfaces)
+        grouped_glyphs = []
 
     if grouped_glyphs is not None:
         # Use grouped glyph data with proper hole handling
@@ -943,8 +1184,8 @@ def text_solid(text, height=5.0, depth=1.0, spacing=1.0, center=None, font=None)
             except (ValueError, IndexError) as e:
                 # Skip degenerate glyphs
                 continue
-    else:
-        # Fall back to simple polygon processing (block font or TTF fallback)
+    elif not all_surfaces:
+        # Fall back to simple polygon processing (TTF without grouping)
         polygons = text_to_polygons(text, height, spacing, font)
 
         if not polygons:
@@ -1360,11 +1601,67 @@ def text_on_surface(
     return result
 
 
+def _resolve_font(font):
+    """The TrueType file ``font`` names, or None for the block font, by the
+    same rules as :func:`text_to_polygons`."""
+    if not FREETYPE_AVAILABLE or font == "block":
+        return None
+    if font is None:
+        return find_system_font("Arial")
+    if os.path.exists(font):
+        return font
+    return find_system_font(font)
+
+
+def text_field(text, height=3.0, depth=1.0, spacing=1.0, font=None):
+    """Text as a signed distance field: the glyphs in the XY plane,
+    extruded from z = 0 to z = ``depth``.
+
+    The field counterpart of :func:`text_solid`, for engraving or embossing
+    a field-authored part without meshing it.  TrueType glyphs keep their
+    counters (the holes in O, B, P); the block font is unions of strokes.
+
+    :returns: an SDF node, or None when the text has no glyphs.
+    """
+    from yapcad import sdf
+
+    def outline(poly):
+        return sdf.polygon([(p[0], p[1]) for p in poly])
+
+    font_path = _resolve_font(font)
+    groups = (_text_to_grouped_glyphs_ttf(text, height, spacing, font_path)
+              if font_path else _block_glyph_groups(text, height, spacing))
+    shapes = []
+    if groups is not None:
+        for group in groups:
+            shape = outline(group["outer"])
+            holes = [outline(h) for h in group.get("holes", ())]
+            if holes:
+                shape = sdf.subtract(shape, sdf.union(*holes))
+            shapes.append(shape)
+    else:
+        shapes = [outline(p) for p in
+                  _text_to_polygons_ttf(text, height, spacing, font_path)]
+    if not shapes:
+        return None
+    planar = sdf.union(*shapes)
+    return sdf.translate(sdf.extrude(planar, depth), (0.0, 0.0, 0.5 * depth))
+
+
+def _stroke_width(text, height, spacing, font):
+    """A conservative thinnest feature of the text, for choosing a cell."""
+    if _resolve_font(font) is None:
+        return height / CHAR_HEIGHT
+    return height / 12.0
+
+
 def engrave_text(target_solid, text, position, normal, height=3.0, depth=0.5, spacing=1.0, font=None):
     """Cut text into a face of a solid (boolean difference).
 
     Creates text as a solid and subtracts it from the target solid to
-    create engraved (cut-in) text.
+    create engraved (cut-in) text.  A field-authored target -- including
+    one whose mesh is deferred -- is engraved as a field, so it stays a
+    field and meshes once.
 
     Args:
         target_solid: yapCAD solid to engrave into
@@ -1378,15 +1675,14 @@ def engrave_text(target_solid, text, position, normal, height=3.0, depth=0.5, sp
 
     Returns:
         New solid with text engraved into the specified face
+
+    Raises:
+        ValueError: if the target is not a solid or the normal is zero.
+        RuntimeError: if the boolean fails.  Returning the target uncut
+            would report success for a part with no engraving on it.
     """
     if not issolid(target_solid):
         raise ValueError("target_solid must be a valid yapCAD solid")
-
-    # Create text solid
-    text_sld = text_solid(text, height, depth + 0.1, spacing, font=font)  # Extra depth for clean cut
-
-    if not text_sld[1]:  # No surfaces (empty text)
-        return deepcopy(target_solid)
 
     # Normalize the normal vector
     n = [normal[0], normal[1], normal[2]]
@@ -1395,69 +1691,75 @@ def engrave_text(target_solid, text, position, normal, height=3.0, depth=0.5, sp
         raise ValueError("normal vector has zero length")
     n = [n[0]/nm, n[1]/nm, n[2]/nm]
 
-    # Calculate transformation to align text with face
-    # Text is generated in XY plane with Z-up
-    # We need to rotate so Z aligns with the face normal
+    # The cutter is built in the XY plane from z = 0 up, rotated so +Z is the
+    # face normal, and placed so it reaches ``depth`` below the face and a
+    # little above it for a clean cut.
+    overshoot = 0.1
+    offset = sub(position, scale3(n, depth))
 
-    # Build rotation to align Z-axis with normal
-    z_axis = [0, 0, 1]
-
-    # Calculate rotation axis (cross product of z_axis and normal)
-    rx = z_axis[1] * n[2] - z_axis[2] * n[1]
-    ry = z_axis[2] * n[0] - z_axis[0] * n[2]
-    rz = z_axis[0] * n[1] - z_axis[1] * n[0]
+    # Rotation taking +Z to the normal
+    rx, ry, rz = -n[1], n[0], 0.0           # (0, 0, 1) x n
     rot_axis_mag = math.sqrt(rx**2 + ry**2 + rz**2)
+    angle = math.acos(max(-1.0, min(1.0, n[2])))
+    rotate = abs(angle) > epsilon
+    if rotate and rot_axis_mag <= epsilon:
+        # The normal is -Z: any horizontal axis turns +Z onto it.
+        rx, ry, rz, rot_axis_mag = 1.0, 0.0, 0.0, 1.0
 
-    # Calculate rotation angle
-    dot_prod = z_axis[0] * n[0] + z_axis[1] * n[1] + z_axis[2] * n[2]
-    angle = math.acos(max(-1, min(1, dot_prod)))  # Clamp for numerical stability
+    from yapcad.geom3d import _is_sdf_solid
+    if _is_sdf_solid(target_solid):
+        return _engrave_field(target_solid, text, height, depth + overshoot,
+                              spacing, font, offset,
+                              (rx / rot_axis_mag, ry / rot_axis_mag, rz / rot_axis_mag)
+                              if rotate else None,
+                              math.degrees(angle))
 
-    # Transform text solid
+    text_sld = text_solid(text, height, depth + overshoot, spacing, font=font)
+
+    if not text_sld[1]:  # No surfaces (empty text)
+        return deepcopy(target_solid)
+
     transformed_surfaces = []
-
     for surf in text_sld[1]:
         new_surf = deepcopy(surf)
-
-        # Rotate vertices if needed
-        if rot_axis_mag > epsilon and abs(angle) > epsilon:
+        if rotate:
             rot_axis = point(rx / rot_axis_mag, ry / rot_axis_mag, rz / rot_axis_mag)
-            angle_deg = math.degrees(angle)
-            rot_matrix = Rotation(angle_deg, cent=point(0, 0, 0), axis=rot_axis)
-
-            # Transform vertices
-            new_verts = []
-            for v in new_surf[1]:
-                new_v = rot_matrix.mul(v)
-                new_verts.append(new_v)
-            new_surf[1] = new_verts
-
-            # Transform normals
-            new_norms = []
-            for nm_vec in new_surf[2]:
-                new_nm = rot_matrix.mul(nm_vec)
-                new_norms.append(new_nm)
-            new_surf[2] = new_norms
-
-        # Translate to position (slightly inside the face for clean cut)
-        offset = sub(position, scale3(n, depth * 0.5))
+            rot_matrix = Rotation(math.degrees(angle), cent=point(0, 0, 0), axis=rot_axis)
+            new_surf[1] = [rot_matrix.mul(v) for v in new_surf[1]]
+            new_surf[2] = [rot_matrix.mul(v) for v in new_surf[2]]
         new_surf = translatesurface(new_surf, offset)
         transformed_surfaces.append(new_surf)
 
-    # Create transformed text solid
     engraving_solid = solid(
         transformed_surfaces,
         [],
         ['procedure', f'engrave_text("{text}")']
     )
 
-    # Perform boolean difference
     try:
-        result = solid_boolean(target_solid, engraving_solid, 'difference')
-        return result
+        return solid_boolean(target_solid, engraving_solid, 'difference')
     except Exception as e:
-        # If boolean fails, return original solid with warning
-        print(f"Warning: engraving failed ({e}), returning original solid")
-        return deepcopy(target_solid)
+        raise RuntimeError(f"engrave_text: the boolean failed ({e})") from e
+
+
+def _engrave_field(target, text, height, depth, spacing, font, offset, axis, angle_deg):
+    """Engrave a field-authored ``target`` with a text field."""
+    from yapcad import sdf
+
+    node = text_field(text, height, depth, spacing, font)
+    if node is None:
+        return deepcopy(target)
+    if axis is not None:
+        node = sdf.rotate(node, axis, angle_deg)
+    node = sdf.translate(node, (offset[0], offset[1], offset[2]))
+    # Thin strokes need a cell a few times finer than the stroke; the
+    # boolean meshes no coarser than its finer operand.
+    cell = _stroke_width(text, height, spacing, font) / 3.0
+    cutter = sdf.to_solid(node, cell_mm=cell, defer=True)
+    try:
+        return solid_boolean(target, cutter, 'difference')
+    except Exception as e:
+        raise RuntimeError(f"engrave_text: the field boolean failed ({e})") from e
 
 
 def get_supported_characters():

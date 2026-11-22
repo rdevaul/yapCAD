@@ -5,6 +5,26 @@ Changelog
 Unreleased
 ==========
 
+- Engraved block text is watertight (#82).  ``text_solid`` used to extrude
+  each stroke of a block glyph as its own box, so a glyph was a pile of
+  boxes that overlap and touch, and the cut ``engrave_text`` made with it
+  had non-manifold edges: 15 on the four-letter repro in #82.  Block glyphs
+  are now meshed on the font lattice as one closed solid each, and the font
+  no longer has strokes that meet only at a corner -- a cut through such a
+  contact is a pinch no mesh consumer accepts.  The 96 cells that close
+  those contacts give the corners of A, B, D, O and the rest a squarer look.
+
+- ``engrave_text`` cuts to the depth asked for.  It used to place the text
+  only half the depth into the face, so ``depth=0.5`` cut 0.25.
+
+- ``engrave_text`` engraves a field-authored part as a field.  On a part
+  whose mesh is deferred -- anything built with ``--representation sdf`` --
+  it used to print a warning and return the part uncut, while the run
+  reported success.  The text is now built as a field
+  (``text3d.text_field``) and subtracted, so the part stays a field and
+  meshes once.  A boolean that fails now raises instead of returning the
+  target unchanged.
+
 - Dual contouring merges vertices instead of nudging them apart.  Where two
   neighbouring cells clamped their vertices onto the face they share, the
   mesher used to pull them 40 nm apart, leaving an edge that float32 cannot
