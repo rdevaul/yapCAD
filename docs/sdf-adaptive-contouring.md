@@ -283,18 +283,6 @@ on §3's R2 being redesigned; as stated, R2 sends every surface leaf to
    the same number of cells across, where its cell size in millimetres has
    changed. Nothing has written `adaptiveDepth` yet.
 
-   *Reopened by review, for the owner to confirm.* The record keeps
-   `resolution` in cells across the longest axis on purpose: "that is what
-   survives a transform" (`convert.py`, `_deferred_solid`), since a part
-   scaled after meshing is still the same number of cells across. Cell
-   bounds and a tolerance in millimetres would not survive a scale. An
-   invariant record that keeps the explicit-bounds intent is
-   `"resolution"` for the finest cell, as today, plus
-   `"adaptive": {"coarsest": <cells across at cell_max>,
-   "tolerance": <fraction of the finest cell>}`. It carries the same
-   information as the bounds and does not need a separate depth. Nothing
-   writes an adaptive record before stage B, so this can be settled then.
-
 ## References
 
 - T. Ju, F. Losasso, S. Schaefer, J. Warren. *Dual Contouring of Hermite
