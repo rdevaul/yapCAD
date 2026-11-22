@@ -131,9 +131,9 @@ instead of the uniform cell.
 - `to_solid` passes `cell_mm` as `cell_min`. A new `tolerance` (chordal
   error, in model units) defaults to half of `cell_min`. `resolution`, if
   given, sets `cell_max`.
-- The meshing record gains `"adaptive": {"cellMin": ..., "cellMax": ...,
-  "tolerance": ...}`, which replaces the `adaptiveDepth` that `SDF-DESIGN.md`
-  §8.2 used to reserve (§7, decision 5).
+- The meshing record gains `"adaptive": {"coarsest": ..., "tolerance": ...}`
+  beside `resolution`, in cells rather than model units, which replaces the
+  `adaptiveDepth` that `SDF-DESIGN.md` §8.2 used to reserve (§7, decision 5).
 - The refine-on-failure loop in `to_solid` becomes unnecessary for adaptive
   meshes: R1 and R2 find thin material directly. It stays for uniform meshes.
 - `simplify_finished` stays available, but it does not run by default on
@@ -198,12 +198,18 @@ count should land near the simplified mesh's (8,784 in #94) rather than near
    available on request. Stage C's measurement is the acceptance test for
    this goal (within about 1.5 times the simplified count, at equal or better
    chordal error), not a gate on the default.
-5. **Record format: explicit cell bounds.** The meshing record carries
-   `"adaptive": {"cellMin": ..., "cellMax": ..., "tolerance": ...}`, and
-   `adaptiveDepth` is dropped from `SDF-DESIGN.md` §8.2. The depth follows
-   from the bounds, but the bounds do not follow from the depth, and nothing
-   has written `adaptiveDepth` yet. `cellMax` must be `cellMin` times a power
-   of two.
+5. **Record format: cell bounds, in cells.** The record keeps `resolution`,
+   cells across the longest axis at the finest cell, as it does today, and
+   an adaptive mesh adds
+   `"adaptive": {"coarsest": <cells across at cell_max>,
+   "tolerance": <chordal tolerance as a fraction of the finest cell>}`.
+   `resolution` must be `coarsest` times a power of two, and that power is
+   the tree's depth, so `adaptiveDepth` is dropped from `SDF-DESIGN.md`
+   §8.2. The bounds are recorded in cells rather than millimetres for the
+   reason `resolution` already is (`convert.py`, `_deferred_solid`): it is
+   what survives a transform, since a part scaled after meshing is still
+   the same number of cells across, where its cell size in millimetres has
+   changed. Nothing has written `adaptiveDepth` yet.
 
 ## References
 
