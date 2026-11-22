@@ -5,6 +5,31 @@ Changelog
 Unreleased
 ==========
 
+- The DSL can build a typed list in a loop (#80).  An empty list literal
+  takes the element type of the list it is assigned to, so
+  ``parts: list<solid> = []`` type-checks, and the new
+  ``append(list<T>, T) -> list<T>`` adds one item, refusing one of the wrong
+  type.  ``concat`` onto an empty seed keeps the other operand's type.
+  The list is tagged at run time with
+  what it was declared to hold: an empty literal used to be a list of int
+  whatever its declaration said.
+
+- ``fix_part(asm, name)`` keeps a part at the pose it was added in when the
+  assembly is solved (``Assembly.fix_part`` in Python).  A part built in
+  place no longer needs a mate to the root to join an assembly and its BOM;
+  parts mated to a fixed part are placed from it.  The "Disconnected or
+  unreachable parts" error now says so.
+
+- ``compound`` keeps each child's identity.  Every child's surfaces carry
+  its material, and the compound's metadata lists the children under
+  ``compound.children``, each with the range of surfaces it contributed and
+  its name, material, layer, tags, magnet, manufacturing and assembly
+  sections.
+
+- A ``magnet`` metadata section is documented (``M``, ``Br_T`` and optional
+  ``Hcj_kA_m``, ``grade``, ``pattern``) for viewers and EM tools, in
+  ``docs/metadata_namespace.rst`` and the DSL reference.
+
 - Engraved block text is watertight (#82).  ``text_solid`` used to extrude
   each stroke of a block glyph as its own box, so a glyph was a pile of
   boxes that overlap and touch, and the cut ``engrave_text`` made with it

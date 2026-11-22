@@ -310,6 +310,9 @@ class Assembly:
         self.name = name
         self.parts: Dict[str, PartDefinition] = {}
         self.transforms: Dict[str, np.ndarray] = {}
+        # Parts that keep their current world pose when the assembly is
+        # solved: ground for anything mated to them (see fix_part).
+        self.fixed: set = set()
         self.geometry: Dict[str, Any] = {}
         self.geometry_diagnostics: List[str] = []
         self.mates: List[Mate] = []
@@ -367,6 +370,22 @@ class Assembly:
         self.transforms[part_name] = (
             transform.copy() if transform is not None else np.eye(4)
         )
+        self._solved = False
+
+    def fix_part(self, name: str) -> None:
+        """Keep part ``name`` at its current world pose when solving.
+
+        A fixed part is placed where it is -- its transform, the identity for
+        a part added already positioned -- rather than by mates, so a part
+        built in place joins the assembly, and its BOM and metadata, without
+        a mate to the root.  Parts mated to a fixed part are placed from it,
+        as they would be from the root.  A fixed part must not also be placed
+        by a mate from the root's tree.
+        """
+        if name not in self.parts:
+            raise AssemblyError(f"Part '{name}' not found",
+                                assembly_name=self.name, part_name=name)
+        self.fixed.add(name)
         self._solved = False
 
     def add_mate(self, mate: Mate) -> None:
@@ -649,8 +668,11 @@ class Assembly:
             adjacency[mate.part_b].append((mate.part_a, mate, True))
 
         parent_for: Dict[str, Tuple[str, Mate]] = {}
-        queue = deque([root_part])
-        discovered = {root_part}
+        # The root and every fixed part are placed where they are; mates
+        # place everything else from one of them.
+        grounds = [root_part] + sorted(self.fixed - {root_part})
+        queue = deque(grounds)
+        discovered = set(grounds)
         ordered = []
         cycle_edges = []
         while queue:
@@ -687,11 +709,12 @@ class Assembly:
         missing = [name for name in self.parts if name not in discovered]
         if missing:
             return self._solve_error(
-                f"Disconnected or unreachable parts: {', '.join(missing)}"
+                f"Disconnected or unreachable parts: {', '.join(missing)} "
+                f"(mate them, or fix_part() to keep their placed pose)"
             )
 
-        root_world = np.asarray(self.transforms[root_part], dtype=float).copy()
-        candidate = {root_part: root_world}
+        candidate = {name: np.asarray(self.transforms[name], dtype=float).copy()
+                     for name in grounds}
         residuals = {}
         for parent_name, child_name, mate, reverse in ordered:
             datum_a = self.parts[mate.part_a].get_datum(mate.datum_a)
