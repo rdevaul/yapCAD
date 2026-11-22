@@ -30,6 +30,65 @@ Unreleased
   ``Hcj_kA_m``, ``grade``, ``pattern``) for viewers and EM tools, in
   ``docs/metadata_namespace.rst`` and the DSL reference.
 
+- Engraved block text is watertight (#82).  ``text_solid`` used to extrude
+  each stroke of a block glyph as its own box, so a glyph was a pile of
+  boxes that overlap and touch, and the cut ``engrave_text`` made with it
+  had non-manifold edges: 15 on the four-letter repro in #82.  Block glyphs
+  are now meshed on the font lattice as one closed solid each, and the font
+  no longer has strokes that meet only at a corner -- a cut through such a
+  contact is a pinch no mesh consumer accepts.  The 96 cells that close
+  those contacts give the corners of A, B, D, O and the rest a squarer look.
+
+- ``engrave_text`` cuts to the depth asked for.  It used to place the text
+  only half the depth into the face, so ``depth=0.5`` cut 0.25.
+
+- ``engrave_text`` engraves a field-authored part as a field.  On a part
+  whose mesh is deferred -- anything built with ``--representation sdf`` --
+  it used to print a warning and return the part uncut, while the run
+  reported success.  The text is now built as a field
+  (``text3d.text_field``) and subtracted, so the part stays a field and
+  meshes once.  A boolean that fails now raises instead of returning the
+  target unchanged.
+
+- Dual contouring merges vertices instead of nudging them apart.  Where two
+  neighbouring cells clamped their vertices onto the face they share, the
+  mesher used to pull them 40 nm apart, leaving an edge that float32 cannot
+  hold more than 512 mm from the origin: a part written in its assembled
+  pose came out of binary STL with zero-area triangles and open edges
+  although the solid in memory was closed (#121).  Such vertices are now
+  merged by an edge collapse that keeps the surface a manifold, and the
+  zero-area triangles on that edge are dropped; nothing moves.  Each quad is
+  also split along whichever diagonal shapes its triangles better, and a
+  triangle that still has no area, along a sharp edge that runs down a
+  lattice line, has its longest edge flipped.  The field-built miter gear
+  loses its 12 collinear triangles, and engraved text at resolutions 350 and
+  490 no longer refuses on coincident vertices (#94).  Two parts that share
+  a face used to mesh with a zero-thickness double wall across it, since a
+  union of exact distances is 0 there; that wall is now dropped and the
+  seam it leaves zipped closed, so the union meshes as one body.  Two
+  components of one cell that pinch at a point are still nudged apart by
+  one position quantum, as before.
+
+- A triangle is degenerate by shape, not size (#85).
+  ``geometry_utils.triangle_normal`` used to call a triangle degenerate when
+  twice its area was at most ``epsilon``, so a healthy triangle in a
+  unit-sized model had no normal while the same triangle scaled by ten did.
+  It now compares twice the area against its longest edge squared
+  (``DEGENERATE_ASPECT = 1e-9``), with a floor computed from the size of
+  the coordinates, below which the cross product is rounding noise.  An
+  explicit ``tol`` keeps the old absolute test; mesh transport still passes
+  ``tol=0``.
+
+  ``issolidclosed`` now ignores degenerate faces when it counts edges, so
+  it agrees with what renderers, slicers and STL readers can use.  This is
+  stricter on purpose: a mesh held closed only by zero-area faces reports
+  open.  ``sdf.manifold_defects`` counts ``"degenerate"`` triangles, and
+  ``to_solid``'s check refuses them.
+
+- ``write_stl`` warns when rounding to float32 for binary STL would merge a
+  triangle's corners, instead of writing a file that is silently not
+  closed.
+
 - The GPU backend marches rays on the GPU.  ``backend="wgpu"`` used to
   evaluate the field on the GPU and march on the CPU, going back once per
   step with the rays still in flight; on an Apple M5 Max and an NVIDIA GB10

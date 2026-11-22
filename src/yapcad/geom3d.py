@@ -1229,9 +1229,12 @@ def issolidclosed(x):
     solid's boundary.
 
     The function analyzes face adjacency by:
-    1. Building a global edge map using vertex positions (not indices)
-    2. Counting how many faces share each edge
-    3. Verifying that every edge is shared by exactly 2 faces
+    1. Setting aside degenerate faces -- those
+       :func:`yapcad.geometry_utils.triangle_normal` has no normal for --
+       since no consumer can use them
+    2. Building a global edge map using vertex positions (not indices)
+    3. Counting how many faces share each edge
+    4. Verifying that every edge is shared by exactly 2 faces
 
     Args:
         x: A solid data structure
@@ -1264,14 +1267,26 @@ def issolidclosed(x):
     # Value: count of faces that share this edge
     global_edge_count = {}
 
+    from yapcad.geometry_utils import degenerate_faces
+
     for surf_idx, surf in enumerate(surfaces):
         faces = surf[3]
         vertices = surf[1]
 
-        # Process each face in this surface
         for face_idx, face in enumerate(faces):
             if len(face) != 3:
                 raise ValueError(f'non-triangular face in surface {surf_idx}, face {face_idx}')
+
+        # A face with no meaningful normal is dropped or mishandled by every
+        # consumer -- renderers, slicers, STL readers -- so it cannot be
+        # what closes the solid.  Counting it here once let a mesh held
+        # together only by zero-area faces pass as closed (#85).
+        skip = degenerate_faces(vertices, faces) if faces else []
+
+        # Process each face in this surface
+        for face_idx, face in enumerate(faces):
+            if skip[face_idx]:
+                continue
 
             # Get the three vertex positions
             p0 = vertices[face[0]]

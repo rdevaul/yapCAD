@@ -31,9 +31,42 @@ def write_stl(obj: Sequence, path_or_file, *, binary: bool = True, name: str = '
         raise ValueError('object produced no triangles for STL export')
 
     if binary:
+        _warn_float32_collapse(triangles)
         _write_binary(triangles, path_or_file, name)
     else:
         _write_ascii(triangles, path_or_file, name)
+
+
+def _warn_float32_collapse(triangles: Sequence[Triangle]) -> int:
+    """Warn when storing the vertices as float32 merges a triangle's corners.
+
+    Binary STL holds float32, whose spacing is about 1.2e-7 of the
+    coordinate: 6e-5 mm at 500 mm from the origin.  A triangle that is
+    sound in double precision can lose an edge to that rounding, and the
+    file is then not closed although the solid in memory is (#121).  This
+    is cheap next to writing the file and turns that silent failure into a
+    visible one.  Returns the number of triangles that collapse.
+    """
+    import warnings
+
+    import numpy as np
+
+    corners = np.array([(t.v0, t.v1, t.v2) for t in triangles], dtype=float)
+    single = corners.astype(np.float32)
+    distinct = lambda c, i, j: np.any(c[:, i] != c[:, j], axis=1)  # noqa: E731
+    lost = np.zeros(len(corners), dtype=bool)
+    for i, j in ((0, 1), (1, 2), (2, 0)):
+        lost |= distinct(corners, i, j) & ~distinct(single, i, j)
+    count = int(lost.sum())
+    if count:
+        reach = float(np.abs(corners[lost]).max())
+        warnings.warn(
+            f"write_stl: {count} triangle(s) lose an edge when their vertices "
+            f"are rounded to float32 for binary STL (coordinates up to "
+            f"{reach:.6g}), so the file will not be closed. Write the part "
+            f"nearer the origin, or mesh it more coarsely.",
+            RuntimeWarning, stacklevel=3)
+    return count
 
 
 def write_stl_brep(obj: Sequence,
