@@ -12,9 +12,9 @@ Unreleased
   to the default ``sampling="chunks"``.  It pays where a field sample is
   expensive (an engraved block meshes its corners 6.5 times faster on numba)
   and costs time on primitive fields, so it is opt-in.  The design note
-  ``docs/sdf-adaptive-contouring.md`` now records that §3's hidden-crossing
-  test (R2) fires next to every surface as stated, and must be redesigned
-  before stage B.
+  ``docs/sdf-adaptive-contouring.md`` now builds the adaptive tree
+  bottom-up: sample this band, then merge cells upward under a topology
+  and an error test, so nothing the uniform mesher finds is lost.
 
 - The DSL can build a typed list in a loop (#80).  An empty list literal
   takes the element type of the list it is assigned to, so
