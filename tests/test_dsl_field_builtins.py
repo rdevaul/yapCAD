@@ -244,3 +244,113 @@ def test_detail_the_resolution_cap_cannot_carry_is_announced(expr):
 def test_detail_within_the_cap_is_not_announced(recwarn):
     part("gyroid_lattice(box(16.0, 16.0, 16.0), 8.0, 0.5)", sdf_mesh=False)
     assert not [w for w in recwarn if "too coarse" in str(w.message)]
+
+
+# -- repetition and field extrusion ------------------------------------------
+
+def test_repeat_solid_is_a_counted_lattice_of_the_part():
+    solid = part("repeat_solid(sphere(1.0), 3.0, 4.0, 0.0, 3, 2, 1)",
+                 sdf_cell_mm=0.1)
+    assert sdf.is_sdf_solid(solid) and issolidclosed(solid)
+    assert volumeof(solid) == pytest.approx(6 * 4.0 / 3.0 * math.pi, rel=1e-2)
+    assert extent(solid) == pytest.approx([8.0, 6.0, 2.0], abs=0.05)
+    lattice = tree(solid)
+    assert lattice.kind == "repeat"
+    assert list(lattice.p["count"]) == [3, 2, 1]
+
+
+@pytest.mark.parametrize("expr,message", [
+    ("repeat_solid(sphere(1.0), 3.0, 0.0, 0.0, 0, 1, 1)",
+     "must be at least 1"),
+    ("repeat_solid(sphere(1.0), 0.0, 2.0, 0.0, 2, 1, 1)",
+     "need a period there"),
+])
+def test_repeat_solid_says_what_is_wrong_with_its_counts(expr, message):
+    result = run(expr)
+    assert not result.success
+    assert message in result.error_message
+
+
+def test_repeat_fill_cuts_the_endless_lattice_to_a_region():
+    solid = part("repeat_fill(sphere(1.0), box(9.0, 9.0, 9.0), 3.0, 3.0, 3.0)",
+                 sdf_cell_mm=0.12)
+    assert sdf.is_sdf_solid(solid) and issolidclosed(solid)
+    assert volumeof(solid) == pytest.approx(27 * 4.0 / 3.0 * math.pi,
+                                            rel=1e-2)
+    filled = tree(solid)
+    assert filled.kind == "intersect"
+    assert "repeat" in {child.kind for child in filled.children}
+
+
+def test_repeat_fill_keeps_the_regions_metadata():
+    source = '''
+module fields
+@meta(material="PLA")
+command REGION() -> solid:
+    emit box(9.0, 9.0, 2.0)
+
+command PART() -> solid:
+    emit repeat_fill(sphere(1.0), REGION(), 3.0, 3.0, 0.0)
+'''
+    result = compile_and_run(source, "PART", {}, representation="sdf")
+    assert result.success, result.error_message
+    from yapcad.metadata import get_solid_metadata
+    assert get_solid_metadata(result.geometry).get("material") == "PLA"
+
+
+def test_the_repeats_defer_with_everything_else():
+    result = run("union(box(12.0, 12.0, 1.0), "
+                 "repeat_fill(sphere(1.0), box(12.0, 12.0, 4.0), "
+                 "3.0, 3.0, 0.0))", sdf_mesh=False)
+    assert result.success, result.error_message
+    assert sdf.is_deferred(result.geometry)
+    assert not result.geometry[1]
+
+
+@pytest.mark.parametrize("rep", ["sdf", "mesh"])
+def test_extrude_field_is_placed_as_extrude_is(rep):
+    field = part("extrude_field(rectangle(10.0, 6.0), 2.0)", rep=rep,
+                 sdf_cell_mm=0.1)
+    assert sdf.is_sdf_solid(field) and issolidclosed(field)
+    assert volumeof(field) == pytest.approx(120.0, rel=5e-3)
+    lo, hi = solidbbox(field)
+    assert [lo[2], hi[2]] == pytest.approx([0.0, 2.0], abs=0.02)
+    assert extent(field) == pytest.approx([10.0, 6.0, 2.0], abs=0.05)
+
+
+def test_extrude_field_keeps_holes():
+    ring = part("extrude_field(difference2d(disk(point(0.0, 0.0), 5.0), "
+                "disk(point(1.0, 0.0), 2.0)), 3.0)", sdf_cell_mm=0.1)
+    assert issolidclosed(ring)
+    assert volumeof(ring) == pytest.approx(3.0 * math.pi * 21.0, rel=1e-2)
+    centre_of_hole = sdf.evaluate(tree(ring), [[1.0, 0.0, 1.5]])
+    assert centre_of_hole[0] > 0.0
+
+
+def test_extrude_field_follows_a_spline_region():
+    """What a field extrusion is for: an outline drawn as a curve, then
+    filled, blended or cut as a field."""
+    source = '''
+module fields
+command PART() -> solid:
+    let curve: catmullrom = catmullrom([
+        point(0.0, 0.0), point(20.0, 2.0), point(24.0, 14.0),
+        point(10.0, 20.0), point(-2.0, 12.0)], true, 0.5)
+    let outline: solid = extrude_field(region_from_spline(curve, 120), 4.0)
+    emit union(intersection(outline, translate(box(60.0, 60.0, 1.5), 10.0, 10.0, 0.75)),
+               repeat_fill(translate(sphere(0.9), 0.0, 0.0, 1.5), outline,
+                           2.5, 2.5, 0.0))
+'''
+    result = compile_and_run(source, "PART", {}, representation="sdf",
+                             sdf_cell_mm=0.15)
+    assert result.success, result.error_message
+    assert issolidclosed(result.geometry)
+    lo, hi = solidbbox(result.geometry)
+    assert lo[2] == pytest.approx(0.0, abs=0.02)
+    assert hi[2] == pytest.approx(2.4, abs=0.05)
+
+
+def test_extrude_field_refuses_a_height_that_is_not_positive():
+    result = run("extrude_field(rectangle(4.0, 4.0), 0.0)")
+    assert not result.success
+    assert "height must be positive" in result.error_message

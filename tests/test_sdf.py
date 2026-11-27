@@ -83,6 +83,9 @@ SAMPLES = {
                       root_flat_ratio=0.125, thread_depth_ratio=0.57,
                       internal=True), 13.0, 6.8),
     "twist": sdf.twist(sdf.box((6.0, 2.0, 8.0)), 0.1),
+    # A counted sheet whose copies overlap along x.
+    "repeat": sdf.repeat(sdf.capsule((-2.0, 0.0, 0.0), (2.0, 0.5, 0.0), 1.0),
+                         (3.0, 3.5, 0.0), (3, 2, 1)),
     "spur_gear": sdf.spur_gear(12, 1.0, 3.0, involute_step=0.8,
                                spline_division_num=6),
     "hex_bolt": sdf.hex_bolt(

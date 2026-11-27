@@ -5,6 +5,27 @@ Changelog
 Unreleased
 ==========
 
+- ``sdf.repeat(part, period, count=None)``: a part copied on a rectilinear
+  lattice -- a row, a sheet or a block, counted or without end.  It is a
+  domain operator, so a sheet of ten thousand copies evaluates as fast as
+  one of nine and its tree is a few hundred bytes.  The copies may overlap
+  their neighbours' cells: the child's bounds decide how many neighbouring
+  copies each point is tested against, and the field is capped by the
+  distance to the bounding boxes of the ones that are not, so the result is
+  the same solid as the union of the copies and never reports a distance
+  greater than the true one.  That is the multi-cell form
+  ``docs/SDF-DESIGN.md`` asked for in place of the naive ``mod``.
+
+- DSL: ``repeat_solid(s, px, py, pz, nx, ny, nz)`` is a counted lattice of a
+  part and ``repeat_fill(pattern, region, px, py, pz)`` is the endless one
+  cut to a region, the two forms a bounded solid allows.
+  ``extrude_field(profile, height)`` extrudes a ``region2d`` -- a polygon, a
+  region with holes, a closed spline -- as a field, placed as ``extrude``
+  places its solid, so an outline drawn as a curve can be filled, blended
+  and cut like any other field.  ``examples/knit_swatch.dsl`` uses all
+  three: one knit stitch of two capsules, repeated and cut to an outline,
+  with a motif in purl stitches from a knitting chart.
+
 - The DSL can build a typed list in a loop (#80).  An empty list literal
   takes the element type of the list it is assigned to, so
   ``parts: list<solid> = []`` type-checks, and the new

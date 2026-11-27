@@ -34,7 +34,7 @@ Booleans between two SDF-authored solids -- through
 fields and stay SDF-authoritative (:mod:`yapcad.sdf.booleans`).
 
 Not yet implemented, and tracked to later phases of the design document:
-``sampled`` grid nodes and the ``twist``/``bend``/``repeat`` domain
+``sampled`` grid nodes and the ``bend`` domain
 operators, promotion of BREP and mesh solids to fields for mixed-authority
 booleans (the rest of Phase 4), and the shader backend (Phase 5).
 """
@@ -125,6 +125,7 @@ from yapcad.sdf.simplify import (
     simplify_solid,
 )
 from yapcad.sdf.planar import apex_extrude, extrude, polygon, twist
+from yapcad.sdf.repeat import repeat
 from yapcad.sdf.gears import spur_gear, straight_bevel_gear
 from yapcad.sdf.threads import hex_bolt, hex_nut, thread, thread_profile
 from yapcad.sdf.chamfer import chamfer, chamfer_solid
@@ -192,6 +193,7 @@ __all__ = [
     "extrude",
     "apex_extrude",
     "twist",
+    "repeat",
     # parts
     "straight_bevel_gear",
     "spur_gear",

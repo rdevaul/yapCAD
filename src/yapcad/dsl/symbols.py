@@ -702,6 +702,31 @@ class SymbolTable:
                 ("thickness", FLOAT, None),
             ], SOLID)
 
+        # Repetition on a rectilinear lattice, and a region extruded as a
+        # field.
+        self._register_builtin("repeat_solid", [
+            ("s", SOLID, None),
+            ("px", FLOAT, None),
+            ("py", FLOAT, None),
+            ("pz", FLOAT, None),
+            ("nx", INT, None),
+            ("ny", INT, None),
+            ("nz", INT, None),
+        ], SOLID)
+
+        self._register_builtin("repeat_fill", [
+            ("pattern", SOLID, None),
+            ("region", SOLID, None),
+            ("px", FLOAT, None),
+            ("py", FLOAT, None),
+            ("pz", FLOAT, None),
+        ], SOLID)
+
+        self._register_builtin("extrude_field", [
+            ("profile", REGION2D, None),
+            ("height", FLOAT, None),
+        ], SOLID)
+
         # Pattern operations
         self._register_builtin("radial_pattern", [
             ("shape", UNKNOWN, None),  # Any geometry

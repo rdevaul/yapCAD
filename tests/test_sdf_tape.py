@@ -80,7 +80,7 @@ def test_every_kind_is_either_covered_or_known_not_to_be():
     assert covered == set(SAMPLES)
     assert set(_REGISTRY) - covered == {
         "polygon", "extrude", "apex_extrude", "thread", "hex_bolt",
-        "hex_nut", "spur_gear", "straight_bevel_gear"}
+        "hex_nut", "spur_gear", "straight_bevel_gear", "repeat"}
 
 
 @needs_numba
