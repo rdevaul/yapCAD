@@ -3638,6 +3638,95 @@ class BuiltinRegistry:
                 f"half-width, not a wall thickness in model units.")
             return lattice
 
+        def _repeat_solid(s: Value, px: Value, py: Value, pz: Value,
+                          nx: Value, ny: Value, nz: Value) -> Value:
+            """``repeat_solid(s, px, py, pz, nx, ny, nz)``: ``nx`` by ``ny``
+            by ``nz`` copies of an SDF-authored solid, spaced ``px``, ``py``
+            and ``pz`` apart.  The first copy is ``s`` where it stands; the
+            rest follow along +x, +y and +z.  An axis that is not repeated
+            takes a period of 0 and a count of 1."""
+            from yapcad import sdf
+            period = [float(v.data) for v in (px, py, pz)]
+            count = [int(v.data) for v in (nx, ny, nz)]
+            for axis, p, n in zip("xyz", period, count):
+                if n < 1:
+                    raise RuntimeError(
+                        f"repeat_solid: the count along {axis} is {n}; it "
+                        f"must be at least 1. For a pattern with no end, "
+                        f"cut to a part, use repeat_fill.")
+                if p == 0.0 and n != 1:
+                    raise RuntimeError(
+                        f"repeat_solid: {n} copies along {axis} need a "
+                        f"period there, and it is 0.")
+            return _field_op("repeat_solid", [s.data],
+                             lambda t: sdf.repeat(t, period, count))
+
+        def _repeat_fill(pattern: Value, region: Value, px: Value,
+                         py: Value, pz: Value) -> Value:
+            """``repeat_fill(pattern, region, px, py, pz)``: ``region``
+            filled with copies of ``pattern`` spaced ``px``, ``py`` and
+            ``pz`` apart -- the endless lattice of them, cut to the region.
+            A period of 0 leaves that axis unrepeated.  ``pattern`` is copied
+            from where it stands, so moving it slides the whole lattice."""
+            from yapcad import sdf
+            period = [float(v.data) for v in (px, py, pz)]
+            return _field_op(
+                "repeat_fill", [region.data, pattern.data],
+                lambda r, t: sdf.intersect(r, sdf.repeat(t, period)))
+
+        def _extrude_field(profile: Value, height: Value) -> Value:
+            """``extrude_field(profile, height)``: a 2D region extruded from
+            z = 0 to ``height`` as a signed distance field, placed as
+            ``extrude`` places its solid.  Holes are kept; arcs and curves
+            are followed by short chords.  Always SDF-authored."""
+            from yapcad import sdf
+            from yapcad.dsl.runtime import representation
+            from yapcad.geom_util import geomlist2poly_components
+            from yapcad.geom3d_util import MESH_EXTRUDE_ARC_STEP_DEG
+            h = float(height.data)
+            if not h > 0.0:
+                raise RuntimeError("extrude_field: height must be positive")
+            shapes = []
+            for outer, holes in geomlist2poly_components(
+                    profile.data, minang=MESH_EXTRUDE_ARC_STEP_DEG,
+                    minlen=0.01):
+                loops = []
+                for loop in [outer, *holes]:
+                    pts = [(float(q[0]), float(q[1])) for q in loop]
+                    if len(pts) > 1 and math.dist(pts[0], pts[-1]) < 1e-9:
+                        pts = pts[:-1]
+                    if len(pts) >= 3:
+                        loops.append(sdf.polygon(pts))
+                if not loops:
+                    continue
+                shape = loops[0]
+                if len(loops) > 1:
+                    shape = sdf.subtract(shape, *loops[1:])
+                shapes.append(shape)
+            if not shapes:
+                raise RuntimeError(
+                    "extrude_field: the region has no closed contour")
+            planar = shapes[0] if len(shapes) == 1 else sdf.union(*shapes)
+            return solid_val(representation.mesh_field(sdf.translate(
+                sdf.extrude(planar, h), (0.0, 0.0, h / 2.0))))
+
+        self.register(BuiltinFunction(
+            "repeat_solid",
+            _make_sig("repeat_solid",
+                      [SOLID, FLOAT, FLOAT, FLOAT, INT, INT, INT], SOLID),
+            _repeat_solid,
+        ))
+        self.register(BuiltinFunction(
+            "repeat_fill",
+            _make_sig("repeat_fill", [SOLID, SOLID, FLOAT, FLOAT, FLOAT],
+                      SOLID),
+            _repeat_fill,
+        ))
+        self.register(BuiltinFunction(
+            "extrude_field",
+            _make_sig("extrude_field", [REGION2D, FLOAT], SOLID),
+            _extrude_field,
+        ))
         self.register(BuiltinFunction(
             "capsule",
             _make_sig("capsule", [POINT3D, POINT3D, FLOAT], SOLID),

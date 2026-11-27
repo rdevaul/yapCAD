@@ -115,7 +115,28 @@ along, so the definition always matches the mesh.
 * ``twist(part, rate, fold_z=None)`` -- rotate each section by ``rate * z``
   radians, or rise to a fold and back for a herringbone.
 
-Lattices are infinite, so intersect them with a solid before meshing:
+**Repetition**: ``repeat(part, period, count=None)`` is ``part`` copied on a
+rectilinear lattice. ``period`` is the spacing, one number or ``(px, py,
+pz)``, and a period of 0 leaves that axis alone: ``(4, 0, 0)`` is a row,
+``(4, 3, 0)`` a sheet, ``(4, 3, 5)`` a block. ``count`` is how many copies
+along each repeated axis, starting from the part where it stands; leave it
+out, or give 0, for a pattern with no end.
+
+.. code-block:: python
+
+    studs = sdf.repeat(sdf.cylinder(1.5, 3.0), (5.0, 5.0, 0.0), (6, 4, 1))
+    scales = sdf.intersect(plate, sdf.repeat(scale, (4.0, 3.0, 0.0)))
+
+A query point is folded into the cell it falls in and the part is evaluated
+there, so ten thousand copies cost what a handful do and the tree stays a
+few hundred bytes. The copies may overlap: a part wider than its cell is
+tested against as many neighbouring copies as its bounds call for, which is
+what lets a stitch, a scale or a strut reach into the next cell and still
+give the right surface. The result is the same solid as the union of the
+copies, and never reports a distance greater than the true one.
+
+Lattices and endless repeats are infinite, so intersect them with a solid
+before meshing:
 
 .. code-block:: python
 
@@ -362,6 +383,28 @@ The operations that only fields have are DSL builtins too:
 ``twist_solid`` (in degrees per unit of z, as the DSL's other geometry
 angles are degrees); and ``gyroid_lattice`` and ``schwarz_p_lattice``, which
 cut the infinite sheet to a part, since a DSL solid has to be bounded.
+
+Repetition comes in the two forms a bounded solid allows.
+``repeat_solid(s, px, py, pz, nx, ny, nz)`` is a counted lattice, and
+``repeat_fill(pattern, region, px, py, pz)`` is the endless one cut to a
+region. ``extrude_field(profile, height)`` extrudes a ``region2d`` -- a
+polygon, a region with holes, a closed spline -- as a field, placed as
+``extrude`` places its solid, so an outline drawn as a curve can be filled,
+blended and cut like any other field:
+
+.. code-block:: python
+
+    command SCALED_PLATE() -> solid:
+        let edge: catmullrom = catmullrom([point(0.0, 0.0), point(40.0, 4.0),
+            point(46.0, 30.0), point(18.0, 42.0), point(-6.0, 24.0)], true, 0.5)
+        let outline: solid = extrude_field(region_from_spline(edge, 200), 6.0)
+        let stud: solid = translate(sphere(1.2), 0.0, 0.0, 2.0)
+        emit union(intersection(outline, box(200.0, 200.0, 4.0)),
+                   repeat_fill(stud, outline, 3.0, 3.0, 0.0))
+
+``examples/knit_swatch.dsl`` builds a whole part this way: one knit stitch,
+two capsules, repeated without end and cut to an outline, with a motif
+worked in purl stitches from a knitting chart.
 
 .. code-block:: python
 

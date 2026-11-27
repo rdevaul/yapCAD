@@ -451,13 +451,23 @@ The serialised form is a flat node table plus a root reference rather than a
 nested object, because a nested encoding silently expands a DAG back into a
 tree.
 
-**Deferred, and not yet started.** The `twist`, `bend` and `repeat` domain
-operators and the `sampled(grid_ref)` escape hatch of §4.2 are not
-implemented. `repeat` in particular needs care: the usual `mod`-based
+**Deferred, and not yet started.** The `bend` domain operator and the
+`sampled(grid_ref)` escape hatch of §4.2 are not implemented.
+
+**`repeat`, as built** (`yapcad.sdf.repeat`). The usual `mod`-based
 implementation overestimates distance whenever the nearest instance lies in a
-neighbouring cell, which breaks the marching guarantee that the rest of the
-subsystem maintains, so it wants the multi-cell candidate form rather than
-the naive one.
+neighbouring cell, which breaks the marching guarantee the rest of the
+subsystem maintains, so this is the multi-cell candidate form. Cells are
+centred on the child's bounds rather than on the origin, so a part that sits
+off-centre is still centred in its cell; the child's half-width then gives
+the number of neighbouring copies a point must be tested against (none for a
+copy that fits its cell); and the result is capped by the distance to the
+bounding box of the nearest copy that was *not* tested. The cap is what
+keeps the field a lower bound on distance when a copy's surface sits well
+inside its bounds, and it is never active within a quarter period of a
+tested copy's cell, so it does not disturb the surface. A counted pattern
+clamps the cell index and drops candidates past either end. The tests check
+all of it against the union of the translated copies built one at a time.
 
 ### 10.2 Phase 2 as built
 

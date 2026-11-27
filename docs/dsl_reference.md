@@ -829,7 +829,32 @@ twist_solid(s: solid, degrees_per_unit: float) -> solid
 # `thickness` is the sheet's level-set half-width, not a wall in model units
 gyroid_lattice(s: solid, period: float, thickness: float) -> solid
 schwarz_p_lattice(s: solid, period: float, thickness: float) -> solid
+
+# Copies of a part on a rectilinear lattice: nx by ny by nz of them, spaced
+# px, py and pz apart. The first copy is `s` where it stands and the rest
+# follow along +x, +y, +z. An axis that is not repeated takes a period of
+# 0.0 and a count of 1, so (px, 0, 0, n, 1, 1) is a row and
+# (px, py, 0, nx, ny, 1) a sheet.
+repeat_solid(s: solid, px: float, py: float, pz: float,
+             nx: int, ny: int, nz: int) -> solid
+
+# `region` filled with copies of `pattern`: the lattice with no end, cut to
+# the region. A period of 0.0 leaves that axis unrepeated. Copies are laid
+# out from where `pattern` stands, so moving it slides the whole lattice.
+# The result keeps the region's metadata.
+repeat_fill(pattern: solid, region: solid,
+            px: float, py: float, pz: float) -> solid
+
+# A 2D region extruded from z = 0 to `height` as a field, placed as
+# extrude() places its solid. Holes are kept; arcs and curves are followed
+# by short chords. Always SDF-authored, like capsule and torus.
+extrude_field(profile: region2d, height: float) -> solid
 ```
+
+Copies made by `repeat_solid` and `repeat_fill` may overlap their
+neighbours -- a stitch reaching into the next row, a scale lapping the one
+below. The cost is per query point, not per copy: a sheet of ten thousand
+stitches evaluates as fast as one of nine.
 
 Each result is meshed no coarser than its operands were, as the field
 booleans are, and keeps the first operand's `@meta` metadata. A blend's
