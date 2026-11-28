@@ -235,3 +235,14 @@ def test_repeat_polar_round_trips_through_its_tree():
     node = sdf.repeat_polar(sdf.translate(sdf.sphere(1.0), (4, 0, 0)), 9)
     again = sdf.tree_from_json(sdf.tree_to_json(node))
     assert again == node and again.digest == node.digest
+
+
+def test_repeat_polar_knows_the_axis_is_clear_of_a_ring_of_parts():
+    """Every sector's wedge meets at the axis, so a bound from the wedges
+    alone says nothing there.  The parts' own distance from the axis does:
+    on the axis of a ring of rivets the field is the clearance, not zero."""
+    ring = sdf.repeat_polar(sdf.translate(sdf.sphere(0.5), (10.0, 0.0, 0.0)),
+                            24)
+    on_axis = sdf.evaluate(ring, [[0.0, 0.0, 0.0], [0.0, 0.0, 3.0]])
+    assert on_axis[0] == pytest.approx(9.5)
+    assert on_axis[1] > 9.0

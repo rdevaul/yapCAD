@@ -253,7 +253,12 @@ def _eval_repeat_polar(params, p, children, ev):
     # copy, and is the same seen from either side of a sector boundary.
     gap = (reach + 1) * step - half - np.abs(u)
     cap = np.where(gap < 0.5 * math.pi, rho * np.sin(gap), rho)
-    return np.minimum(out, cap)
+    # Close to the axis every wedge is close, and that bound falls to
+    # nothing.  But no copy comes nearer the axis than the part's own
+    # bounds do, which bounds the distance from the other side.
+    (x0, y0, _), (x1, y1, _) = child.bounds
+    inner = math.hypot(max(x0, -x1, 0.0), max(y0, -y1, 0.0))
+    return np.minimum(out, np.maximum(cap, inner - rho))
 
 
 register(NodeSpec(
