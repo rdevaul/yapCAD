@@ -296,6 +296,57 @@ def extrude(child, height):
 
 
 # ---------------------------------------------------------------------------
+# revolve
+# ---------------------------------------------------------------------------
+
+
+def _analyze_revolve(_params, child_props):
+    (child,) = child_props
+    (x0, y0, _), (x1, y1, _) = child.bounds
+    if x1 <= 0.0:
+        raise SdfError(
+            "revolve: the profile lies entirely at x <= 0; the part of a "
+            "profile that is revolved is the part at positive x"
+        )
+    return FieldProps(
+        # A planar distance stays a distance when its plane is swept round
+        # an axis the profile does not cross.
+        exact=child.exact and x0 >= 0.0,
+        lipschitz=child.lipschitz,
+        bounds=((-x1, -x1, y0), (x1, x1, y1)),
+        csg_exact=False,
+    )
+
+
+def _eval_revolve(_params, p, children, ev):
+    half_plane = np.zeros_like(p)
+    half_plane[:, 0] = np.hypot(p[:, 0], p[:, 1])
+    half_plane[:, 1] = p[:, 2]
+    return ev(children[0], half_plane)
+
+
+register(NodeSpec(
+    kind="revolve",
+    min_children=1,
+    max_children=1,
+    analyze=_analyze_revolve,
+    backends={"numpy": _eval_revolve},
+))
+
+
+def revolve(child):
+    """Planar ``child`` swept all the way round the z axis.
+
+    The profile is read in its own xy plane with x as the distance from the
+    axis and y as the height: the point ``(r, h)`` of the profile becomes
+    the circle of radius ``r`` at ``z = h``.  Only the half of the plane at
+    positive x is used, so a profile drawn to the right of the axis is
+    revolved as drawn, and one that reaches the axis closes there.
+    """
+    return make_node("revolve", {}, (child,))
+
+
+# ---------------------------------------------------------------------------
 # apex_extrude
 # ---------------------------------------------------------------------------
 

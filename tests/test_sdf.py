@@ -83,6 +83,11 @@ SAMPLES = {
                       root_flat_ratio=0.125, thread_depth_ratio=0.57,
                       internal=True), 13.0, 6.8),
     "twist": sdf.twist(sdf.box((6.0, 2.0, 8.0)), 0.1),
+    "revolve": sdf.revolve(sdf.polygon(
+        [(-1.0, -3.0), (4.0, -3.0), (5.0, 0.0), (2.0, 4.0), (-1.0, 4.0)])),
+    # Five spokes, each wider than its sector at the hub.
+    "repeat_polar": sdf.repeat_polar(
+        sdf.capsule((1.5, 0.0, 0.0), (6.0, 1.0, 0.0), 1.1), 5),
     # A counted sheet whose copies overlap along x.
     "repeat": sdf.repeat(sdf.capsule((-2.0, 0.0, 0.0), (2.0, 0.5, 0.0), 1.0),
                          (3.0, 3.5, 0.0), (3, 2, 1)),

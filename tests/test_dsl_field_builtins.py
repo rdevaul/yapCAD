@@ -354,3 +354,80 @@ def test_extrude_field_refuses_a_height_that_is_not_positive():
     result = run("extrude_field(rectangle(4.0, 4.0), 0.0)")
     assert not result.success
     assert "height must be positive" in result.error_message
+
+
+# -- revolution, polar repetition, text --------------------------------------
+
+def test_revolve_field_sweeps_a_profile_round_z():
+    tube = part("revolve_field(polygon([point(2.0, 0.0), point(5.0, 0.0), "
+                "point(5.0, 3.0), point(2.0, 3.0)]))", sdf_cell_mm=0.1)
+    assert sdf.is_sdf_solid(tube) and issolidclosed(tube)
+    assert volumeof(tube) == pytest.approx(math.pi * 21.0 * 3.0, rel=5e-3)
+    assert extent(tube) == pytest.approx([10.0, 10.0, 3.0], abs=0.05)
+    assert tree(tube).kind == "revolve"
+
+
+def test_revolve_field_is_a_field_in_mesh_mode_too():
+    tube = part("revolve_field(rectangle(2.0, 4.0, point(5.0, 0.0)))",
+                rep="mesh")
+    assert sdf.is_sdf_solid(tube) and issolidclosed(tube)
+
+
+def test_revolve_field_says_when_the_profile_is_behind_the_axis():
+    result = run("revolve_field(polygon([point(-5.0, 0.0), point(-2.0, 0.0), "
+                 "point(-2.0, 3.0)]))")
+    assert not result.success
+    assert "positive x" in result.error_message
+
+
+def test_repeat_polar_spaces_copies_round_z():
+    ring = part("repeat_polar(translate(sphere(1.0), 4.0, 0.0, 0.0), 6)",
+                sdf_cell_mm=0.1)
+    assert sdf.is_sdf_solid(ring) and issolidclosed(ring)
+    assert volumeof(ring) == pytest.approx(6 * 4.0 / 3.0 * math.pi, rel=1e-2)
+    field = tree(ring)
+    assert field.kind == "repeat_polar" and field.p["count"] == 6
+    spots = [[4.0 * math.cos(math.radians(a)), 4.0 * math.sin(math.radians(a)),
+              0.0] for a in (0, 60, 120, 180, 240, 300, 30)]
+    inside = (sdf.evaluate(field, spots) < 0.0).tolist()
+    assert inside == [True] * 6 + [False]
+
+
+def test_repeat_polar_refuses_a_count_below_one():
+    result = run("repeat_polar(sphere(1.0), 0)")
+    assert not result.success
+    assert "at least 1" in result.error_message
+
+
+def test_text_solid_is_a_field_placed_as_the_mesh_text_is():
+    field = part('text_solid("RICH", 8.0, 2.0)', sdf_cell_mm=0.15)
+    mesh = part('text_solid("RICH", 8.0, 2.0)', rep="mesh")
+    assert sdf.is_sdf_solid(field) and issolidclosed(field)
+    assert not sdf.is_sdf_solid(mesh)
+    assert volumeof(field) == pytest.approx(volumeof(mesh), rel=1e-2)
+    (flo, fhi), (mlo, mhi) = solidbbox(field), solidbbox(mesh)
+    assert list(flo[:3]) == pytest.approx(list(mlo[:3]), abs=0.05)
+    assert list(fhi[:3]) == pytest.approx(list(mhi[:3]), abs=0.05)
+
+
+def test_field_text_can_be_inlaid_in_a_field_part():
+    """What field text is for: a letter set flush into a curved wall."""
+    source = '''
+module fields
+command PART() -> solid:
+    let wall: solid = revolve_field(rectangle(3.0, 12.0, point(10.0, 0.0)))
+    let letter: solid = translate(
+        rotate(rotate(translate(text_solid("R", 8.0, 4.0), -2.9, -4.0, -1.0),
+                      90.0, 0.0, 0.0), 0.0, 0.0, 90.0),
+        11.5, 0.0, 0.0)
+    emit intersection(wall, letter)
+'''
+    result = compile_and_run(source, "PART", {}, representation="sdf",
+                             sdf_cell_mm=0.12)
+    assert result.success, result.error_message
+    inlay = result.geometry
+    assert sdf.is_sdf_solid(inlay) and issolidclosed(inlay)
+    lo, hi = solidbbox(inlay)
+    # Flush with the wall's outer face, a millimetre deep.
+    assert hi[0] == pytest.approx(11.5, abs=0.05)
+    assert lo[0] == pytest.approx(10.5, abs=0.08)

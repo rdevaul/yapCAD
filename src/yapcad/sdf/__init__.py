@@ -124,8 +124,8 @@ from yapcad.sdf.simplify import (
     simplify_mesh,
     simplify_solid,
 )
-from yapcad.sdf.planar import apex_extrude, extrude, polygon, twist
-from yapcad.sdf.repeat import repeat
+from yapcad.sdf.planar import apex_extrude, extrude, polygon, revolve, twist
+from yapcad.sdf.repeat import repeat, repeat_polar
 from yapcad.sdf.gears import spur_gear, straight_bevel_gear
 from yapcad.sdf.threads import hex_bolt, hex_nut, thread, thread_profile
 from yapcad.sdf.chamfer import chamfer, chamfer_solid
@@ -194,6 +194,8 @@ __all__ = [
     "apex_extrude",
     "twist",
     "repeat",
+    "repeat_polar",
+    "revolve",
     # parts
     "straight_bevel_gear",
     "spur_gear",
