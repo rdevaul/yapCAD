@@ -5,6 +5,24 @@ Changelog
 Unreleased
 ==========
 
+- ``sdf.revolve(profile)`` sweeps a planar profile all the way round the z
+  axis, and ``sdf.repeat_polar(part, count)`` spaces copies of a part evenly
+  round it.  A hull, a nozzle or a knob is one profile; its fins, spokes,
+  bolt holes or portholes are one part and a count.  ``repeat_polar`` is the
+  polar form of ``repeat``: a query point is folded into its sector, the
+  part's angular width decides how many neighbouring copies it is tested
+  against, and the field is capped by a lower bound on the distance to the
+  rest, so the result is the union of the copies, never overestimates
+  distance, and is continuous from sector to sector.  A part that reaches
+  the axis has every copy tested.  In the DSL these are
+  ``revolve_field(profile)`` and ``repeat_polar(s, count)``.
+
+- DSL: ``text_solid`` builds its text as a field with
+  ``--representation sdf``, placed as the mesh text is.  Text could be
+  engraved into a field part but not used as one; now a letter can be
+  intersected with a curved wall to set it flush, or cut away as its own
+  body for a second colour.
+
 - ``sdf.repeat(part, period, count=None)``: a part copied on a rectilinear
   lattice -- a row, a sheet or a block, counted or without end.  It is a
   domain operator, so a sheet of ten thousand copies evaluates as fast as

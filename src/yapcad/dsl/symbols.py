@@ -727,6 +727,15 @@ class SymbolTable:
             ("height", FLOAT, None),
         ], SOLID)
 
+        self._register_builtin("revolve_field", [
+            ("profile", REGION2D, None),
+        ], SOLID)
+
+        self._register_builtin("repeat_polar", [
+            ("s", SOLID, None),
+            ("count", INT, None),
+        ], SOLID)
+
         # Pattern operations
         self._register_builtin("radial_pattern", [
             ("shape", UNKNOWN, None),  # Any geometry

@@ -2428,7 +2428,22 @@ class BuiltinRegistry:
 
         def _text_solid(text: Value, height: Value, depth: Value,
                         spacing: Value = None) -> Value:
-            """Create extruded 3D text solid using block font."""
+            """Create extruded 3D text solid using block font.
+
+            In ``"sdf"`` mode the text is a field, placed as the mesh text
+            is, so it can be blended, cut and inlaid like any other field.
+            """
+            from yapcad.dsl.runtime import representation
+            if representation.is_sdf():
+                from yapcad.text3d import text_field
+                node = text_field(
+                    text.data, height=height.data, depth=depth.data,
+                    spacing=spacing.data if spacing is not None else 1.0,
+                    font="block")
+                if node is None:
+                    raise RuntimeError(
+                        f"text_solid: {text.data!r} has no glyphs to draw")
+                return solid_val(representation.mesh_field(node))
             from yapcad.text3d import text_solid
             return solid_val(text_solid(
                 text.data, height=height.data, depth=depth.data,
@@ -3674,22 +3689,15 @@ class BuiltinRegistry:
                 "repeat_fill", [region.data, pattern.data],
                 lambda r, t: sdf.intersect(r, sdf.repeat(t, period)))
 
-        def _extrude_field(profile: Value, height: Value) -> Value:
-            """``extrude_field(profile, height)``: a 2D region extruded from
-            z = 0 to ``height`` as a signed distance field, placed as
-            ``extrude`` places its solid.  Holes are kept; arcs and curves
-            are followed by short chords.  Always SDF-authored."""
+        def _planar_field(name, profile):
+            """A region2d as a planar field: its loops as polygons, holes
+            subtracted, separate pieces unioned."""
             from yapcad import sdf
-            from yapcad.dsl.runtime import representation
             from yapcad.geom_util import geomlist2poly_components
             from yapcad.geom3d_util import MESH_EXTRUDE_ARC_STEP_DEG
-            h = float(height.data)
-            if not h > 0.0:
-                raise RuntimeError("extrude_field: height must be positive")
             shapes = []
             for outer, holes in geomlist2poly_components(
-                    profile.data, minang=MESH_EXTRUDE_ARC_STEP_DEG,
-                    minlen=0.01):
+                    profile, minang=MESH_EXTRUDE_ARC_STEP_DEG, minlen=0.01):
                 loops = []
                 for loop in [outer, *holes]:
                     pts = [(float(q[0]), float(q[1])) for q in loop]
@@ -3705,10 +3713,49 @@ class BuiltinRegistry:
                 shapes.append(shape)
             if not shapes:
                 raise RuntimeError(
-                    "extrude_field: the region has no closed contour")
-            planar = shapes[0] if len(shapes) == 1 else sdf.union(*shapes)
+                    f"{name}: the region has no closed contour")
+            return shapes[0] if len(shapes) == 1 else sdf.union(*shapes)
+
+        def _extrude_field(profile: Value, height: Value) -> Value:
+            """``extrude_field(profile, height)``: a 2D region extruded from
+            z = 0 to ``height`` as a signed distance field, placed as
+            ``extrude`` places its solid.  Holes are kept; arcs and curves
+            are followed by short chords.  Always SDF-authored."""
+            from yapcad import sdf
+            from yapcad.dsl.runtime import representation
+            h = float(height.data)
+            if not h > 0.0:
+                raise RuntimeError("extrude_field: height must be positive")
+            planar = _planar_field("extrude_field", profile.data)
             return solid_val(representation.mesh_field(sdf.translate(
                 sdf.extrude(planar, h), (0.0, 0.0, h / 2.0))))
+
+        def _revolve_field(profile: Value) -> Value:
+            """``revolve_field(profile)``: a 2D region swept all the way
+            round the z axis, as a signed distance field.  The region is
+            read with x as the distance from the axis and y as the height;
+            only the part at positive x is used.  Always SDF-authored."""
+            from yapcad import sdf
+            from yapcad.dsl.runtime import representation
+            planar = _planar_field("revolve_field", profile.data)
+            try:
+                node = sdf.revolve(planar)
+                node.bounds
+            except sdf.SdfError as problem:
+                raise RuntimeError(f"revolve_field: {problem}") from None
+            return solid_val(representation.mesh_field(node))
+
+        def _repeat_polar(s: Value, count: Value) -> Value:
+            """``repeat_polar(s, count)``: ``count`` copies of an
+            SDF-authored solid evenly spaced round the z axis.  The first
+            copy is ``s`` where it stands."""
+            from yapcad import sdf
+            n = int(count.data)
+            if n < 1:
+                raise RuntimeError(
+                    f"repeat_polar: the count is {n}; it must be at least 1")
+            return _field_op("repeat_polar", [s.data],
+                             lambda t: sdf.repeat_polar(t, n))
 
         self.register(BuiltinFunction(
             "repeat_solid",
@@ -3726,6 +3773,16 @@ class BuiltinRegistry:
             "extrude_field",
             _make_sig("extrude_field", [REGION2D, FLOAT], SOLID),
             _extrude_field,
+        ))
+        self.register(BuiltinFunction(
+            "revolve_field",
+            _make_sig("revolve_field", [REGION2D], SOLID),
+            _revolve_field,
+        ))
+        self.register(BuiltinFunction(
+            "repeat_polar",
+            _make_sig("repeat_polar", [SOLID, INT], SOLID),
+            _repeat_polar,
         ))
         self.register(BuiltinFunction(
             "capsule",

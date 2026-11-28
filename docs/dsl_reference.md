@@ -849,6 +849,17 @@ repeat_fill(pattern: solid, region: solid,
 # extrude() places its solid. Holes are kept; arcs and curves are followed
 # by short chords. Always SDF-authored, like capsule and torus.
 extrude_field(profile: region2d, height: float) -> solid
+
+# A 2D region swept all the way round the Z axis as a field. The region is
+# read with x as the distance from the axis and y as the height; only the
+# part at positive x is used. To close the shape on the axis, carry the
+# profile across to negative x. Always SDF-authored.
+revolve_field(profile: region2d) -> solid
+
+# `count` copies of a part evenly spaced round the Z axis. The first copy is
+# `s` where it stands: draw one fin, spoke or porthole away from the axis
+# and repeat it.
+repeat_polar(s: solid, count: int) -> solid
 ```
 
 Copies made by `repeat_solid` and `repeat_fill` may overlap their
@@ -904,7 +915,8 @@ linear_pattern(shape, count: int, spacing: vector) -> list
 ### Text Functions
 
 ```python
-# Text solids and engraving helpers
+# Text solids and engraving helpers. With --representation sdf, text_solid
+# builds its text as a field, placed as the mesh text is.
 text_solid(text: string, height: float, depth: float, spacing: float) -> solid
 engrave_text(
     target: solid,

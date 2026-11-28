@@ -110,6 +110,11 @@ along, so the definition always matches the mesh.
   polygon, constant along z. Pass the rotational symmetry (a gear's tooth
   count) and evaluation tests only the nearby segments.
 * ``extrude(profile, height)`` -- extrude a profile about ``z = 0``.
+* ``revolve(profile)`` -- sweep a profile all the way round the z axis. The
+  profile is read with x as the distance from the axis and y as the height;
+  only the half at positive x is used. To close a shape on the axis, carry
+  its profile across to negative x: an edge lying exactly on the axis would
+  count as a surface there.
 * ``apex_extrude(profile, z_ref, z_lo, z_hi)`` -- the cone over a profile
   toward the origin, as a bevel gear's teeth are built.
 * ``twist(part, rate, fold_z=None)`` -- rotate each section by ``rate * z``
@@ -134,6 +139,17 @@ tested against as many neighbouring copies as its bounds call for, which is
 what lets a stitch, a scale or a strut reach into the next cell and still
 give the right surface. The result is the same solid as the union of the
 copies, and never reports a distance greater than the true one.
+
+``repeat_polar(part, count)`` is the same idea round the z axis: ``count``
+copies evenly spaced, the first being the part where it stands. Fins,
+spokes, bolt circles and portholes are one part, drawn away from the axis,
+and a count. A part whose bounds reach the axis has no sector of its own, so
+every copy of it is tested.
+
+.. code-block:: python
+
+    fins = sdf.repeat_polar(fin, 4)
+    hull = sdf.revolve(sdf.polygon(outline))
 
 Lattices and endless repeats are infinite, so intersect them with a solid
 before meshing:
@@ -383,6 +399,11 @@ The operations that only fields have are DSL builtins too:
 ``twist_solid`` (in degrees per unit of z, as the DSL's other geometry
 angles are degrees); and ``gyroid_lattice`` and ``schwarz_p_lattice``, which
 cut the infinite sheet to a part, since a DSL solid has to be bounded.
+
+``revolve_field(profile)`` and ``repeat_polar(s, count)`` are the DSL forms
+of ``revolve`` and ``repeat_polar``. ``text_solid`` builds its text as a
+field in ``"sdf"`` mode, placed as the mesh text is, so a letter can be
+blended, cut or set flush into a curved wall like any other field.
 
 Repetition comes in the two forms a bounded solid allows.
 ``repeat_solid(s, px, py, pz, nx, ny, nz)`` is a counted lattice, and

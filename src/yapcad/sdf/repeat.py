@@ -35,7 +35,7 @@ from yapcad.sdf.node import (
     register,
 )
 
-__all__ = ["repeat"]
+__all__ = ["repeat", "repeat_polar"]
 
 #: The least gap, in periods, kept between a point and the nearest copy that
 #: is not evaluated.  Smaller makes the cap bite close to the surface.
@@ -177,3 +177,118 @@ def repeat(child, period, count=None):
     nx = tuple(n if p > 0.0 else 1 for p, n in zip(px, nx))
     return make_node("repeat", {"period": list(px), "count": list(nx)},
                      (child,))
+
+
+# ---------------------------------------------------------------------------
+# repeat_polar
+# ---------------------------------------------------------------------------
+
+
+def _polar_layout(child, count):
+    """(centre angle, angular half width, reach) of the child's copies.
+
+    The child is read through its bounding box.  A box that reaches the
+    axis subtends every direction, and then every copy has to be tested.
+    """
+    step = 2.0 * math.pi / count
+    (x0, y0, _), (x1, y1, _) = child.bounds
+    finite = all(v not in (INF, -INF) for v in (x0, y0, x1, y1))
+    if not finite or (x0 <= 0.0 <= x1 and y0 <= 0.0 <= y1):
+        return 0.0, math.pi, count
+    middle = math.atan2(0.5 * (y0 + y1), 0.5 * (x0 + x1))
+    half = max(abs(math.remainder(math.atan2(y, x) - middle, 2.0 * math.pi))
+               for x in (x0, x1) for y in (y0, y1))
+    reach = max(0, math.ceil(half / step - 0.5))
+    if (reach + 0.5) * step - half < _MARGIN * step:
+        reach += 1
+    return middle, half, reach
+
+
+def _analyze_repeat_polar(_params, child_props):
+    (child,) = child_props
+    (x0, y0, z0), (x1, y1, z1) = child.bounds
+    if INF in (x1, y1) or -INF in (x0, y0):
+        raise SdfError(
+            "repeat_polar: the part is unbounded across the axis it is "
+            "repeated round; bound it first"
+        )
+    r = max(math.hypot(x, y) for x in (x0, x1) for y in (y0, y1))
+    return FieldProps(
+        exact=False,
+        lipschitz=child.lipschitz,
+        bounds=((-r, -r, z0), (r, r, z1)),
+        csg_exact=False,
+    )
+
+
+def _eval_repeat_polar(params, p, children, ev):
+    child = children[0]
+    count = params["count"]
+    step = 2.0 * math.pi / count
+    middle, half, reach = _polar_layout(child, count)
+
+    def turned(k):
+        """The points seen from copy ``k``'s own position."""
+        c, s = np.cos(-k * step), np.sin(-k * step)
+        q = p.copy()
+        q[:, 0] = c * p[:, 0] - s * p[:, 1]
+        q[:, 1] = s * p[:, 0] + c * p[:, 1]
+        return q
+
+    if 2 * reach + 1 >= count:
+        out = ev(child, p)
+        for k in range(1, count):
+            out = np.minimum(out, ev(child, turned(k)))
+        return out
+
+    rho = np.hypot(p[:, 0], p[:, 1])
+    angle = np.arctan2(p[:, 1], p[:, 0]) - middle
+    sector = np.rint(angle / step)
+    u = angle - sector * step
+    out = np.full(len(p), INF)
+    for offset in range(-reach, reach + 1):
+        out = np.minimum(out, ev(child, turned(sector + offset)))
+    # The nearest copy not tested lies in a wedge that starts this far round
+    # from the point; the distance to that wedge bounds the distance to the
+    # copy, and is the same seen from either side of a sector boundary.
+    gap = (reach + 1) * step - half - np.abs(u)
+    cap = np.where(gap < 0.5 * math.pi, rho * np.sin(gap), rho)
+    # Close to the axis every wedge is close, and that bound falls to
+    # nothing.  But no copy comes nearer the axis than the part's own
+    # bounds do, which bounds the distance from the other side.
+    (x0, y0, _), (x1, y1, _) = child.bounds
+    inner = math.hypot(max(x0, -x1, 0.0), max(y0, -y1, 0.0))
+    return np.minimum(out, np.maximum(cap, inner - rho))
+
+
+register(NodeSpec(
+    kind="repeat_polar",
+    min_children=1,
+    max_children=1,
+    analyze=_analyze_repeat_polar,
+    backends={"numpy": _eval_repeat_polar},
+))
+
+
+def repeat_polar(child, count):
+    """``count`` copies of ``child`` evenly spaced round the z axis.
+
+    The first copy is ``child`` where it stands; the rest are turned from
+    it by whole multiples of ``360 / count`` degrees.  Fins, spokes, bolt
+    circles, portholes: draw one, away from the axis, and repeat it.
+
+    Like :func:`repeat` this folds a query point into its sector rather
+    than evaluating every copy, tests as many neighbouring copies as the
+    part's angular width calls for, and caps the field by a lower bound on
+    the distance to the rest.  A part whose bounds reach the axis has no
+    sector of its own, and every copy is tested.
+    """
+    try:
+        n = int(count)
+    except (TypeError, ValueError):
+        raise SdfError("repeat_polar: count must be a whole number") from None
+    if n != count or n < 1:
+        raise SdfError("repeat_polar: count must be a whole number, 1 or more")
+    if n == 1:
+        return child
+    return make_node("repeat_polar", {"count": n}, (child,))

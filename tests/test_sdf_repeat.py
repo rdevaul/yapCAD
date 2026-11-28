@@ -164,3 +164,85 @@ def test_repeat_is_continuous_where_the_copies_tested_change(name):
     fa, fb = sdf.evaluate(node, a), sdf.evaluate(node, a + step)
     moved = np.linalg.norm(step, axis=1)
     assert (np.abs(fa - fb) <= node.lipschitz * moved + 1e-9).all()
+
+
+# -- repeat_polar ------------------------------------------------------------
+
+def brute_polar(child, count, points):
+    out = np.full(len(points), np.inf)
+    for k in range(count):
+        turned = sdf.rotate(child, (0.0, 0.0, 1.0), 360.0 * k / count)
+        out = np.minimum(out, sdf.evaluate(turned, points))
+    return out
+
+
+POLAR = {
+    "a spoke": (sdf.capsule((3, 0, 0), (9, 0, 0), 0.6), 7),
+    "a fin wider than its sector": (
+        sdf.translate(sdf.box((4, 9, 2)), (6, 1.5, 0)), 5),
+    "a ball off the x axis": (
+        sdf.translate(sdf.sphere(1.0), (2.5, 4.0, 0.3)), 12),
+    "a part that reaches the axis": (sdf.box((8, 2, 2)), 6),
+    "two copies": (sdf.translate(sdf.sphere(2.0), (5, 0, 0)), 2),
+    "many, overlapping": (sdf.translate(sdf.sphere(1.5), (4, 0, 0)), 24),
+}
+
+
+@pytest.mark.parametrize("name", POLAR)
+def test_repeat_polar_is_the_union_of_its_copies(name):
+    child, count = POLAR[name]
+    node = sdf.repeat_polar(child, count)
+    rng = np.random.default_rng(3)
+    points = rng.uniform(-11.0, 11.0, (20000, 3))
+    points[:, 2] *= 0.3
+    got = sdf.evaluate(node, points)
+    want = brute_polar(child, count, points)
+    assert (np.sign(got) == np.sign(want)).all()
+    assert (got - want).max() <= 1e-9
+    near = np.abs(want) < 0.3
+    assert near.any()
+    assert np.abs(got - want)[near].max() < 1e-9
+    # Continuous as a point passes from one sector to the next.
+    step = rng.normal(size=points.shape)
+    step *= rng.uniform(1e-4, 0.3, (len(points), 1)) / np.linalg.norm(
+        step, axis=1, keepdims=True)
+    moved = np.linalg.norm(step, axis=1)
+    jump = np.abs(got - sdf.evaluate(node, points + step))
+    assert (jump <= node.lipschitz * moved + 1e-9).all()
+
+
+def test_repeat_polar_is_bounded_by_the_circle_its_part_sweeps():
+    fin = sdf.translate(sdf.box((4.0, 2.0, 6.0)), (8.0, 0.0, 1.0))
+    ring = sdf.repeat_polar(fin, 3)
+    r = math.hypot(10.0, 1.0)
+    (x0, y0, z0), (x1, y1, z1) = ring.bounds
+    assert (x0, y0, x1, y1) == pytest.approx((-r, -r, r, r))
+    assert (z0, z1) == (-2.0, 4.0)
+
+
+def test_one_copy_is_the_part_itself():
+    ball = sdf.sphere(1.0)
+    assert sdf.repeat_polar(ball, 1) is ball
+
+
+@pytest.mark.parametrize("count", [0, -3, 2.5, "many"])
+def test_repeat_polar_refuses_a_count_that_is_not_a_whole_number(count):
+    with pytest.raises(SdfError, match="whole number"):
+        sdf.repeat_polar(sdf.sphere(1.0), count)
+
+
+def test_repeat_polar_round_trips_through_its_tree():
+    node = sdf.repeat_polar(sdf.translate(sdf.sphere(1.0), (4, 0, 0)), 9)
+    again = sdf.tree_from_json(sdf.tree_to_json(node))
+    assert again == node and again.digest == node.digest
+
+
+def test_repeat_polar_knows_the_axis_is_clear_of_a_ring_of_parts():
+    """Every sector's wedge meets at the axis, so a bound from the wedges
+    alone says nothing there.  The parts' own distance from the axis does:
+    on the axis of a ring of rivets the field is the clearance, not zero."""
+    ring = sdf.repeat_polar(sdf.translate(sdf.sphere(0.5), (10.0, 0.0, 0.0)),
+                            24)
+    on_axis = sdf.evaluate(ring, [[0.0, 0.0, 0.0], [0.0, 0.0, 3.0]])
+    assert on_axis[0] == pytest.approx(9.5)
+    assert on_axis[1] > 9.0
